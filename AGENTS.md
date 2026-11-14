@@ -26,7 +26,8 @@ M3.9 (the split editor, tags and notes in the inspector), M3.11 (links and share
 the inspector, the link dialog and Owed to you), M3.12 (the review queues:
 possible duplicates and balance checks, under CHECKS in the Inbox), M3.13 (the Rules
 view, with M3.7's rules editor; the categories editor waits for a design), M3.15 (AI
-access settings) and M3.16 (backups and the export dialog) are done.
+access settings), M3.16 (backups and the export dialog) and M3.17 (asset and liability
+accounts with valuations; closing, reopening and deleting accounts) are done.
 The Cargo
 workspace below exists (M1.1). `crates/core` has the database setup (`db`, `paths`: data
 dir, WAL, permissions, migrations; M1.3), the initial schema
@@ -43,7 +44,9 @@ auto-created, rows mirrored and paired as confirmed transfers; M1.17, migration
 undo with dedupe and reconciliation, then preset categories, the pot mirror, merchant
 names, rules and transfer pairing in the same DB transaction; `balance`: balance checks; `account`:
 accounts and entered balances, and since M3.2 editing (`update`, `usage`),
-`create_with_balance`, `entered_balances` and the preset (`V15__account_preset.sql`); `id`: row IDs; M1.11–M1.13, migration
+`create_with_balance`, `entered_balances` and the preset (`V15__account_preset.sql`);
+since M3.17 valuations as entered balances (`EnteredSource::Valuation`) and
+`account::close` (closing with the lock-date guard, reopening, deleting); `id`: row IDs; M1.11–M1.13, migration
 `V3__import_flags.sql`) and local backups (`backup`: `VACUUM INTO` snapshots in
 `<data dir>/backups`, rotation, checked restore; taken before import commits and
 migrations; M1.28) and splits (`split`: lines summing exactly to the parent, the
@@ -104,8 +107,12 @@ and restored on launch (`shell::window_state`). Accounts management (M3.2) is
 through `store::AccountStore`, which opens the database per call), `panel` (from the
 database: pots nested, balances, flagged and "No balance" rows, arrow keys), `inspector`
 (the account inspector on Transactions while an account and no transaction is selected:
-details, balances, pots, imports), the `new_account` and `add_balance` dialogs, and
-`fixture` (sample accounts for snapshots and tests). Settings (M3.15, M3.16) is
+details, balances, pots, imports; since M3.17 the footer with Close and Delete), the
+`new_account` and `add_balance` dialogs (also for assets and liabilities), and `fixture`
+(sample accounts for snapshots and tests; `valued` is D6.9's). M3.17 added `valuations`
+(the canvas Transactions shows for an asset or liability: step-line chart and table,
+⌘N), the `close` and `delete` dialogs, and the undo bar after closing
+(`accounts::notice_layer`). Settings (M3.15, M3.16) is
 `crates/app/src/settings/`: `SettingsView` (every change through `store::SettingsStore`,
 which opens the database per call), the panel, `clients` (kill switch, clients,
 requests, the client inspector), `log` (the access log and call inspector; never the
@@ -184,7 +191,8 @@ suggested, over the register, whose rows now carry their links and share) and
 components: `ui::button::ButtonVariant::Ghost`, `Segmented::fill`,
 `SelectField::private`/`amount`, `CategoryCell::suffix`/`repays`, `Glyph::Owed`. The other views show the shell and `ui::empty_state`. And
 `coffer --showcase` opens the component showcase. The CLI (`coffer_app::cli`, M1.18) has
-`import` (bundled and saved presets), `accounts` (`list`, `add`, `--preset` since M3.2), `undo-import`, `backup` (`--list`) and
+`import` (bundled and saved presets), `accounts` (`list`, `add`, `--preset` since M3.2,
+`close` and `reopen` since M3.17), `undo-import`, `backup` (`--list`) and
 `restore <file> [--yes]` (M1.28) and `export --format csv|json` (M1.29), and since M2
 `mcp --client <name>`, `ai-access` (`list`, `enable`, `level`, `revoke`, `ignore`, `off`,
 `on`, `log`), `budgets` (`list`, `set`, `remove`), `schedules` (`detect`, `list`, `show`,

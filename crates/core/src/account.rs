@@ -3,8 +3,15 @@
 //! Creating, reading, listing and editing accounts, and recording an entered
 //! balance, the anchor an account whose exports have no balances is checked
 //! against (`docs/ARCHITECTURE.md` → "Decision record: import commit, dedupe
-//! and undo"). Pots are created by imports ([`crate::sub_account`]);
-//! closing comes with M3.17.
+//! and undo"). Pots are created by imports ([`crate::sub_account`]).
+//!
+//! Asset and liability accounts hold valuations, entered through the same
+//! path with [`EnteredSource::Valuation`]: a valuation sets the balance on
+//! its date and is never checked. A liability's value is what is owed, so
+//! it is stored at or below zero (M3.17, "Decision record: accounts you keep
+//! yourself").
+//!
+//! Closing, reopening and deleting are in [`close`] (M3.17).
 //!
 //! Editing (M3.2, "Decision record: accounts management") changes the
 //! account's own fields only: its name, bank, kind, currency and preset.
@@ -21,6 +28,10 @@ use crate::db::Database;
 use crate::id::{AccountId, BalanceId};
 use crate::money::{Currency, Money};
 use crate::reconciliation::BalanceSource;
+
+pub mod close;
+
+pub use close::{Closing, DeleteLock, Deletion};
 
 /// What an account is (`account.kind`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -256,6 +267,9 @@ pub enum EnteredSource {
     Manual,
     /// Read off a paper or PDF statement.
     Statement,
+    /// The value of an asset or liability account: it sets the balance on
+    /// its date, and is the only kind of balance those accounts hold.
+    Valuation,
 }
 
 impl EnteredSource {
@@ -263,6 +277,17 @@ impl EnteredSource {
         match self {
             EnteredSource::Manual => "manual",
             EnteredSource::Statement => "statement",
+            EnteredSource::Valuation => "valuation",
+        }
+    }
+
+    /// The source an entered balance on an account of `kind` has: a
+    /// valuation on an asset or liability, else `manual`.
+    pub const fn for_kind(kind: AccountKind) -> EnteredSource {
+        if kind.holds_transactions() {
+            EnteredSource::Manual
+        } else {
+            EnteredSource::Valuation
         }
     }
 }
@@ -298,8 +323,45 @@ pub enum Error {
     )]
     HoldsValuations(&'static str),
 
+    #[error(
+        "{0} accounts hold transactions, so their balances are checked against them; \
+         valuations are for asset and liability accounts"
+    )]
+    NotValued(&'static str),
+
+    #[error("a liability's value is what you owe, which Coffer stores below zero")]
+    LiabilityAboveZero,
+
     #[error("the account already has an entered balance on {0}; edit that one instead")]
     BalanceExists(NaiveDate),
+
+    #[error("the account was closed on {closed_on}; reopen it first")]
+    AfterClosing { closed_on: NaiveDate },
+
+    #[error("the account is already closed")]
+    AlreadyClosed,
+
+    #[error("the account isn't closed")]
+    NotClosed,
+
+    /// Closing before something the account holds would leave it dated
+    /// after the account closed.
+    #[error(
+        "the earliest the account can close is {earliest}: it has values or transactions up to then"
+    )]
+    CloseTooEarly { earliest: NaiveDate },
+
+    /// Closing inside the locked period would change locked history.
+    #[error(
+        "the account is locked through {through}, so it can't close before then; unlock it first"
+    )]
+    CloseLocked { date: NaiveDate, through: NaiveDate },
+
+    #[error("its parent account is closed; reopen that one first")]
+    ParentClosed,
+
+    #[error("the account can't be deleted: it {}; close it instead", .0.reason())]
+    Undeletable(DeleteLock),
 
     /// A balance on or before the lock date would add a check inside the
     /// locked period (or a new starting point before it).
@@ -515,10 +577,13 @@ pub fn list(db: &Database) -> Result<Vec<Account>, Error> {
 }
 
 /// Records a balance the user entered: the anchor for an account whose
-/// exports have no balances, or one more check for one whose exports do.
-/// One entered balance per account and day, after the account's lock date
-/// (`reconciled_through`): one inside the locked period would change the
-/// checks the lock rests on ([`crate::reconciliation`]).
+/// exports have no balances, or one more check for one whose exports do;
+/// on an asset or liability account, a valuation
+/// ([`EnteredSource::Valuation`], the only source those take; a
+/// liability's at or below zero). One entered balance per account and day,
+/// after the account's lock date (`reconciled_through`): one inside the
+/// locked period would change the checks the lock rests on
+/// ([`crate::reconciliation`]); and none after the day it closed.
 pub fn add_balance(
     db: &mut Database,
     account: AccountId,
@@ -537,8 +602,19 @@ fn insert_balance(
     stored: &Account,
     balance: &EnteredBalance,
 ) -> Result<BalanceId, Error> {
-    if !stored.kind.holds_transactions() {
-        return Err(Error::HoldsValuations(stored.kind.as_str()));
+    let valued = !stored.kind.holds_transactions();
+    match (valued, balance.source == EnteredSource::Valuation) {
+        (true, false) => return Err(Error::HoldsValuations(stored.kind.as_str())),
+        (false, true) => return Err(Error::NotValued(stored.kind.as_str())),
+        _ => {}
+    }
+    if stored.kind == AccountKind::Liability && balance.balance.minor() > 0 {
+        return Err(Error::LiabilityAboveZero);
+    }
+    if let Some(closed_on) = stored.closed_on
+        && balance.date > closed_on
+    {
+        return Err(Error::AfterClosing { closed_on });
     }
     if balance.balance.currency() != stored.currency {
         return Err(Error::CurrencyMismatch {

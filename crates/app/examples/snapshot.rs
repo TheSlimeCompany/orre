@@ -41,6 +41,13 @@
 //! - `account-kind`: the same with the Kind menu open (Paper `FHZ-0`);
 //! - `new-account`: the New account dialog (Paper `8IR-0`);
 //! - `add-balance`: Add balance for Current account (Paper `I7C-0`);
+//! - D6.9's accounts you keep yourself (M3.17): `accounts-asset`, House
+//!   selected with its valuations (Paper `BSI-0`); `accounts-liability`,
+//!   Mortgage (the inspector on `EPF-0`); `new-account-asset` (`EPI-0`);
+//!   `add-valuation` (composed from `FS0-0`); `add-balance-liability`
+//!   (`FS0-0`); `close-account` (`FT2-0`); `close-account-bank` and
+//!   `delete-account` (composed); `account-closed`, the undo bar after
+//!   closing (composed from D6.3's `53O-0`);
 //! - `inbox-rule`: the Inbox with the UBER *EATS rule open (Paper `ABK-0`);
 //! - `inbox-name`: the LIME*RIDE merchant name open (Paper `DL8-0`);
 //! - `inbox-categorisation`, `inbox-transfer`, `inbox-refund`,
@@ -365,6 +372,7 @@ fn main() -> Result<()> {
         };
         snapshot_then(&mut cx, &out, name, build, then)?;
     }
+    valued_snapshots(&mut cx, &out)?;
     inbox_snapshots(&mut cx, &out)?;
     import_snapshots(&mut cx, &out)?;
     review_snapshots(&mut cx, &out)?;
@@ -973,6 +981,78 @@ fn signed_amount_fixture() -> coffer_import::SourceFile {
 enum SettingsDialog {
     Enable,
     Export,
+}
+
+/// D6.9's screens: an asset and a liability selected, and the dialogs.
+fn valued_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
+    use accounts_fixture::{CURRENT, HOUSE, MORTGAGE};
+    for (name, step) in [
+        ("accounts-asset", ValuedStep::Select(HOUSE)),
+        ("accounts-liability", ValuedStep::Select(MORTGAGE)),
+        ("new-account-asset", ValuedStep::NewAccount),
+        ("add-valuation", ValuedStep::AddValue(HOUSE)),
+        ("add-balance-liability", ValuedStep::AddValue(MORTGAGE)),
+        ("close-account", ValuedStep::Close(HOUSE)),
+        ("close-account-bank", ValuedStep::Close(CURRENT)),
+        ("delete-account", ValuedStep::Delete(HOUSE)),
+        ("account-closed", ValuedStep::Closed),
+    ] {
+        snapshot(cx, out, name, move |window, cx| {
+            let mut data = accounts_fixture::valued();
+            if step == ValuedStep::Closed {
+                // House has gone from the panel and net worth.
+                data.tree.accounts.retain(|node| node.account.id != HOUSE);
+                data.tree
+                    .net_worth
+                    .add(coffer_core::money::Money::new(
+                        -38_500_000,
+                        coffer_core::money::Currency::GBP,
+                    ))
+                    .expect("the fixture's sums fit");
+            }
+            let mut fixture = Accounts::fixture(data);
+            if step == ValuedStep::Closed {
+                fixture = fixture.with_closed(coffer_app::accounts::Closed {
+                    account: HOUSE,
+                    message: "House closed".into(),
+                });
+            }
+            let accounts = cx.new(|_| fixture);
+            let shell = cx.new(|cx| {
+                ShellView::with_accounts(View::Transactions, accounts.clone(), window, cx)
+            });
+            accounts.update(cx, |accounts, cx| match step {
+                ValuedStep::Select(id) => accounts.select(Some(id), cx),
+                ValuedStep::NewAccount => accounts.request_new_valued_account(cx),
+                ValuedStep::AddValue(id) => {
+                    accounts.select(Some(id), cx);
+                    accounts.request_add_balance(id, cx);
+                }
+                ValuedStep::Close(id) => {
+                    accounts.select(Some(id), cx);
+                    accounts.request_close(id, cx);
+                }
+                ValuedStep::Delete(id) => {
+                    accounts.select(Some(id), cx);
+                    accounts.request_delete(id, cx);
+                }
+                ValuedStep::Closed => {}
+            });
+            shell.into()
+        })?;
+    }
+    Ok(())
+}
+
+/// What a D6.9 snapshot shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ValuedStep {
+    Select(coffer_core::id::AccountId),
+    NewAccount,
+    AddValue(coffer_core::id::AccountId),
+    Close(coffer_core::id::AccountId),
+    Delete(coffer_core::id::AccountId),
+    Closed,
 }
 
 /// What the account snapshots do after selecting Current account.

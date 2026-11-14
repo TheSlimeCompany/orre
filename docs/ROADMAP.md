@@ -863,9 +863,23 @@ Every tool call appears in the access log.
   `to_file` refusing the database; `docs/EXPORT.md`. Snapshots `settings-backups`,
   `settings-backed-up`, `settings-restore`, `settings-restore-fails`, `settings-export`
   checked by eye against `F63-0` and `GQA-0`
-- ⬜ M3.17 Manual asset and liability accounts (house, car, pension, mortgage, loan) with
+- ✅ M3.17 Manual asset and liability accounts (house, car, pension, mortgage, loan) with
   dated valuations; closing an account ("Close account…", every kind, with its lock-date
-  guard; moved here from M3.2, user 2026-11-14)
+  guard; moved here from M3.2, user 2026-11-14). Core: valuations through
+  `account::add_balance` (`EnteredSource::Valuation`; a liability at or below zero; none
+  after closing); `account::close` (`closing`, `close` with its pots and, for a valuation
+  account, a £0 value; never before what it holds or its lock date; `reopen`,
+  `list_closed`, `deletion`/`delete` for an account nothing refers to). In the app: the
+  ASSETS AND LIABILITIES `+`, New account and Add balance for assets (Value) and
+  liabilities (Owed, stored negative), the valuations canvas (step-line chart and table,
+  ⌘N), the inspector's footer (Close account…, Delete account… where allowed), the Close
+  and Delete dialogs and the undo bar that reopens (user). CLI `accounts close`,
+  `reopen`, a CLOSED column. No migration. Snapshots (`accounts-asset`,
+  `accounts-liability`, `new-account-asset`, `add-valuation`, `add-balance-liability`,
+  `close-account`, `close-account-bank`, `delete-account`, `account-closed`) checked by eye
+  against `BSI-0` and `EPF-0`; the window itself only build-verified. Decisions:
+  `ARCHITECTURE.md` → "Decision record: asset and liability accounts, closing and
+  deleting (built)"
 
 **Exit criteria:** day-to-day use (import, categorize, split, link refunds, review the inbox
 and duplicates) without the CLI.

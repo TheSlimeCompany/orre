@@ -1743,6 +1743,67 @@ shared costs" above and "Decision record: M1 wave 4" (B).
    merge. Migrations: M3.13's is V16, this one V17. Transactions has one
    `TransactionsEvent` (rule prompt and links alike).
 
+### Decision record: asset and liability accounts, closing and deleting (built) (2026-11-14)
+
+M3.17. Marked **(user)**: decided by the user on 2026-11-14 when asked before the build.
+Everything else follows `DESIGN.md` → "Accounts you keep yourself" (D6.9), "Decision
+record: accounts you keep yourself" above and "Decision record: accounts management".
+**No migration**: `account.closed_on` and `balance_snapshot.note` are in V1.
+
+1. **A valuation is an entered balance (`account::add_balance`).** `EnteredSource` gains
+   `Valuation` (`for_kind` picks it for asset and liability accounts); an asset or
+   liability takes only valuations and other accounts none (`HoldsValuations`,
+   `NotValued`, checked before the schema's trigger so the error says why). It keeps the
+   entered-balance rules: one per account and day, none on or before a lock (valuation
+   accounts can't be locked) and, new for every kind, none after `closed_on`
+   (`AfterClosing`). `create_with_balance` writes a valuation as a new valuation account's
+   first value. Reporting already read a valuation as the balance (`reporting::balance`),
+   so net worth and `account_tree` needed nothing new.
+2. **A liability's value is at or below zero, and core never flips a sign.** Core refuses
+   a positive liability valuation (`LiabilityAboveZero`). The app's "Owed" field is
+   unsigned and refuses a minus; the app negates it and its caption says what will be
+   stored ("Coffer stores it as −£212,640.00", `FS6-0`). An asset's Value is unsigned too.
+3. **Closing (`account::close`)** sets `closed_on` and deletes nothing. Its open pots close
+   with it on the same day. An asset or liability also gets a £0 valuation that day. The
+   earliest day (`closing(..).earliest`): the day after the last valuation for a
+   valuation account, so the £0 never replaces a value; for any other kind the day of its
+   (or a closing pot's) last transaction, balance or opening balance, so no row is dated
+   after the account closed. **Lock-date guard** (M1 wave 4, point 21): never before
+   `reconciled_through` (`CloseLocked`), since locked days' net worth would change;
+   closing on the lock date changes none of them. Closed accounts already left the panel
+   and every month-end after `closed_on` (`account_tree`, `net_worth_history`).
+4. **Reopening (`account::reopen`)** clears `closed_on` on the account and on the pots that
+   closed with it (same day; a pot closed earlier on its own stays closed), and deletes
+   the £0 valuation closing wrote: the zero `valuation` on the closing day, which the date
+   rule makes the one closing wrote. A pot whose parent is closed can't reopen alone
+   (`ParentClosed`). **Where (user):** the undo bar after closing ("House closed", Undo
+   reopens it), and `coffer accounts reopen <id|name>` later; `coffer accounts close
+   <id|name> [--on YYYY-MM-DD]` too, and `accounts list` gains a CLOSED column. No panel
+   UI for closed accounts.
+5. **Deleting (`account::delete`, user: built now)** is for an account added by mistake:
+   refused (`Undeletable(DeleteLock)`) while it has transactions, imports (an undone
+   batch still names it), pots, rules or schedules, or a lock. Its entered balances or
+   valuations go with it, in one DB transaction; `deletion` counts them first, for the
+   confirmation. Not undoable. "Delete account…" shows on any kind whenever core allows
+   it (user), so on a new empty bank account too.
+6. **The app (`crates/app/src/accounts/`).** The panel's ASSETS AND LIABILITIES section
+   always shows, its `+` opening New account set to Asset (user: label and `+` only when
+   empty). New account for an asset or liability: Value (Owed) with its date and a Note;
+   no Bank. Add balance is also Add valuation (composed, user) and the drawn liability
+   version. While an asset or liability is selected, Transactions shows
+   `valuations::ValuationsView` instead of its table (the hook is one branch in
+   `TransactionsView::render`): the toolbar, the step-line chart (a GPUI path; the scale is
+   `valuations::Chart`, tested against Paper's positions) and the table. ⌘N there and in
+   the panel adds a valuation; on other accounts the key goes on (M3.10's). The inspector
+   (no rows under Valuations: the canvas lists them, as `BSI-0` draws it) ends with the
+   footer. The Close dialog (drawn for an asset; composed for the other kinds, user) and
+   the Delete dialog (composed, user) open over the shell. Words for a liability:
+   "Balances", "Add balance", "Owed" (user).
+7. **Open.** An import into a closed account is still allowed (the pot mirror already
+   writes to a closed pot, M1.17); refusing rows dated after `closed_on` at import is left
+   for a later decision. Editing or deleting a single valuation isn't built (not drawn;
+   point 21 still lists it).
+
 ## Architecture
 
 ```

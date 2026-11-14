@@ -13,17 +13,25 @@
 //! - **Pots** with their balances and total, and **Imports** (file, rows,
 //!   date), each only when there are any.
 //!
-//! "Close account…" comes with M3.17 (decided with the user, 2026-11-14).
+//! - **Footer** (M3.17): outline "Close account…" on every kind, and the
+//!   small danger outline "Delete account…" beside it when core lets the
+//!   account go (decided with the user, 2026-11-14); an asset or liability
+//!   adds D6.9's caption.
+//!
+//! An asset or liability (D6.9, `BSI-0`, `EPF-0`): the header says when it
+//! was valued ("Valued by you on 12 Oct · in net worth"; "Owed on 1 Oct ·
+//! in net worth" for a liability, composed), Details has no Bank or Preset,
+//! and "Valuations" (a liability's "Balances") has its add button and
+//! caption but no rows: the canvas lists them ([`super::valuations`]).
 //!
 //! Composed for M3.2 (not drawn): a kind the account can't change to stays
 //! in the Kind menu, faded, with the reason as its hint; a pot shows Kind
 //! read-only ("Pot", with the lock) and no Bank or Preset; a cash account
 //! has no Bank or Preset (as D6.9's cash inspector); an account with no
-//! balance has no figure, and its caption says so; a valuation account
-//! lists its values under "Valuations", read-only until M3.17; a change
-//! core refuses is put back and the reason shown under Details in `danger`.
+//! balance has no figure, and its caption says so; a change core refuses is
+//! put back and the reason shown under Details in `danger`.
 
-use coffer_core::account::{AccountEdit, AccountKind, StoredBalance, Usage};
+use coffer_core::account::{AccountEdit, AccountKind, Deletion, StoredBalance, Usage};
 use coffer_core::id::AccountId;
 use coffer_core::money::Currency;
 use coffer_core::reconciliation::BalanceSource;
@@ -37,7 +45,7 @@ use gpui_kit::{
 
 use crate::format::{Sign, list_date, money};
 use crate::theme::tokens::{color, size, spacing, typography};
-use crate::ui::button::Button;
+use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::field::{FieldRow, LockedValue, SelectField, date_lane, error_caption, text_input};
 use crate::ui::icon::Glyph;
 use crate::ui::inspector::{caption, header, section, section_title_row};
@@ -164,6 +172,9 @@ enum Which {
 /// selects' state; the account itself is [`Accounts`]'.
 pub struct AccountInspector {
     accounts: Entity<Accounts>,
+    /// The canvas Transactions shows instead of its table while an asset or
+    /// liability is selected (M3.17).
+    valuations: Entity<super::valuations::ValuationsView>,
     /// The account the fields were last filled from.
     shown: Option<AccountId>,
     name: Entity<InputState>,
@@ -196,7 +207,9 @@ impl AccountInspector {
                 this.sync(window, cx)
             }),
         ];
+        let valuations = cx.new(|cx| super::valuations::ValuationsView::new(accounts.clone(), cx));
         let mut inspector = Self {
+            valuations,
             accounts,
             shown: None,
             name,
@@ -209,6 +222,13 @@ impl AccountInspector {
         };
         inspector.sync(window, cx);
         inspector
+    }
+
+    /// The valuations canvas, to show instead of the transaction table
+    /// while the selected account is an asset or liability.
+    pub fn valuations(&self, cx: &App) -> Option<Entity<super::valuations::ValuationsView>> {
+        let node = self.accounts.read(cx).selected_node()?;
+        (!node.account.kind.holds_transactions()).then(|| self.valuations.clone())
     }
 
     /// Fills the fields from the selected account when the selection
@@ -430,7 +450,7 @@ impl AccountInspector {
         let when = match node.latest {
             Some(latest) => {
                 let verb = match node.account.kind {
-                    AccountKind::Asset => "Valued on ",
+                    AccountKind::Asset => "Valued by you on ",
                     AccountKind::Liability => "Owed on ",
                     _ => "Balance on ",
                 };
@@ -439,7 +459,9 @@ impl AccountInspector {
                         .text_role(typography::MONO_VALUE)
                         .child(list_date(latest.date, data.today)),
                 );
-                if !node.pots.is_empty() {
+                if !node.account.kind.holds_transactions() {
+                    line = line.child(" · in net worth");
+                } else if !node.pots.is_empty() {
                     line = line.child(" · pots not included");
                 } else if let Some(parent) = data.parent_of(node.account.id) {
                     line = line.child(format!(" · in {}", parent.account.name));
@@ -542,6 +564,9 @@ impl AccountInspector {
         data: &AccountsData,
     ) -> AnyElement {
         let valuations = !node.account.kind.holds_transactions();
+        if valuations {
+            return self.render_valuations(node);
+        }
         let with_year = balances
             .iter()
             .any(|balance| list_date(balance.date, data.today).len() > 6);
@@ -606,6 +631,82 @@ impl AccountInspector {
                 add,
             ))
             .children(rows)
+            .when_some(note, |this, note| {
+                this.child(crate::ui::field::caption(note))
+            })
+            .into_any_element()
+    }
+
+    /// An asset's or liability's values section: the add button and how
+    /// net worth uses them; the canvas lists the values.
+    fn render_valuations(&self, node: &AccountNode) -> AnyElement {
+        let id = node.account.id;
+        let accounts = self.accounts.clone();
+        let (title, add, note) = match node.account.kind {
+            AccountKind::Liability => (
+                "Balances",
+                "Add balance…",
+                "Coffer holds each balance until the next. Monthly payments stay spending on the account they leave, so net worth catches up when you enter the next statement.",
+            ),
+            _ => (
+                "Valuations",
+                "Add valuation…",
+                "Net worth uses the latest value on or before each date. Add one whenever you have a new figure: a survey, an online estimate, a statement.",
+            ),
+        };
+        section(true)
+            .gap(spacing::S1)
+            .child(section_title_row(
+                title,
+                Some(
+                    Button::new("add-balance", add)
+                        .on_click(move |_, _, cx| {
+                            accounts.update(cx, |accounts, cx| accounts.request_add_balance(id, cx))
+                        })
+                        .into_any_element(),
+                ),
+            ))
+            .child(crate::ui::field::caption(note))
+            .into_any_element()
+    }
+
+    /// The footer: "Close account…", and "Delete account…" when the
+    /// account can go.
+    fn render_footer(&self, node: &AccountNode, deletion: Deletion) -> AnyElement {
+        let id = node.account.id;
+        let (close, delete) = (self.accounts.clone(), self.accounts.clone());
+        let zero = super::close::zero(coffer_core::money::Money::zero(node.account.currency));
+        let note = match node.account.kind {
+            AccountKind::Asset => Some(format!(
+                "Sold it? Close it on the sale date: Coffer adds a {zero} value then, so earlier net worth stays right. Delete only an account added by mistake."
+            )),
+            AccountKind::Liability => Some(format!(
+                "Paid it off? Close it on the payoff date: Coffer adds a {zero} balance then. Delete only an account added by mistake."
+            )),
+            _ => None,
+        };
+        section(true)
+            .gap(spacing::S2)
+            .child(
+                div()
+                    .flex()
+                    .gap(spacing::S2)
+                    .child(Button::new("close-account", "Close account…").on_click(
+                        move |_, _, cx| {
+                            close.update(cx, |accounts, cx| accounts.request_close(id, cx))
+                        },
+                    ))
+                    .when(deletion.refused.is_none(), |this| {
+                        this.child(
+                            Button::new("delete-account", "Delete account…")
+                                .with_variant(ButtonVariant::DestructiveCompact)
+                                .on_click(move |_, _, cx| {
+                                    delete
+                                        .update(cx, |accounts, cx| accounts.request_delete(id, cx))
+                                }),
+                        )
+                    }),
+            )
             .when_some(note, |this, note| {
                 this.child(crate::ui::field::caption(note))
             })
@@ -736,6 +837,7 @@ impl Render for AccountInspector {
         ];
         sections.extend(self.render_pots(&node));
         sections.extend(self.render_imports(&detail.imports, &data));
+        sections.push(self.render_footer(&node, detail.deletion));
         div()
             .flex()
             .flex_col()

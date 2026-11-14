@@ -1,8 +1,10 @@
-//! `coffer accounts`: list the accounts, and add one to import into.
+//! `coffer accounts`: list the accounts, add one to import into, and close
+//! or reopen one (M3.17).
 
 use std::io::Write;
 
-use anyhow::{bail, ensure};
+use anyhow::{Context as _, bail, ensure};
+use chrono::NaiveDate;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args, Subcommand};
 use coffer_core::account::{self, Account, AccountKind, NewAccount};
@@ -26,6 +28,30 @@ pub enum AccountsCommand {
     List,
     /// Add an account.
     Add(AddAccountArgs),
+    /// Close an account: it leaves the accounts panel and net worth after
+    /// that day, keeping its history. Its open pots close with it; an asset
+    /// or liability gets a 0 valuation that day.
+    Close(CloseAccountArgs),
+    /// Reopen a closed account, with the pots that closed with it.
+    Reopen(ReopenAccountArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CloseAccountArgs {
+    /// The account (ID or exact name).
+    #[arg(value_name = "ID|NAME")]
+    pub account: String,
+
+    /// The day it closed, YYYY-MM-DD; today when left out.
+    #[arg(long, value_name = "YYYY-MM-DD", value_parser = super::schedules::parse_date)]
+    pub on: Option<NaiveDate>,
+}
+
+#[derive(Debug, Args)]
+pub struct ReopenAccountArgs {
+    /// The closed account (ID or exact name).
+    #[arg(value_name = "ID|NAME")]
+    pub account: String,
 }
 
 #[derive(Debug, Args)]
@@ -97,6 +123,9 @@ pub fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
                 account
                     .reconciled_through
                     .map_or_else(|| "-".into(), |date| date.to_string()),
+                account
+                    .closed_on
+                    .map_or_else(|| "-".into(), |date| date.to_string()),
             ]
         })
         .collect();
@@ -111,6 +140,7 @@ pub fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
             "PARENT",
             "PRESET",
             "LOCKED THROUGH",
+            "CLOSED",
         ],
         &rows,
     )?;
@@ -193,6 +223,48 @@ pub fn add(
         args.kind.as_str(),
         args.currency
     )?;
+    Ok(())
+}
+
+/// `coffer accounts close`.
+pub fn close(
+    db: &mut Database,
+    args: &CloseAccountArgs,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let accounts = account::list(db)?;
+    let wanted = find(&accounts, &args.account)?.clone();
+    let on = match args.on {
+        Some(on) => on,
+        None => coffer_core::schedule::local_today().context("couldn't read today's date")?,
+    };
+    let closed = account::close::close(db, wanted.id, on)?;
+    writeln!(out, "Closed {} on {on}", describe(&wanted))?;
+    for pot in accounts
+        .iter()
+        .filter(|pot| pot.id != wanted.id && closed.contains(&pot.id))
+    {
+        writeln!(out, "  and its pot {}", describe(pot))?;
+    }
+    Ok(())
+}
+
+/// `coffer accounts reopen`.
+pub fn reopen(
+    db: &mut Database,
+    args: &ReopenAccountArgs,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let accounts = account::list(db)?;
+    let wanted = find(&accounts, &args.account)?.clone();
+    let reopened = account::close::reopen(db, wanted.id)?;
+    writeln!(out, "Reopened {}", describe(&wanted))?;
+    for pot in accounts
+        .iter()
+        .filter(|pot| pot.id != wanted.id && reopened.contains(&pot.id))
+    {
+        writeln!(out, "  and its pot {}", describe(pot))?;
+    }
     Ok(())
 }
 

@@ -16,6 +16,8 @@ use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
 
+use chrono::NaiveDate;
+
 use coffer_core::account::{self, AccountEdit, EnteredBalance, NewAccount};
 use coffer_core::backup;
 use coffer_core::db::Database;
@@ -122,6 +124,8 @@ impl AccountStore {
                     usage: account::usage(&db, id)?,
                     balances: account::entered_balances(&db, id)?,
                     imports,
+                    close_from: account::close::closing(&db, id)?.earliest,
+                    deletion: account::close::deletion(&db, id)?,
                 },
             );
         }
@@ -149,11 +153,31 @@ impl AccountStore {
         Ok(account::update(&mut db, id, edit)?)
     }
 
-    /// Records a balance the user entered.
+    /// Records a balance the user entered, or a valuation.
     pub fn add_balance(&self, id: AccountId, balance: &EnteredBalance) -> Result<(), StoreError> {
         let mut db = self.open()?;
         account::add_balance(&mut db, id, balance)?;
         Ok(())
+    }
+
+    /// Closes an account (and its open pots) on `on`; returns every
+    /// account it closed.
+    pub fn close(&self, id: AccountId, on: NaiveDate) -> Result<Vec<AccountId>, StoreError> {
+        let mut db = self.open()?;
+        Ok(account::close::close(&mut db, id, on)?)
+    }
+
+    /// Reopens a closed account, with the pots that closed with it.
+    pub fn reopen(&self, id: AccountId) -> Result<Vec<AccountId>, StoreError> {
+        let mut db = self.open()?;
+        Ok(account::close::reopen(&mut db, id)?)
+    }
+
+    /// Deletes an account that nothing refers to, with its values; returns
+    /// how many values went with it.
+    pub fn delete(&self, id: AccountId) -> Result<usize, StoreError> {
+        let mut db = self.open()?;
+        Ok(account::close::delete(&mut db, id)?)
     }
 }
 
@@ -170,6 +194,40 @@ mod tests {
     fn the_bundled_presets_load() {
         let presets = bundled_presets();
         assert!(presets.iter().any(|preset| preset.id == "uk-monzo"));
+    }
+
+    #[test]
+    fn closes_reopens_and_deletes() {
+        let dir = TempDir::new().unwrap();
+        let store = AccountStore::new(dir.path().join("coffer.db"));
+        let house = store
+            .create(
+                &NewAccount::new("House", AccountKind::Asset, Currency::GBP),
+                Some(&EnteredBalance {
+                    date: NaiveDate::from_ymd_opt(2026, 10, 12).unwrap(),
+                    balance: Money::new(38_500_000, Currency::GBP),
+                    source: EnteredSource::Valuation,
+                    note: None,
+                }),
+            )
+            .unwrap();
+        let data = store.load(Vec::new()).unwrap();
+        let detail = data.detail(house).unwrap();
+        assert_eq!(
+            detail.close_from,
+            NaiveDate::from_ymd_opt(2026, 10, 13),
+            "after its last value"
+        );
+        assert_eq!(detail.deletion.values, 1);
+        assert_eq!(detail.deletion.refused, None);
+
+        let on = NaiveDate::from_ymd_opt(2026, 11, 6).unwrap();
+        assert_eq!(store.close(house, on).unwrap(), [house]);
+        assert!(!store.load(Vec::new()).unwrap().contains(house));
+        assert_eq!(store.reopen(house).unwrap(), [house]);
+        assert!(store.load(Vec::new()).unwrap().contains(house));
+        assert_eq!(store.delete(house).unwrap(), 1);
+        assert!(!store.load(Vec::new()).unwrap().contains(house));
     }
 
     #[test]

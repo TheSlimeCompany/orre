@@ -1,6 +1,7 @@
 //! Sample accounts for the screenshots and tests that run without a
 //! database: the accounts on the D6.1 artboards (Transactions `18E-0`,
-//! Accounts panel · states `8D8-0`). Names, banks, files and amounts are
+//! Accounts panel · states `8D8-0`), and D6.9's accounts you keep yourself
+//! ([`valued`]: Accounts · asset `BSI-0`, states `EPF-0`). Names, banks, files and amounts are
 //! made up. The real app never shows them: `coffer` reads the database.
 
 use std::collections::BTreeMap;
@@ -24,6 +25,10 @@ pub const CURRENT: AccountId = AccountId::new(1);
 pub const JOINT: AccountId = AccountId::new(4);
 /// Amex, with no balance (states board only).
 pub const AMEX: AccountId = AccountId::new(7);
+/// D6.9's House, valued five times ([`valued`]).
+pub const HOUSE: AccountId = AccountId::new(9);
+/// D6.9's Mortgage, a liability ([`valued`]).
+pub const MORTGAGE: AccountId = AccountId::new(12);
 
 /// The day the artboards are drawn on.
 pub fn today() -> NaiveDate {
@@ -124,6 +129,11 @@ pub fn accounts() -> AccountsData {
                     pots: node.pots.len(),
                     ..Usage::default()
                 },
+                // They hold transactions: close only.
+                deletion: coffer_core::account::Deletion {
+                    values: 0,
+                    refused: Some(coffer_core::account::DeleteLock::Transactions),
+                },
                 ..AccountDetail::default()
             },
         );
@@ -180,6 +190,110 @@ pub fn with_states() -> AccountsData {
     data
 }
 
+/// D6.9's accounts (`BSI-0`, `EPF-0`): [`accounts`] with Cash under
+/// ACCOUNTS and Stocks ISA moved to ASSETS AND LIABILITIES as an asset,
+/// with House, Workplace pension and Mortgage. Net worth £232,443.55.
+pub fn valued() -> AccountsData {
+    let mut data = accounts();
+    data.tree
+        .accounts
+        .retain(|node| node.account.name != "Stocks ISA");
+    data.details.remove(&AccountId::new(6));
+    let cash = node(
+        account(8, "Cash", AccountKind::Cash, None),
+        Some((2_300, date(10))),
+    );
+    let on = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a date");
+    let value = |date: NaiveDate, minor: i64, note: Option<&str>| StoredBalance {
+        id: None,
+        date,
+        balance: gbp(minor),
+        source: BalanceSource::Valuation,
+        note: note.map(str::to_owned),
+    };
+    let house_values = vec![
+        value(on(2026, 10, 12), 38_500_000, Some("Remortgage survey")),
+        value(on(2026, 4, 20), 37_900_000, Some("Online estimate")),
+        value(on(2025, 8, 9), 36_800_000, Some("Estate agent's valuation")),
+        value(on(2025, 2, 2), 36_150_000, Some("Online estimate")),
+        value(on(2024, 3, 14), 35_200_000, Some("Purchase price")),
+    ];
+    let mortgage_values = vec![
+        value(on(2026, 10, 1), -21_264_000, Some("Statement")),
+        value(on(2026, 4, 1), -21_691_000, Some("Statement")),
+        value(on(2025, 10, 2), -22_105_000, Some("Opening balance")),
+    ];
+    let valued_accounts = [
+        (9, "House", AccountKind::Asset, house_values),
+        (
+            10,
+            "Workplace pension",
+            AccountKind::Asset,
+            vec![value(on(2026, 9, 30), 4_182_000, Some("Annual statement"))],
+        ),
+        (
+            11,
+            "Stocks ISA",
+            AccountKind::Asset,
+            vec![value(on(2026, 10, 31), 703_055, None)],
+        ),
+        (12, "Mortgage", AccountKind::Liability, mortgage_values),
+    ];
+    let mut net_worth = Totals::new();
+    for node in data.tree.rows() {
+        if let Some(latest) = node.latest {
+            net_worth
+                .add(latest.balance)
+                .expect("the fixture's sums fit");
+        }
+    }
+    net_worth.add(gbp(2_300)).expect("the fixture's sums fit");
+    data.details.insert(
+        AccountId::new(8),
+        AccountDetail {
+            usage: Usage {
+                transactions: 4,
+                ..Usage::default()
+            },
+            deletion: coffer_core::account::Deletion {
+                values: 0,
+                refused: Some(coffer_core::account::DeleteLock::Transactions),
+            },
+            ..AccountDetail::default()
+        },
+    );
+    data.tree.accounts.push(cash);
+    for (id, name, kind, values) in valued_accounts {
+        let latest = values
+            .first()
+            .map(|value| (value.balance.minor(), value.date));
+        net_worth
+            .add(values.first().map_or(gbp(0), |value| value.balance))
+            .expect("the fixture's sums fit");
+        data.tree
+            .accounts
+            .push(node(account(id, name, kind, None), latest));
+        data.details.insert(
+            AccountId::new(id),
+            AccountDetail {
+                usage: Usage {
+                    balances: values.len(),
+                    ..Usage::default()
+                },
+                close_from: values.first().and_then(|value| value.date.succ_opt()),
+                deletion: coffer_core::account::Deletion {
+                    values: values.len(),
+                    refused: None,
+                },
+                balances: values,
+                ..AccountDetail::default()
+            },
+        );
+    }
+    data.tree.net_worth = net_worth;
+    data
+}
+
 fn batch(id: i64, file: &str, transactions: usize, at: &str) -> BatchInfo {
     BatchInfo {
         id: BatchId::new(id),
@@ -222,5 +336,14 @@ mod tests {
         );
         assert!(data.node(JOINT).unwrap().is_overdrawn());
         assert!(with_states().node(AMEX).unwrap().latest.is_none());
+    }
+
+    #[test]
+    fn d6_9_net_worth_matches_its_artboard() {
+        let data = valued();
+        let total = data.tree.net_worth.get(Currency::GBP).unwrap();
+        assert_eq!(money(total, Sign::Negative), "£232,443.55");
+        assert_eq!(data.node(HOUSE).unwrap().account.kind, AccountKind::Asset);
+        assert!(!data.node(MORTGAGE).unwrap().is_overdrawn());
     }
 }
