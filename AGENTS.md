@@ -23,8 +23,9 @@ started: M3.1 (the app shell and window state), M3.2 (accounts management), M3.3
 Transactions view on the database), M3.4 with M3.5 (the import flow and saving a
 mapping as a preset), M3.6 with M3.14 (the Inbox and its impact preview),
 M3.9 (the split editor, tags and notes in the inspector), M3.12 (the review queues:
-possible duplicates and balance checks, under CHECKS in the Inbox), M3.15 (AI access
-settings) and M3.16 (backups and the export dialog) are done.
+possible duplicates and balance checks, under CHECKS in the Inbox), M3.13 (the Rules
+view, with M3.7's rules editor; the categories editor waits for a design), M3.15 (AI
+access settings) and M3.16 (backups and the export dialog) are done.
 The Cargo
 workspace below exists (M1.1). `crates/core` has the database setup (`db`, `paths`: data
 dir, WAL, permissions, migrations; M1.3), the initial schema
@@ -155,7 +156,20 @@ undo bar), `text` and `fixture` (D6.4's sample accounts, seeded through core); t
 Inbox panel's CHECKS rows open them, the status bar counts failing checks and the
 accounts panel's flagged dot opens them. Their read model is core's `checks` (a pair's
 merge planned by `duplicate`'s own code and rolled back; each check's base, window and
-the pair that explains it; lockable dates). The other views show the shell and `ui::empty_state`. And
+the pair that explains it; lockable dates). The Rules view (M3.13) is
+`crates/app/src/rules/`: `Rules` (sections, filters, selection, the rule or name being
+edited, the apply preview, every change through `store::RulesStore`, which opens the
+database per call), `form` (the editor's model: `RuleForm`, `NameForm`, amounts typed
+unsigned with Out/In, percentages), `panel`, `table` (the toolbar, Rules, the apply
+preview, Merchant names, Change history; rows dragged to reorder), `inspector`,
+`dialogs` (delete rule, delete name, undo a change), `text` and `fixture` (D6.7's rules,
+seeded through core). Its read models are core's `rule::overview`, `rule::preview_rows`,
+`merchant::overview` and `change::history`; a new rule is `rule::preview_draft` then
+`save_draft`; `rule::update` edits without touching history. Transactions'
+`transactions/rule_prompt.rs` is "Create a rule from this edit?" (`rule::propose`) and
+the Rule section; it emits `TransactionsEvent` for the shell. Migration
+`V16__rules_editor.sql` (`rule.origin`, `change_batch.rule_id`, `rule_prompt_dismissed`).
+The other views show the shell and `ui::empty_state`. And
 `coffer --showcase` opens the component showcase. The CLI (`coffer_app::cli`, M1.18) has
 `import` (bundled and saved presets), `accounts` (`list`, `add`, `--preset` since M3.2), `undo-import`, `backup` (`--list`) and
 `restore <file> [--yes]` (M1.28) and `export --format csv|json` (M1.29), and since M2

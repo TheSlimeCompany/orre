@@ -230,7 +230,7 @@ fn categorization(
 
 fn rule_impact(db: &Database, definition: &RuleDefinition) -> Result<RuleImpact, ApproveError> {
     change::dry_run(db, |conn| {
-        let rule = rule::create_at_in(conn, definition, 0)?;
+        let rule = rule::create_at_in(conn, definition, 0, rule::RuleOrigin::Inbox)?;
         let preview = rule::preview_apply_in(conn, rule)?;
 
         let is_category = |target: &rule::Target| {

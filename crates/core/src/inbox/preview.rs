@@ -601,7 +601,7 @@ fn rule_preview(
 
     let matched = change::dry_run(db, |conn| -> Result<Vec<Line>, ApproveError> {
         let rows = all_transactions(conn)?;
-        let rule_id = rule::create_at_in(conn, definition, 0)?;
+        let rule_id = rule::create_at_in(conn, definition, 0, rule::RuleOrigin::Inbox)?;
         let plan = rule::preview_apply_in(conn, rule_id)?;
         let set = RuleSet::load(conn)?;
         let skipped: HashSet<TransactionId> = plan.split_rows.iter().copied().collect();
@@ -1149,4 +1149,32 @@ pub fn covered_by(db: &Database, id: SuggestionId) -> Result<Option<Covered>, Ap
         }
     }
     Ok(None)
+}
+
+/// The pending rule suggestions from AI clients that would take over
+/// transactions rule `rule` filed: their rule matches at least one row whose
+/// category `rule` set (the Rules inspector's "Claude suggests a rule for …
+/// above this one", D6.7). Oldest first; Coffer's own suggestions aren't
+/// included. Reads only.
+pub fn touching_rule(db: &Database, rule: RuleId) -> Result<Vec<Suggestion>, ApproveError> {
+    let pending = super::list(
+        db,
+        &super::Filter {
+            status: Some(super::SuggestionStatus::Pending),
+            kind: Some(super::SuggestionKind::Rule),
+        },
+    )?;
+    let mut touching = Vec::new();
+    for suggestion in pending {
+        if suggestion.source_client == super::COFFER_SOURCE {
+            continue;
+        }
+        let Payload::Rule(definition) = &suggestion.payload else {
+            continue;
+        };
+        if rule::overlap_with_rows_of(db.conn(), definition, rule)? > 0 {
+            touching.push(suggestion);
+        }
+    }
+    Ok(touching)
 }

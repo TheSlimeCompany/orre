@@ -131,6 +131,41 @@ pub enum Glyph {
     /// The empty Balance checks queue's icon: [`Glyph::Balance`] at 16px,
     /// as [`Glyph::DuplicateLarge`]. 16px.
     BalanceLarge,
+    /// Change history: a clock with an arrow turning back (D6.7, Paper
+    /// `BQM-0`). 12px.
+    History,
+    /// A rule's Set category action: a rounded square (D6.7, Paper `BRP-0`).
+    /// 12px.
+    SetCategory,
+    /// A rule's Add tag action, and a tag-only rule's THEN: a hash (D6.7).
+    /// 12px.
+    Hash,
+    /// A rule's Set note action: three lines, the last short (D6.7). 12px.
+    Note,
+    /// A rule's Split action: a line forking in two (D6.7). 12px.
+    Split,
+    /// A rule's My share action: a circle halved (D6.7). 12px.
+    Share,
+    /// A rule's Exclude action: a circle with a slash (D6.7, Paper `C5H-0`).
+    /// 12px.
+    Exclude,
+    /// A merchant name that matches exactly ("Is"): an equals sign (D6.7,
+    /// Paper `GPM-0`). 12px.
+    Equals,
+    /// A merchant name that matches a prefix ("Starts with"): a bar and a
+    /// dash (D6.7). 12px.
+    StartsWith,
+    /// A merchant name that matches a pattern: an asterisk (D6.7). 12px.
+    Asterisk,
+    /// A bulk edit in Change history: three lines (D6.7, Paper `H3O-0`).
+    /// 12px.
+    Lines,
+    /// Back from a preview to its list: a chevron left (D6.7, Paper
+    /// `EV0-0`). 12px.
+    Back,
+    /// No rules yet: [`Glyph::Arrow`] at 16px (D6.7 states board, Paper
+    /// `HFL-0`). 16px.
+    ArrowLarge,
 }
 
 impl Glyph {
@@ -166,7 +201,19 @@ impl Glyph {
             | Self::Balance
             | Self::Differs
             | Self::Excluded
-            | Self::Locked => size::ICON_SM,
+            | Self::Locked
+            | Self::History
+            | Self::SetCategory
+            | Self::Hash
+            | Self::Note
+            | Self::Split
+            | Self::Share
+            | Self::Exclude
+            | Self::Equals
+            | Self::StartsWith
+            | Self::Asterisk
+            | Self::Lines
+            | Self::Back => size::ICON_SM,
             Self::Close | Self::Minimize | Self::Maximize | Self::Lock | Self::YouSet => {
                 size::ICON_XS
             }
@@ -178,7 +225,11 @@ impl Glyph {
             | Self::Mismatch
             | Self::LockedPeriod => size::ICON_MD,
             Self::ChevronDown => size::MARKER,
-            Self::Panel | Self::Mark | Self::DuplicateLarge | Self::BalanceLarge => size::ICON_LG,
+            Self::Panel
+            | Self::Mark
+            | Self::DuplicateLarge
+            | Self::BalanceLarge
+            | Self::ArrowLarge => size::ICON_LG,
         }
     }
 
@@ -369,6 +420,58 @@ impl Glyph {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
                 r#"<path d="M8 2.667V13.667M5.333 13.667H10.667M3 4.333H13M3 4.333L1.333 9.333H4.667L3 4.333ZM13 4.333L11.333 9.333H14.667L13 4.333Z"/></svg>"#
             ),
+            Self::History => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M2.4 7.25A3.75 3.75 0 1 0 2.9 3.6M2.25 1.75V4H4.5M6 4V6.25L7.5 7.25"/></svg>"#
+            ),
+            Self::SetCategory => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">"#,
+                r#"<rect x="2.5" y="2.5" width="7" height="7" rx="1.5"/></svg>"#
+            ),
+            Self::Hash => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">"#,
+                r#"<path d="M4.75 2L3.75 10M8.25 2L7.25 10M2.25 4.5H10M2 7.5H9.75"/></svg>"#
+            ),
+            Self::Note => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">"#,
+                r#"<path d="M2.5 3.5H9.5M2.5 6H9.5M2.5 8.5H6.5"/></svg>"#
+            ),
+            Self::Split => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M1.75 6H4.5L7.25 3.25H10.25M4.5 6L7.25 8.75H10.25"/></svg>"#
+            ),
+            Self::Share => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">"#,
+                r#"<circle cx="6" cy="6" r="4"/><path d="M6 2V10"/></svg>"#
+            ),
+            Self::Exclude => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">"#,
+                r#"<circle cx="6" cy="6" r="4"/><path d="M3.25 8.75L8.75 3.25"/></svg>"#
+            ),
+            Self::Equals => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">"#,
+                r#"<path d="M2.5 4.5H9.5M2.5 7.5H9.5"/></svg>"#
+            ),
+            Self::StartsWith => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">"#,
+                r#"<path d="M2.5 2.5V9.5M5 6H9.5"/></svg>"#
+            ),
+            Self::Asterisk => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">"#,
+                r#"<path d="M6 2.5V9.5M3 4.25L9 7.75M9 4.25L3 7.75"/></svg>"#
+            ),
+            Self::Lines => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">"#,
+                r#"<path d="M2.5 3.25H9.5M2.5 6H9.5M2.5 8.75H9.5"/></svg>"#
+            ),
+            Self::Back => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M7.5 2.5L4 6L7.5 9.5"/></svg>"#
+            ),
+            Self::ArrowLarge => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M2.667 8H12.667M9.333 4.667L12.667 8L9.333 11.333"/></svg>"#
+            ),
             Self::LockedPeriod => concat!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">"#,
                 r#"<rect x="3" y="6.25" width="8" height="5.25" rx="1.25"/><path d="M4.75 6.25V4.75C4.75 3.5 5.75 2.5 7 2.5C8.25 2.5 9.25 3.5 9.25 4.75V6.25"/></svg>"#
@@ -400,7 +503,7 @@ mod tests {
 
     use super::*;
 
-    const ALL: [Glyph; 46] = [
+    const ALL: [Glyph; 59] = [
         Glyph::Account,
         Glyph::Pot,
         Glyph::Plus,
@@ -447,6 +550,19 @@ mod tests {
         Glyph::LockedPeriod,
         Glyph::DuplicateLarge,
         Glyph::BalanceLarge,
+        Glyph::History,
+        Glyph::SetCategory,
+        Glyph::Hash,
+        Glyph::Note,
+        Glyph::Split,
+        Glyph::Share,
+        Glyph::Exclude,
+        Glyph::Equals,
+        Glyph::StartsWith,
+        Glyph::Asterisk,
+        Glyph::Lines,
+        Glyph::ArrowLarge,
+        Glyph::Back,
     ];
 
     /// The `viewBox` side in the markup, which `size` must match so strokes

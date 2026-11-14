@@ -33,8 +33,11 @@
 //! Values can hold user text (a note, a merchant name): nothing here logs
 //! them, and errors never quote them.
 
+mod history;
 #[cfg(test)]
 mod tests;
+
+pub use history::{HistoryEntry, HistoryItem, Shown, Summary, history, history_items};
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
@@ -856,6 +859,8 @@ impl Change {
 #[derive(Debug)]
 pub struct Recorder {
     kind: ChangeKind,
+    /// The rule a `rule_apply` batch applies (`change_batch.rule_id`, V16).
+    rule: Option<RuleId>,
     changes: Vec<Change>,
     index: HashMap<(TransactionId, Field), usize>,
 }
@@ -864,8 +869,19 @@ impl Recorder {
     pub fn new(kind: ChangeKind) -> Recorder {
         Recorder {
             kind,
+            rule: None,
             changes: Vec::new(),
             index: HashMap::new(),
+        }
+    }
+
+    /// A recorder for applying rule `rule` ([`ChangeKind::RuleApply`]): the
+    /// batch records which rule it applied, so the change history can name
+    /// it.
+    pub fn for_rule(rule: RuleId) -> Recorder {
+        Recorder {
+            rule: Some(rule),
+            ..Recorder::new(ChangeKind::RuleApply)
         }
     }
 
@@ -967,8 +983,8 @@ impl Recorder {
             return Ok(None);
         }
         conn.execute(
-            "INSERT INTO change_batch (kind) VALUES (?1)",
-            [self.kind.as_str()],
+            "INSERT INTO change_batch (kind, rule_id) VALUES (?1, ?2)",
+            params![self.kind.as_str(), self.rule],
         )?;
         let batch = ChangeBatchId::new(conn.last_insert_rowid());
         let mut insert = conn.prepare_cached(
@@ -1027,6 +1043,9 @@ pub struct BatchInfo {
     pub created_at: String,
     pub status: BatchStatus,
     pub undone_at: Option<String>,
+    /// The rule a `rule_apply` batch applied, if recorded (V16). The rule
+    /// may have been deleted since.
+    pub rule: Option<RuleId>,
     /// Its items: one per transaction and field.
     pub items: usize,
     /// The transactions it changed.
@@ -1047,7 +1066,7 @@ impl Item {
     }
 }
 
-const BATCH_COLUMNS: &str = "b.id, b.kind, b.created_at, b.status, b.undone_at, \
+const BATCH_COLUMNS: &str = "b.id, b.kind, b.created_at, b.status, b.undone_at, b.rule_id, \
      (SELECT COUNT(*) FROM change_item i WHERE i.batch_id = b.id) AS items, \
      (SELECT COUNT(DISTINCT transaction_id) FROM change_item i WHERE i.batch_id = b.id) \
      AS transactions";
@@ -1065,6 +1084,7 @@ fn batch_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BatchInfo> {
             _ => return Err(account::invalid(row, "status")),
         },
         undone_at: row.get("undone_at")?,
+        rule: row.get("rule_id")?,
         items: row.get::<_, i64>("items")?.try_into().unwrap_or(0),
         transactions: row.get::<_, i64>("transactions")?.try_into().unwrap_or(0),
     })

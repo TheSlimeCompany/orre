@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{
     ActionKind, AmountBounds, AmountBoundsError, MatchField, MatchKind, Pattern, PatternError,
-    RuleAction, RuleDefinition, RuleError,
+    RuleAction, RuleDefinition, RuleError, RuleOrigin,
 };
 use crate::category::CategoryKey;
 use crate::db::Database;
@@ -25,6 +25,8 @@ pub struct StoredRule {
     id: RuleId,
     priority: i64,
     definition: RuleDefinition,
+    origin: Option<RuleOrigin>,
+    created_at: String,
 }
 
 impl StoredRule {
@@ -36,6 +38,18 @@ impl StoredRule {
     /// The stored priority (`rule.priority`): lower runs first.
     pub const fn priority(&self) -> i64 {
         self.priority
+    }
+
+    /// Where the rule came from (`rule.origin`, V16); `None` for a rule
+    /// stored before that was recorded.
+    pub const fn origin(&self) -> Option<RuleOrigin> {
+        self.origin
+    }
+
+    /// When the rule was stored (`rule.created_at`, UTC, RFC 3339 with
+    /// milliseconds).
+    pub fn created_at(&self) -> &str {
+        &self.created_at
     }
 
     /// What the rule matches and does.
@@ -140,6 +154,20 @@ pub fn create(db: &mut Database, rule: &RuleDefinition) -> Result<RuleId, StoreE
     create_at(db, rule, 0)
 }
 
+/// Stores a new rule at `position`, as [`create_at`], recording where it
+/// came from ([`RuleOrigin`]).
+pub fn create_from(
+    db: &mut Database,
+    rule: &RuleDefinition,
+    position: usize,
+    origin: RuleOrigin,
+) -> Result<RuleId, StoreError> {
+    let tx = db.conn_mut().transaction()?;
+    let id = create_at_in(&tx, rule, position, origin)?;
+    tx.commit()?;
+    Ok(id)
+}
+
 /// Stores a new rule at `position` in the list (0 is first, the current
 /// number of rules is last) and renumbers the priorities.
 ///
@@ -149,17 +177,15 @@ pub fn create_at(
     rule: &RuleDefinition,
     position: usize,
 ) -> Result<RuleId, StoreError> {
-    let tx = db.conn_mut().transaction()?;
-    let id = create_at_in(&tx, rule, position)?;
-    tx.commit()?;
-    Ok(id)
+    create_from(db, rule, position, RuleOrigin::New)
 }
 
-/// [`create_at`] inside the caller's DB transaction.
+/// [`create_from`] inside the caller's DB transaction.
 pub(crate) fn create_at_in(
     tx: &Connection,
     rule: &RuleDefinition,
     position: usize,
+    origin: RuleOrigin,
 ) -> Result<RuleId, StoreError> {
     let mut order = ordered_ids(tx)?;
     if position > order.len() {
@@ -168,19 +194,75 @@ pub(crate) fn create_at_in(
             last: order.len(),
         });
     }
+    check_categories(tx, rule)?;
+    let pattern = rule.pattern();
+    tx.execute(
+        "INSERT INTO rule (priority, match_field, match_kind, pattern, amount_min, amount_max, \
+         account_id, origin) VALUES (0, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            rule.field().as_str(),
+            pattern.kind().as_str(),
+            pattern.as_str(),
+            rule.amount().min(),
+            rule.amount().max(),
+            rule.account_id(),
+            origin.as_str(),
+        ],
+    )?;
+    let id = RuleId::new(tx.last_insert_rowid());
+    insert_actions(tx, id, rule)?;
+    order.insert(position, id);
+    renumber(tx, &order)?;
+    Ok(id)
+}
+
+/// Every category `rule` names must exist.
+fn check_categories(conn: &Connection, rule: &RuleDefinition) -> Result<(), StoreError> {
     for key in category_keys(rule) {
-        let exists = tx
+        let exists = conn
             .prepare_cached("SELECT 1 FROM category WHERE key = ?1")?
             .exists([key])?;
         if !exists {
             return Err(StoreError::UnknownCategory(key.clone()));
         }
     }
+    Ok(())
+}
+
+fn insert_actions(conn: &Connection, id: RuleId, rule: &RuleDefinition) -> rusqlite::Result<()> {
+    for action in rule.actions() {
+        conn.execute(
+            "INSERT INTO rule_action (rule_id, kind, value_json) VALUES (?1, ?2, ?3)",
+            params![id, action.kind().as_str(), action.value_json()],
+        )?;
+    }
+    Ok(())
+}
+
+/// Replaces what rule `id` matches and does with `rule`, keeping its
+/// place, origin and creation date.
+///
+/// Rule edits don't re-run on history (decision record "rules", point 4):
+/// the transactions it set keep their values until an Apply. Every
+/// category the rule names must exist. The database refuses moving a rule
+/// with amount bounds to an account in another currency (V1's
+/// `rule_account_currency`).
+pub fn update(db: &mut Database, id: RuleId, rule: &RuleDefinition) -> Result<(), StoreError> {
+    let tx = db.conn_mut().transaction()?;
+    update_in(&tx, id, rule)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// [`update`] inside the caller's DB transaction.
+fn update_in(conn: &Connection, id: RuleId, rule: &RuleDefinition) -> Result<(), StoreError> {
+    check_categories(conn, rule)?;
     let pattern = rule.pattern();
-    tx.execute(
-        "INSERT INTO rule (priority, match_field, match_kind, pattern, amount_min, amount_max, \
-         account_id) VALUES (0, ?1, ?2, ?3, ?4, ?5, ?6)",
+    let changed = conn.execute(
+        "UPDATE rule SET match_field = ?2, match_kind = ?3, pattern = ?4, amount_min = ?5, \
+         amount_max = ?6, account_id = ?7 WHERE id = ?1",
         params![
+            id,
             rule.field().as_str(),
             pattern.kind().as_str(),
             pattern.as_str(),
@@ -189,16 +271,12 @@ pub(crate) fn create_at_in(
             rule.account_id(),
         ],
     )?;
-    let id = RuleId::new(tx.last_insert_rowid());
-    for action in rule.actions() {
-        tx.execute(
-            "INSERT INTO rule_action (rule_id, kind, value_json) VALUES (?1, ?2, ?3)",
-            params![id, action.kind().as_str(), action.value_json()],
-        )?;
+    if changed == 0 {
+        return Err(StoreError::NotFound(id));
     }
-    order.insert(position, id);
-    renumber(tx, &order)?;
-    Ok(id)
+    conn.execute("DELETE FROM rule_action WHERE rule_id = ?1", [id])?;
+    insert_actions(conn, id, rule)?;
+    Ok(())
 }
 
 /// The rule with this ID, validated.
@@ -306,8 +384,8 @@ fn renumber(conn: &Connection, order: &[RuleId]) -> rusqlite::Result<()> {
     Ok(())
 }
 
-const COLUMNS: &str =
-    "id, priority, match_field, match_kind, pattern, amount_min, amount_max, account_id";
+const COLUMNS: &str = "id, priority, match_field, match_kind, pattern, amount_min, amount_max, \
+     account_id, origin, created_at";
 
 /// A `rule` row before validation.
 struct RawRule {
@@ -319,6 +397,8 @@ struct RawRule {
     amount_min: Option<i64>,
     amount_max: Option<i64>,
     account_id: Option<i64>,
+    origin: Option<String>,
+    created_at: String,
 }
 
 impl RawRule {
@@ -332,6 +412,8 @@ impl RawRule {
             amount_min: row.get("amount_min")?,
             amount_max: row.get("amount_max")?,
             account_id: row.get("account_id")?,
+            origin: row.get("origin")?,
+            created_at: row.get("created_at")?,
         })
     }
 
@@ -371,11 +453,28 @@ impl RawRule {
 
         let definition = RuleDefinition::new(field, pattern, amount, self.account_id, actions)
             .map_err(|err| invalid(InvalidRule::Definition(err)))?;
+        // The schema's CHECK keeps it a key; anything else reads as unknown.
+        let origin = self.origin.and_then(|key| key.parse().ok());
         Ok(StoredRule {
             id,
             priority: self.priority,
             definition,
+            origin,
+            created_at: self.created_at,
         })
+    }
+}
+
+impl StoredRule {
+    /// A definition as a rule, for matching it without storing it.
+    pub(crate) fn unsaved(id: RuleId, definition: RuleDefinition) -> StoredRule {
+        StoredRule {
+            id,
+            priority: 0,
+            definition,
+            origin: None,
+            created_at: String::new(),
+        }
     }
 }
 
@@ -387,6 +486,8 @@ impl StoredRule {
             id,
             priority,
             definition,
+            origin: None,
+            created_at: String::new(),
         }
     }
 }

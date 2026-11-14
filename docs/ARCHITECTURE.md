@@ -1598,6 +1598,75 @@ queues" above and "Decision record: M1 wave 4" (C and D). No migration.
    import", "Statement (CSV)", "Opening balance". The empty Balance checks queue uses
    the empty Possible duplicates layout with the 16px scales.
 
+### Decision record: the Rules view (built) (2026-11-14)
+
+M3.13 and the rules editor half of M3.7. Marked **(user)**: decided by the user on
+2026-11-14 when asked before the build (each was the recommended option). Everything else
+follows `DESIGN.md` → "Rules", the "Decision record: rules" above and "M1 wave 4" (A).
+Migration `V16__rules_editor.sql`.
+
+1. **V16 records what D6.7 shows (user).** `rule.origin` (`new`, `edit`, `inbox`; NULL
+   for rules from before) gives the footer "Created from an edit on 12 Mar";
+   `change_batch.rule_id` names the rule a `rule_apply` batch applied, so Change history
+   can say "Applied rule VINTED → Shopping". It isn't a foreign key: a batch outlives its
+   rule, an undone batch can't be updated (V8), and rule IDs are never reused, so a
+   missing rule reads as "Applied a rule since deleted". Batches from before V16 fall
+   back to the rule their category items name. `rule_prompt_dismissed` remembers "Not
+   now" per field and folded pattern. `change::Recorder::for_rule` records the rule;
+   `commit_apply` (and so the Inbox's approval) uses it.
+2. **Core reads, core decides.** New in core, each with tests: `rule::update` (edits keep
+   the place, origin and date and never re-run on history, point 4 of "rules");
+   `rule::create_from` (with an origin); `rule::preview_draft` / `save_draft` (a rule not
+   stored yet, planned by `preview_apply`'s own code in a rolled-back transaction, then
+   stored and applied in one DB transaction, refusing a stale preview); `rule::overview`
+   (each rule's matches, what it decides today field by field, its newest match, never
+   reached and the rule above that catches it); `rule::preview_rows` (the preview's rows
+   with now and after); `rule::propose` / `rule_from` / `dismiss` (the Transactions
+   prompt); `merchant::overview` (each name's derived rows, the cleaned texts it catches,
+   last seen); `change::history` / `history_items` (each batch summarised, each item as
+   before → after); `inbox::preview::touching_rule` (pending agent rules over a rule's
+   rows).
+3. **Matches is what a rule decides today.** The whole rule set evaluated over every
+   stored transaction now, as an import would; a rule decides a row when it wins at least
+   one field there. Never reached: it matches rows but decides none; the card names the
+   rule above that matches most of them. Not what the rows hold, since edits don't re-run
+   on history.
+4. **Edits save as they're made, once valid.** Selects save at once; text saves on blur
+   and Enter (as M3.9's fields). A rule that doesn't validate (no text, a pattern that
+   can't be used, an empty action) isn't saved and says why under the field; the stored
+   rule stays as it was. A new rule (New rule, "Create rule…") is made on the apply
+   preview and stored only by "Create rule and change N" or "Create rule only"; its
+   preview follows every keystroke once valid. Apply on a stored rule previews it as it
+   is stored.
+5. **Composed, not drawn (user; `DESIGN.md` → "Rules" → "Built in M3.13").** Amount:
+   Any amount / Over / Under / Between, then Out or In and the amount(s) unsigned (D6.3's
+   Out/In), mapped to the signed inclusive bounds (Over £1,000 out is `≤ −100000`, Under
+   £5 out is `−500..=0`); bounds no choice can say read as "Custom" and stay. Split: lines
+   of a category and a percent (two decimals) adding up to 100%. Exclude: D6.3's reasons
+   without Other. Tag: D6.3's pills and tag menu. New rule and New name from scratch.
+   The Transactions Rule section's "Open rule" when a rule set the category. The delete
+   name dialog. Empty Merchant names and Change history.
+6. **The prompt proposes `contains <stem>`.** The cleaned bank merchant (else the
+   cleaned description) cut at its first `*` and before its first word with a digit
+   (`VINTED *KX8F2Q` → `VINTED`), three characters at least, setting the category the
+   user chose, any account and amount. Shown only after one row's category is set by
+   hand, when no rule decides that row's category, the rule isn't stored or turned down,
+   and it matches at least one other transaction; the counts are its own preview's.
+   "Create rule from this" (Rule section) builds the same rule for any row with a
+   category.
+7. **Left out (user).** "Show 31", "Show in Transactions" (names, history) and the
+   Inbox's "Edit in Rules…": Transactions has no filter by a set of rows yet. The
+   sparkle line is built: the first pending agent rule over the rule's rows, "Review in
+   the Inbox" opening it there.
+8. **Reordering** is dragging a row onto another (it takes that place), the new rule's
+   Position select, and "Move above rule N". `rule::move_to` renumbers.
+9. **Undo.** After an apply the D6.3 bar offers Undo (`change::undo`); any batch is undone
+   from Change history through the dialog, which counts what goes back and what stays
+   because it changed since (`change::undo_preview`). Undone rows stay listed, struck
+   through, "Undone 28 Oct".
+10. **Categories editor not built.** M3.7's categories editor isn't drawn in Paper; it
+    waits for a design decision.
+
 ## Architecture
 
 ```
@@ -2213,7 +2282,8 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   `mcp_access_log` and `setting` (V11, M2.1), the schedule tables and
   `recurring_dismissal` (V12, M2.6/M2.10), the inbox's decision columns (V13, M2.3) and
   `mcp_access_log` rebuilt with two outcomes, `pending_id` and `summarised_calls` (V14),
-  and `account.preset_id` (V15, M3.2).
+  `account.preset_id` (V15, M3.2), and `rule.origin`, `change_batch.rule_id` and
+  `rule_prompt_dismissed` (V16, M3.13).
 - refinery embeds migrations in file-name order (`V10__` before `V1__`);
   `db::migrations::embedded` sorts them by version.
 
@@ -2234,7 +2304,8 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   doubts (M1.11–M1.13, V3): its place in the file and core's reason, never the row's
   text. Read-only; undo deletes it with its batch
 - `change_batch(id, kind [rule_apply|duplicate_merge|bulk_edit], created_at,
-  status [applied|undone], undone_at?)` and `change_item(id, batch_id, transaction_id,
+  status [applied|undone], undone_at?, rule_id? (V16: the rule a `rule_apply` applied;
+  not a foreign key, it outlives its rule))` and `change_item(id, batch_id, transaction_id,
   field [category|merchant|user_note|tags|exclusion|split|share|reimbursable],
   old_value, new_value)` — undo for changes to existing transactions (V8). Values are
   JSON, one shape per field (`coffer_core::change::Value`); one item per batch,
@@ -2290,11 +2361,13 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   seeded by `V2__default_categories.sql` (see "Categories")
 - `rule(id, priority, match_field [merchant|description|source_category|source_type],
   match_kind [is|starts_with|contains|regex], pattern, amount_min?, amount_max?,
-  account_id?, created_at)` and `rule_action(id, rule_id, kind [set_category|
+  account_id?, created_at, origin? [new|edit|inbox] (V16))` and `rule_action(id, rule_id, kind [set_category|
   set_merchant|add_tag|set_note|exclude|split_template|my_share], value_json)` — one
   action per kind per rule; an `exclude` action's value is a reason key; `priority` isn't
   unique (ties go by ID). Patterns and `value_json` shapes are checked in core
   (`rule::RuleDefinition`; see "Decision record: rules", point 9)
+- `rule_prompt_dismissed(match_field, pattern, dismissed_at)` — "Not now" on the
+  Transactions rule prompt, per field and folded pattern (V16, M3.13)
 - `transfer_group(id, status [suggested|confirmed|rejected], created_at)`
 - `schedule(id, account_id, merchant_display, category_id?, cadence [weekly|fortnightly|
   four_weekly|monthly|quarterly|yearly], start_date, amount_minor, currency,

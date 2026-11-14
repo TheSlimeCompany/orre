@@ -38,6 +38,7 @@ mod editor;
 pub mod fixture;
 mod inspector;
 pub mod present;
+pub mod rule_prompt;
 pub mod selection;
 pub mod store;
 
@@ -885,6 +886,10 @@ impl TransactionsView {
         match store.recategorize(&items) {
             Ok(batch) => {
                 self.edit_error = None;
+                // One row's category set by hand may become a rule (D6.3).
+                if let [(id, _)] = items.as_slice() {
+                    self.propose_rule(*id, cx);
+                }
                 self.undo = batch.filter(|_| items.len() > 1).map(|batch| Undo {
                     batch,
                     message: present::categorised_message(items.len(), &label),

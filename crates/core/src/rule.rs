@@ -137,8 +137,13 @@ mod apply;
 mod apply_tests;
 #[cfg(test)]
 mod db_tests;
+mod draft;
+#[cfg(test)]
+mod editor_tests;
 mod engine;
+mod overview;
 mod pattern;
+mod proposal;
 mod store;
 
 use std::fmt;
@@ -154,11 +159,17 @@ pub use apply::{
     SkippedSplit, SplitSkip, Target, commit_apply, preview_apply,
 };
 pub(crate) use apply::{commit_apply_in, preview_apply_in};
+pub use draft::{
+    Draft, DraftPreview, PreviewAfter, PreviewRow, Saved, preview_draft, preview_rows, save_draft,
+};
 pub use engine::{MatchInput, Outcome, RuleSet, SetBy, apply_to_batch};
 pub(crate) use engine::{collapse_whitespace, fold};
+pub use overview::{Catch, RuleSummary, overlap_with_rows_of, overview};
 pub use pattern::{MAX_PATTERN_LEN, Pattern, PatternError, REGEX_NEST_LIMIT, REGEX_SIZE_LIMIT};
+pub use proposal::{MIN_STEM_LEN, Proposal, dismiss, propose, rule_from, stem};
 pub use store::{
-    InvalidRule, StoreError, StoredRule, create, create_at, delete, get, list, move_to,
+    InvalidRule, StoreError, StoredRule, create, create_at, create_from, delete, get, list,
+    move_to, update,
 };
 pub(crate) use store::{create_at_in, load_all};
 
@@ -250,6 +261,19 @@ key_enum! {
         Contains => "contains",
         /// The pattern is a regular expression (the `regex` crate's syntax).
         Regex => "regex",
+    }
+}
+
+key_enum! {
+    /// Where a rule came from, as `rule.origin` stores it (V16).
+    RuleOrigin, "rule origin" {
+        /// New rule, in the Rules view (or a rule stored by other code).
+        New => "new",
+        /// The Transactions prompt after a category edit ("Create a rule
+        /// from this edit?").
+        Edit => "edit",
+        /// An approved suggestion from the Inbox.
+        Inbox => "inbox",
     }
 }
 

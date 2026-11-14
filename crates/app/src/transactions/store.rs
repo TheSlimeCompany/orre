@@ -25,6 +25,7 @@ use coffer_core::edit;
 use coffer_core::id::{ChangeBatchId, TagId, TransactionId};
 use coffer_core::inbox::own;
 use coffer_core::reporting::register::Register;
+use coffer_core::rule;
 use coffer_core::split::SplitLine;
 
 use crate::accounts::store::StoreError;
@@ -145,6 +146,28 @@ impl TransactionStore {
     ) -> Result<Option<ChangeBatchId>, StoreError> {
         let mut db = self.open()?;
         Ok(edit::set_merchant(&mut db, transaction, text)?)
+    }
+
+    /// The rule "Create a rule from this edit?" proposes after the user set
+    /// `transaction`'s category, if any (M3.13).
+    pub fn propose_rule(
+        &self,
+        transaction: TransactionId,
+    ) -> Result<Option<rule::Proposal>, StoreError> {
+        Ok(rule::propose(&self.open()?, transaction)?)
+    }
+
+    /// The rule "Create rule from this" starts from (M3.13).
+    pub fn rule_from(
+        &self,
+        transaction: TransactionId,
+    ) -> Result<Option<rule::RuleDefinition>, StoreError> {
+        Ok(rule::rule_from(&self.open()?, transaction)?)
+    }
+
+    /// "Not now": the prompt doesn't propose this pattern again.
+    pub fn dismiss_rule(&self, definition: &rule::RuleDefinition) -> Result<(), StoreError> {
+        Ok(rule::dismiss(&mut self.open()?, definition)?)
     }
 
     /// Reverts a change batch where its values still hold.

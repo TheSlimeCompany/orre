@@ -495,3 +495,40 @@ fn a_rule_that_only_renames_says_so() {
     assert!(p.lines[0].after.changes());
     assert!(p.spending.is_empty());
 }
+
+#[test]
+fn touching_rule_finds_agent_rules_over_its_rows() {
+    let mut f = Fixture::new();
+    let uber = rule::create(
+        &mut f.db,
+        &RuleDefinition::new(
+            MatchField::Merchant,
+            Pattern::new(MatchKind::Contains, "UBER").unwrap(),
+            rule::AmountBounds::ANY,
+            None,
+            vec![rule::RuleAction::SetCategory(key("transport"))],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let eats = f.row(day(2), -1_500, "UBER *EATS", None);
+    let trip = f.row(day(3), -900, "UBER TRIP", None);
+    set_by_rule(&f, eats, uber, "transport");
+    set_by_rule(&f, trip, uber, "transport");
+    f.row(day(4), -500, "DELIVEROO", None);
+
+    let over = f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "contains", "UBER *EATS", "food.eating_out"),
+    );
+    // Matches nothing the rule filed.
+    f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "contains", "DELIVEROO", "food.eating_out"),
+    );
+
+    let touching = touching_rule(&f.db, uber).unwrap();
+    assert_eq!(touching.iter().map(|s| s.id).collect::<Vec<_>>(), [over]);
+    reject(&mut f.db, over, None).unwrap();
+    assert!(touching_rule(&f.db, uber).unwrap().is_empty());
+}

@@ -87,6 +87,8 @@ pub(super) struct Editor {
     pub(super) add_line_focus: FocusHandle,
     /// Why the last edit wasn't saved, and where to say so.
     pub(super) error: Option<(EditPlace, SharedString)>,
+    /// "Create a rule from this edit?" for the row just categorised (M3.13).
+    pub(super) rule_prompt: Option<super::rule_prompt::Prompt>,
     next_key: u64,
 }
 
@@ -121,6 +123,7 @@ impl Editor {
             tag_focus: cx.focus_handle(),
             add_line_focus: cx.focus_handle(),
             error: None,
+            rule_prompt: None,
             next_key: 0,
         };
         (editor, subscriptions)
@@ -199,6 +202,15 @@ impl TransactionsView {
             self.editor.generation = self.generation;
             self.editor.error = None;
             self.editor.split = None;
+            // The prompt goes away when the selection changes (D6.3).
+            if self
+                .editor
+                .rule_prompt
+                .as_ref()
+                .is_some_and(|prompt| Some(prompt.proposal.transaction) != shown)
+            {
+                self.editor.rule_prompt = None;
+            }
             // A menu opened for the row being left closes without moving
             // focus, as the account inspector's selects do.
             match self.menu {

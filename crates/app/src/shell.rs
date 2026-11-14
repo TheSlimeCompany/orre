@@ -66,6 +66,10 @@ use crate::import::{self, Imports, ImportsChanged};
 use crate::inbox::store::InboxStore;
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, Inbox};
+use crate::rules::dialogs::{DeleteNameDialog, DeleteRuleDialog, UndoChangeDialog};
+use crate::rules::store::RulesStore;
+use crate::rules::view::RulesView;
+use crate::rules::{self, Rules, RulesEvent};
 use crate::settings::enable::EnableDialog;
 use crate::settings::export::ExportDialog;
 use crate::settings::remove::RemoveDialog;
@@ -73,6 +77,7 @@ use crate::settings::restore::RestoreDialog;
 use crate::settings::store::SettingsStore;
 use crate::settings::{self, Section, SettingsEvent, SettingsView};
 use crate::theme::tokens::{color, size as token_size, typography};
+use crate::transactions::rule_prompt::TransactionsEvent;
 use crate::transactions::store::TransactionStore;
 use crate::transactions::{self, TransactionsView};
 use crate::ui::button::IconButton;
@@ -223,7 +228,10 @@ impl View {
 
     /// Whether its screen exists yet.
     pub fn is_built(self) -> bool {
-        matches!(self, View::Transactions | View::Inbox | View::Settings)
+        matches!(
+            self,
+            View::Transactions | View::Inbox | View::Rules | View::Settings
+        )
     }
 }
 
@@ -256,6 +264,7 @@ pub fn init(cx: &mut App) {
     accounts::init(cx);
     inbox::init(cx);
     checks::init(cx);
+    rules::init(cx);
     settings::init(cx);
 }
 
@@ -328,6 +337,11 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
             }
             let checks = cx.new(|_| checks);
             shell.install_checks(checks, window, cx);
+            let rules = cx.new(|_| match paths::database_path() {
+                Ok(database) => Rules::from_store(RulesStore::new(database)),
+                Err(error) => Rules::unavailable(format!("Coffer has no data folder: {error}")),
+            });
+            shell.install_rules(rules, window, cx);
             if let Some(store) = store {
                 shell.keep_window_state(store, window, cx);
             }
@@ -364,6 +378,10 @@ pub struct ShellView {
     checks: Entity<Checks>,
     checks_view: Entity<ChecksView>,
     checks_subscriptions: Vec<Subscription>,
+    /// The Rules view (M3.13): rules, merchant names and change history.
+    rules: Entity<Rules>,
+    rules_view: Entity<RulesView>,
+    rules_subscriptions: Vec<Subscription>,
     settings: Entity<SettingsView>,
     /// The dialog open over the window, and its subscription.
     dialog: Option<(AnyView, Subscription)>,
@@ -480,6 +498,15 @@ impl ShellView {
         }
         let checks = cx.new(|_| Checks::empty());
         let checks_view = cx.new(|cx| ChecksView::new(checks.clone(), cx));
+        let rules = cx.new(|_| Rules::empty());
+        let rules_view = cx.new(|cx| RulesView::new(rules.clone(), window, cx));
+        subscriptions.push(cx.subscribe_in(
+            &transactions,
+            window,
+            |this, _, event: &TransactionsEvent, window, cx| {
+                this.on_transactions_event(event.clone(), window, cx)
+            },
+        ));
         Self {
             view,
             before_settings: View::default(),
@@ -490,6 +517,9 @@ impl ShellView {
             checks,
             checks_view,
             checks_subscriptions: Vec::new(),
+            rules,
+            rules_view,
+            rules_subscriptions: Vec::new(),
             settings,
             dialog: None,
             imports,
@@ -601,6 +631,88 @@ impl ShellView {
         self.checks_view = cx.new(|cx| ChecksView::new(checks.clone(), cx));
         self.checks = checks;
         cx.notify();
+    }
+
+    /// Uses `rules` for the Rules view (the shell starts with an empty one
+    /// that reads nothing).
+    pub fn install_rules(
+        &mut self,
+        rules: Entity<Rules>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.rules_subscriptions = vec![
+            cx.subscribe_in(&rules, window, |this, _, event, window, cx| {
+                this.on_rules_event(*event, window, cx)
+            }),
+            cx.observe(&rules, |_, _, cx| cx.notify()),
+        ];
+        self.rules_view = cx.new(|cx| RulesView::new(rules.clone(), window, cx));
+        self.rules = rules;
+        cx.notify();
+    }
+
+    /// The Rules view's state.
+    pub fn rules(&self) -> &Entity<Rules> {
+        &self.rules
+    }
+
+    /// The Rules view.
+    pub fn rules_view(&self) -> &Entity<RulesView> {
+        &self.rules_view
+    }
+
+    fn on_rules_event(&mut self, event: RulesEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let rules = self.rules.clone();
+        match event {
+            RulesEvent::DeleteRuleRequested(rule) => {
+                let dialog = cx.new(|cx| DeleteRuleDialog::new(rules, rule, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            RulesEvent::DeleteNameRequested(name) => {
+                let dialog = cx.new(|cx| DeleteNameDialog::new(rules, name, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            RulesEvent::UndoRequested(batch) => {
+                let dialog = cx.new(|cx| UndoChangeDialog::new(rules, batch, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            RulesEvent::ReviewSuggestion(id) => {
+                self.show(View::Inbox, window, cx);
+                self.checks.update(cx, |checks, cx| checks.hide(cx));
+                self.inbox.update(cx, |inbox, cx| {
+                    inbox.show_status(coffer_core::inbox::SuggestionStatus::Pending, cx);
+                    inbox.select(Some(id), cx);
+                });
+            }
+            // An apply, an undo or a name changed what the other views read.
+            RulesEvent::Changed => {
+                self.transactions
+                    .update(cx, |transactions, cx| transactions.reload(cx));
+                self.accounts.update(cx, |accounts, cx| accounts.reload(cx));
+                self.checks.update(cx, |checks, cx| checks.reload(cx));
+            }
+        }
+    }
+
+    fn on_transactions_event(
+        &mut self,
+        event: TransactionsEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            TransactionsEvent::CreateRule(rule, origin) => {
+                self.show(View::Rules, window, cx);
+                self.rules
+                    .update(cx, |rules, cx| rules.new_rule_from(&rule, origin, cx));
+            }
+            TransactionsEvent::OpenRule(rule) => {
+                self.show(View::Rules, window, cx);
+                self.rules
+                    .update(cx, |rules, cx| rules.select_rule(Some(rule), cx));
+            }
+        }
     }
 
     /// The review queues.
@@ -787,6 +899,16 @@ impl ShellView {
             focus.focus(window, cx);
         } else {
             self.focus.focus(window, cx);
+        }
+        if view == View::Rules {
+            // What each rule decides and the history change while it's
+            // closed.
+            self.rules.update(cx, |rules, cx| rules.reload(cx));
+            self.rules_view
+                .read(cx)
+                .focus_handle()
+                .clone()
+                .focus(window, cx);
         }
         if view == View::Settings {
             self.before_settings = self.view;
@@ -998,12 +1120,16 @@ impl Render for ShellView {
             .when(view == View::Inbox, |this| {
                 this.child(inbox::panel::render(&self.inbox, &self.checks, cx))
             })
+            .when(view == View::Rules, |this| {
+                this.child(rules::panel::render(&self.rules, cx))
+            })
             .map(|this| match view {
                 View::Transactions => this.child(self.transactions.clone()),
                 View::Inbox if self.checks.read(cx).queue().is_some() => {
                     this.child(self.checks_view.clone())
                 }
                 View::Inbox => this.child(self.inbox_view.clone()),
+                View::Rules => this.child(self.rules_view.clone()),
                 View::Settings => this.child(self.settings.clone()),
                 _ => this.child(self.render_unbuilt()),
             })

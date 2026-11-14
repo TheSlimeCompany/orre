@@ -47,6 +47,7 @@
 //! [`MatchField::Merchant`]: crate::rule::MatchField::Merchant
 
 mod clean;
+mod overview;
 mod store;
 #[cfg(test)]
 mod tests;
@@ -59,6 +60,7 @@ use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 
 pub use clean::clean;
+pub use overview::{AliasSummary, Caught, overview};
 pub(crate) use store::add_in;
 pub use store::{
     Error, InvalidAlias, add, clear_user_name, delete, edit, get, list, set_user_name,

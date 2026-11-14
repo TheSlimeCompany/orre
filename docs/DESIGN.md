@@ -2201,6 +2201,37 @@ or AI-suggested.
   in percentages), the Exclude action's reason row, the Amount condition's Over / Under / Between fields, New rule from
   scratch (the inspector with empty When and Then), and the eighth tab on the artboards
   drawn before D6.7.
+- **Built in M3.13** (`crates/app/src/rules/`; `ARCHITECTURE.md` → "Decision record: the
+  Rules view (built)"). Composed from existing specs, not drawn (user, 2026-11-14):
+  - *Amount*: after Over, Under or Between, a field row with no label: the inspector-size
+    Out / In segmented control, then the amount field(s) with the currency's symbol
+    (`amount_input`), "and" in `text-muted` between Between's two. Bounds no choice can
+    say show "Custom" (faded in the menu) with a caption that choosing replaces them.
+  - *Split action*: one row per line, the category select (filling) and a 60px mono
+    percent field with a `%` suffix, the 24px remove button from the third line; under
+    them ghost "+ Add line" and the total in mono, `text-muted` at 100% and `warning`
+    otherwise. *Exclude action*: a select of Duplicate, Bank error, Disputed. *Tag
+    action*: D6.3's pills and "+ Tag" menu. *My share*: a mono field with a `%` suffix.
+  - A Then row whose control is taller than 28px (Split, Tag) aligns its label and ✕ to
+    the first line. With two or more actions the limits caption follows; a fault in an
+    action is said under "+ Add action" in `danger`.
+  - *New rule from scratch*: the apply preview with Merchant contains and nothing typed,
+    no actions; the canvas says "Finish the rule in the inspector to see what it would
+    change." until it's valid. Its header reads "New rule". *New name*: the name
+    inspector, title "New name", caption "new name, saved once both fields are filled
+    in".
+  - *Empty Merchant names and Change history*: the No rules yet layout with the name tag
+    and the history clock.
+  - *Delete name dialog*: Delete rule's layout, "Delete the name “Amazon Marketplace”?".
+  - *Transactions Rule section*: "No rule matched" with outline "Create rule from this"
+    (rows with a category); "A rule set this category" with outline "Open rule".
+  - Dragging a row: the row over which it's dropped takes `hover`; the dragged row
+    follows the pointer as its WHEN on a `float` 28px row with the Toolbar shadow.
+
+  Left out (user): "Show 31", "Show in Transactions" and "Show rule 2"'s Transactions
+  counterpart wait for a Transactions filter by rows; "Show rule 2" (within Rules) is
+  built. Differences from Paper: the apply preview names each row by its display name
+  (the cleaned bank text), as Transactions does, so fixture rows can repeat a name.
 
 **Budgets: groups, rollover, pace and upcoming** — drawn in D6.10 (M4.8, M4.9). Two
 1440×900 artboards built from the D6.1 Budgets screen (`6OE-0`), plus a states board.
