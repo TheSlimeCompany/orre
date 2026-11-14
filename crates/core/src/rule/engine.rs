@@ -188,6 +188,22 @@ impl RuleSet {
         Some(self.evaluate(input).only(compiled))
     }
 
+    /// Every rule whose conditions match a transaction with these fields,
+    /// in evaluation order, whether or not it wins a field.
+    pub fn matching(&self, input: &MatchInput<'_>) -> Vec<RuleId> {
+        let row = Prepared::new(input);
+        self.rules
+            .iter()
+            .filter(|rule| rule.matches(&row))
+            .map(|rule| rule.id)
+            .collect()
+    }
+
+    /// The rules' IDs, in evaluation order.
+    pub fn ids(&self) -> impl Iterator<Item = RuleId> + '_ {
+        self.rules.iter().map(|rule| rule.id)
+    }
+
     /// Applies the rules to every transaction of an import batch; see
     /// [`apply_to_batch`].
     pub fn apply_to_batch(

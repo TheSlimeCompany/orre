@@ -35,6 +35,7 @@ const TABLES: &[&str] = &[
     "report",
     "rule",
     "rule_action",
+    "rule_prompt_dismissed",
     "schedule",
     "schedule_match",
     "schedule_skip",

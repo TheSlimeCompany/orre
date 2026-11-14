@@ -175,8 +175,9 @@ pub struct SkippedSplit {
 }
 
 /// A transaction as the planner reads it.
-struct Candidate {
-    id: TransactionId,
+pub(super) struct Candidate {
+    pub(super) id: TransactionId,
+    pub(super) date: NaiveDate,
     account_id: AccountId,
     amount_minor: i64,
     merchant: Option<String>,
@@ -192,7 +193,7 @@ struct Candidate {
 }
 
 impl Candidate {
-    fn input(&self) -> MatchInput<'_> {
+    pub(super) fn input(&self) -> MatchInput<'_> {
         MatchInput {
             account_id: self.account_id,
             amount_minor: self.amount_minor,
@@ -206,14 +207,14 @@ impl Candidate {
 
 /// The transactions `filter` (a condition on `"transaction" t`) selects, by
 /// ID.
-fn load_candidates(
+pub(super) fn load_candidates(
     conn: &Connection,
     filter: &str,
     params: impl rusqlite::Params,
 ) -> rusqlite::Result<Vec<Candidate>> {
     let mut statement = conn.prepare(&format!(
         "SELECT t.id, t.account_id, t.amount_minor, t.merchant, t.description_raw, \
-         t.source_category, t.source_type, \
+         t.source_category, t.source_type, t.date AS date, \
          EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id), \
          coalesce(g.status IN ('suggested', 'confirmed'), 0), \
          EXISTS (SELECT 1 FROM transaction_link l \
@@ -231,9 +232,10 @@ fn load_candidates(
                 description: row.get(4)?,
                 source_category: row.get(5)?,
                 source_type: row.get(6)?,
-                split: row.get(7)?,
-                in_transfer: row.get(8)?,
-                linked: row.get(9)?,
+                date: crate::account::date(row, "date")?,
+                split: row.get(8)?,
+                in_transfer: row.get(9)?,
+                linked: row.get(10)?,
             })
         })?
         .collect()
@@ -838,7 +840,7 @@ pub(crate) fn commit_apply_in(
     }
 
     let mut writer = Writer::default();
-    let mut recorder = Recorder::new(ChangeKind::RuleApply);
+    let mut recorder = Recorder::for_rule(preview.rule);
     for row in &preview.rows {
         let include = included.contains(&row.transaction);
         writer.write(tx, row.transaction, &row.changes, include, &mut recorder)?;
@@ -863,7 +865,7 @@ pub(crate) fn preview_apply_in(
 
 /// The plan for applying `rule` to every transaction, inside the caller's
 /// DB transaction.
-fn plan_history(conn: &Connection, rule: RuleId) -> Result<ApplyPreview, ApplyError> {
+pub(super) fn plan_history(conn: &Connection, rule: RuleId) -> Result<ApplyPreview, ApplyError> {
     let rules = RuleSet::load(conn)?;
     if !rules.contains(rule) {
         return Err(StoreError::NotFound(rule).into());

@@ -489,6 +489,7 @@ fn single(
                 text_input(&view.editor.note).w_full(),
             ))
             .children(editor_error(view, EditPlace::Details))
+            .children(super::rule_prompt::card(view, row, window, cx))
             .into_any_element(),
     ];
     // Every row that can be split has the section (`DESIGN.md`: "Every
@@ -509,22 +510,7 @@ fn single(
             .into_any_element(),
     );
     if row.transfer.is_none() {
-        sections.push(
-            section(true)
-                .gap(spacing::S2)
-                .child(section_title("Rule"))
-                .child(
-                    div()
-                        .text_role(typography::BODY)
-                        .text_color(color::TEXT_MUTED)
-                        .child(if row.rule.is_some() {
-                            "A rule set this category"
-                        } else {
-                            "No rule matched"
-                        }),
-                )
-                .into_any_element(),
-        );
+        sections.push(super::rule_prompt::rule_section(row, cx));
     }
     sections
 }

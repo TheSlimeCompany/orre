@@ -348,7 +348,7 @@ pub(crate) fn approve_in(
             (applied, batch, record)
         }
         Payload::Rule(definition) => {
-            let rule = rule::create_at_in(conn, definition, 0)?;
+            let rule = rule::create_at_in(conn, definition, 0, rule::RuleOrigin::Inbox)?;
             let history = if options.apply_to_history {
                 let preview = rule::preview_apply_in(conn, rule)?;
                 rule::commit_apply_in(conn, &preview, &BTreeSet::new())?.batch

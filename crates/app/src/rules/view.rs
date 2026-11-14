@@ -1,0 +1,1048 @@
+//! The Rules view's canvas and inspector (`docs/DESIGN.md` → "Rules";
+//! Paper `B1J-0`, `EFT-0`, `G2O-0`, `GZT-0`, `HFH-0`).
+//!
+//! The view owns what needs a window: the text fields, the selects' states
+//! and which menu is open. It keeps the fields in step with the
+//! [`Rules`] entity's form, and sends every edit back to it: a keystroke
+//! changes the form (a new rule's preview follows at once), leaving a field
+//! or Enter saves a stored rule or name, and a select saves at once.
+//!
+//! The canvas is [`super::table`]; the inspector is [`super::inspector`].
+//! After an apply the D6.3 undo bar floats at the foot of the canvas; a
+//! change core refuses is said under the toolbar in caption type, `danger`.
+
+use std::collections::HashMap;
+
+use coffer_core::category::CategoryKey;
+use coffer_core::id::AccountId;
+use coffer_core::merchant::AliasKind;
+use coffer_core::rule::{ActionKind, ExcludeReason, MatchField, MatchKind};
+use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::{
+    AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable as _,
+    InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, ParentElement as _, Render,
+    SharedString, Styled as _, Subscription, Window, div,
+};
+
+use crate::theme::tokens::{color, size, spacing, typography};
+use crate::ui::icon::Glyph;
+use crate::ui::menu::{MenuGroup, MenuList, MenuOption, SelectState, filter_groups};
+use crate::ui::text::TextRoleExt as _;
+use crate::ui::undo_bar::UndoBar;
+
+use super::form::{ActionForm, AmountChoice, Direction, SplitLineForm, Unavailable};
+use super::store::RulesData;
+use super::text;
+use super::{Outcome, Rules};
+
+/// The key context of the Rules canvas, where ↑↓ and Escape work.
+pub const CONTEXT: &str = "CofferRules";
+
+/// The most rows a menu shows before it scrolls.
+pub const MENU_ROWS: f32 = 12.;
+
+/// Option keys that aren't IDs.
+const ANY: &str = "any";
+const NEW_TAG: &str = "new-tag";
+
+/// Which select or menu is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Menu {
+    Field,
+    Test,
+    Account,
+    Amount,
+    Position,
+    Category,
+    Exclude,
+    SplitLine(usize),
+    NameTest,
+    /// "+ Add action".
+    AddAction,
+    /// The Tag action's "+ Tag".
+    Tags,
+}
+
+impl Menu {
+    /// Whether it has the filter field: the category and tag menus.
+    fn has_filter(self) -> bool {
+        matches!(self, Menu::Category | Menu::SplitLine(_) | Menu::Tags)
+    }
+
+    /// Whether it opens from a button (its own keys) rather than a select.
+    fn is_popup(self) -> bool {
+        matches!(self, Menu::AddAction | Menu::Tags)
+    }
+}
+
+/// A field the view keeps in step with the form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Input {
+    Pattern,
+    Low,
+    High,
+    Merchant,
+    Note,
+    Share,
+    SplitPercent(usize),
+    NamePattern,
+    NameShows,
+}
+
+/// The Rules canvas and inspector.
+pub struct RulesView {
+    rules: Entity<Rules>,
+    focus: FocusHandle,
+    pub(super) inputs: HashMap<Input, Entity<InputState>>,
+    pub(super) selects: HashMap<Menu, SelectState>,
+    /// The popup menus' state ("+ Add action", "+ Tag").
+    pub(super) popup: SelectState,
+    pub(super) menu: Option<Menu>,
+    pub(super) menu_filter: Entity<InputState>,
+    pub(super) add_action_focus: FocusHandle,
+    pub(super) tag_focus: FocusHandle,
+    /// What the fields were last filled from.
+    filled_for: Option<super::FormKey>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl RulesView {
+    pub fn new(rules: Entity<Rules>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let menu_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Find a category"));
+        let mut subscriptions = vec![
+            cx.observe_in(&rules, window, |this, _, window, cx| this.sync(window, cx)),
+            cx.subscribe_in(&menu_filter, window, |this, _, event, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let groups = this.visible_groups(cx);
+                    if let Some(menu) = this.menu
+                        && let Some(state) = this.state_mut(menu)
+                    {
+                        state.highlight_first(&groups);
+                    }
+                    cx.notify();
+                }
+            }),
+        ];
+        let mut view = Self {
+            rules,
+            focus: cx.focus_handle(),
+            inputs: HashMap::new(),
+            selects: HashMap::new(),
+            popup: SelectState::new(cx),
+            menu: None,
+            menu_filter,
+            add_action_focus: cx.focus_handle(),
+            tag_focus: cx.focus_handle(),
+            filled_for: None,
+            _subscriptions: Vec::new(),
+        };
+        for input in [
+            Input::Pattern,
+            Input::Low,
+            Input::High,
+            Input::Merchant,
+            Input::Note,
+            Input::Share,
+            Input::NamePattern,
+            Input::NameShows,
+        ] {
+            subscriptions.push(view.add_input(input, window, cx));
+        }
+        for menu in [
+            Menu::Field,
+            Menu::Test,
+            Menu::Account,
+            Menu::Amount,
+            Menu::Position,
+            Menu::Category,
+            Menu::Exclude,
+            Menu::NameTest,
+        ] {
+            view.selects.insert(menu, SelectState::new(cx));
+        }
+        view._subscriptions = subscriptions;
+        view.sync(window, cx);
+        view
+    }
+
+    pub fn rules(&self) -> &Entity<Rules> {
+        &self.rules
+    }
+
+    /// The canvas's focus: where ↑↓ and Escape work.
+    pub fn focus_handle(&self) -> &FocusHandle {
+        &self.focus
+    }
+
+    fn add_input(
+        &mut self,
+        input: Input,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Subscription {
+        let placeholder = match input {
+            Input::Pattern | Input::NamePattern => "Text to match",
+            Input::Low | Input::High => "0.00",
+            Input::Merchant | Input::NameShows => "Name to show",
+            Input::Note => "Note to add",
+            Input::Share | Input::SplitPercent(_) => "0",
+        };
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+        let subscription = cx.subscribe_in(&state, window, move |this, state, event, _, cx| {
+            let save = match event {
+                InputEvent::Change => false,
+                InputEvent::Blur | InputEvent::PressEnter { .. } => true,
+                _ => return,
+            };
+            let value = state.read(cx).value().to_string();
+            this.typed(input, value, save, cx);
+        });
+        self.inputs.insert(input, state);
+        subscription
+    }
+
+    pub(super) fn input(&self, input: Input) -> Option<&Entity<InputState>> {
+        self.inputs.get(&input)
+    }
+
+    /// Makes sure every split line has its fields.
+    fn ensure_split_inputs(&mut self, lines: usize, window: &mut Window, cx: &mut Context<Self>) {
+        for line in 0..lines {
+            if !self.inputs.contains_key(&Input::SplitPercent(line)) {
+                let subscription = self.add_input(Input::SplitPercent(line), window, cx);
+                self._subscriptions.push(subscription);
+            }
+            self.selects
+                .entry(Menu::SplitLine(line))
+                .or_insert_with(|| SelectState::new(cx));
+        }
+    }
+
+    /// What the form holds for `input`.
+    fn form_value(&self, input: Input, cx: &App) -> Option<String> {
+        let rules = self.rules.read(cx);
+        if matches!(input, Input::NamePattern | Input::NameShows) {
+            let form = rules.name_form()?;
+            return Some(match input {
+                Input::NamePattern => form.pattern.clone(),
+                _ => form.name.clone(),
+            });
+        }
+        let form = rules.form()?;
+        Some(match input {
+            Input::Pattern => form.text.clone(),
+            Input::Low => form.amount.low.clone(),
+            Input::High => form.amount.high.clone(),
+            Input::Merchant => match form.action(ActionKind::SetMerchant)? {
+                ActionForm::Merchant(text) => text.clone(),
+                _ => return None,
+            },
+            Input::Note => match form.action(ActionKind::SetNote)? {
+                ActionForm::Note(text) => text.clone(),
+                _ => return None,
+            },
+            Input::Share => match form.action(ActionKind::MyShare)? {
+                ActionForm::Share(text) => text.clone(),
+                _ => return None,
+            },
+            Input::SplitPercent(line) => match form.action(ActionKind::SplitTemplate)? {
+                ActionForm::Split(lines) => lines.get(line)?.percent.clone(),
+                _ => return None,
+            },
+            Input::NamePattern | Input::NameShows => return None,
+        })
+    }
+
+    /// A field changed: the form follows, and a stored rule or name saves
+    /// when `save` (blur, Enter).
+    fn typed(&mut self, input: Input, value: String, save: bool, cx: &mut Context<Self>) {
+        // A late blur from fields filled for a rule or name since left.
+        if self.filled_for != Some(self.rules.read(cx).form_key()) {
+            return;
+        }
+        if !save && self.form_value(input, cx).as_deref() == Some(value.as_str()) {
+            return;
+        }
+        self.rules.update(cx, |rules, cx| match input {
+            Input::NamePattern => rules.edit_name(save, |form| form.pattern = value, cx),
+            Input::NameShows => rules.edit_name(save, |form| form.name = value, cx),
+            _ => rules.edit(
+                save,
+                |form| match input {
+                    Input::Pattern => form.text = value,
+                    Input::Low => form.amount.low = value,
+                    Input::High => form.amount.high = value,
+                    Input::Merchant => {
+                        if let Some(ActionForm::Merchant(text)) =
+                            form.action_mut(ActionKind::SetMerchant)
+                        {
+                            *text = value;
+                        }
+                    }
+                    Input::Note => {
+                        if let Some(ActionForm::Note(text)) = form.action_mut(ActionKind::SetNote) {
+                            *text = value;
+                        }
+                    }
+                    Input::Share => {
+                        if let Some(ActionForm::Share(text)) = form.action_mut(ActionKind::MyShare)
+                        {
+                            *text = value;
+                        }
+                    }
+                    Input::SplitPercent(line) => {
+                        if let Some(ActionForm::Split(lines)) =
+                            form.action_mut(ActionKind::SplitTemplate)
+                            && let Some(line) = lines.get_mut(line)
+                        {
+                            line.percent = value;
+                        }
+                    }
+                    Input::NamePattern | Input::NameShows => {}
+                },
+                cx,
+            ),
+        });
+    }
+
+    /// Puts the form's values into fields that aren't being typed in.
+    fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let lines = match self
+            .rules
+            .read(cx)
+            .form()
+            .and_then(|form| form.action(ActionKind::SplitTemplate))
+        {
+            Some(ActionForm::Split(lines)) => lines.len(),
+            _ => 0,
+        };
+        self.ensure_split_inputs(lines, window, cx);
+        // Another rule or name: every field takes its values, even the one
+        // focused.
+        let key = self.rules.read(cx).form_key();
+        let moved = self.filled_for != Some(key);
+        self.filled_for = Some(key);
+        let inputs: Vec<(Input, Entity<InputState>)> = self
+            .inputs
+            .iter()
+            .map(|(input, state)| (*input, state.clone()))
+            .collect();
+        for (input, state) in inputs {
+            let value = self.form_value(input, cx).unwrap_or_default();
+            let (focused, now) = {
+                let state = state.read(cx);
+                (
+                    state.focus_handle(cx).is_focused(window),
+                    state.value().to_string(),
+                )
+            };
+            if (moved || !focused) && now != value {
+                state.update(cx, |state, cx| state.set_value(value, window, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    // Menus --------------------------------------------------------------------
+
+    pub(super) fn state(&self, menu: Menu) -> &SelectState {
+        if menu.is_popup() {
+            &self.popup
+        } else {
+            self.selects.get(&menu).unwrap_or(&self.popup)
+        }
+    }
+
+    fn state_mut(&mut self, menu: Menu) -> Option<&mut SelectState> {
+        if menu.is_popup() {
+            Some(&mut self.popup)
+        } else {
+            self.selects.get_mut(&menu)
+        }
+    }
+
+    /// The menu's options before the filter narrows them.
+    pub(super) fn menu_groups(&self, menu: Menu, cx: &App) -> Vec<MenuGroup> {
+        let rules = self.rules.read(cx);
+        let data = rules.data();
+        match menu {
+            Menu::Field => vec![MenuGroup::new(
+                None,
+                text::FIELDS
+                    .iter()
+                    .map(|field| MenuOption::new(field.as_str(), text::field(*field)))
+                    .collect(),
+            )],
+            Menu::Test => vec![MenuGroup::new(
+                None,
+                text::TESTS
+                    .iter()
+                    .map(|kind| MenuOption::new(kind.as_str(), text::test(*kind)))
+                    .collect(),
+            )],
+            Menu::Account => {
+                let mut options = vec![MenuOption::new(ANY, "Any account")];
+                options.extend(data.accounts.iter().map(|account| {
+                    MenuOption::new(
+                        account.id.to_string(),
+                        text::plain(&account.name, text::NAME_SHOWN),
+                    )
+                }));
+                vec![MenuGroup::new(None, options)]
+            }
+            Menu::Amount => {
+                let custom = rules
+                    .form()
+                    .is_some_and(|form| form.amount.choice == AmountChoice::Custom);
+                let mut options: Vec<MenuOption> = [
+                    AmountChoice::Any,
+                    AmountChoice::Over,
+                    AmountChoice::Under,
+                    AmountChoice::Between,
+                ]
+                .into_iter()
+                .map(|choice| MenuOption::new(amount_key(choice), amount_label(choice)))
+                .collect();
+                if custom {
+                    options.push(
+                        MenuOption::new(amount_key(AmountChoice::Custom), "Custom").disabled(true),
+                    );
+                }
+                vec![MenuGroup::new(None, options)]
+            }
+            Menu::Position => {
+                let count = data.rules.len() + 1;
+                let options = (0..count)
+                    .map(|at| {
+                        let label = match at {
+                            0 => "First".to_owned(),
+                            at if at + 1 == count => "Last".to_owned(),
+                            at => format!("After rule {at}"),
+                        };
+                        MenuOption::new(at.to_string(), label)
+                            .hint(format!("rule {} of {count}", at + 1))
+                    })
+                    .collect();
+                vec![MenuGroup::new(None, options)]
+            }
+            Menu::Category | Menu::SplitLine(_) => category_groups(data),
+            Menu::Exclude => vec![MenuGroup::new(
+                None,
+                text::REASONS
+                    .iter()
+                    .map(|reason| MenuOption::new(reason.as_str(), text::reason(*reason)))
+                    .collect(),
+            )],
+            Menu::NameTest => vec![MenuGroup::new(
+                None,
+                text::ALIAS_KINDS
+                    .iter()
+                    .map(|kind| MenuOption::new(kind.as_str(), text::alias_test(*kind)))
+                    .collect(),
+            )],
+            Menu::AddAction => {
+                let option = |kind: ActionKind| {
+                    let option = MenuOption::new(kind.as_str(), text::menu_label(kind))
+                        .icon(text::action_glyph(kind));
+                    match rules.form().and_then(|form| form.availability(kind)) {
+                        None => option,
+                        Some(Unavailable::InUse) => option.hint("In use").disabled(true),
+                        Some(Unavailable::NotWith(other)) => option
+                            .hint(format!("Not with {}", text::action_label(other)))
+                            .disabled(true),
+                    }
+                };
+                vec![
+                    MenuGroup::new(
+                        None,
+                        text::MENU_ACTIONS.iter().map(|k| option(*k)).collect(),
+                    ),
+                    MenuGroup::new(None, vec![option(ActionKind::Exclude)]),
+                ]
+            }
+            Menu::Tags => {
+                let chosen: Vec<String> = match rules
+                    .form()
+                    .and_then(|form| form.action(ActionKind::AddTag))
+                {
+                    Some(ActionForm::Tags(tags)) => tags.clone(),
+                    _ => Vec::new(),
+                };
+                let options = data
+                    .tags
+                    .iter()
+                    .map(|tag| {
+                        let option = MenuOption::new(
+                            tag_key(&tag.name),
+                            text::plain(&tag.name, text::NAME_SHOWN),
+                        )
+                        .checked(
+                            chosen
+                                .iter()
+                                .any(|name| name.eq_ignore_ascii_case(&tag.name)),
+                        );
+                        if tag.private {
+                            option.icon(Glyph::Lock)
+                        } else {
+                            option
+                        }
+                    })
+                    .collect();
+                vec![MenuGroup::new(None, options)]
+            }
+        }
+    }
+
+    /// The open menu's options as shown.
+    pub(super) fn visible_groups(&self, cx: &App) -> Vec<MenuGroup> {
+        let Some(menu) = self.menu else {
+            return Vec::new();
+        };
+        let groups = self.menu_groups(menu, cx);
+        if !menu.has_filter() {
+            return groups;
+        }
+        let query = self.menu_filter.read(cx).value().to_string();
+        let mut groups = filter_groups(&groups, &query);
+        if menu == Menu::Tags {
+            let typed = query.trim();
+            let known = self
+                .rules
+                .read(cx)
+                .data()
+                .tags
+                .iter()
+                .any(|tag| tag.name.eq_ignore_ascii_case(typed));
+            if !typed.is_empty() && !known {
+                let option = match coffer_core::tag::TagName::new(typed) {
+                    Ok(name) => MenuOption::new(NEW_TAG, format!("Create “{}”", name.as_str()))
+                        .icon(Glyph::Plus),
+                    Err(_) => MenuOption::new(NEW_TAG, "Create a tag")
+                        .icon(Glyph::Plus)
+                        .hint("Not a name a tag can have")
+                        .disabled(true),
+                };
+                groups.push(MenuGroup::new(None, vec![option]));
+            }
+        }
+        groups
+    }
+
+    /// The key of the option the menu ticks.
+    pub(super) fn chosen_key(&self, menu: Menu, cx: &App) -> Option<SharedString> {
+        let rules = self.rules.read(cx);
+        if menu == Menu::NameTest {
+            return rules.name_form().map(|form| form.kind.as_str().into());
+        }
+        if menu == Menu::Position {
+            return Some(rules.new_position().to_string().into());
+        }
+        let form = rules.form()?;
+        Some(match menu {
+            Menu::Field => form.field.as_str().into(),
+            Menu::Test => form.kind.as_str().into(),
+            Menu::Account => form
+                .account
+                .map_or(ANY.into(), |account| account.to_string().into()),
+            Menu::Amount => amount_key(form.amount.choice).into(),
+            Menu::Category => match form.action(ActionKind::SetCategory)? {
+                ActionForm::Category(Some(key)) => key.as_str().to_owned().into(),
+                _ => return None,
+            },
+            Menu::Exclude => match form.action(ActionKind::Exclude)? {
+                ActionForm::Exclude(Some(reason)) => reason.as_str().into(),
+                _ => return None,
+            },
+            Menu::SplitLine(line) => match form.action(ActionKind::SplitTemplate)? {
+                ActionForm::Split(lines) => lines
+                    .get(line)?
+                    .category
+                    .as_ref()?
+                    .as_str()
+                    .to_owned()
+                    .into(),
+                _ => return None,
+            },
+            _ => return None,
+        })
+    }
+
+    pub(super) fn open(&mut self, menu: Menu, window: &mut Window, cx: &mut Context<Self>) {
+        if self.menu == Some(menu) {
+            self.close(window, cx);
+            return;
+        }
+        if self.menu.is_some() {
+            self.close(window, cx);
+        }
+        self.menu = Some(menu);
+        let placeholder = if menu == Menu::Tags {
+            "Find or create a tag"
+        } else {
+            "Find a category"
+        };
+        self.menu_filter.update(cx, |filter, cx| {
+            filter.set_placeholder(placeholder, window, cx);
+            filter.set_value("", window, cx);
+        });
+        let chosen = self.chosen_key(menu, cx);
+        if let Some(state) = self.state_mut(menu) {
+            state.set_open(true, chosen.as_ref(), window, cx);
+        }
+        if menu.has_filter() {
+            self.menu_filter
+                .update(cx, |filter, cx| filter.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    pub(super) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(menu) = self.menu.take() else {
+            return;
+        };
+        if menu.is_popup() {
+            self.popup.dismiss();
+            let back = match menu {
+                Menu::Tags => &self.tag_focus,
+                _ => &self.add_action_focus,
+            };
+            back.focus(window, cx);
+        } else if let Some(state) = self.state_mut(menu) {
+            state.set_open(false, None, window, cx);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn move_highlight(&mut self, step: isize, cx: &mut Context<Self>) {
+        let groups = self.visible_groups(cx);
+        if let Some(menu) = self.menu
+            && let Some(state) = self.state_mut(menu)
+        {
+            state.move_highlight(&groups, step);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn choose(
+        &mut self,
+        key: &SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(menu) = self.menu else {
+            return;
+        };
+        let typed = self.menu_filter.read(cx).value().trim().to_owned();
+        self.close(window, cx);
+        let key = key.to_string();
+        self.rules.update(cx, |rules, cx| match menu {
+            Menu::Field => {
+                if let Ok(field) = key.parse::<MatchField>() {
+                    rules.edit(true, |form| form.field = field, cx);
+                }
+            }
+            Menu::Test => {
+                if let Ok(kind) = key.parse::<MatchKind>() {
+                    rules.edit(true, |form| form.kind = kind, cx);
+                }
+            }
+            Menu::Account => {
+                let account = key.parse::<i64>().ok().map(AccountId::new);
+                rules.edit(true, |form| form.account = account, cx);
+            }
+            Menu::Amount => {
+                if let Some(choice) = amount_choice(&key) {
+                    rules.edit(true, |form| form.amount.choice = choice, cx);
+                }
+            }
+            Menu::Position => {
+                if let Ok(position) = key.parse::<usize>() {
+                    rules.set_new_position(position, cx);
+                }
+            }
+            Menu::Category => {
+                if let Ok(category) = CategoryKey::new(&key) {
+                    rules.edit(
+                        true,
+                        |form| {
+                            if let Some(ActionForm::Category(value)) =
+                                form.action_mut(ActionKind::SetCategory)
+                            {
+                                *value = Some(category);
+                            }
+                        },
+                        cx,
+                    );
+                }
+            }
+            Menu::SplitLine(line) => {
+                if let Ok(category) = CategoryKey::new(&key) {
+                    rules.edit(
+                        true,
+                        |form| {
+                            if let Some(ActionForm::Split(lines)) =
+                                form.action_mut(ActionKind::SplitTemplate)
+                                && let Some(line) = lines.get_mut(line)
+                            {
+                                line.category = Some(category);
+                            }
+                        },
+                        cx,
+                    );
+                }
+            }
+            Menu::Exclude => {
+                if let Ok(reason) = key.parse::<ExcludeReason>() {
+                    rules.edit(
+                        true,
+                        |form| {
+                            if let Some(ActionForm::Exclude(value)) =
+                                form.action_mut(ActionKind::Exclude)
+                            {
+                                *value = Some(reason);
+                            }
+                        },
+                        cx,
+                    );
+                }
+            }
+            Menu::NameTest => {
+                if let Ok(kind) = key.parse::<AliasKind>() {
+                    rules.edit_name(true, |form| form.kind = kind, cx);
+                }
+            }
+            Menu::AddAction => {
+                if let Ok(kind) = key.parse::<ActionKind>() {
+                    rules.edit(
+                        true,
+                        |form| {
+                            form.add_action(kind);
+                        },
+                        cx,
+                    );
+                }
+            }
+            Menu::Tags => {
+                let name = if key == NEW_TAG {
+                    typed
+                } else {
+                    key.strip_prefix("tag:").unwrap_or(&key).to_owned()
+                };
+                if name.is_empty() {
+                    return;
+                }
+                rules.edit(
+                    true,
+                    |form| {
+                        if let Some(ActionForm::Tags(tags)) = form.action_mut(ActionKind::AddTag) {
+                            match tags.iter().position(|tag| tag.eq_ignore_ascii_case(&name)) {
+                                Some(at) => drop(tags.remove(at)),
+                                None => tags.push(name),
+                            }
+                        }
+                    },
+                    cx,
+                );
+            }
+        });
+    }
+
+    /// A popup menu's list (its own keys), for "+ Add action" and "+ Tag".
+    pub(super) fn popup_list(&self, menu: Menu, cx: &mut Context<Self>) -> MenuList {
+        let groups = self.visible_groups(cx);
+        let label = match menu {
+            Menu::Tags => "Tags",
+            _ => "Add action",
+        };
+        let (moved, chosen, dismissed) = (
+            cx.entity().downgrade(),
+            cx.entity().downgrade(),
+            cx.entity().downgrade(),
+        );
+        let mut list = MenuList::new(label, groups, None, &self.popup)
+            .own_keys()
+            .width(size::SEARCH_FIELD)
+            .on_move(move |step, _, cx| {
+                moved
+                    .update(cx, |this, cx| this.move_highlight(step, cx))
+                    .ok();
+            })
+            .on_choose(move |key, window, cx| {
+                chosen
+                    .update(cx, |this, cx| this.choose(key, window, cx))
+                    .ok();
+            })
+            .on_dismiss(move |window, cx| {
+                dismissed.update(cx, |this, cx| this.close(window, cx)).ok();
+            });
+        if menu.has_filter() {
+            list = list
+                .filter(&self.menu_filter)
+                .max_height(size::CONTROL * MENU_ROWS);
+        }
+        list
+    }
+
+    /// A button that opens a popup menu on press (the Transactions view's
+    /// chips work the same way).
+    pub(super) fn popup_trigger(
+        &self,
+        menu: Menu,
+        trigger: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Div {
+        let was_open = self.menu == Some(menu);
+        div()
+            .flex()
+            .flex_none()
+            .capture_any_mouse_down(
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    if event.button != MouseButton::Left {
+                        return;
+                    }
+                    if was_open {
+                        this.close(window, cx);
+                    } else if this.menu != Some(menu) {
+                        this.open(menu, window, cx);
+                        window.prevent_default();
+                    }
+                }),
+            )
+            .child(trigger)
+    }
+
+    /// What a keyboard activation of a popup's trigger does.
+    pub(super) fn keyboard_open(
+        menu: Menu,
+    ) -> impl Fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>) + 'static {
+        move |this, event, window, cx| {
+            if matches!(event, ClickEvent::Keyboard(_)) {
+                this.open(menu, window, cx);
+            }
+        }
+    }
+
+    /// Opens `menu` as its control would (snapshots).
+    pub fn show_menu(&mut self, menu: Menu, window: &mut Window, cx: &mut Context<Self>) {
+        if self.menu != Some(menu) {
+            self.open(menu, window, cx);
+        }
+    }
+
+    /// Types `text` into `input` as the user would (snapshots, tests).
+    pub fn type_into(
+        &mut self,
+        input: Input,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(state) = self.inputs.get(&input).cloned() else {
+            return;
+        };
+        state.update(cx, |state, cx| state.set_value(text.to_owned(), window, cx));
+        self.typed(input, text.to_owned(), false, cx);
+    }
+
+    /// Removes the action of `kind`, as its ✕ does.
+    pub(super) fn remove_action(&mut self, kind: ActionKind, cx: &mut Context<Self>) {
+        self.rules.update(cx, |rules, cx| {
+            rules.edit(true, |form| form.remove_action(kind), cx)
+        });
+    }
+
+    /// Sets the amount condition's direction.
+    pub(super) fn set_direction(&mut self, direction: Direction, cx: &mut Context<Self>) {
+        self.rules.update(cx, |rules, cx| {
+            rules.edit(true, |form| form.amount.direction = direction, cx)
+        });
+    }
+
+    /// Adds a split line ("+ Add line").
+    pub(super) fn add_split_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.rules.update(cx, |rules, cx| {
+            rules.edit(
+                false,
+                |form| {
+                    if let Some(ActionForm::Split(lines)) =
+                        form.action_mut(ActionKind::SplitTemplate)
+                    {
+                        lines.push(SplitLineForm::default());
+                    }
+                },
+                cx,
+            )
+        });
+        self.sync(window, cx);
+    }
+
+    pub(super) fn remove_split_line(
+        &mut self,
+        line: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.rules.update(cx, |rules, cx| {
+            rules.edit(
+                true,
+                |form| {
+                    if let Some(ActionForm::Split(lines)) =
+                        form.action_mut(ActionKind::SplitTemplate)
+                        && line < lines.len()
+                        && lines.len() > 2
+                    {
+                        lines.remove(line);
+                    }
+                },
+                cx,
+            )
+        });
+        // The fields below the removed line shift up: fill every field again.
+        self.filled_for = None;
+        self.sync(window, cx);
+    }
+
+    fn render_bar(&self, rules: &Rules) -> Option<AnyElement> {
+        let Some(Outcome::Done { message, undo }) = rules.outcome() else {
+            return None;
+        };
+        let (undo_on, dismiss_on) = (self.rules.clone(), self.rules.clone());
+        let mut bar = UndoBar::new(message.clone()).on_dismiss(move |_, _, cx| {
+            dismiss_on.update(cx, |rules, cx| rules.dismiss_outcome(cx))
+        });
+        if undo.is_some() {
+            bar = bar.on_undo(move |_, _, cx| undo_on.update(cx, |rules, cx| rules.undo(cx)));
+        }
+        Some(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(spacing::S6)
+                .flex()
+                .justify_center()
+                .child(bar)
+                .into_any_element(),
+        )
+    }
+}
+
+/// The category menu: each group under its caps label, its own category
+/// first, with its marker (the Transactions view's menu).
+pub fn category_groups(data: &RulesData) -> Vec<MenuGroup> {
+    let mut groups: Vec<MenuGroup> = Vec::new();
+    for category in &data.categories {
+        let option = MenuOption::new(category.key.as_str().to_owned(), category.label.clone())
+            .marker(super::table::marker(data, &category.key));
+        match &category.group {
+            None => groups.push(MenuGroup::named(category.label.clone(), vec![option])),
+            Some(_) => match groups.last_mut() {
+                Some(group) => group.options.push(option),
+                None => groups.push(MenuGroup::new(None, vec![option])),
+            },
+        }
+    }
+    groups
+}
+
+fn tag_key(name: &str) -> String {
+    format!("tag:{name}")
+}
+
+pub fn amount_label(choice: AmountChoice) -> &'static str {
+    match choice {
+        AmountChoice::Any => "Any amount",
+        AmountChoice::Over => "Over",
+        AmountChoice::Under => "Under",
+        AmountChoice::Between => "Between",
+        AmountChoice::Custom => "Custom",
+    }
+}
+
+fn amount_key(choice: AmountChoice) -> &'static str {
+    match choice {
+        AmountChoice::Any => "any",
+        AmountChoice::Over => "over",
+        AmountChoice::Under => "under",
+        AmountChoice::Between => "between",
+        AmountChoice::Custom => "custom",
+    }
+}
+
+fn amount_choice(key: &str) -> Option<AmountChoice> {
+    [
+        AmountChoice::Any,
+        AmountChoice::Over,
+        AmountChoice::Under,
+        AmountChoice::Between,
+    ]
+    .into_iter()
+    .find(|choice| amount_key(*choice) == key)
+}
+
+/// A refusal under the toolbar: caption type, `danger`.
+fn refused(message: SharedString) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(spacing::S1_5)
+        .pt(spacing::S2)
+        .px(spacing::S4)
+        .child(Glyph::Alert.render().text_color(color::DANGER))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_role(typography::CAPTION)
+                .text_color(color::DANGER)
+                .child(message),
+        )
+}
+
+impl Render for RulesView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let root = div()
+            .key_context(CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &SelectUp, _, cx| {
+                this.rules.update(cx, |rules, cx| rules.select_next(-1, cx))
+            }))
+            .on_action(cx.listener(|this, _: &SelectDown, _, cx| {
+                this.rules.update(cx, |rules, cx| rules.select_next(1, cx))
+            }))
+            .on_action(cx.listener(|this, _: &Cancel, _, cx| {
+                this.rules.update(cx, |rules, cx| rules.cancel(cx))
+            }))
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .min_h_0();
+        let entity = self.rules.clone();
+        let (refusal, bar) = {
+            let rules = entity.read(cx);
+            let refusal = match rules.outcome() {
+                Some(Outcome::Refused(message)) => Some(message.clone()),
+                _ => None,
+            };
+            (refusal, self.render_bar(rules))
+        };
+        let toolbar = super::table::toolbar(&entity, window, cx);
+        let canvas_body = super::table::render(&entity, window, cx);
+        let inspector = super::inspector::render(self, &entity, window, cx);
+        let canvas = div()
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden()
+            .bg(color::CANVAS)
+            .child(toolbar)
+            .children(refusal.map(refused))
+            .child(canvas_body)
+            .children(bar);
+        root.child(canvas).child(inspector)
+    }
+}

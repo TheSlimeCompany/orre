@@ -65,10 +65,21 @@
 //!   a locked period (`9MQ-0`); `review-merged`: the undo bar after a merge
 //!   (`9MQ-0`); `review-lock` and `review-unlock`: the dialogs (`9MQ-0`);
 //!   `review-empty`: no possible duplicates (`9MQ-0`);
+//! - `rules`: Rules with rule 2 (UBER) selected (Paper `B1J-0`);
+//!   `rules-never-reached`: rule 3, which UBER always catches (`HFH-0`);
+//!   `rules-add-action`: the add-action menu open (`HFH-0`);
+//!   `rules-pattern-error`: a pattern that can't be used (`HFH-0`);
+//!   `rules-apply`: "Create rule…" from the VINTED edit (`EFT-0`);
+//!   `rules-names`: Merchant names with Amazon selected (`G2O-0`);
+//!   `rules-history`: Change history with the newest change (`GZT-0`);
+//!   `rules-delete` and `rules-undo`: the dialogs (`HFH-0`); `rules-empty`:
+//!   no rules yet (`HFH-0`); `transactions-rule-prompt`: "Create a rule
+//!   from this edit?" after the VINTED edit (`3WT-0`);
 //! - `showcase`: the component showcase.
 //!
 //! The Inbox reads a scratch database seeded with `inbox::fixture`, the
-//! review queues one seeded with `checks::fixture`.
+//! review queues one seeded with `checks::fixture`, Rules one seeded with
+//! `rules::fixture`.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -85,6 +96,9 @@ use coffer_app::import::store::ImportStore;
 use coffer_app::import::{ImportNotice, fixture as import_fixture};
 use coffer_app::inbox::store::{Entry, InboxStore};
 use coffer_app::inbox::{Inbox, fixture as inbox_fixture};
+use coffer_app::rules::store::RulesStore;
+use coffer_app::rules::view::{Input, Menu as RulesMenu};
+use coffer_app::rules::{Rules, Section as RulesSection, fixture as rules_fixture};
 use coffer_app::settings::restore::{RestoreDialog, Stage};
 use coffer_app::settings::{
     Notice, NoticeMessage, RestoreTarget, Section, SettingsView, fixture as settings_fixture,
@@ -199,9 +213,6 @@ fn main() -> Result<()> {
         };
         snapshot_then(&mut cx, &out, name, build, then)?;
     }
-    snapshot(&mut cx, &out, "rules", |window, cx| {
-        cx.new(|cx| ShellView::new(View::Rules, window, cx)).into()
-    })?;
     snapshot(&mut cx, &out, "settings", |window, cx| {
         cx.new(|cx| ShellView::new(View::Settings, window, cx))
             .into()
@@ -348,6 +359,7 @@ fn main() -> Result<()> {
     inbox_snapshots(&mut cx, &out)?;
     import_snapshots(&mut cx, &out)?;
     review_snapshots(&mut cx, &out)?;
+    rules_snapshots(&mut cx, &out)?;
     snapshot(&mut cx, &out, "showcase", |window, cx| {
         cx.new(|cx| Showcase::new(window, cx)).into()
     })?;
@@ -696,6 +708,134 @@ fn review_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 }
                 (ReviewShot::Unlock, Some((joint, _))) => {
                     checks.update(cx, |checks, cx| checks.request_unlock(joint, cx))
+                }
+                _ => {}
+            }
+        };
+        snapshot_then(cx, out, name, build, then)?;
+        drop(dir);
+    }
+    Ok(())
+}
+
+/// What a Rules snapshot shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RulesShot {
+    Rules,
+    NeverReached,
+    AddAction,
+    PatternError,
+    Apply,
+    Names,
+    History,
+    Delete,
+    Undo,
+    Empty,
+    Prompt,
+}
+
+/// The Rules snapshots: each on a fresh scratch database.
+fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
+    let shots = [
+        ("rules", RulesShot::Rules),
+        ("rules-never-reached", RulesShot::NeverReached),
+        ("rules-add-action", RulesShot::AddAction),
+        ("rules-pattern-error", RulesShot::PatternError),
+        ("rules-apply", RulesShot::Apply),
+        ("rules-names", RulesShot::Names),
+        ("rules-history", RulesShot::History),
+        ("rules-delete", RulesShot::Delete),
+        ("rules-undo", RulesShot::Undo),
+        ("rules-empty", RulesShot::Empty),
+        ("transactions-rule-prompt", RulesShot::Prompt),
+    ];
+    for (name, shot) in shots {
+        let dir = tempfile::TempDir::new()?;
+        let database = dir.path().join("coffer.db");
+        let seeded = {
+            let mut db = Database::open(&database)?;
+            (shot != RulesShot::Empty).then(|| rules_fixture::seed(&mut db))
+        };
+        let rule_ids = seeded.as_ref().map(|s| s.rules.clone()).unwrap_or_default();
+        let vinted = seeded.as_ref().map(|s| s.vinted);
+        let database_path = database.clone();
+        let shell_slot: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::new(RefCell::new(None));
+        let slot = shell_slot.clone();
+        let ids = rule_ids.clone();
+        let build = move |window: &mut Window, cx: &mut App| -> AnyView {
+            let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+            let inbox = cx.new(|_| Inbox::empty());
+            let settings = cx.new(SettingsView::fixture);
+            let view = if shot == RulesShot::Prompt {
+                View::Transactions
+            } else {
+                View::Rules
+            };
+            let source = coffer_app::transactions::Source::Database(
+                coffer_app::transactions::store::TransactionStore::new(database.clone()),
+            );
+            let rules = cx.new(|_| Rules::from_store(RulesStore::new(database)));
+            let shell = cx.new(|cx| {
+                let mut shell =
+                    ShellView::with_all(view, accounts, source, inbox, settings, window, cx);
+                shell.install_rules(rules.clone(), window, cx);
+                rules.update(cx, |rules, cx| match shot {
+                    RulesShot::Rules | RulesShot::AddAction | RulesShot::Delete => {
+                        rules.select_rule(ids.get(1).copied(), cx)
+                    }
+                    RulesShot::NeverReached => rules.select_rule(ids.get(2).copied(), cx),
+                    RulesShot::PatternError => rules.select_rule(ids.get(9).copied(), cx),
+                    RulesShot::Names => rules.show(RulesSection::Names, cx),
+                    RulesShot::History | RulesShot::Undo => rules.show(RulesSection::History, cx),
+                    _ => {}
+                });
+                shell
+            });
+            *slot.borrow_mut() = Some(shell.clone());
+            shell.into()
+        };
+        let then = move |window: &mut Window, cx: &mut App| {
+            let Some(shell) = shell_slot.borrow().clone() else {
+                return;
+            };
+            let rules = shell.read(cx).rules().clone();
+            let view = shell.read(cx).rules_view().clone();
+            match shot {
+                RulesShot::AddAction => view.update(cx, |view, cx| {
+                    view.show_menu(RulesMenu::AddAction, window, cx)
+                }),
+                RulesShot::PatternError => view.update(cx, |view, cx| {
+                    view.type_into(Input::Pattern, "^(ASOS|ZARA", window, cx)
+                }),
+                RulesShot::Apply => {
+                    let proposal = vinted.and_then(|vinted| {
+                        coffer_app::transactions::store::TransactionStore::new(
+                            database_path.clone(),
+                        )
+                        .propose_rule(vinted)
+                        .ok()
+                        .flatten()
+                    });
+                    if let Some(proposal) = proposal {
+                        rules.update(cx, |rules, cx| {
+                            rules.new_rule_from(
+                                &proposal.definition,
+                                coffer_core::rule::RuleOrigin::Edit,
+                                cx,
+                            )
+                        });
+                    }
+                }
+                RulesShot::Delete => rules.update(cx, |rules, cx| rules.request_delete_rule(cx)),
+                RulesShot::Undo => rules.update(cx, |rules, cx| rules.request_undo(cx)),
+                RulesShot::Prompt => {
+                    if let Some(vinted) = vinted {
+                        let transactions = shell.read(cx).transactions().clone();
+                        transactions.update(cx, |view, cx| {
+                            view.select([vinted], cx);
+                            view.propose_rule(vinted, cx);
+                        });
+                    }
                 }
                 _ => {}
             }

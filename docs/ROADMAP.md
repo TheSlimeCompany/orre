@@ -771,7 +771,9 @@ Every tool call appears in the access log.
   no CHECKS, Show in Transactions or Edit in Rules (user). Snapshots (`inbox-*`) checked
   by eye against `564-0`, `ABK-0`, `DL8-0`, `EWZ-0`; the window itself only
   build-verified. Decisions: `ARCHITECTURE.md` → "Decision record: Inbox"
-- ⬜ M3.7 Rules and categories editors
+- ⬜ M3.7 Rules and categories editors. The rules editor is built with M3.13 (the Rules
+  view's inspector: When, Then with every action kind, Order, reordering, delete); the
+  categories editor isn't drawn in Paper and still needs a design decision
 - ⬜ M3.8 Transfer-pair confirmation
 - ✅ M3.9 Split editor (the remaining amount fills in automatically; lines are locked to the
   total), tags and notes in the inspector. Core's `split::draft::SplitDraft` is the
@@ -800,8 +802,22 @@ Every tool call appears in the access log.
   failing checks and the flagged dot opens them. No migration. Snapshots (`review-*`)
   checked by eye against `8SE-0`, `98K-0`, `9MQ-0`; the window itself only
   build-verified. Decisions: `ARCHITECTURE.md` → "Decision record: review queues (built)"
-- ⬜ M3.13 Rules: "Create a rule from this edit?", apply-to-history preview, merchant alias
-  editor
+- ✅ M3.13 Rules: "Create a rule from this edit?", apply-to-history preview, merchant alias
+  editor. `crates/app/src/rules/` (the eighth tab): Rules in priority order with what each
+  decides today and "Never reached", the rule inspector (When, Then, Past transactions,
+  the Inbox's sparkle line, Delete rule…), drag to reorder; Apply to past transactions
+  and New rule on the canvas ("Will change", "Category you set" with "Change these
+  too"), one undoable change batch with the undo bar; Merchant names (applied at once);
+  Change history with Undo this change…. In Transactions (`transactions/rule_prompt.rs`):
+  the D6.3 prompt after a category edit and the Rule section's "Create rule from this" /
+  "Open rule". Core: `rule::update`, `create_from`, `preview_draft`/`save_draft`,
+  `overview`, `preview_rows`, `propose`/`rule_from`/`dismiss`; `merchant::overview`;
+  `change::history`/`history_items`; `inbox::preview::touching_rule`. Migration
+  `V16__rules_editor.sql` (rule origin, the batch's rule, "Not now") (user). Undrawn states
+  composed (user); "Show in Transactions" left out (user). Snapshots (`rules*`,
+  `transactions-rule-prompt`) checked by eye against `B1J-0`, `EFT-0`, `G2O-0`, `GZT-0`,
+  `HFH-0` and `3WT-0`; the window itself only build-verified. Decisions:
+  `ARCHITECTURE.md` → "Decision record: the Rules view (built)"
 - ✅ M3.14 Inbox impact preview: what approving each suggestion would change (e.g. "changes
   143 past transactions; 12 have a category you set"). `coffer_core::inbox::preview`
   (`describe`, `preview`, `covered_by`): the rows a rule, name or categorisation would
