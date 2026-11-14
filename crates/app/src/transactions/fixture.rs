@@ -15,7 +15,7 @@ use coffer_core::id::{AccountId, TagId, TransactionId};
 use coffer_core::money::{Currency, Money};
 use coffer_core::reporting::register::{
     Colour, Register, RegisterAccount, RegisterCategory, RegisterRow, RegisterTag, RowCategory,
-    SplitPart,
+    RowShare, SplitPart,
 };
 use gpui_kit::Rgba;
 
@@ -691,6 +691,9 @@ fn rows() -> Vec<RegisterRow> {
                 merchant_set: false,
                 tags: Vec::new(),
                 splittable,
+                in_transfer: !splittable,
+                links: Vec::new(),
+                share: RowShare::whole(Money::new(transaction.amount, Currency::GBP)),
             }
         })
         .collect()

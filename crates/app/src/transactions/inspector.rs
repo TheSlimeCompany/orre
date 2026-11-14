@@ -415,7 +415,7 @@ fn split_section(
 fn single(
     view: &TransactionsView,
     row: &RegisterRow,
-    window: &Window,
+    window: &mut Window,
     cx: &mut Context<TransactionsView>,
 ) -> Vec<AnyElement> {
     let register = &view.register;
@@ -445,7 +445,11 @@ fn single(
         .map_or(String::new(), |account| account.name.clone());
     let split = matches!(row.category, RowCategory::Split(_));
     // A split row's categories are its lines', in the split editor.
-    let category: Option<AnyElement> = if present::can_recategorise(row) {
+    // A linked refund's category is its purchase's (M3.11, Paper `FGQ-0`).
+    let following = super::linking::category_follows_purchase(register, row);
+    let category: Option<AnyElement> = if following {
+        None
+    } else if present::can_recategorise(row) {
         let value = register
             .row_categories(row)
             .first()
@@ -480,6 +484,9 @@ fn single(
                 this.child(FieldRow::new("Category", category))
                     .children(edit_error(view))
             })
+            .when(following, |this| {
+                this.child(super::links::following_category(view, row))
+            })
             .child(tags_row(view, row, cx))
             .when_some(bank_note, |this, note| {
                 this.child(FieldRow::new("Bank note", LockedValue::new(note)))
@@ -491,6 +498,14 @@ fn single(
             .children(editor_error(view, EditPlace::Details))
             .into_any_element(),
     ];
+    // Share on money out, Links on everything outside a transfer, between
+    // Details and Split (D6.5).
+    if super::links::has_share(row) {
+        sections.push(super::links::share_section(view, row, window, cx));
+    }
+    if super::links::has_links(row) {
+        sections.push(super::links::links_section(view, row, window, cx));
+    }
     // Every row that can be split has the section (`DESIGN.md`: "Every
     // unsplit transaction"); a transfer can't be.
     if split || row.splittable {

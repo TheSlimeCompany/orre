@@ -788,8 +788,19 @@ Every tool call appears in the access log.
   splits, tags and notes in the inspector"
 - ⬜ M3.10 Manual transactions and cash accounts; exclude a row with a reason, with an
   "excluded" filter so nothing disappears
-- ⬜ M3.11 Link refunds, reimbursements and settlements; outstanding-claims and owed-to-me
-  lists
+- ✅ M3.11 Link refunds, reimbursements and settlements; outstanding-claims and owed-to-me
+  lists. As D6.5 draws them: the Transactions inspector's Share (Just me / Shared /
+  Claim back, Yours and Owed by) and Links sections (rows with ✕ and the undo bar,
+  Coffer's suggestion card), the link dialog, the linked refund's read-only category, the
+  table's "· refund", "· shared", "Repays …" cells, and Owed to you as a third CHECKS
+  row in the Inbox (expense claims with the matched payment, people, a person's costs,
+  payments and name). Every link, unlink, share and rename is one undoable change batch:
+  migration `V17__change_item_links.sql` adds a `links` field to `change_item` (user).
+  Core read models: `reporting::linking`, `link::owed`. Undrawn states composed (user);
+  a person's costs are the outstanding ones (user). Snapshots (`links-*`, `review-owed*`)
+  checked by eye against `9WS-0`, `BAT-0`, `CCF-0`, `EB0-0`; the window itself only
+  build-verified. Decisions: `ARCHITECTURE.md` → "Decision record: refunds,
+  reimbursements and settlements (built)"
 - ✅ M3.12 Duplicates review queue (merge or dismiss, showing why each pair was flagged) and
   reconciliation: assertion results per account, lock and unlock. Under CHECKS in the
   Inbox's panel, as D6.4 draws them (user): `crates/app/src/checks/` (Possible

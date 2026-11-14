@@ -353,3 +353,79 @@ fn step_in_stops_at_the_ends() {
     assert_eq!(step_in(&order, Some(2), -1), Some(1));
     assert_eq!(step_in::<i32>(&[], None, 1), None);
 }
+
+// Owed to you (M3.11) ----------------------------------------------------------
+
+#[gpui_kit::test]
+fn owed_to_you_links_a_matched_payment_and_renames_a_person(cx: &mut TestAppContext) {
+    use crate::transactions::link_fixture::{self, Variant};
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("coffer.db");
+    {
+        let mut db = Database::open(&path).unwrap();
+        link_fixture::seed(&mut db, Variant::Suggested);
+    }
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+    });
+    let store = ChecksStore::new(path.clone());
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+        let inbox = cx.new(|_| Inbox::empty());
+        let mut shell = ShellView::with_data(View::Inbox, accounts, inbox, window, cx);
+        let checks = cx.new(|_| Checks::from_store(store));
+        shell.install_checks(checks, window, cx);
+        shell
+    });
+    let checks = cx.update(|_, cx| shell.read(cx).checks().clone());
+    redraw(cx);
+
+    assert_eq!(cx.update(|_, cx| checks.read(cx).owed_open()), 5);
+    click("inbox-checks-owed", cx);
+    assert_eq!(
+        cx.update(|_, cx| checks.read(cx).queue()),
+        Some(Queue::Owed)
+    );
+    // The first person opens: Sam, who owes most.
+    let person = cx.update(|_, cx| {
+        checks
+            .read(cx)
+            .selected_person()
+            .map(|person| person.label.as_str().to_owned())
+    });
+    assert_eq!(person.as_deref(), Some("Sam"));
+
+    // "Link as reimbursement" clears both claims, and Undo brings them back.
+    let inflow = cx.update(|_, cx| checks.read(cx).data().owed.matches[0].inflow);
+    click(&format!("owed-link-{inflow}"), cx);
+    assert_eq!(
+        cx.update(|_, cx| checks.read(cx).data().owed.claims.len()),
+        1
+    );
+    assert!(shows("undo-change", cx));
+    click("undo-change", cx);
+    assert_eq!(
+        cx.update(|_, cx| checks.read(cx).data().owed.claims.len()),
+        3
+    );
+
+    // Renaming keeps the person selected under the new name.
+    checks.update(cx, |checks, cx| checks.rename_person("Sam K", cx).unwrap());
+    redraw(cx);
+    let person = cx.update(|_, cx| {
+        checks
+            .read(cx)
+            .selected_person()
+            .map(|person| person.label.as_str().to_owned())
+    });
+    assert_eq!(person.as_deref(), Some("Sam K"));
+    // A blank name is refused.
+    assert!(
+        checks
+            .update(cx, |checks, cx| checks.rename_person("  ", cx))
+            .is_err()
+    );
+}

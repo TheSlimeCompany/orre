@@ -49,6 +49,7 @@ use crate::db::Database;
 use crate::duplicate;
 use crate::exclusion::ExclusionReason;
 use crate::id::{BatchId, ChangeBatchId, RuleId, TagId, TransactionId};
+use crate::link::{LinkKind, LinkStatus};
 use crate::merchant;
 use crate::money::{Currency, Money};
 use crate::split;
@@ -105,10 +106,13 @@ pub enum Field {
     Share,
     /// `reimbursable`.
     Reimbursable,
+    /// The links whose money in is this transaction (`transaction_link`
+    /// rows with this `inflow_id`, any status; M3.11, V17).
+    Links,
 }
 
 impl Field {
-    pub const ALL: [Field; 8] = [
+    pub const ALL: [Field; 9] = [
         Field::Category,
         Field::Merchant,
         Field::UserNote,
@@ -117,6 +121,7 @@ impl Field {
         Field::Split,
         Field::Share,
         Field::Reimbursable,
+        Field::Links,
     ];
 
     /// The key `change_item.field` stores.
@@ -130,6 +135,7 @@ impl Field {
             Field::Split => "split",
             Field::Share => "share",
             Field::Reimbursable => "reimbursable",
+            Field::Links => "links",
         }
     }
 
@@ -301,6 +307,27 @@ impl ShareValue {
     };
 }
 
+/// One link of a transaction's money in, as stored (without its ID and
+/// date: a link written back by undo may be a new row for the same pair).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LinkValue {
+    /// The purchase a refund or reimbursement pays back.
+    pub target_id: Option<i64>,
+    /// The person a settlement pays back.
+    pub share_label: Option<String>,
+    pub kind: LinkKind,
+    pub amount_minor: i64,
+    pub status: LinkStatus,
+}
+
+impl LinkValue {
+    /// The pair it is for: one link per pair (V9).
+    fn pair(&self) -> (Option<i64>, Option<&str>) {
+        (self.target_id, self.share_label.as_deref())
+    }
+}
+
 /// A field's value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Value {
@@ -317,6 +344,8 @@ pub enum Value {
     Split(Vec<SplitLineValue>),
     Share(ShareValue),
     Reimbursable(bool),
+    /// Sorted by pair: purchases by ID, then people by label.
+    Links(Vec<LinkValue>),
 }
 
 impl Value {
@@ -331,6 +360,7 @@ impl Value {
             Value::Split(_) => Field::Split,
             Value::Share(_) => Field::Share,
             Value::Reimbursable(_) => Field::Reimbursable,
+            Value::Links(_) => Field::Links,
         }
     }
 
@@ -345,6 +375,7 @@ impl Value {
             Value::Split(value) => serde_json::to_string(value),
             Value::Share(value) => serde_json::to_string(value),
             Value::Reimbursable(value) => serde_json::to_string(value),
+            Value::Links(value) => serde_json::to_string(value),
         };
         json.expect("change values always encode")
     }
@@ -360,6 +391,7 @@ impl Value {
             Field::Split => Value::Split(serde_json::from_str(json).ok()?),
             Field::Share => Value::Share(serde_json::from_str(json).ok()?),
             Field::Reimbursable => Value::Reimbursable(serde_json::from_str(json).ok()?),
+            Field::Links => Value::Links(serde_json::from_str(json).ok()?),
         };
         Some(value)
     }
@@ -587,6 +619,7 @@ fn read_field(conn: &Connection, id: TransactionId, field: Field) -> Result<Valu
             [id],
             |row| Ok(Value::Reimbursable(row.get(0)?)),
         )?,
+        Field::Links => Value::Links(read_links(conn, id)?),
     };
     Ok(value)
 }
@@ -621,6 +654,9 @@ fn unwritable(
         )
     };
     let reason = match value {
+        Value::Links(links) if !links_fit(conn, id, links)? => {
+            Some("the links no longer fit the transactions")
+        }
         Value::Share(value)
             if (value.my_share_minor.is_some() || value.share_label.is_some())
                 && linked_inflow()? =>
@@ -830,8 +866,136 @@ fn write_field(conn: &Connection, id: TransactionId, value: &Value) -> Result<()
                 params![flag, id],
             )?;
         }
+        Value::Links(links) => write_links(conn, id, links)?,
     }
     Ok(())
+}
+
+/// The links whose money in is `id`, sorted by pair.
+fn read_links(conn: &Connection, id: TransactionId) -> Result<Vec<LinkValue>, Error> {
+    let mut statement = conn.prepare_cached(
+        "SELECT target_id, share_label, kind, amount_minor, status FROM transaction_link \
+         WHERE inflow_id = ?1 ORDER BY target_id IS NULL, target_id, share_label",
+    )?;
+    let links = statement
+        .query_map([id], |row| {
+            let kind: String = row.get(2)?;
+            let status: String = row.get(4)?;
+            Ok(LinkValue {
+                target_id: row.get(0)?,
+                share_label: row.get(1)?,
+                kind: LinkKind::from_key(&kind).ok_or_else(|| account::invalid(row, "kind"))?,
+                amount_minor: row.get(3)?,
+                status: LinkStatus::from_key(&status)
+                    .ok_or_else(|| account::invalid(row, "status"))?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(links)
+}
+
+/// Makes the links of money in `id` exactly `want`, pair by pair. A link
+/// that stays keeps its row (and ID) where the schema lets it change in
+/// place; one whose kind changes, or that goes from rejected back to
+/// suggested, is a new row. Everything that takes away from the confirmed
+/// totals is written first, so the caps (V9's triggers) hold at every step.
+fn write_links(conn: &Connection, id: TransactionId, want: &[LinkValue]) -> Result<(), Error> {
+    let have = read_links(conn, id)?;
+    let wanted = |pair: (Option<i64>, Option<&str>)| want.iter().find(|w| w.pair() == pair);
+    let delete = |link: &LinkValue| -> rusqlite::Result<usize> {
+        conn.execute(
+            "DELETE FROM transaction_link WHERE inflow_id = ?1 \
+             AND target_id IS ?2 AND share_label IS ?3",
+            params![id, link.target_id, link.share_label],
+        )
+    };
+    let update = |link: &LinkValue| -> rusqlite::Result<usize> {
+        conn.execute(
+            "UPDATE transaction_link SET amount_minor = ?1, status = ?2 WHERE inflow_id = ?3 \
+             AND target_id IS ?4 AND share_label IS ?5",
+            params![
+                link.amount_minor,
+                link.status.as_str(),
+                id,
+                link.target_id,
+                link.share_label
+            ],
+        )
+    };
+    // First what lowers: links that go, change kind or come back as a
+    // suggestion, and links that stop counting or count less.
+    let mut kept = Vec::new();
+    for link in &have {
+        match wanted(link.pair()) {
+            None => {
+                delete(link)?;
+            }
+            Some(want)
+                if want.kind != link.kind
+                    || (link.status == LinkStatus::Rejected
+                        && want.status == LinkStatus::Suggested) =>
+            {
+                delete(link)?;
+            }
+            Some(want) if want == link => kept.push(want.clone()),
+            Some(want)
+                if want.status != LinkStatus::Confirmed
+                    || (link.status == LinkStatus::Confirmed
+                        && want.amount_minor <= link.amount_minor) =>
+            {
+                update(want)?;
+                kept.push(want.clone());
+            }
+            Some(_) => {}
+        }
+    }
+    // Then what raises: links that count more, or are new.
+    for link in want {
+        if kept.contains(link) {
+            continue;
+        }
+        if have.iter().any(|have| {
+            have.pair() == link.pair()
+                && have.kind == link.kind
+                && !(have.status == LinkStatus::Rejected && link.status == LinkStatus::Suggested)
+        }) {
+            update(link)?;
+        } else {
+            conn.execute(
+                "INSERT INTO transaction_link \
+                 (kind, inflow_id, target_id, share_label, amount_minor, status) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    link.kind.as_str(),
+                    id,
+                    link.target_id,
+                    link.share_label,
+                    link.amount_minor,
+                    link.status.as_str()
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether `links` can be written to money in `id` as things are now: the
+/// write is tried in a savepoint that is rolled back, so the schema's own
+/// checks (both sides, one currency, the caps, purchases still there)
+/// decide.
+fn links_fit(conn: &Connection, id: TransactionId, links: &[LinkValue]) -> Result<bool, Error> {
+    conn.execute_batch("SAVEPOINT change_links_fit")?;
+    let result = write_links(conn, id, links);
+    conn.execute_batch("ROLLBACK TO change_links_fit; RELEASE change_links_fit")?;
+    match result {
+        Ok(()) => Ok(true),
+        Err(Error::Database(rusqlite::Error::SqliteFailure(error, _)))
+            if matches!(error.code, rusqlite::ErrorCode::ConstraintViolation) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 // Recording -------------------------------------------------------------------
@@ -937,6 +1101,57 @@ impl Recorder {
             }
         }
         Ok(true)
+    }
+
+    /// Records what `change` does to `fields` (each a transaction and a
+    /// field): reads them, runs `change`, reads them again and records each
+    /// that changed. For changes core makes with its own checks (a link, a
+    /// share), so the batch holds exactly what they wrote. Refuses, before
+    /// running anything, a change to a field the lock guards on a locked
+    /// row; links, shares and splits aren't guarded (module docs, "Locks").
+    pub fn track<T, E>(
+        &mut self,
+        conn: &Connection,
+        fields: &[(TransactionId, Field)],
+        change: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<Error>,
+    {
+        let mut before = Vec::with_capacity(fields.len());
+        for &(transaction, field) in fields {
+            let row = load_row(conn, transaction)?;
+            if field.guarded_by_lock()
+                && let Some(through) = row.locked()
+            {
+                return Err(Error::Locked {
+                    transaction,
+                    date: row.date,
+                    through,
+                }
+                .into());
+            }
+            before.push(read_field(conn, transaction, field)?);
+        }
+        let result = change()?;
+        for (&(transaction, field), old) in fields.iter().zip(before) {
+            let new = read_field(conn, transaction, field)?;
+            if new == old {
+                continue;
+            }
+            match self.index.get(&(transaction, field)) {
+                Some(&at) => self.changes[at].new = new,
+                None => {
+                    self.index.insert((transaction, field), self.changes.len());
+                    self.changes.push(Change {
+                        transaction,
+                        old,
+                        new,
+                    });
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// The changes so far, in the order made, without fields set back to

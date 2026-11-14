@@ -13,6 +13,10 @@
 //! segments sharing it equally (radius 6, centred labels); the chosen one
 //! adds the inset highlight. A segment that can't be chosen yet (a step
 //! not reachable) is at `opacity-disabled` and isn't a Tab stop.
+//!
+//! The inspector size can fill its row ([`Segmented::fill`]): the segments
+//! share the track equally with centred labels, the rest as above (D6.5's
+//! Share and the link dialog's Kind, Paper `C3E-0`, `EX7-0`; M3.11).
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -42,6 +46,8 @@ pub struct Segmented {
     chosen: SharedString,
     /// The panel size's width; `None` is the inspector size.
     panel: Option<Pixels>,
+    /// The inspector size, as wide as its row.
+    fill: bool,
     disabled: Vec<SharedString>,
     on_choose: Option<Choose>,
 }
@@ -54,6 +60,7 @@ impl Segmented {
             segments: Vec::new(),
             chosen: chosen.into(),
             panel: None,
+            fill: false,
             disabled: Vec::new(),
             on_choose: None,
         }
@@ -62,6 +69,13 @@ impl Segmented {
     /// Draws the panel size, `width` wide (Paper `6E4-0`).
     pub fn panel(mut self, width: Pixels) -> Self {
         self.panel = Some(width);
+        self
+    }
+
+    /// Draws the inspector size as wide as its row, the segments sharing it
+    /// equally (Paper `C3E-0`).
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
         self
     }
 
@@ -92,6 +106,9 @@ impl Segmented {
 impl RenderOnce for Segmented {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let panel = self.panel;
+        // Segments share the track: the panel size, or a filled inspector
+        // size.
+        let shared = panel.is_some() || self.fill;
         let segments = self.segments.into_iter().map(|(key, label)| {
             let chosen = key == self.chosen;
             let disabled = self.disabled.contains(&key);
@@ -108,7 +125,7 @@ impl RenderOnce for Segmented {
                 .when(!disabled, |this| this.track_focus(&focus))
                 .h_full()
                 .px(spacing::S3)
-                .when(panel.is_some(), |this| {
+                .when(shared, |this| {
                     this.flex().flex_1().items_center().justify_center()
                 })
                 .rounded(if panel.is_some() {
@@ -137,7 +154,7 @@ impl RenderOnce for Segmented {
             div()
                 .flex()
                 .h_full()
-                .when(panel.is_some(), |this| this.flex_1())
+                .when(shared, |this| this.flex_1())
                 .when(disabled, |this| this.opacity(opacity::DISABLED))
                 .rounded(if panel.is_some() {
                     radius::MD
@@ -155,7 +172,10 @@ impl RenderOnce for Segmented {
             .bg(color::FIELD)
             .map(|this| match panel {
                 Some(width) => this.w(width).h(size::CONTROL_LG).rounded(radius::SURFACE),
-                None => this.h(size::CONTROL).rounded(radius::MD),
+                None => this
+                    .h(size::CONTROL)
+                    .rounded(radius::MD)
+                    .when(self.fill, |this| this.w_full()),
             })
             .children(segments)
     }

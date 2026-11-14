@@ -40,7 +40,8 @@ use crate::account::{self, AccountKind};
 use crate::category::{CategoryKey, CategoryKind, CategoryTree};
 use crate::db::Reader;
 use crate::exclusion::ExclusionReason;
-use crate::id::{AccountId, RuleId, TagId, TransactionId};
+use crate::id::{AccountId, LinkId, RuleId, TagId, TransactionId};
+use crate::link::{LinkKind, LinkStatus, PersonOwed};
 use crate::money::{Currency, Money};
 
 use super::{DateRange, Error, Ledger};
@@ -129,6 +130,63 @@ pub enum RowCategory {
     Split(Vec<SplitPart>),
 }
 
+/// Which side of a link a row is on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LinkSide {
+    /// The money in.
+    Inflow,
+    /// The purchase it pays back.
+    Purchase,
+}
+
+/// What is on the other side of a link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkOther {
+    Transaction(TransactionId),
+    /// A settlement's person: a local label, never leaves the app.
+    Person(String),
+}
+
+/// A suggested or confirmed link of a row (rejected ones aren't listed).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RowLink {
+    pub id: LinkId,
+    pub kind: LinkKind,
+    pub status: LinkStatus,
+    /// This row's side.
+    pub side: LinkSide,
+    pub other: LinkOther,
+    /// Positive.
+    pub amount: Money,
+}
+
+/// How a row is shared and what it can still take in links.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RowShare {
+    /// The user's part; `None` means all of it.
+    pub my_share: Option<Money>,
+    /// Who owes the rest: a local label, never leaves the app.
+    pub label: Option<String>,
+    /// Claimed back as a whole (`reimbursable`).
+    pub claim: bool,
+    /// Money out: what refunds and reimbursements can still take (for a
+    /// claim, what is still owed); money in: what is left to link. Never
+    /// negative.
+    pub left: Money,
+}
+
+impl RowShare {
+    /// All the user's, nothing linked: `left` is the whole amount.
+    pub fn whole(amount: Money) -> RowShare {
+        RowShare {
+            my_share: None,
+            label: None,
+            claim: false,
+            left: Money::new(amount.minor().saturating_abs(), amount.currency()),
+        }
+    }
+}
+
 /// One transaction in the table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegisterRow {
@@ -168,6 +226,12 @@ pub struct RegisterRow {
     /// Whether it can be split: not in a suggested or confirmed transfer
     /// and not the money in of a confirmed link (`split` module docs).
     pub splittable: bool,
+    /// In a suggested or confirmed transfer: no links, no share (M3.11).
+    pub in_transfer: bool,
+    /// Its suggested and confirmed links, oldest first (M3.11).
+    pub links: Vec<RowLink>,
+    /// How it is shared and what it can still take (M3.11).
+    pub share: RowShare,
 }
 
 impl RegisterRow {
@@ -341,6 +405,9 @@ pub struct Register {
     category_index: HashMap<i64, usize>,
     /// Every tag, by name ignoring case.
     tags: Vec<RegisterTag>,
+    /// What each person owes, per currency, sorted by name (M3.11): the
+    /// Settlement choices and the Owed by menu.
+    people: Vec<PersonOwed>,
 }
 
 impl Register {
@@ -372,7 +439,25 @@ impl Register {
             categories,
             category_index,
             tags: Vec::new(),
+            people: Vec::new(),
         }
+    }
+
+    /// The register with `people` (what each owes; any order: kept by name,
+    /// then currency).
+    pub fn with_people(mut self, mut people: Vec<PersonOwed>) -> Register {
+        people.sort_by(|a, b| {
+            a.label
+                .cmp(&b.label)
+                .then_with(|| a.owed.currency().cmp(&b.owed.currency()))
+        });
+        self.people = people;
+        self
+    }
+
+    /// What each person owes, per currency, sorted by name.
+    pub fn people(&self) -> &[PersonOwed] {
+        &self.people
     }
 
     /// The register with `tags` (any order: kept by name ignoring case,
@@ -398,12 +483,26 @@ impl Register {
                 private: tag.private,
             })
             .collect();
-        Ok(Register::new(rows, accounts, categories).with_tags(tags))
+        let people = crate::link::owed_by_label_in(conn)?;
+        Ok(Register::new(rows, accounts, categories)
+            .with_tags(tags)
+            .with_people(people))
     }
 
     /// Every row, newest first.
     pub fn rows(&self) -> &[RegisterRow] {
         &self.rows
+    }
+
+    /// Whether row `id`'s merchant, bank merchant or raw description holds
+    /// `text`, ignoring case (the table's search); blank matches all.
+    pub fn row_matches(&self, id: TransactionId, text: &str) -> bool {
+        let text = text.trim().to_lowercase();
+        text.is_empty()
+            || self
+                .by_id
+                .get(&id)
+                .is_some_and(|&index| self.haystacks[index].contains(&text))
     }
 
     pub fn row(&self, id: TransactionId) -> Option<&RegisterRow> {
@@ -807,12 +906,63 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
         }
     }
 
+    // Suggested and confirmed links, on both sides.
+    let mut links: HashMap<TransactionId, Vec<RowLink>> = HashMap::new();
+    {
+        let mut statement = conn.prepare(
+            "SELECT l.id, l.kind, l.status, l.inflow_id, l.target_id, l.share_label, \
+                    l.amount_minor, t.currency \
+               FROM transaction_link l JOIN \"transaction\" t ON t.id = l.inflow_id \
+              WHERE l.status <> 'rejected' ORDER BY l.id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            let kind: String = row.get(1)?;
+            let status: String = row.get(2)?;
+            Ok((
+                row.get::<_, LinkId>(0)?,
+                LinkKind::from_key(&kind).ok_or_else(|| account::invalid(row, "kind"))?,
+                LinkStatus::from_key(&status).ok_or_else(|| account::invalid(row, "status"))?,
+                row.get::<_, TransactionId>(3)?,
+                row.get::<_, Option<TransactionId>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                Money::new(row.get(6)?, row.get(7)?),
+            ))
+        })?;
+        for row in rows {
+            let (id, kind, status, inflow, target, label, amount) = row?;
+            let other = match (target, label) {
+                (Some(target), _) => {
+                    links.entry(target).or_default().push(RowLink {
+                        id,
+                        kind,
+                        status,
+                        side: LinkSide::Purchase,
+                        other: LinkOther::Transaction(inflow),
+                        amount,
+                    });
+                    LinkOther::Transaction(target)
+                }
+                (None, Some(label)) => LinkOther::Person(label),
+                (None, None) => continue,
+            };
+            links.entry(inflow).or_default().push(RowLink {
+                id,
+                kind,
+                status,
+                side: LinkSide::Inflow,
+                other,
+                amount,
+            });
+        }
+    }
+
     let mut statement = conn.prepare(
         "SELECT t.id, t.account_id, t.date, t.time, t.amount_minor, t.currency, \
                 t.original_amount_minor, t.original_currency, t.merchant, \
                 t.merchant_display, t.merchant_display_source, t.description_raw, \
                 t.source_type, t.category_id, t.rule_id, t.excluded_reason, t.user_note, \
-                t.note, g.status AS transfer_status, \
+                t.note, g.status AS transfer_status, t.my_share_minor, t.share_label, \
+                t.reimbursable, \
                 EXISTS (SELECT 1 FROM transaction_link k \
                          WHERE k.inflow_id = t.id AND k.status = 'confirmed') AS linked_in \
            FROM \"transaction\" t \
@@ -861,12 +1011,21 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
             Some(category) => RowCategory::Category(category),
             None => RowCategory::Uncategorised,
         };
+        let amount = Money::new(row.get("amount_minor")?, currency);
+        let share = RowShare {
+            my_share: row
+                .get::<_, Option<i64>>("my_share_minor")?
+                .map(|minor| Money::new(minor, currency)),
+            label: row.get("share_label")?,
+            claim: row.get("reimbursable")?,
+            ..RowShare::whole(amount)
+        };
         Ok(RegisterRow {
             id,
             account: row.get("account_id")?,
             date: account::date(row, "date")?,
             time,
-            amount: Money::new(row.get("amount_minor")?, currency),
+            amount,
             original,
             merchant,
             bank_merchant,
@@ -884,6 +1043,9 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
                 == Some("user"),
             tags: Vec::new(),
             splittable: !in_transfer && !linked_in,
+            in_transfer,
+            links: Vec::new(),
+            share,
         })
     })?;
     let mut out = Vec::new();
@@ -897,6 +1059,21 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
         }
         if let Some(transfer) = &mut row.transfer {
             *transfer = partners.remove(&row.id).unwrap_or_default();
+        }
+        if let Some(row_links) = links.remove(&row.id) {
+            let taken: i64 = row_links
+                .iter()
+                .filter(|link| link.status == LinkStatus::Confirmed)
+                .map(|link| link.amount.minor())
+                .sum();
+            let left = row
+                .amount
+                .minor()
+                .saturating_abs()
+                .saturating_sub(taken)
+                .max(0);
+            row.share.left = Money::new(left, row.amount.currency());
+            row.links = row_links;
         }
         out.push(row);
     }

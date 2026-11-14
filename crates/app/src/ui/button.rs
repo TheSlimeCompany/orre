@@ -114,6 +114,11 @@ pub enum ButtonVariant {
     /// `text-secondary` label 12/16 500. Hovers to `hover`, presses to
     /// `control-active`.
     Toolbar,
+    /// A quiet inline action beside an outline one ("Not a refund", "Not
+    /// this", D6.5 Paper `BAC-0`, `CXC-0`; M3.9's "Add line" is the same
+    /// ghost): the outline's 24px geometry with no border, `text-secondary`
+    /// label 11/14 500. Hovers to `hover`, presses to `control-active`.
+    Ghost,
 }
 
 impl ButtonVariant {
@@ -221,6 +226,16 @@ impl ButtonVariant {
                     color::TEXT_SECONDARY,
                 )
             },
+            Self::Ghost => Appearance {
+                border: None,
+                ..outline(
+                    size::CONTROL_SM,
+                    spacing::S2,
+                    radius::MD,
+                    color::HAIRLINE,
+                    color::TEXT_SECONDARY,
+                )
+            },
             Self::AgentGhost => Appearance {
                 height: size::CONTROL_XL,
                 padding_x: spacing::S3,
@@ -244,10 +259,12 @@ impl ButtonVariant {
                 weight: weight::BOLD,
                 ..typography::BUTTON
             },
-            Self::Outline | Self::OutlineCompact | Self::DestructiveCompact => TextRole {
-                weight: weight::MEDIUM,
-                ..typography::CAPTION
-            },
+            Self::Outline | Self::OutlineCompact | Self::DestructiveCompact | Self::Ghost => {
+                TextRole {
+                    weight: weight::MEDIUM,
+                    ..typography::CAPTION
+                }
+            }
             Self::Secondary
             | Self::DestructiveOutline
             | Self::AgentOutline

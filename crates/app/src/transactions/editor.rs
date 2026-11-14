@@ -44,6 +44,10 @@ pub enum EditPlace {
     Details,
     /// Under the split editor.
     Split,
+    /// Under the Share section (M3.11).
+    Share,
+    /// Under the Links section (M3.11).
+    Links,
 }
 
 /// One line's fields in the split editor.
@@ -87,6 +91,12 @@ pub(super) struct Editor {
     pub(super) add_line_focus: FocusHandle,
     /// Why the last edit wasn't saved, and where to say so.
     pub(super) error: Option<(EditPlace, SharedString)>,
+    /// The Share section's Yours: the user's part, unsigned (M3.11).
+    pub(super) yours: Entity<InputState>,
+    /// "Shared" was chosen and waits for a person before it's saved.
+    pub(super) shared_draft: bool,
+    /// The Share section's Owed by select.
+    pub(super) person_select: SelectState,
     next_key: u64,
 }
 
@@ -99,6 +109,7 @@ impl Editor {
     ) -> (Self, Vec<Subscription>) {
         let merchant = cx.new(|cx| InputState::new(window, cx));
         let note = cx.new(|cx| InputState::new(window, cx).placeholder("Add a note"));
+        let yours = cx.new(|cx| InputState::new(window, cx));
         let subscriptions = vec![
             cx.subscribe_in(&merchant, window, |this, _, event, _, cx| {
                 if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
@@ -109,6 +120,12 @@ impl Editor {
                 if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
                     this.commit_note(cx);
                 }
+            }),
+            cx.subscribe_in(&yours, window, |this, _, event, _, cx| match event {
+                InputEvent::Blur | InputEvent::PressEnter { .. } => this.commit_yours(cx),
+                // The caption follows what's typed.
+                InputEvent::Change => cx.notify(),
+                InputEvent::Focus => {}
             }),
         ];
         let editor = Self {
@@ -121,6 +138,9 @@ impl Editor {
             tag_focus: cx.focus_handle(),
             add_line_focus: cx.focus_handle(),
             error: None,
+            yours,
+            shared_draft: false,
+            person_select: SelectState::new(cx),
             next_key: 0,
         };
         (editor, subscriptions)
@@ -194,8 +214,10 @@ impl TransactionsView {
             // balanced split typed but not yet left is saved too.
             self.commit_merchant(cx);
             self.commit_note(cx);
+            self.commit_yours(cx);
             self.save_split(cx);
             self.editor.shown = shown;
+            self.editor.shared_draft = false;
             self.editor.generation = self.generation;
             self.editor.error = None;
             self.editor.split = None;
@@ -212,6 +234,10 @@ impl TransactionsView {
                 }
                 // The line's select goes with the split editor below.
                 Some(super::Menu::SplitLine(_)) => self.menu = None,
+                Some(super::Menu::Person) => {
+                    self.editor.person_select.dismiss();
+                    self.menu = None;
+                }
                 _ => {}
             }
             if let Some(row) = &row {
@@ -266,6 +292,29 @@ impl TransactionsView {
             (String::new(), row.merchant.clone())
         };
         let note = row.note.clone().unwrap_or_default();
+        // A share waiting for its person keeps what was typed.
+        if !self.editor.shared_draft {
+            let yours = self.editor.yours.clone();
+            let typing = yours.read(cx).focus_handle(cx).is_focused(window);
+            if force || !typing {
+                let value = row
+                    .share
+                    .my_share
+                    .map(|mine| {
+                        coffer_core::money::Money::new(
+                            mine.minor().saturating_abs(),
+                            mine.currency(),
+                        )
+                        .to_decimal_string()
+                    })
+                    .unwrap_or_default();
+                yours.update(cx, |input, cx| {
+                    if input.value().as_ref() != value {
+                        input.set_value(SharedString::from(value), window, cx);
+                    }
+                });
+            }
+        }
         for (slot, input, value, placeholder) in [
             (0, self.editor.merchant.clone(), merchant, Some(placeholder)),
             (1, self.editor.note.clone(), note, None),

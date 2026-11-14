@@ -105,13 +105,15 @@ fn note(text: &str) -> Value {
 #[test]
 fn every_kind_and_field_key_matches_the_schema() {
     let schema = include_str!("../../migrations/V8__change_batch.sql");
+    // V17 rebuilt `change_item` with the `links` field.
+    let fields = include_str!("../../migrations/V17__change_item_links.sql");
     for kind in ChangeKind::ALL {
         assert!(schema.contains(&format!("'{}'", kind.as_str())), "{kind:?}");
         assert_eq!(ChangeKind::from_key(kind.as_str()), Some(kind));
     }
     for field in Field::ALL {
         assert!(
-            schema.contains(&format!("'{}'", field.as_str())),
+            fields.contains(&format!("'{}'", field.as_str())),
             "{field:?}"
         );
         assert_eq!(Field::from_key(field.as_str()), Some(field));
@@ -128,6 +130,23 @@ fn values_round_trip_through_json() {
             source: Some(NameSource::User),
         }),
         Value::UserNote(None),
+        Value::Links(vec![
+            LinkValue {
+                target_id: Some(4),
+                share_label: None,
+                kind: crate::link::LinkKind::Refund,
+                amount_minor: 3400,
+                status: crate::link::LinkStatus::Confirmed,
+            },
+            LinkValue {
+                target_id: None,
+                share_label: Some("Sam".into()),
+                kind: crate::link::LinkKind::Settlement,
+                amount_minor: 1000,
+                status: crate::link::LinkStatus::Rejected,
+            },
+        ]),
+        Value::Links(Vec::new()),
         Value::Tags(vec![TagId::new(1), TagId::new(4)]),
         Value::Exclusion(Some(ExclusionValue {
             reason: ExclusionReason::BankError,
