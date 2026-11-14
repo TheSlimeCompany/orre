@@ -47,6 +47,8 @@
 //! Share labels are local names that never leave the app (no MCP, no
 //! logs). Errors never quote them or any transaction text.
 
+pub mod owed;
+
 #[cfg(test)]
 mod tests;
 
@@ -83,7 +85,10 @@ pub const MAX_LINKED_PURCHASE_MINOR: i64 = 3_037_000_499;
 pub const MAX_LABEL_CHARS: usize = 64;
 
 /// What a link does (`transaction_link.kind`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum LinkKind {
     /// Money back for a purchase; nets against its category.
     Refund,
@@ -114,7 +119,10 @@ impl LinkKind {
 }
 
 /// Where a link stands (`transaction_link.status`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum LinkStatus {
     /// Coffer's guess, for the user to confirm or reject.
     Suggested,
@@ -181,6 +189,16 @@ pub enum LinkTarget {
     Purchase(TransactionId),
     /// A person: for settlements.
     Person(ShareLabel),
+}
+
+impl LinkTarget {
+    /// The purchase, for a refund or reimbursement.
+    pub fn purchase(&self) -> Option<TransactionId> {
+        match self {
+            LinkTarget::Purchase(id) => Some(*id),
+            LinkTarget::Person(_) => None,
+        }
+    }
 }
 
 /// A link the user makes.
@@ -462,14 +480,22 @@ pub fn confirm(db: &mut Database, id: LinkId) -> Result<(), Error> {
     let tx = db
         .conn_mut()
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let link = load_link(&tx, id)?;
+    confirm_in(&tx, id)?;
+    tx.commit()?;
+    tracing::debug!(link = %id, "confirmed a link");
+    Ok(())
+}
+
+/// [`confirm`] inside the caller's DB transaction.
+pub(crate) fn confirm_in(tx: &Connection, id: LinkId) -> Result<(), Error> {
+    let link = load_link(tx, id)?;
     if link.status == LinkStatus::Confirmed {
         return Ok(());
     }
-    let inflow = load_row(&tx, link.inflow)?;
-    check_inflow(&tx, &inflow)?;
+    let inflow = load_row(tx, link.inflow)?;
+    check_inflow(tx, &inflow)?;
     let amount = link.amount.minor();
-    let left = inflow_left_in(&tx, &inflow)?;
+    let left = inflow_left_in(tx, &inflow)?;
     if amount > left {
         return Err(Error::ExceedsInflow {
             left: Money::new(left, inflow.currency),
@@ -477,9 +503,9 @@ pub fn confirm(db: &mut Database, id: LinkId) -> Result<(), Error> {
     }
     match &link.target {
         LinkTarget::Purchase(target) => {
-            let purchase = load_row(&tx, *target)?;
+            let purchase = load_row(tx, *target)?;
             check_purchase(&inflow, &purchase, link.kind)?;
-            let left = purchase_left_in(&tx, &purchase)?;
+            let left = purchase_left_in(tx, &purchase)?;
             if amount > left {
                 return Err(Error::ExceedsPurchase {
                     left: Money::new(left, purchase.currency),
@@ -487,7 +513,7 @@ pub fn confirm(db: &mut Database, id: LinkId) -> Result<(), Error> {
             }
         }
         LinkTarget::Person(label) => {
-            let owed = owed_to_in(&tx, label, inflow.currency)?;
+            let owed = owed_to_in(tx, label, inflow.currency)?;
             if amount > owed {
                 return Err(Error::ExceedsOwed {
                     owed: Money::new(owed.max(0), inflow.currency),
@@ -499,9 +525,7 @@ pub fn confirm(db: &mut Database, id: LinkId) -> Result<(), Error> {
         "UPDATE transaction_link SET status = 'confirmed' WHERE id = ?1",
         [id],
     )?;
-    prune_suggestions(&tx, link.inflow, target_of(&link.target))?;
-    tx.commit()?;
-    tracing::debug!(link = %id, "confirmed a link");
+    prune_suggestions(tx, link.inflow, target_of(&link.target))?;
     Ok(())
 }
 
@@ -509,13 +533,18 @@ pub fn confirm(db: &mut Database, id: LinkId) -> Result<(), Error> {
 /// confirmed link. The pair is never suggested again; [`confirm`] links it
 /// after all. Rejecting a rejected link does nothing.
 pub fn reject(db: &mut Database, id: LinkId) -> Result<(), Error> {
-    let conn = db.conn();
+    reject_in(db.conn(), id)?;
+    tracing::debug!(link = %id, "rejected a link");
+    Ok(())
+}
+
+/// [`reject`] on any connection (inside a DB transaction).
+pub(crate) fn reject_in(conn: &Connection, id: LinkId) -> Result<(), Error> {
     load_link(conn, id)?;
     conn.execute(
         "UPDATE transaction_link SET status = 'rejected' WHERE id = ?1 AND status <> 'rejected'",
         [id],
     )?;
-    tracing::debug!(link = %id, "rejected a link");
     Ok(())
 }
 
@@ -534,6 +563,11 @@ pub fn delete(db: &mut Database, id: LinkId) -> Result<(), Error> {
 /// Link `id`.
 pub fn get(db: &Database, id: LinkId) -> Result<Link, Error> {
     load_link(db.conn(), id)
+}
+
+/// [`get`] on any connection (inside a DB transaction).
+pub(crate) fn get_in(conn: &Connection, id: LinkId) -> Result<Link, Error> {
+    load_link(conn, id)
 }
 
 /// Every link with `transaction` on either side, any status, oldest first.
@@ -619,8 +653,19 @@ pub fn set_sharing(
     let tx = db
         .conn_mut()
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let row = load_row(&tx, transaction)?;
-    let split = crate::split::is_split(&tx, transaction)?;
+    set_sharing_in(&tx, transaction, sharing)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// [`set_sharing`] inside the caller's DB transaction.
+pub(crate) fn set_sharing_in(
+    tx: &Connection,
+    transaction: TransactionId,
+    sharing: &Sharing,
+) -> Result<(), Error> {
+    let row = load_row(tx, transaction)?;
+    let split = crate::split::is_split(tx, transaction)?;
     if !matches!(sharing, Sharing::JustMe) {
         if row.amount >= 0 {
             return Err(Error::NotMoneyOut(transaction));
@@ -656,7 +701,6 @@ pub fn set_sharing(
         "UPDATE \"transaction\" SET reimbursable = ?1 WHERE id = ?2",
         params![reimbursable, transaction],
     )?;
-    tx.commit()?;
     Ok(())
 }
 
@@ -724,6 +768,17 @@ pub fn rename_label(db: &mut Database, from: &ShareLabel, to: &ShareLabel) -> Re
     let tx = db
         .conn_mut()
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let changed = rename_label_in(&tx, from, to)?;
+    tx.commit()?;
+    Ok(changed)
+}
+
+/// [`rename_label`] inside the caller's DB transaction.
+pub(crate) fn rename_label_in(
+    tx: &Connection,
+    from: &ShareLabel,
+    to: &ShareLabel,
+) -> Result<usize, Error> {
     let mut changed = 0;
     for table in ["\"transaction\"", "transaction_split"] {
         changed += tx.execute(
@@ -759,7 +814,6 @@ pub fn rename_label(db: &mut Database, from: &ShareLabel, to: &ShareLabel) -> Re
         )?;
         changed += 1;
     }
-    tx.commit()?;
     Ok(changed)
 }
 
@@ -770,7 +824,12 @@ pub fn rename_label(db: &mut Database, from: &ShareLabel, to: &ShareLabel) -> Re
 /// less what refunds of them returned), minus confirmed settlements.
 /// Claimed-back purchases aren't here: see [`outstanding_claims`].
 pub fn owed_by_label(db: &Database) -> Result<Vec<PersonOwed>, Error> {
-    let mut statement = db.conn().prepare(
+    Ok(owed_by_label_in(db.conn())?)
+}
+
+/// [`owed_by_label`] on any connection.
+pub(crate) fn owed_by_label_in(conn: &Connection) -> rusqlite::Result<Vec<PersonOwed>> {
+    let mut statement = conn.prepare(
         "SELECT share_label, currency, sum(my_amount_minor - amount_minor) AS owed, \
          sum(link_kind IS NULL AND amount_minor < 0 AND my_amount_minor <> amount_minor) \
            AS costs, \
@@ -799,7 +858,12 @@ pub fn owed_by_label(db: &Database) -> Result<Vec<PersonOwed>, Error> {
 /// Purchases claimed back that aren't fully repaid, oldest first. A claim
 /// in reports only: an excluded purchase isn't owed.
 pub fn outstanding_claims(db: &Database) -> Result<Vec<Claim>, Error> {
-    let mut statement = db.conn().prepare(
+    Ok(outstanding_claims_in(db.conn())?)
+}
+
+/// [`outstanding_claims`] on any connection.
+pub(crate) fn outstanding_claims_in(conn: &Connection) -> rusqlite::Result<Vec<Claim>> {
+    let mut statement = conn.prepare(
         "SELECT * FROM (SELECT t.id, t.account_id, t.date, t.amount_minor, t.currency, \
          -t.amount_minor - coalesce((SELECT sum(amount_minor) FROM transaction_link l \
                                      WHERE l.target_id = t.id AND l.status = 'confirmed'), 0) \
@@ -898,6 +962,17 @@ pub fn suggest_all(conn: &Connection) -> Result<usize, Error> {
         [],
     )?;
     suggest_for(conn, &inflows)
+}
+
+/// [`suggest_all`] in one DB transaction of its own: for callers outside
+/// core (sample data, a "suggest again" command).
+pub fn suggest(db: &mut Database) -> Result<usize, Error> {
+    let tx = db
+        .conn_mut()
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let made = suggest_all(&tx)?;
+    tx.commit()?;
+    Ok(made)
 }
 
 fn inflow_ids(

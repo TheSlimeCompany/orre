@@ -1667,6 +1667,82 @@ Migration `V16__rules_editor.sql`.
 10. **Categories editor not built.** M3.7's categories editor isn't drawn in Paper; it
     waits for a design decision.
 
+### Decision record: refunds, reimbursements and settlements (built) (2026-11-14)
+
+M3.11. Migration `V17__change_item_links.sql` (V16 is M3.13's).
+Marked **(user)**: decided by the user on 2026-11-14 when asked before the build (each
+was the recommended option). Everything else follows `DESIGN.md` → "Refunds,
+reimbursements and shared costs", the "Decision record: refunds, reimbursements and
+shared costs" above and "Decision record: M1 wave 4" (B).
+
+1. **Every link edit is one undoable change batch (user).** `change_item` gains a
+   field, `links` (V17 rebuilds the table to widen its CHECK; nothing references it,
+   so foreign keys stay on, and every row, ID and the sequence carry over). Its value
+   is the set of links whose money in is the item's transaction, any status, sorted by
+   pair (`change::LinkValue`, without ID or date); every link has exactly one inflow,
+   so each is recorded once. Writing a set reconciles pair by pair, everything that
+   lowers the confirmed totals first, so V9's caps hold at each step; a link keeps its
+   row where the schema lets it change in place (unlink and its undo keep the ID).
+   Undo restores the set only where it still holds, and only when it still fits: the
+   write is tried in a savepoint and the schema's own triggers decide, so a set that
+   no longer fits counts as changed since. Links aren't guarded by locks.
+2. **Core's own code writes, the recorder watches.** `edit::link`, `confirm_links`,
+   `reject_links` (unlink, "Not a refund", "Not this"), `set_sharing` and
+   `rename_person` run `link`'s checked functions inside a `bulk_edit` batch through
+   `Recorder::track` (read the named fields, run, read again, record what changed).
+   A link records the `links` of every payment with a link to the purchase too, so a
+   suggestion it drops comes back on undo. A share records `share`, `reimbursable`
+   and `split`; a rename every share, split line and settlement with the name.
+3. **The read models are core's.** `reporting::linking` reads the register (no
+   database per keystroke): how a row counts (`counts_as`: the category cell's
+   "· refund", "· refunded", "· shared", "· to claim", "· claimed", "Repays 2 claims",
+   "Repays Sam"), the link dialog's candidates (same merchant first, then newest, at
+   most 50, blocked ones listed with the reason; a suggested pair stays listed and
+   linking it confirms the suggestion), people a settlement can repay, payments for a
+   person, the default amount (what both sides can take) and why a refund was
+   suggested. `RegisterRow` gains its links (suggested and confirmed, both sides),
+   `share` (my share, person, claim, what is left to link) and `in_transfer`; the
+   register carries what each person owes. `link::owed::queue` is Owed to you.
+4. **A person's costs are the outstanding ones (user).** What they paid back
+   (settlements, refunds of shared costs) clears their oldest costs first, so the list
+   and "2 since 30 Oct" are what is still owed and sum to it; a part-paid cost shows
+   the rest. "Settled everything up to" names their last payment's date. Someone who
+   owes nothing (or whom the user owes) isn't listed.
+5. **The table says how a row counts (user).** Amounts stay the bank's; the category
+   cell gains a `text-muted` suffix, or "Repays …" in `text-secondary` with the marker
+   lane empty (`ui::transaction_row::CategoryCell::suffix`, `repays`). A linked
+   refund's category cell and inspector Category show its purchase's category,
+   read-only with the 10px link, until it's unlinked.
+6. **Undrawn states, composed (user).** "Link…" on a purchase opens the same dialog
+   listing money in on or after it (Refund, and Reimbursement when it's claimed back).
+   "Link a payment…" on a person opens it with the kind fixed to Settlement, listing
+   money in, newest first. A settlement from money in lists people as 28px rows: the
+   lock, the name, "owes" and the amount. The Owed by select is the tag menu's
+   pattern: people A–Z with the lock, and "Add “…”" for a typed new name. Also
+   composed: a payment's reimbursement card in the inspector ("Does this repay your
+   claims?"), the strip's one- and many-claim wording, the empty dialog list's
+   captions, a person's empty inspector caption, the undo bar's "Unlinked the …" and
+   "Coffer won't suggest that … again", and the Links caption on money in.
+7. **Shared waits for a person.** Choosing Shared fills Yours with half the amount
+   and saves nothing until a person is chosen; then Yours saves on blur or Enter.
+   Just me and Claim back save at once. A split purchase is shared line by line in
+   core, which no drawing covers yet, so its Shared segment is disabled. A share
+   change shows no undo bar (the M3.3 rule for one row); a link, an unlink or a
+   rejected suggestion does.
+8. **Where things live.** `transactions/links.rs` (the Share and Links sections),
+   `link_dialog.rs` (the dialog, opened by the shell on `TransactionsEvent::
+   LinkRequested`), `linking.rs` (the words), `link_fixture.rs` (D6.5's data, written
+   through core); Owed to you is `checks/owed.rs`, a third `Queue` under CHECKS, its
+   Name field owned by `ChecksView`. Shared additions: `Glyph::Owed`/`OwedLarge`,
+   `ButtonVariant::Ghost`, `Segmented::fill`, `SelectField::private`/`amount`. Share
+   labels never reach MCP (the surface is unchanged).
+9. **Change history shows a link edit as a count (merge with M3.13).** M3.13's Change
+   history (`change::history`) reads the `links` field as `Shown::Links`, the number of
+   confirmed links on the money in ("Not linked", "1 link", "3 links"); suggested and
+   rejected links don't count, as everywhere else. Not drawn in D6.7; composed at
+   merge. Migrations: M3.13's is V16, this one V17. Transactions has one
+   `TransactionsEvent` (rule prompt and links alike).
+
 ## Architecture
 
 ```

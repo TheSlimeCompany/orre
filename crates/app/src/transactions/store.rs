@@ -11,8 +11,9 @@
 //! user's, in one DB transaction recorded as one undoable change batch (the
 //! CLI's `coffer categorize` takes the same path), and [`change::undo`]
 //! reverts it. The inspector's split, tags, note and merchant name go
-//! through [`edit`] (M3.9), each one undoable change batch too. Nothing
-//! here touches an imported source field.
+//! through [`edit`] (M3.9), each one undoable change batch too, and so do
+//! its links and shares (M3.11: link, confirm, unlink or reject, share,
+//! rename a person). Nothing here touches an imported source field.
 
 use std::path::PathBuf;
 
@@ -22,8 +23,9 @@ use coffer_core::category::CategoryKey;
 use coffer_core::change::{self, UndoSummary};
 use coffer_core::db::Database;
 use coffer_core::edit;
-use coffer_core::id::{ChangeBatchId, TagId, TransactionId};
+use coffer_core::id::{ChangeBatchId, LinkId, TagId, TransactionId};
 use coffer_core::inbox::own;
+use coffer_core::link::{NewLink, ShareLabel, Sharing};
 use coffer_core::reporting::register::Register;
 use coffer_core::rule;
 use coffer_core::split::SplitLine;
@@ -168,6 +170,44 @@ impl TransactionStore {
     /// "Not now": the prompt doesn't propose this pattern again.
     pub fn dismiss_rule(&self, definition: &rule::RuleDefinition) -> Result<(), StoreError> {
         Ok(rule::dismiss(&mut self.open()?, definition)?)
+    }
+
+    /// Makes a confirmed link (a suggestion for the pair becomes it).
+    pub fn link(&self, link: &NewLink) -> Result<Option<ChangeBatchId>, StoreError> {
+        let mut db = self.open()?;
+        Ok(edit::link(&mut db, link)?.1)
+    }
+
+    /// Confirms suggested links: one, or a payment's set of claims.
+    pub fn confirm_links(&self, ids: &[LinkId]) -> Result<Option<ChangeBatchId>, StoreError> {
+        let mut db = self.open()?;
+        Ok(edit::confirm_links(&mut db, ids)?)
+    }
+
+    /// Unlinks, or rejects suggestions: the pairs aren't suggested again.
+    pub fn reject_links(&self, ids: &[LinkId]) -> Result<Option<ChangeBatchId>, StoreError> {
+        let mut db = self.open()?;
+        Ok(edit::reject_links(&mut db, ids)?)
+    }
+
+    /// Sets how `transaction` is shared.
+    pub fn set_sharing(
+        &self,
+        transaction: TransactionId,
+        sharing: &Sharing,
+    ) -> Result<Option<ChangeBatchId>, StoreError> {
+        let mut db = self.open()?;
+        Ok(edit::set_sharing(&mut db, transaction, sharing)?)
+    }
+
+    /// Renames a person everywhere.
+    pub fn rename_person(
+        &self,
+        from: &ShareLabel,
+        to: &ShareLabel,
+    ) -> Result<Option<ChangeBatchId>, StoreError> {
+        let mut db = self.open()?;
+        Ok(edit::rename_person(&mut db, from, to)?)
     }
 
     /// Reverts a change batch where its values still hold.

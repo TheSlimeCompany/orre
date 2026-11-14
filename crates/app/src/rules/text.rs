@@ -512,6 +512,7 @@ fn field_word(field: Field) -> &'static str {
         Field::Split => "split",
         Field::Share => "share",
         Field::Reimbursable => "claim",
+        Field::Links => "links",
     }
 }
 
@@ -609,6 +610,9 @@ pub fn shown(value: &Shown, data: &RulesData, currency: Currency) -> String {
         ),
         Shown::Reimbursable(true) => "Claimed back".to_owned(),
         Shown::Reimbursable(false) => "Just me".to_owned(),
+        Shown::Links(0) => "Not linked".to_owned(),
+        Shown::Links(1) => "1 link".to_owned(),
+        Shown::Links(links) => format!("{links} links"),
     }
 }
 

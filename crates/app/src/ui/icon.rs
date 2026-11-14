@@ -166,6 +166,11 @@ pub enum Glyph {
     /// No rules yet: [`Glyph::Arrow`] at 16px (D6.7 states board, Paper
     /// `HFL-0`). 16px.
     ArrowLarge,
+    /// Owed to you: a return arrow (D6.5, Paper `DKZ-0`). 12px.
+    Owed,
+    /// The empty Owed to you queue's icon: [`Glyph::Owed`] scaled to 16px,
+    /// its 1px stroke scaled with it (Paper `GCN-0`). 16px.
+    OwedLarge,
 }
 
 impl Glyph {
@@ -213,7 +218,8 @@ impl Glyph {
             | Self::StartsWith
             | Self::Asterisk
             | Self::Lines
-            | Self::Back => size::ICON_SM,
+            | Self::Back
+            | Self::Owed => size::ICON_SM,
             Self::Close | Self::Minimize | Self::Maximize | Self::Lock | Self::YouSet => {
                 size::ICON_XS
             }
@@ -229,7 +235,8 @@ impl Glyph {
             | Self::Mark
             | Self::DuplicateLarge
             | Self::BalanceLarge
-            | Self::ArrowLarge => size::ICON_LG,
+            | Self::ArrowLarge
+            | Self::OwedLarge => size::ICON_LG,
         }
     }
 
@@ -324,6 +331,17 @@ impl Glyph {
             Self::Link => concat!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
                 r#"<path d="M5 6.5A2.5 2.5 0 0 0 8.77 6.77L10.27 5.27A2.5 2.5 0 0 0 6.73 1.73L5.87 2.59M7 5.5A2.5 2.5 0 0 0 3.23 5.23L1.73 6.73A2.5 2.5 0 0 0 5.27 10.27L6.12 9.42"/></svg>"#
+            ),
+            Self::Owed => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M4.25 2.25L2 4.5L4.25 6.75M2 4.5H7.25A2.75 2.75 0 0 1 7.25 10H5.5"/></svg>"#
+            ),
+            // Paper draws the 12px path at 16px with its default 1px
+            // stroke; scaled by 4/3 into a 16px viewBox, so it renders the
+            // same.
+            Self::OwedLarge => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.333" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M5.667 3L2.667 6L5.667 9M2.667 6H9.667A3.667 3.667 0 0 1 9.667 13.333H7.333"/></svg>"#
             ),
             Self::Arrow => concat!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
@@ -503,7 +521,7 @@ mod tests {
 
     use super::*;
 
-    const ALL: [Glyph; 59] = [
+    const ALL: [Glyph; 61] = [
         Glyph::Account,
         Glyph::Pot,
         Glyph::Plus,
@@ -563,6 +581,8 @@ mod tests {
         Glyph::Lines,
         Glyph::ArrowLarge,
         Glyph::Back,
+        Glyph::Owed,
+        Glyph::OwedLarge,
     ];
 
     /// The `viewBox` side in the markup, which `size` must match so strokes

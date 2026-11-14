@@ -11,6 +11,10 @@
 //! - **Balance checks**: every account's balances checked against its
 //!   transactions, a failure's window and the pair that explains it, and
 //!   locking an account's checked history (and unlocking it).
+//! - **Owed to you** (M3.11): outstanding expense claims, with the payment
+//!   Coffer matched to some of them ("Link as reimbursement", "Not this"),
+//!   and the people who owe the user for shared costs, a person's costs,
+//!   payments and name in the inspector.
 //!
 //! [`Checks`] holds what the queues show (from [`store::ChecksStore`],
 //! which opens the database per call), which queue is open, the
@@ -23,15 +27,20 @@ pub mod balances;
 pub mod duplicates;
 pub mod fixture;
 pub mod lock;
+pub mod owed;
 pub mod store;
 pub mod text;
 pub mod view;
 
 use coffer_core::checks::{AccountReview, CheckRow, Pair};
-use coffer_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, TransactionId};
+use coffer_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, LinkId, TransactionId};
+use coffer_core::link::ShareLabel;
+use coffer_core::link::owed::Person;
+use coffer_core::money::Currency;
 use coffer_core::reconciliation::BalanceRef;
 use gpui_kit::{Context, EventEmitter, SharedString};
 
+use crate::accounts::store::StoreError;
 use store::{ChecksData, ChecksStore};
 
 /// Binds the queues' keys: M merge, N not duplicates, ←→ keep the other
@@ -51,15 +60,17 @@ pub fn init(cx: &mut gpui_kit::App) {
     ]);
 }
 
-/// The two queues under CHECKS.
+/// The queues under CHECKS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Queue {
     Duplicates,
     Balances,
+    /// Owed to you (M3.11).
+    Owed,
 }
 
 /// What the queues ask their owner (the shell) to do.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChecksEvent {
     /// A queue was opened (`Some`) or closed for the suggestions (`None`):
     /// the shell shows and focuses the right canvas.
@@ -70,6 +81,8 @@ pub enum ChecksEvent {
     UnlockRequested(AccountId),
     /// "Add balance…": the accounts' Add balance dialog.
     AddBalanceRequested(AccountId),
+    /// "Link a payment…": the link dialog for a person (M3.11).
+    LinkPaymentRequested(ShareLabel, Currency),
     /// Transactions or locks changed: what reads them should read again.
     Changed,
 }
@@ -81,6 +94,8 @@ pub enum Undo {
     Merge(ChangeBatchId, DuplicateCandidateId),
     /// A dismissed pair, reopened.
     Dismiss(DuplicateCandidateId),
+    /// A link edit's change batch (Owed to you, M3.11).
+    Batch(ChangeBatchId),
 }
 
 /// What the last change did, shown until the next one.
@@ -112,6 +127,8 @@ pub struct Checks {
     /// instead", ←→).
     swapped: Option<Pair>,
     check: Option<(AccountId, BalanceRef)>,
+    /// The person selected on Owed to you, in a currency.
+    person: Option<(ShareLabel, Currency)>,
     outcome: Option<Outcome>,
     load_error: Option<SharedString>,
 }
@@ -147,6 +164,7 @@ impl Checks {
             pair: None,
             swapped: None,
             check: None,
+            person: None,
             outcome: None,
             load_error: None,
         }
@@ -178,6 +196,11 @@ impl Checks {
     /// Pending possible duplicates: the panel's count.
     pub fn pending_pairs(&self) -> usize {
         self.data.review.pairs.len()
+    }
+
+    /// Open items on Owed to you: claims and people (the panel's count).
+    pub fn owed_open(&self) -> usize {
+        self.data.owed.open()
     }
 
     /// Failing balance checks: the panel's count and the status bar's.
@@ -234,6 +257,14 @@ impl Checks {
                 self.pair = self.data.review.pairs.first().map(|pair| pair.candidate);
                 self.swapped = None;
             }
+            Some(Queue::Owed) if self.selected_person().is_none() => {
+                self.person = self
+                    .data
+                    .owed
+                    .people
+                    .first()
+                    .map(|person| (person.label.clone(), person.owed.currency()));
+            }
             Some(Queue::Balances) if self.selected_check().is_none() => {
                 self.check = self.data.review.accounts.iter().find_map(|account| {
                     account
@@ -284,6 +315,9 @@ impl Checks {
         }
         if self.selected_check().is_none() {
             self.check = None;
+        }
+        if self.selected_person().is_none() {
+            self.person = None;
         }
     }
 
@@ -453,19 +487,25 @@ impl Checks {
         };
         let result = self.store().and_then(|store| {
             match undo {
-                Undo::Merge(batch, _) => store.undo(batch).map(drop),
+                Undo::Merge(batch, _) | Undo::Batch(batch) => store.undo(batch).map(drop),
                 Undo::Dismiss(id) => store.reopen(id),
             }
             .map_err(|error| SharedString::from(error.to_string()))
         });
         let candidate = match undo {
-            Undo::Merge(_, id) | Undo::Dismiss(id) => id,
+            Undo::Merge(_, id) | Undo::Dismiss(id) => Some(id),
+            Undo::Batch(_) => None,
         };
         match result {
             Ok(()) => {
                 self.outcome = None;
                 self.reload(cx);
-                if self.data.review.pair(candidate).is_some() {
+                if matches!(undo, Undo::Batch(_)) {
+                    cx.emit(ChecksEvent::Changed);
+                }
+                if let Some(candidate) = candidate
+                    && self.data.review.pair(candidate).is_some()
+                {
                     self.pair = Some(candidate);
                     self.swapped = None;
                 }
@@ -572,7 +612,110 @@ impl Checks {
                 self.check = None;
                 cx.notify();
             }
+            Some(Queue::Owed) => {
+                self.person = None;
+                cx.notify();
+            }
             None => {}
+        }
+    }
+
+    // Owed to you (M3.11) -------------------------------------------------------
+
+    /// The selected person.
+    pub fn selected_person(&self) -> Option<&Person> {
+        let (label, currency) = self.person.as_ref()?;
+        self.data
+            .owed
+            .people
+            .iter()
+            .find(|person| &person.label == label && person.owed.currency() == *currency)
+    }
+
+    pub fn is_person_selected(&self, person: &Person) -> bool {
+        self.person.as_ref().is_some_and(|(label, currency)| {
+            &person.label == label && person.owed.currency() == *currency
+        })
+    }
+
+    /// Selects a person, or nothing if they're selected.
+    pub fn toggle_person(&mut self, label: ShareLabel, currency: Currency, cx: &mut Context<Self>) {
+        let next = (label, currency);
+        self.person = (self.person.as_ref() != Some(&next)).then_some(next);
+        cx.notify();
+    }
+
+    /// Moves the selected person `step` rows (↑↓), stopping at the ends.
+    pub fn select_next_person(&mut self, step: isize, cx: &mut Context<Self>) {
+        let order: Vec<(ShareLabel, Currency)> = self
+            .data
+            .owed
+            .people
+            .iter()
+            .map(|person| (person.label.clone(), person.owed.currency()))
+            .collect();
+        if let Some(next) = step_in(&order, self.person.clone(), step) {
+            self.person = Some(next);
+            cx.notify();
+        }
+    }
+
+    /// Runs a link edit and shows its undo bar with `message`.
+    fn link_edit(
+        &mut self,
+        message: String,
+        cx: &mut Context<Self>,
+        edit: impl FnOnce(&ChecksStore) -> Result<Option<ChangeBatchId>, StoreError>,
+    ) {
+        let result = self
+            .store()
+            .and_then(|store| edit(store).map_err(|error| SharedString::from(error.to_string())));
+        self.outcome = Some(match result {
+            Ok(batch) => Outcome::Done {
+                message: message.into(),
+                undo: batch.map(Undo::Batch),
+            },
+            Err(message) => Outcome::Refused(message),
+        });
+        self.reload(cx);
+        cx.emit(ChecksEvent::Changed);
+    }
+
+    /// "Link as reimbursement": confirms a payment's matched claims.
+    pub fn link_match(&mut self, links: Vec<LinkId>, message: String, cx: &mut Context<Self>) {
+        self.link_edit(message, cx, |store| store.confirm_links(&links));
+    }
+
+    /// "Not this": the payment isn't suggested for those claims again.
+    pub fn reject_match(&mut self, links: Vec<LinkId>, cx: &mut Context<Self>) {
+        self.link_edit(
+            "Coffer won't suggest that payment again".into(),
+            cx,
+            |store| store.reject_links(&links),
+        );
+    }
+
+    /// Renames the selected person (Name): everywhere their name is.
+    pub fn rename_person(&mut self, to: &str, cx: &mut Context<Self>) -> Result<(), SharedString> {
+        let Some((from, currency)) = self.person.clone() else {
+            return Ok(());
+        };
+        let to = ShareLabel::new(to).map_err(|error| SharedString::from(error.to_string()))?;
+        if to == from {
+            return Ok(());
+        }
+        self.store()?
+            .rename_person(&from, &to)
+            .map_err(|error| SharedString::from(error.to_string()))?;
+        self.person = Some((to, currency));
+        self.reload(cx);
+        cx.emit(ChecksEvent::Changed);
+        Ok(())
+    }
+
+    pub fn request_link_payment(&mut self, cx: &mut Context<Self>) {
+        if let Some((label, currency)) = self.person.clone() {
+            cx.emit(ChecksEvent::LinkPaymentRequested(label, currency));
         }
     }
 
@@ -627,7 +770,7 @@ impl Checks {
 
 /// The item `step` rows from `current` in `order`, stopping at the ends;
 /// with nothing selected, down gives the first and up the last.
-fn step_in<T: Copy + PartialEq>(order: &[T], current: Option<T>, step: isize) -> Option<T> {
+fn step_in<T: Clone + PartialEq>(order: &[T], current: Option<T>, step: isize) -> Option<T> {
     if order.is_empty() {
         return None;
     }
@@ -636,7 +779,7 @@ fn step_in<T: Copy + PartialEq>(order: &[T], current: Option<T>, step: isize) ->
         None if step < 0 => order.len() - 1,
         None => 0,
     };
-    Some(order[next])
+    Some(order[next].clone())
 }
 
 #[cfg(test)]

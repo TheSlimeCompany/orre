@@ -137,9 +137,16 @@ pub fn row_marker(register: &Register, row: &RegisterRow) -> Marker {
 }
 
 /// Whether the row's category can be set in place: not a transfer, not a
-/// split (its lines are set in the split editor, M3.9).
+/// split (its lines are set in the split editor, M3.9), not a refund whose
+/// linked purchase sets it (M3.11, Paper `FGQ-0`).
 pub fn can_recategorise(row: &RegisterRow) -> bool {
-    row.transfer.is_none() && !matches!(row.category, RowCategory::Split(_))
+    row.transfer.is_none()
+        && !matches!(row.category, RowCategory::Split(_))
+        && !row.links.iter().any(|link| {
+            link.side == coffer_core::reporting::register::LinkSide::Inflow
+                && link.kind == coffer_core::link::LinkKind::Refund
+                && link.status == coffer_core::link::LinkStatus::Confirmed
+        })
 }
 
 /// A day's header: "Mon 9 Nov", with a two-digit year outside `today`'s.

@@ -369,14 +369,27 @@ impl RenderOnce for DayHeader {
 
 /// What a row shows in the category column.
 #[derive(Clone, Debug, PartialEq)]
-pub struct CategoryCell(CategoryKind);
+pub struct CategoryCell(CategoryKind, Option<SharedString>);
 
 #[derive(Clone, Debug, PartialEq)]
 enum CategoryKind {
-    Assigned { name: SharedString, marker: Marker },
+    Assigned {
+        name: SharedString,
+        marker: Marker,
+    },
+    /// Money in that repays someone, with no category of its own (D6.5,
+    /// Paper `FW1-0`): the marker lane left empty, the words in
+    /// `text-secondary`.
+    Repays {
+        words: SharedString,
+    },
     Uncategorised,
-    Suggested { name: SharedString },
-    Transfer { label: SharedString },
+    Suggested {
+        name: SharedString,
+    },
+    Transfer {
+        label: SharedString,
+    },
 }
 
 impl CategoryCell {
@@ -390,31 +403,55 @@ impl CategoryCell {
     /// A category with any marker: [`Marker::Other`] for "Other", which
     /// has no palette colour.
     pub fn marked(name: impl Into<SharedString>, marker: Marker) -> Self {
-        Self(CategoryKind::Assigned {
-            name: name.into(),
-            marker,
-        })
+        Self(
+            CategoryKind::Assigned {
+                name: name.into(),
+                marker,
+            },
+            None,
+        )
+    }
+
+    /// Money in that repays claims or a person, with no category of its
+    /// own: "Repays 2 claims", "Repays Sam" (D6.5).
+    pub fn repays(words: impl Into<SharedString>) -> Self {
+        Self(
+            CategoryKind::Repays {
+                words: words.into(),
+            },
+            None,
+        )
+    }
+
+    /// Follows the name with how the row counts, in `text-muted`: " ·
+    /// refund", " · shared", " · to claim" (D6.5, Paper `FQW-0`).
+    pub fn suffix(mut self, words: impl Into<SharedString>) -> Self {
+        self.1 = Some(words.into());
+        self
     }
 
     /// No category yet: a dashed `text-muted` marker and "Uncategorised" in
     /// `text-muted`.
     pub fn uncategorised() -> Self {
-        Self(CategoryKind::Uncategorised)
+        Self(CategoryKind::Uncategorised, None)
     }
 
     /// A category the agent proposed and the user hasn't approved: a 10px
     /// sparkle and the name in `moldavite-text`.
     pub fn suggested(name: impl Into<SharedString>) -> Self {
-        Self(CategoryKind::Suggested { name: name.into() })
+        Self(CategoryKind::Suggested { name: name.into() }, None)
     }
 
     /// A transfer between the user's own accounts ("Transfer · Holiday
     /// pot"). The whole row dims to `text-muted`, because transfers are
     /// left out of totals, and the merchant gets the ⇄ icon.
     pub fn transfer(label: impl Into<SharedString>) -> Self {
-        Self(CategoryKind::Transfer {
-            label: label.into(),
-        })
+        Self(
+            CategoryKind::Transfer {
+                label: label.into(),
+            },
+            None,
+        )
     }
 
     pub fn is_transfer(&self) -> bool {
@@ -423,11 +460,16 @@ impl CategoryCell {
 
     /// The category's name as a screen reader hears it.
     fn spoken(&self) -> SharedString {
-        match &self.0 {
+        let name = match &self.0 {
             CategoryKind::Assigned { name, .. } => name.clone(),
+            CategoryKind::Repays { words } => words.clone(),
             CategoryKind::Uncategorised => "Uncategorised".into(),
             CategoryKind::Suggested { name } => format!("{name}, suggested").into(),
             CategoryKind::Transfer { label } => label.clone(),
+        };
+        match &self.1 {
+            Some(suffix) => format!("{name}, {suffix}").into(),
+            None => name,
         }
     }
 }
@@ -452,7 +494,9 @@ impl RowColors {
         Self {
             merchant: dimmed(color::TEXT),
             category: match category.0 {
-                CategoryKind::Assigned { .. } => lift(color::TEXT_SECONDARY),
+                CategoryKind::Assigned { .. } | CategoryKind::Repays { .. } => {
+                    lift(color::TEXT_SECONDARY)
+                }
                 CategoryKind::Uncategorised | CategoryKind::Transfer { .. } => {
                     lift(color::TEXT_MUTED)
                 }
@@ -622,11 +666,24 @@ impl TransactionRow {
                 .text_role(role)
                 .text_color(text)
         };
+        let suffix = self.category.1.clone();
+        let label = |name: SharedString| {
+            label(name).when_some(suffix.clone(), |this, suffix| {
+                this.flex().child(
+                    div()
+                        .text_color(color::TEXT_MUTED)
+                        .child(format!("\u{a0}· {suffix}")),
+                )
+            })
+        };
         let cell = div().flex().items_center().gap(spacing::S2).min_w_0();
         let cell = match &self.category.0 {
             CategoryKind::Assigned { name, marker } => {
                 cell.child(marker.render()).child(label(name.clone()))
             }
+            CategoryKind::Repays { words } => cell
+                .child(div().flex_none().size(size::MARKER))
+                .child(label(words.clone())),
             CategoryKind::Uncategorised => cell
                 .child(Marker::None.render())
                 .child(label("Uncategorised".into())),

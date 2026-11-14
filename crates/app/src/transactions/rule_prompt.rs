@@ -17,13 +17,13 @@
 //! The view asks the shell through [`TransactionsEvent`]; nothing here
 //! writes a rule.
 
-use coffer_core::id::{RuleId, TransactionId};
+use coffer_core::id::TransactionId;
 use coffer_core::reporting::register::{RegisterRow, RowCategory};
-use coffer_core::rule::{self, RuleDefinition, RuleOrigin};
+use coffer_core::rule::{self, RuleOrigin};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Context, EventEmitter, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, div,
 };
 
 use crate::inbox::text::{NAME_SHOWN, Part, plain, rich};
@@ -32,18 +32,7 @@ use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::inspector::{section, section_title};
 use crate::ui::text::TextRoleExt as _;
 
-use super::{Source, TransactionsView};
-
-/// What Transactions asks its owner (the shell) to do.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TransactionsEvent {
-    /// "Create rule…": open Rules on the preview with this rule, not saved.
-    CreateRule(RuleDefinition, RuleOrigin),
-    /// "Open rule": show this rule in Rules.
-    OpenRule(RuleId),
-}
-
-impl EventEmitter<TransactionsEvent> for TransactionsView {}
+use super::{Source, TransactionsEvent, TransactionsView};
 
 /// The prompt for one row: core's proposal and what the card says.
 #[derive(Clone, Debug, PartialEq, Eq)]

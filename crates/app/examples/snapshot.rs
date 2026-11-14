@@ -75,11 +75,20 @@
 //!   `rules-delete` and `rules-undo`: the dialogs (`HFH-0`); `rules-empty`:
 //!   no rules yet (`HFH-0`); `transactions-rule-prompt`: "Create a rule
 //!   from this edit?" after the VINTED edit (`3WT-0`);
+//! - `links-refund`: the ASOS.com refund with Coffer's suggestion (Paper
+//!   `9WS-0`); `links-shared`: Odeon shared with Sam (`BAT-0`);
+//!   `links-dialog`: the link dialog on the refund (`EUY-0`);
+//!   `links-linked`: the refund after "Link as refund", with the undo bar
+//!   (`EC0-0`, `FGQ-0`); `links-purchase`: the purchase after linking
+//!   (`FE4-0`); `links-claim`: Trainline claimed back, partly repaid
+//!   (`FJ1-0`); `review-owed`: Owed to you with Sam selected (`CCF-0`);
+//!   `review-owed-empty`: nothing owed (`GCJ-0`);
 //! - `showcase`: the component showcase.
 //!
 //! The Inbox reads a scratch database seeded with `inbox::fixture`, the
 //! review queues one seeded with `checks::fixture`, Rules one seeded with
-//! `rules::fixture`.
+//! `rules::fixture`, the links snapshots one seeded with
+//! `transactions::link_fixture`.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -360,6 +369,7 @@ fn main() -> Result<()> {
     import_snapshots(&mut cx, &out)?;
     review_snapshots(&mut cx, &out)?;
     rules_snapshots(&mut cx, &out)?;
+    links_snapshots(&mut cx, &out)?;
     snapshot(&mut cx, &out, "showcase", |window, cx| {
         cx.new(|cx| Showcase::new(window, cx)).into()
     })?;
@@ -710,6 +720,110 @@ fn review_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                     checks.update(cx, |checks, cx| checks.request_unlock(joint, cx))
                 }
                 _ => {}
+            }
+        };
+        snapshot_then(cx, out, name, build, then)?;
+        drop(dir);
+    }
+    Ok(())
+}
+
+/// Which links snapshot to take (M3.11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinksShot {
+    Refund,
+    Shared,
+    Dialog,
+    Linked,
+    Purchase,
+    Claim,
+    Owed,
+    OwedEmpty,
+}
+
+/// The links snapshots: each on a fresh scratch database seeded with D6.5's
+/// fixture, Transactions and the review queues reading it.
+fn links_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
+    use coffer_app::accounts::store::AccountStore;
+    use coffer_app::transactions::link_fixture::{self, Variant};
+    use coffer_app::transactions::links::LinkFrom;
+    use coffer_app::transactions::{Source, store::TransactionStore};
+
+    let shots = [
+        ("links-refund", LinksShot::Refund),
+        ("links-shared", LinksShot::Shared),
+        ("links-dialog", LinksShot::Dialog),
+        ("links-linked", LinksShot::Linked),
+        ("links-purchase", LinksShot::Purchase),
+        ("links-claim", LinksShot::Claim),
+        ("review-owed", LinksShot::Owed),
+        ("review-owed-empty", LinksShot::OwedEmpty),
+    ];
+    for (name, shot) in shots {
+        let dir = tempfile::TempDir::new()?;
+        let database = dir.path().join("coffer.db");
+        let seeded = {
+            let mut db = Database::open(&database)?;
+            let variant = if shot == LinksShot::Claim {
+                Variant::PartlyRepaid
+            } else {
+                Variant::Suggested
+            };
+            (shot != LinksShot::OwedEmpty).then(|| link_fixture::seed(&mut db, variant))
+        };
+        let pick = seeded.as_ref().map(|seeded| match shot {
+            LinksShot::Shared => seeded.odeon,
+            LinksShot::Purchase => seeded.asos_purchase,
+            LinksShot::Claim => seeded.trainline,
+            _ => seeded.asos_refund,
+        });
+        let refund = seeded.as_ref().map(|seeded| seeded.asos_refund);
+        let shell_slot: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::new(RefCell::new(None));
+        let slot = shell_slot.clone();
+        let build = move |window: &mut Window, cx: &mut App| -> AnyView {
+            let accounts = cx.new(|_| Accounts::from_store(AccountStore::new(database.clone())));
+            let source = Source::Database(TransactionStore::new(database.clone()));
+            let owed = matches!(shot, LinksShot::Owed | LinksShot::OwedEmpty);
+            let view = if owed {
+                View::Inbox
+            } else {
+                View::Transactions
+            };
+            let shell = cx.new(|cx| {
+                let mut shell = ShellView::with_sources(view, accounts, source, window, cx);
+                let checks = cx.new(|_| Checks::from_store(ChecksStore::new(database)));
+                shell.install_checks(checks.clone(), window, cx);
+                if owed {
+                    checks.update(cx, |checks, cx| checks.show(Queue::Owed, cx));
+                }
+                shell
+            });
+            *slot.borrow_mut() = Some(shell.clone());
+            shell.into()
+        };
+        // Once the register has been read, as a click would.
+        let then = move |window: &mut Window, cx: &mut App| {
+            let shell = shell_slot.borrow().clone().expect("the shell was built");
+            let transactions = shell.read(cx).transactions().clone();
+            // Owed to you opens on the person who owes most: Sam.
+            if shot == LinksShot::Owed {
+                return;
+            }
+            if matches!(shot, LinksShot::Linked | LinksShot::Purchase)
+                && let Some(refund) = refund
+            {
+                transactions.update(cx, |view, cx| view.select([refund], cx));
+                transactions.update(cx, |view, cx| view.confirm_all_suggestions(cx));
+            }
+            if let Some(pick) = pick {
+                transactions.update(cx, |view, cx| view.select([pick], cx));
+            }
+            if shot == LinksShot::Dialog
+                && let Some(refund) = refund
+            {
+                shell.update(cx, |shell, cx| {
+                    shell.open_link_dialog(LinkFrom::Transaction(refund), window, cx);
+                });
             }
         };
         snapshot_then(cx, out, name, build, then)?;

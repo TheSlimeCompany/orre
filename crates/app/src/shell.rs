@@ -77,7 +77,8 @@ use crate::settings::restore::RestoreDialog;
 use crate::settings::store::SettingsStore;
 use crate::settings::{self, Section, SettingsEvent, SettingsView};
 use crate::theme::tokens::{color, size as token_size, typography};
-use crate::transactions::rule_prompt::TransactionsEvent;
+use crate::transactions::TransactionsEvent;
+use crate::transactions::link_dialog::LinkDialog;
 use crate::transactions::store::TransactionStore;
 use crate::transactions::{self, TransactionsView};
 use crate::ui::button::IconButton;
@@ -488,6 +489,9 @@ impl ShellView {
             cx.subscribe_in(&settings, window, |this, _, event, window, cx| {
                 this.on_settings_event(event.clone(), window, cx)
             }),
+            cx.subscribe_in(&transactions, window, |this, _, event, window, cx| {
+                this.on_transactions_event(event.clone(), window, cx)
+            }),
         ];
         let imports = cx.new(|_| Imports::sample());
         let mut subscriptions = subscriptions;
@@ -500,13 +504,6 @@ impl ShellView {
         let checks_view = cx.new(|cx| ChecksView::new(checks.clone(), cx));
         let rules = cx.new(|_| Rules::empty());
         let rules_view = cx.new(|cx| RulesView::new(rules.clone(), window, cx));
-        subscriptions.push(cx.subscribe_in(
-            &transactions,
-            window,
-            |this, _, event: &TransactionsEvent, window, cx| {
-                this.on_transactions_event(event.clone(), window, cx)
-            },
-        ));
         Self {
             view,
             before_settings: View::default(),
@@ -624,7 +621,7 @@ impl ShellView {
     ) {
         self.checks_subscriptions = vec![
             cx.subscribe_in(&checks, window, |this, _, event, window, cx| {
-                this.on_checks_event(*event, window, cx)
+                this.on_checks_event(event.clone(), window, cx)
             }),
             cx.observe(&checks, |_, _, cx| cx.notify()),
         ];
@@ -695,26 +692,6 @@ impl ShellView {
         }
     }
 
-    fn on_transactions_event(
-        &mut self,
-        event: TransactionsEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            TransactionsEvent::CreateRule(rule, origin) => {
-                self.show(View::Rules, window, cx);
-                self.rules
-                    .update(cx, |rules, cx| rules.new_rule_from(&rule, origin, cx));
-            }
-            TransactionsEvent::OpenRule(rule) => {
-                self.show(View::Rules, window, cx);
-                self.rules
-                    .update(cx, |rules, cx| rules.select_rule(Some(rule), cx));
-            }
-        }
-    }
-
     /// The review queues.
     pub fn checks(&self) -> &Entity<Checks> {
         &self.checks
@@ -743,6 +720,13 @@ impl ShellView {
                 let dialog = cx.new(|cx| UnlockDialog::new(checks, account, window, cx));
                 self.open_dialog(dialog, window, cx);
             }
+            ChecksEvent::LinkPaymentRequested(label, currency) => {
+                self.open_link_dialog(
+                    crate::transactions::links::LinkFrom::Person(label, currency),
+                    window,
+                    cx,
+                );
+            }
             ChecksEvent::AddBalanceRequested(account) => {
                 self.on_accounts_event(AccountsEvent::AddBalanceRequested(account), window, cx)
             }
@@ -754,6 +738,49 @@ impl ShellView {
                     .update(cx, |transactions, cx| transactions.reload(cx));
             }
         }
+    }
+
+    /// What the Transactions screen asks for: Rules on a rule to create or
+    /// open (M3.13), the link dialog, and Owed to you reading again after a
+    /// link or share changed (M3.11).
+    fn on_transactions_event(
+        &mut self,
+        event: TransactionsEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            TransactionsEvent::CreateRule(rule, origin) => {
+                self.show(View::Rules, window, cx);
+                self.rules
+                    .update(cx, |rules, cx| rules.new_rule_from(&rule, origin, cx));
+            }
+            TransactionsEvent::OpenRule(rule) => {
+                self.show(View::Rules, window, cx);
+                self.rules
+                    .update(cx, |rules, cx| rules.select_rule(Some(rule), cx));
+            }
+            TransactionsEvent::LinkRequested(from) => {
+                self.open_link_dialog(from, window, cx);
+            }
+            TransactionsEvent::Changed => {
+                self.checks.update(cx, |checks, cx| checks.reload(cx));
+            }
+        }
+    }
+
+    /// Opens the link dialog from `from` (a transaction's "Link…", a
+    /// person's "Link a payment…").
+    pub fn open_link_dialog(
+        &mut self,
+        from: crate::transactions::links::LinkFrom,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<LinkDialog> {
+        let transactions = self.transactions.clone();
+        let dialog = cx.new(|cx| LinkDialog::new(transactions, from, window, cx));
+        self.open_dialog(dialog.clone(), window, cx);
+        dialog
     }
 
     /// Opens Balance checks on `account`'s failing check: the flagged dot

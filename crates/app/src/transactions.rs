@@ -37,6 +37,10 @@
 mod editor;
 pub mod fixture;
 mod inspector;
+pub mod link_dialog;
+pub mod link_fixture;
+pub mod linking;
+pub mod links;
 pub mod present;
 pub mod rule_prompt;
 pub mod selection;
@@ -113,6 +117,25 @@ pub enum Source {
     Fixture,
 }
 
+/// What the Transactions screen asks its owner (the shell) to do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TransactionsEvent {
+    /// "Create rule…": open Rules on the preview with this rule, not saved
+    /// (M3.13).
+    CreateRule(
+        coffer_core::rule::RuleDefinition,
+        coffer_core::rule::RuleOrigin,
+    ),
+    /// "Open rule": show this rule in Rules (M3.13).
+    OpenRule(coffer_core::id::RuleId),
+    /// "Link…" or "Link a payment…": open the link dialog.
+    LinkRequested(links::LinkFrom),
+    /// Links or shares changed: Owed to you reads them again.
+    Changed,
+}
+
+impl gpui_kit::EventEmitter<TransactionsEvent> for TransactionsView {}
+
 /// Which menu is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Menu {
@@ -132,6 +155,8 @@ pub enum Menu {
     Tags,
     /// A split line's category select, by the line's key.
     SplitLine(u64),
+    /// The Share section's Owed by select (M3.11).
+    Person,
 }
 
 impl Menu {
@@ -142,7 +167,7 @@ impl Menu {
 
     /// Whether it's a select field's menu, with a state of its own.
     fn is_field_select(self) -> bool {
-        matches!(self, Menu::Inspector | Menu::SplitLine(_))
+        matches!(self, Menu::Inspector | Menu::SplitLine(_) | Menu::Person)
     }
 }
 
@@ -358,6 +383,11 @@ impl TransactionsView {
     }
 
     /// The register the table shows.
+    /// Today, as the screen dates things.
+    pub fn today(&self) -> NaiveDate {
+        self.today
+    }
+
     pub fn register(&self) -> &Register {
         &self.register
     }
@@ -498,6 +528,7 @@ impl TransactionsView {
                 present::category_groups(&self.register)
             }
             Menu::Tags => present::tag_groups(&self.register, self.row_tags(), ""),
+            Menu::Person => links::person_groups(self, ""),
         }
     }
 
@@ -511,6 +542,7 @@ impl TransactionsView {
         match menu {
             Menu::Inspector => Some(&mut self.inspector_select),
             Menu::SplitLine(key) => self.editor.line_select(key),
+            Menu::Person => Some(&mut self.editor.person_select),
             _ => Some(&mut self.menu_state),
         }
     }
@@ -523,6 +555,10 @@ impl TransactionsView {
         if menu == Menu::Tags {
             let query = self.menu_filter.read(cx).value();
             return present::tag_groups(&self.register, self.row_tags(), &query);
+        }
+        if menu == Menu::Person {
+            let query = self.menu_filter.read(cx).value();
+            return links::person_groups(self, &query);
         }
         let groups = self.menu_groups(menu, cx);
         if menu.has_filter() {
@@ -581,6 +617,9 @@ impl TransactionsView {
             }
             Menu::SplitLine(key) => category(self.line_category(key)),
             Menu::Tags => None,
+            Menu::Person => self
+                .chosen_person()
+                .map(|label| format!("person-{label}").into()),
         }
     }
 
@@ -696,10 +735,10 @@ impl TransactionsView {
             self.close(window, cx);
         }
         self.menu = Some(menu);
-        let placeholder = if menu == Menu::Tags {
-            "Find or create a tag"
-        } else {
-            "Find a category"
+        let placeholder = match menu {
+            Menu::Tags => "Find or create a tag",
+            Menu::Person => "Find or add a person",
+            _ => "Find a category",
         };
         self.menu_filter.update(cx, |filter, cx| {
             filter.set_placeholder(placeholder, window, cx);
@@ -797,6 +836,15 @@ impl TransactionsView {
                     self.set_line_category(line, category, cx);
                 }
             }
+            Menu::Person => match key.as_ref() {
+                links::NEW_PERSON => self.choose_person(&typed, cx),
+                key => {
+                    if let Some(person) = links::person_from_key(key) {
+                        let person = person.to_owned();
+                        self.choose_person(&person, cx);
+                    }
+                }
+            },
             Menu::Tags => match key.as_ref() {
                 present::NEW_TAG => self.create_tag(&typed, false, cx),
                 present::NEW_PRIVATE_TAG => self.create_tag(&typed, true, cx),
@@ -917,6 +965,7 @@ impl TransactionsView {
                 }
             }
             self.reload(cx);
+            cx.emit(TransactionsEvent::Changed);
         }
         cx.notify();
     }
@@ -1028,7 +1077,7 @@ impl TransactionsView {
         TransactionRow::new(
             format!("txn-{id}"),
             row.merchant.clone(),
-            present::cell(&self.register, row),
+            linking::cell(&self.register, row),
             format::money(row.amount, Sign::Always),
         )
         .when(self.filter.account.is_none(), |this| {
@@ -1347,5 +1396,7 @@ impl Render for TransactionsView {
     }
 }
 
+#[cfg(test)]
+mod link_tests;
 #[cfg(test)]
 mod tests;

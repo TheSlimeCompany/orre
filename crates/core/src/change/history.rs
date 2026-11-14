@@ -38,6 +38,9 @@ pub enum Shown {
     Share(Option<i64>),
     /// Whether the whole amount is claimed back.
     Reimbursable(bool),
+    /// How many confirmed links the money in pays back (M3.11); suggested
+    /// and rejected links don't count.
+    Links(usize),
 }
 
 /// One field of one transaction a batch changed.
@@ -146,6 +149,12 @@ impl<'c> Names<'c> {
             Value::Split(lines) => Shown::Split(lines.len()),
             Value::Share(share) => Shown::Share(share.my_share_minor),
             Value::Reimbursable(on) => Shown::Reimbursable(*on),
+            Value::Links(links) => Shown::Links(
+                links
+                    .iter()
+                    .filter(|link| link.status == crate::link::LinkStatus::Confirmed)
+                    .count(),
+            ),
         })
     }
 }

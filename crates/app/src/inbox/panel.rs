@@ -94,6 +94,7 @@ pub fn render(inbox: &Entity<Inbox>, checks: &Entity<Checks>, cx: &App) -> impl 
             let id = match queue_row {
                 Queue::Duplicates => "inbox-checks-duplicates",
                 Queue::Balances => "inbox-checks-balances",
+                Queue::Owed => "inbox-checks-owed",
             };
             ListRow::new(id, label)
                 .icon(glyph)
@@ -118,6 +119,8 @@ pub fn render(inbox: &Entity<Inbox>, checks: &Entity<Checks>, cx: &App) -> impl 
                 state.failing(),
             )
             .flagged(state.failing() > 0),
+            // M3.11 (Paper `DKR-0`): Coffer's own list, outside the badge.
+            row(Queue::Owed, "Owed to you", Glyph::Owed, state.owed_open()),
         ]
     };
 

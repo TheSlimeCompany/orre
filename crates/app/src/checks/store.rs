@@ -9,7 +9,10 @@
 //! again and refuses a stale preview or a locked row); dismissing and
 //! reopening are [`duplicate::dismiss`] and [`duplicate::reopen`]; undoing a
 //! merge is [`change::undo`]; locking is [`reconciliation::lock`] and
-//! [`reconciliation::unlock`].
+//! [`reconciliation::unlock`]. Owed to you (M3.11) is
+//! [`coffer_core::link::owed::queue`]; confirming or rejecting a payment's
+//! claims and renaming a person go through [`edit`], one undoable change
+//! batch each.
 
 use std::path::PathBuf;
 
@@ -19,7 +22,10 @@ use coffer_core::change::{self, UndoSummary};
 use coffer_core::checks::{self, Pair, Review};
 use coffer_core::db::Database;
 use coffer_core::duplicate::{self, MergeRequest, Merged};
-use coffer_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, TransactionId};
+use coffer_core::edit;
+use coffer_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, LinkId, TransactionId};
+use coffer_core::link::ShareLabel;
+use coffer_core::link::owed::{self, OwedQueue};
 use coffer_core::reconciliation;
 use coffer_core::reporting::palette::{Palette, category_palette};
 use coffer_core::schedule;
@@ -42,6 +48,8 @@ impl std::error::Error for Restoring {}
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChecksData {
     pub review: Review,
+    /// Owed to you (M3.11).
+    pub owed: OwedQueue,
     pub palette: Palette,
     /// Today, local: dates in this year are written without it.
     pub today: Option<NaiveDate>,
@@ -114,6 +122,25 @@ impl ChecksStore {
         reconciliation::unlock(&mut self.open()?, account)?;
         Ok(())
     }
+
+    /// "Link as reimbursement": confirms a payment's suggested claims.
+    pub fn confirm_links(&self, links: &[LinkId]) -> Result<Option<ChangeBatchId>, StoreError> {
+        Ok(edit::confirm_links(&mut self.open()?, links)?)
+    }
+
+    /// "Not this": rejects them; they're never suggested again.
+    pub fn reject_links(&self, links: &[LinkId]) -> Result<Option<ChangeBatchId>, StoreError> {
+        Ok(edit::reject_links(&mut self.open()?, links)?)
+    }
+
+    /// Renames a person everywhere.
+    pub fn rename_person(
+        &self,
+        from: &ShareLabel,
+        to: &ShareLabel,
+    ) -> Result<Option<ChangeBatchId>, StoreError> {
+        Ok(edit::rename_person(&mut self.open()?, from, to)?)
+    }
 }
 
 /// [`ChecksStore::load`] on an open database: also what tests and the
@@ -122,6 +149,7 @@ pub fn load(db: &Database) -> Result<ChecksData, StoreError> {
     let today = schedule::local_today()?;
     Ok(ChecksData {
         review: checks::review(db)?,
+        owed: owed::queue(db)?,
         palette: category_palette(&db.reader()?, today)?,
         today: Some(today),
     })

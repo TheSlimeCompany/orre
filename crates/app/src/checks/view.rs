@@ -9,10 +9,12 @@
 //! core refuses is said under the toolbar in caption type, `danger`.
 
 use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, Entity, FocusHandle, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
+    AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable as _,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
+    Subscription, Window, div,
 };
 
 use crate::theme::tokens::{color, size, spacing, typography};
@@ -44,6 +46,12 @@ gpui_kit::actions!(
 pub struct ChecksView {
     checks: Entity<Checks>,
     focus: FocusHandle,
+    /// Owed to you's Name field, made on first render (M3.11).
+    name: Option<Entity<InputState>>,
+    /// The person the Name field was last filled for.
+    name_for: Option<String>,
+    /// Why the last rename was refused.
+    name_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -53,7 +61,62 @@ impl ChecksView {
         Self {
             checks,
             focus: cx.focus_handle(),
+            name: None,
+            name_for: None,
+            name_error: None,
             _subscriptions: subscriptions,
+        }
+    }
+
+    /// The Name field, made the first time Owed to you shows a person, and
+    /// filled when the person changes (not while it's typed in).
+    fn sync_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let person = self
+            .checks
+            .read(cx)
+            .selected_person()
+            .map(|person| person.label.as_str().to_owned());
+        let Some(person) = person else {
+            self.name_for = None;
+            return;
+        };
+        let input = match &self.name {
+            Some(input) => input.clone(),
+            None => {
+                let input = cx.new(|cx| InputState::new(window, cx));
+                self._subscriptions.push(cx.subscribe_in(
+                    &input,
+                    window,
+                    |this, input, event, _, cx| {
+                        if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                            let typed = input.read(cx).value().trim().to_owned();
+                            if this.name_for.as_deref() == Some(typed.as_str()) {
+                                return;
+                            }
+                            let result = this
+                                .checks
+                                .update(cx, |checks, cx| checks.rename_person(&typed, cx));
+                            this.name_error = result.err();
+                            if this.name_error.is_none() {
+                                this.name_for = Some(typed);
+                            }
+                            cx.notify();
+                        }
+                    },
+                ));
+                self.name = Some(input.clone());
+                input
+            }
+        };
+        if self.name_for.as_deref() != Some(person.as_str()) {
+            let typing = input.read(cx).focus_handle(cx).is_focused(window);
+            if !typing {
+                input.update(cx, |input, cx| {
+                    input.set_value(SharedString::from(person.clone()), window, cx)
+                });
+                self.name_for = Some(person);
+                self.name_error = None;
+            }
         }
     }
 
@@ -70,7 +133,39 @@ impl ChecksView {
         self.checks.update(cx, f);
     }
 
-    fn render_toolbar(&self, checks: &Checks) -> impl IntoElement {
+    fn render_toolbar(&self, checks: &Checks, window: &Window) -> gpui_kit::Div {
+        if checks.queue() == Some(Queue::Owed) {
+            return div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(spacing::S2)
+                .h(size::CONTROL + spacing::S6)
+                .py(spacing::S3)
+                .px(spacing::S4)
+                .border_b(size::HAIRLINE)
+                .border_color(color::HAIRLINE)
+                .child(
+                    div()
+                        .flex()
+                        .text_color(color::TEXT)
+                        .child(Tracked::new(typography::TITLE, "Owed to you")),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_role(typography::CAPTION)
+                        .child(super::text::rich(
+                            window,
+                            typography::CAPTION,
+                            color::TEXT_MUTED,
+                            super::owed::toolbar_caption(&checks.data().owed),
+                        )),
+                );
+        }
         let (title, caption) = match checks.queue() {
             Some(Queue::Balances) => {
                 let failing = checks.failing();
@@ -243,18 +338,25 @@ pub fn empty_queue(
 
 impl Render for ChecksView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.checks.read(cx).queue() == Some(Queue::Owed) {
+            self.sync_name(window, cx);
+        }
+        let name = self.name.clone();
+        let name_error = self.name_error.clone();
         let root = div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &SelectUp, _, cx| {
                 this.update(cx, |checks, cx| match checks.queue() {
                     Some(Queue::Balances) => checks.select_next_check(-1, cx),
+                    Some(Queue::Owed) => checks.select_next_person(-1, cx),
                     _ => checks.select_next_pair(-1, cx),
                 })
             }))
             .on_action(cx.listener(|this, _: &SelectDown, _, cx| {
                 this.update(cx, |checks, cx| match checks.queue() {
                     Some(Queue::Balances) => checks.select_next_check(1, cx),
+                    Some(Queue::Owed) => checks.select_next_person(1, cx),
                     _ => checks.select_next_pair(1, cx),
                 })
             }))
@@ -289,6 +391,16 @@ impl Render for ChecksView {
         let cx: &App = cx;
         let checks = self.checks.read(cx);
         let (body, inspector): (AnyElement, AnyElement) = match checks.queue() {
+            Some(Queue::Owed) => (
+                super::owed::render_body(&self.checks, checks, &self.focus, window),
+                super::owed::render_inspector(
+                    &self.checks,
+                    checks,
+                    name.as_ref(),
+                    name_error,
+                    window,
+                ),
+            ),
             Some(Queue::Balances) => (
                 super::balances::render_body(&self.checks, checks, &self.focus, window)
                     .into_any_element(),
@@ -312,7 +424,7 @@ impl Render for ChecksView {
             .min_w_0()
             .overflow_hidden()
             .bg(color::CANVAS)
-            .child(self.render_toolbar(checks))
+            .child(self.render_toolbar(checks, window))
             .children(refusal.map(refused))
             .child(body)
             .children(self.render_bar(checks));

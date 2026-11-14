@@ -120,6 +120,9 @@ impl RenderOnce for Field {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SelectLead {
     Marker(Marker),
+    /// A value that never leaves the app (a person, D6.5's Owed by): the
+    /// 10px lock in `text-muted`.
+    Private,
     /// The agent's suggestion: a 10px sparkle.
     Suggested,
 }
@@ -137,6 +140,8 @@ pub struct SelectField {
     value: SharedString,
     lead: Option<SelectLead>,
     hint: Option<SharedString>,
+    /// A mono figure before the chevron, in `text-secondary`.
+    amount: Option<SharedString>,
     placeholder: bool,
     mono: bool,
     on_click: Option<ClickHandler>,
@@ -149,6 +154,7 @@ impl SelectField {
             value: value.into(),
             lead: None,
             hint: None,
+            amount: None,
             placeholder: false,
             mono: false,
             on_click: None,
@@ -167,6 +173,20 @@ impl SelectField {
     /// Leads the value with a category marker.
     pub fn marker(mut self, marker: Marker) -> Self {
         self.lead = Some(SelectLead::Marker(marker));
+        self
+    }
+
+    /// Leads the value with the 10px lock: a local name that never leaves
+    /// the app (D6.5's Owed by, Paper `CBI-0`).
+    pub fn private(mut self) -> Self {
+        self.lead = Some(SelectLead::Private);
+        self
+    }
+
+    /// Ends the value with `amount` in mono `text-secondary`, before the
+    /// chevron (D6.5's Owed by: the person's part, Paper `CBL-0`).
+    pub fn amount(mut self, amount: impl Into<SharedString>) -> Self {
+        self.amount = Some(amount.into());
         self
     }
 
@@ -214,7 +234,7 @@ impl RenderOnce for SelectField {
         let value_color = self.value_color();
         // The sparkle is 2px wider than a marker, so a 2px tighter gap keeps
         // the value in the marker's lane, as in the table.
-        let gap = if self.lead == Some(SelectLead::Suggested) {
+        let gap = if matches!(self.lead, Some(SelectLead::Suggested | SelectLead::Private)) {
             spacing::S1_5
         } else {
             spacing::S2
@@ -231,6 +251,10 @@ impl RenderOnce for SelectField {
                     SelectLead::Suggested => Glyph::Sparkle
                         .render_at(size::ICON_XS)
                         .text_color(color::MOLDAVITE)
+                        .into_any_element(),
+                    SelectLead::Private => Glyph::Lock
+                        .render()
+                        .text_color(color::TEXT_MUTED)
                         .into_any_element(),
                 })
             })
@@ -263,6 +287,15 @@ impl RenderOnce for SelectField {
             .pl(spacing::S2_5)
             .pr(spacing::S2)
             .child(value)
+            .when_some(self.amount, |this, amount| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .text_role(typography::MONO_AMOUNT)
+                        .text_color(color::TEXT_SECONDARY)
+                        .child(amount),
+                )
+            })
             .child(Glyph::ChevronDown.render().text_color(color::TEXT_MUTED))
             .when_some(self.on_click, |this, handler| {
                 this.on_click(move |event, window, cx| handler(event, window, cx))

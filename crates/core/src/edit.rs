@@ -28,7 +28,17 @@
 //! - **The display merchant**: a name the user types is theirs
 //!   (`merchant_display_source = user`) and no recompute changes it; blank
 //!   goes back to the name derived from the bank's text and the aliases.
+//! - **Links and shares** (M3.11): [`link()`], [`confirm_links`],
+//!   [`reject_links`] (unlink, "Not a refund"), [`set_sharing`] and
+//!   [`rename_person`] run core's own `link` code, with its checks and
+//!   caps, and record what it wrote ([`Recorder::track`]): the `links` of
+//!   every money in it touched (a suggestion it drops on another payment
+//!   too), and the share, claim and split lines of a purchase. Undo puts
+//!   the links back where they still fit. Share labels are local names:
+//!   never logged, never in errors.
 
+#[cfg(test)]
+mod link_tests;
 #[cfg(test)]
 mod tests;
 
@@ -39,7 +49,8 @@ use crate::change::{
     SplitLineValue, Value,
 };
 use crate::db::Database;
-use crate::id::{ChangeBatchId, TagId, TransactionId};
+use crate::id::{ChangeBatchId, LinkId, TagId, TransactionId};
+use crate::link::{self, NewLink, ShareLabel, Sharing};
 use crate::merchant::DisplayName;
 use crate::note::{NoteError, UserNote};
 use crate::split::{self, SplitLine};
@@ -63,6 +74,9 @@ pub enum Error {
 
     #[error(transparent)]
     Change(change::Error),
+
+    #[error(transparent)]
+    Link(#[from] link::Error),
 
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
@@ -271,6 +285,142 @@ pub fn set_merchant(
     };
     record(db, |conn, recorder| {
         recorder.set(conn, transaction, Value::Merchant(value))?;
+        Ok(())
+    })
+}
+
+// Links and shares (M3.11) ---------------------------------------------------
+
+/// The `links` fields a link between `inflow` and `target` can change:
+/// the inflow's, and those of every other payment with a link to the
+/// purchase (a suggestion that no longer fits is dropped).
+fn link_fields(
+    conn: &Connection,
+    inflow: TransactionId,
+    target: Option<TransactionId>,
+) -> Result<Vec<(TransactionId, Field)>, Error> {
+    let mut inflows = vec![inflow];
+    if let Some(target) = target {
+        let mut statement = conn.prepare(
+            "SELECT DISTINCT inflow_id FROM transaction_link WHERE target_id = ?1 ORDER BY 1",
+        )?;
+        for other in statement.query_map([target], |row| row.get::<_, TransactionId>(0))? {
+            let other = other?;
+            if !inflows.contains(&other) {
+                inflows.push(other);
+            }
+        }
+    }
+    Ok(inflows
+        .into_iter()
+        .map(|inflow| (inflow, Field::Links))
+        .collect())
+}
+
+/// Makes a confirmed link (core's [`link::create`]: its checks and caps; a
+/// suggestion or rejection for the pair becomes this link): one undoable
+/// change batch. Returns the link and the batch.
+pub fn link(db: &mut Database, new: &NewLink) -> Result<(LinkId, Option<ChangeBatchId>), Error> {
+    let mut id = None;
+    let batch = record(db, |conn, recorder| {
+        let target = match &new.target {
+            link::LinkTarget::Purchase(target) => Some(*target),
+            link::LinkTarget::Person(_) => None,
+        };
+        let fields = link_fields(conn, new.inflow, target)?;
+        id = Some(recorder.track(conn, &fields, || {
+            link::create_in(conn, new).map_err(Error::from)
+        })?);
+        Ok(())
+    })?;
+    Ok((id.expect("set by the edit"), batch))
+}
+
+/// Confirms suggested links, one or a set (a payment that repays several
+/// claims): one undoable change batch, `None` when all were confirmed.
+pub fn confirm_links(db: &mut Database, ids: &[LinkId]) -> Result<Option<ChangeBatchId>, Error> {
+    record(db, |conn, recorder| {
+        for &id in ids {
+            let link = link::get_in(conn, id)?;
+            let fields = link_fields(conn, link.inflow, link.target.purchase())?;
+            recorder.track(conn, &fields, || {
+                link::confirm_in(conn, id).map_err(Error::from)
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// Rejects links: unlinking a confirmed one, or "Not a refund" / "Not
+/// this" for suggestions. The pair is never suggested again. One undoable
+/// change batch, `None` when all were rejected already.
+pub fn reject_links(db: &mut Database, ids: &[LinkId]) -> Result<Option<ChangeBatchId>, Error> {
+    record(db, |conn, recorder| {
+        for &id in ids {
+            let link = link::get_in(conn, id)?;
+            recorder.track(conn, &[(link.inflow, Field::Links)], || {
+                link::reject_in(conn, id).map_err(Error::from)
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// Sets how `transaction` is shared (core's [`link::set_sharing`]): one
+/// undoable change batch with its share, its claim and, when split, its
+/// lines' shares. `None` when unchanged.
+pub fn set_sharing(
+    db: &mut Database,
+    transaction: TransactionId,
+    sharing: &Sharing,
+) -> Result<Option<ChangeBatchId>, Error> {
+    record(db, |conn, recorder| {
+        let fields = [
+            (transaction, Field::Share),
+            (transaction, Field::Reimbursable),
+            (transaction, Field::Split),
+        ];
+        recorder.track(conn, &fields, || {
+            link::set_sharing_in(conn, transaction, sharing).map_err(Error::from)
+        })
+    })
+}
+
+/// Renames person `from` to `to` everywhere (core's
+/// [`link::rename_label`]; a name in use merges the two): one undoable
+/// change batch over every share, split line and settlement with the name.
+/// `None` when nothing has the name.
+pub fn rename_person(
+    db: &mut Database,
+    from: &ShareLabel,
+    to: &ShareLabel,
+) -> Result<Option<ChangeBatchId>, Error> {
+    record(db, |conn, recorder| {
+        let mut fields = Vec::new();
+        for (sql, field) in [
+            (
+                "SELECT id FROM \"transaction\" WHERE share_label = ?1 ORDER BY id",
+                Field::Share,
+            ),
+            (
+                "SELECT DISTINCT transaction_id FROM transaction_split WHERE share_label = ?1 \
+                 ORDER BY 1",
+                Field::Split,
+            ),
+            (
+                "SELECT DISTINCT inflow_id FROM transaction_link WHERE share_label = ?1 \
+                 ORDER BY 1",
+                Field::Links,
+            ),
+        ] {
+            let mut statement = conn.prepare(sql)?;
+            for id in statement.query_map([from.as_str()], |row| row.get::<_, TransactionId>(0))? {
+                fields.push((id?, field));
+            }
+        }
+        recorder.track(conn, &fields, || {
+            link::rename_label_in(conn, from, to).map_err(Error::from)
+        })?;
         Ok(())
     })
 }
