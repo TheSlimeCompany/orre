@@ -7,11 +7,17 @@
 //! its checks count from. Pots aren't added here; imports create them.
 //! Cancel, or "Add account" (neutral primary), which adds it and selects it.
 //!
-//! Composed for M3.2 (not drawn): Asset and Liability stay in the Kind menu,
-//! faded, until valuations arrive (M3.17); Bank shows only for the kinds a
-//! bank exports (D6.9 drops it for kept kinds); a field that can't be read
-//! or a refusal from core is said in `danger` under the caption, and nothing
-//! is added.
+//! With Kind set to Asset or Liability (D6.9, Paper `EPI-0`; M3.17) Bank
+//! and Preset go, Balance becomes Value (Owed for a liability, unsigned,
+//! stored below zero) with its date, a Note row is added, and the caption
+//! says nothing is imported. The first value is the account's first
+//! valuation. The Assets and liabilities `+` opens it set to Asset
+//! ([`NewAccountDialog::with_kind`]).
+//!
+//! Composed for M3.2 (not drawn): Bank shows only for the kinds a bank
+//! exports (D6.9 drops it for kept kinds); a field that can't be read or a
+//! refusal from core is said in `danger` under the caption, and nothing is
+//! added.
 
 use chrono::NaiveDate;
 use coffer_core::account::{AccountKind, EnteredBalance, EnteredSource, NewAccount};
@@ -37,6 +43,9 @@ use super::{Accounts, DialogClosed};
 
 /// The dialog's caption (Paper `8JL-0`).
 const CAPTION: &str = "Owed money on a credit card is a negative balance. Skip the balance if your bank’s export includes one: the first import fills it in. Pots are added from imports, not here.";
+
+/// The caption with Kind set to Asset or Liability (Paper `EPO-0`).
+const VALUED_CAPTION: &str = "Nothing is imported for an asset: add a value whenever you get a new figure, and Coffer holds it until the next. For a liability, enter what you owe; Coffer stores it as a negative balance.";
 
 /// `message` as a sentence: a capital first letter and a full stop.
 pub(crate) fn sentence(message: &str) -> SharedString {
@@ -88,6 +97,7 @@ pub struct NewAccountDialog {
     bank: Entity<InputState>,
     balance: Entity<InputState>,
     date: Entity<InputState>,
+    note: Entity<InputState>,
     kind: AccountKind,
     currency: Currency,
     kind_select: SelectState,
@@ -101,11 +111,23 @@ impl EventEmitter<DialogClosed> for NewAccountDialog {}
 
 impl NewAccountDialog {
     pub fn new(accounts: Entity<Accounts>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_kind(accounts, AccountKind::Current, window, cx)
+    }
+
+    /// The dialog with Kind set to `kind`: the Assets and liabilities `+`
+    /// opens it set to Asset.
+    pub fn with_kind(
+        accounts: Entity<Accounts>,
+        kind: AccountKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let today = accounts.read(cx).data().today;
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("Name"));
         let bank = cx.new(|cx| InputState::new(window, cx).placeholder("Bank"));
         let balance = cx.new(|cx| InputState::new(window, cx).placeholder("Optional"));
         let date = cx.new(|cx| InputState::new(window, cx).default_value(field_date(today)));
+        let note = cx.new(|cx| InputState::new(window, cx).placeholder("Optional"));
         let submit_on_enter = |this: &mut Self,
                                _: &Entity<InputState>,
                                event: &InputEvent,
@@ -115,7 +137,7 @@ impl NewAccountDialog {
                 this.submit(window, cx);
             }
         };
-        let subscriptions = [&name, &bank, &balance, &date]
+        let subscriptions = [&name, &bank, &balance, &date, &note]
             .into_iter()
             .map(|input| cx.subscribe_in(input, window, submit_on_enter))
             .collect();
@@ -128,7 +150,8 @@ impl NewAccountDialog {
             bank,
             balance,
             date,
-            kind: AccountKind::Current,
+            note,
+            kind,
             currency: Currency::GBP,
             kind_select: SelectState::new(cx),
             currency_select: SelectState::new(cx),
@@ -165,6 +188,22 @@ impl NewAccountDialog {
                 return;
             }
         };
+        let valued = !self.kind.holds_transactions();
+        let balance = match balance {
+            Some((date, typed)) if valued => {
+                match super::add_balance::stored_value(self.kind, typed) {
+                    Ok(stored) => Some((date, stored)),
+                    Err(error) => {
+                        self.error = Some(error);
+                        cx.notify();
+                        return;
+                    }
+                }
+            }
+            balance => balance,
+        };
+        let note = value(&self.note, cx).trim().to_owned();
+        let note = (valued && !note.is_empty()).then_some(note);
         let bank = value(&self.bank, cx);
         let account = NewAccount {
             name: value(&self.name, cx),
@@ -177,8 +216,8 @@ impl NewAccountDialog {
         let balance = balance.map(|(date, balance)| EnteredBalance {
             date,
             balance,
-            source: EnteredSource::Manual,
-            note: None,
+            source: EnteredSource::for_kind(self.kind),
+            note,
         });
         let result = self.accounts.update(cx, |accounts, cx| {
             accounts.create(&account, balance.as_ref(), cx)
@@ -241,9 +280,7 @@ impl NewAccountDialog {
 
     fn groups(which: Which) -> Vec<MenuGroup> {
         match which {
-            Which::Kind => kind_groups(|kind| {
-                (!kind.holds_transactions()).then_some("added in a later version")
-            }),
+            Which::Kind => kind_groups(|_| None),
             Which::Currency => currency_groups(),
         }
     }
@@ -294,6 +331,8 @@ impl NewAccountDialog {
 impl Render for NewAccountDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let has_bank = self.kind.is_imported();
+        let valued = !self.kind.holds_transactions();
+        let label = super::add_balance::Wording::of(self.kind).label;
         let fields = div()
             .flex()
             .flex_col()
@@ -311,7 +350,7 @@ impl Render for NewAccountDialog {
             .child(FieldRow::new("Kind", self.select(Which::Kind, cx)))
             .child(FieldRow::new("Currency", self.select(Which::Currency, cx)))
             .child(FieldRow::new(
-                "Balance",
+                label,
                 div()
                     .flex()
                     .flex_1()
@@ -323,13 +362,19 @@ impl Render for NewAccountDialog {
                             .flex_1(),
                     )
                     .child(date_input(&self.date).id("new-account-date")),
-            ));
+            ))
+            .when(valued, |this| {
+                this.child(FieldRow::new(
+                    "Note",
+                    text_input(&self.note).id("new-account-note"),
+                ))
+            });
         let cancel = cx.listener(|this, _, _, cx| this.cancel(cx));
         let add = cx.listener(|this, _, window, cx| this.submit(window, cx));
         let on_cancel = cx.entity().downgrade();
         Dialog::new("New account", &self.focus)
             .body(fields)
-            .body(caption(CAPTION))
+            .body(caption(if valued { VALUED_CAPTION } else { CAPTION }))
             .when_some(self.error.clone(), |this, error| {
                 this.body(error_caption(error))
             })

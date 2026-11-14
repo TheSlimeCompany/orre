@@ -1032,7 +1032,7 @@ replace it with their own lists.
     can't be read puts the reason there in caption type, `danger`.
   - *Several currencies*: one net worth line per currency, nothing converted (M4.6).
   - *Assets and liabilities* made with the CLI are listed under ASSETS AND LIABILITIES
-    (D6.9), without that section's `+` until M3.17.
+    (D6.9), without that section's `+` until M3.17 (which added it).
   - *Menus*: the Currency and Preset menus are the Kind menu (`FHZ-0`): Currency has two
     groups, "Common" (GBP, EUR, USD) and "Every currency" (by code), and scrolls after 8
     rows (`control` × 8); Preset lists "No preset · detect it at import" and the
@@ -1724,6 +1724,24 @@ House £385,000.00, Workplace pension £41,820.00, Stocks ISA £7,030.55 and Mor
      checked like any other balance (the first is the starting point, as in D6.4
      question 1). "Add and save" writes the snapshot and the difference transaction in
      one DB transaction; Coffer never posts a difference on its own.
+
+- **Built in M3.17** (`crates/app/src/accounts/`; user, 2026-11-14): the panel's ASSETS
+  AND LIABILITIES section with its `+` (with no such accounts, just the label row and
+  `+`), the valuations canvas, the asset and liability inspectors, New account set to
+  Asset, Add balance for a liability, and Close House?, as drawn. The inspector lists no
+  values under Valuations or Balances (the canvas does, as `BSI-0`); the states board's
+  liability rows aren't repeated there. **Composed from existing specs, not drawn**
+  (user): a liability's canvas says "Balances", "Add balance ⌘N" and "Owed"; one value
+  draws a flat line to today; no values shows the Empty state ("No values yet"); a value
+  without a note reads "Valuation" (or "Balance") in `text-muted`; the liability header
+  "Owed on 1 Oct · in net worth"; "Add a valuation for House" (Value, unsigned, its own
+  caption, "Add valuation"); New account for a liability reads Owed; the Close dialog
+  for a liability ("Paid off on", net worth rises by what was owed) and for a bank,
+  cash or pot account ("Closed on", its balance and its pots named); "Delete account…"
+  on any kind core lets go, confirmed by "Delete House?" ("Its 5 values go with it.
+  This can't be undone; to keep its history, close it instead.", destructive solid
+  "Delete account"); after closing, D6.3's undo bar "House closed" with Undo, centred
+  over the window body like the import notification. No new tokens.
 
 **Inbox impact preview** — drawn in D6.6 (M3.14, M2.14). Two 1440×900 artboards built from
 the Inbox (`564-0`) with the D6.4 CHECKS panel, Inbox · rule impact (`ABK-0`) and Inbox ·

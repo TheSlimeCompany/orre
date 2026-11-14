@@ -382,3 +382,192 @@ fn an_edit_left_by_clicking_another_account_stays_with_its_account(cx: &mut Test
     let field = cx.update(|window, _| window.find("account-name").value().map(ToString::to_string));
     assert_eq!(field.as_deref(), Some("Holiday"));
 }
+
+// Assets, liabilities, closing and deleting (M3.17) ---------------------------
+
+/// Adds a valued account to the scratch database, with one value.
+fn valued(scratch: &Scratch, name: &str, kind: AccountKind, minor: i64) -> AccountId {
+    let value = EnteredBalance {
+        date: NaiveDate::from_ymd_opt(2026, 10, 12).unwrap(),
+        balance: Money::new(minor, Currency::GBP),
+        source: EnteredSource::Valuation,
+        note: None,
+    };
+    account::create_with_balance(
+        &mut scratch.db(),
+        &NewAccount::new(name, kind, Currency::GBP),
+        Some(&value),
+    )
+    .unwrap()
+}
+
+/// Replaces the date in the field `id` with `date`.
+fn retype_date(id: &str, date: &str, cx: &mut VisualTestContext) {
+    click(id, cx);
+    press("secondary-a", cx);
+    let date = date.to_owned();
+    cx.update(move |window, cx| window.input(&date, cx));
+    redraw(cx);
+}
+
+/// The open dialog's error, if it is a `D`.
+fn error_of<D: gpui_kit::Render>(
+    shell: &Entity<ShellView>,
+    cx: &mut VisualTestContext,
+    error: impl Fn(&D) -> Option<String> + 'static,
+) -> Option<String> {
+    cx.update(|_, cx| {
+        let dialog = shell.read(cx).dialog()?.clone();
+        let dialog = dialog.downcast::<D>().ok()?;
+        error(dialog.read(cx))
+    })
+}
+
+#[gpui_kit::test]
+fn the_assets_plus_adds_an_asset_shown_by_its_values(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_shell, accounts, cx) = open(cx, &scratch);
+    click(panel::ADD_VALUED_ACCOUNT, cx);
+    // Kind is Asset: no Bank, and a Note.
+    assert!(shows("new-account-add", cx));
+    assert!(!shows("new-account-bank", cx));
+    assert!(shows("new-account-note", cx));
+    type_into("new-account-name", "House", cx);
+    type_into("new-account-balance", "385,000", cx);
+    retype_date("new-account-date", "12 Oct 2026", cx);
+    type_into("new-account-note", "Remortgage survey", cx);
+    click("new-account-add", cx);
+    assert!(!shows("new-account-add", cx), "the dialog closes");
+
+    let house = account::list(&scratch.db())
+        .unwrap()
+        .into_iter()
+        .find(|account| account.name == "House")
+        .expect("House was added");
+    assert_eq!(house.kind, AccountKind::Asset);
+    let values = account::entered_balances(&scratch.db(), house.id).unwrap();
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].balance.minor(), 38_500_000);
+    assert_eq!(
+        values[0].source,
+        coffer_core::reconciliation::BalanceSource::Valuation
+    );
+    assert_eq!(values[0].note.as_deref(), Some("Remortgage survey"));
+    assert_eq!(selected(&accounts, cx), Some(house.id));
+
+    // Its values replace the transaction table, and ⌘N adds one.
+    assert!(shows("add-valuation", cx));
+    // Clicking the row twice lets it go and selects it again, with the
+    // panel focused: ⌘N works there.
+    click(&row(house.id), cx);
+    click(&row(house.id), cx);
+    assert_eq!(selected(&accounts, cx), Some(house.id));
+    press("secondary-n", cx);
+    assert!(shows("add-balance-add", cx), "⌘N opens Add valuation");
+    type_into("add-balance-amount", "390,000", cx);
+    retype_date("add-balance-date", "1 Nov 2026", cx);
+    click("add-balance-add", cx);
+    assert!(!shows("add-balance-add", cx));
+    let values = account::entered_balances(&scratch.db(), house.id).unwrap();
+    assert_eq!(values[0].balance.minor(), 39_000_000);
+
+    // A bank account goes back to the table.
+    click(&row(scratch.current), cx);
+    assert!(!shows("add-valuation", cx));
+}
+
+#[gpui_kit::test]
+fn a_liability_stores_what_is_owed_below_zero(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let mortgage = valued(&scratch, "Mortgage", AccountKind::Liability, -21_691_000);
+    let (shell, _accounts, cx) = open(cx, &scratch);
+    click(&row(mortgage), cx);
+    click("add-balance", cx);
+    // A minus is refused: Coffer stores what's owed below zero itself.
+    type_into("add-balance-amount", "-1", cx);
+    retype_date("add-balance-date", "1 Nov 2026", cx);
+    click("add-balance-add", cx);
+    let error = error_of(&shell, cx, |dialog: &add_balance::AddBalanceDialog| {
+        dialog.error().map(ToString::to_string)
+    });
+    assert!(error.unwrap().contains("without a minus"));
+
+    click("add-balance-amount", cx);
+    press("secondary-a", cx);
+    cx.update(|window, cx| window.input("212,640", cx));
+    click("add-balance-add", cx);
+    assert!(!shows("add-balance-add", cx));
+    let values = account::entered_balances(&scratch.db(), mortgage).unwrap();
+    assert_eq!(values[0].balance.minor(), -21_264_000);
+}
+
+#[gpui_kit::test]
+fn closing_an_asset_hides_it_and_undo_reopens_it(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let house = valued(&scratch, "House", AccountKind::Asset, 38_500_000);
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(house), cx);
+    click("close-account", cx);
+    assert!(shows("close-account-close", cx));
+
+    // Not on or before its last value.
+    retype_date("close-account-date", "12 Oct 2026", cx);
+    click("close-account-close", cx);
+    let error = error_of(&shell, cx, |dialog: &close::CloseAccountDialog| {
+        dialog.error().map(ToString::to_string)
+    })
+    .expect("refused");
+    assert!(error.contains("2026-10-13"), "{error}");
+    assert_eq!(account::get(&scratch.db(), house).unwrap().closed_on, None);
+
+    retype_date("close-account-date", "6 Nov 2026", cx);
+    click("close-account-close", cx);
+    assert!(!shows("close-account-close", cx), "the dialog closes");
+    assert_eq!(
+        account::get(&scratch.db(), house).unwrap().closed_on,
+        NaiveDate::from_ymd_opt(2026, 11, 6)
+    );
+    assert!(!shows(&row(house), cx), "it leaves the panel");
+    assert_eq!(selected(&accounts, cx), None);
+    let message = cx.update(|_, cx| {
+        accounts
+            .read(cx)
+            .closed()
+            .map(|closed| closed.message.clone())
+    });
+    assert_eq!(message.as_deref(), Some("House closed"));
+
+    // Undo reopens it, without the £0 value closing added.
+    click("undo-change", cx);
+    assert_eq!(account::get(&scratch.db(), house).unwrap().closed_on, None);
+    assert_eq!(
+        account::entered_balances(&scratch.db(), house)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(shows(&row(house), cx));
+    assert_eq!(selected(&accounts, cx), Some(house));
+    assert!(!shows("undo-change", cx));
+}
+
+#[gpui_kit::test]
+fn delete_shows_only_where_core_allows_it(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let house = valued(&scratch, "House", AccountKind::Asset, 38_500_000);
+    let (_shell, accounts, cx) = open(cx, &scratch);
+
+    // Current account has a pot: close only.
+    click(&row(scratch.current), cx);
+    assert!(shows("close-account", cx));
+    assert!(!shows("delete-account", cx));
+
+    click(&row(house), cx);
+    click("delete-account", cx);
+    assert!(shows("delete-account-delete", cx));
+    click("delete-account-delete", cx);
+    assert!(!shows("delete-account-delete", cx));
+    assert!(account::get(&scratch.db(), house).is_err(), "deleted");
+    assert!(!shows(&row(house), cx));
+    assert_eq!(selected(&accounts, cx), None);
+}

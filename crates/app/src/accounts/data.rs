@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use coffer_core::account::{StoredBalance, Usage};
+use coffer_core::account::{Deletion, StoredBalance, Usage};
 use coffer_core::id::AccountId;
 use coffer_core::import::BatchInfo;
 use coffer_core::reporting::account_tree::{AccountNode, AccountTree};
@@ -29,6 +29,11 @@ pub struct AccountDetail {
     pub balances: Vec<StoredBalance>,
     /// Its committed imports, newest first.
     pub imports: Vec<BatchInfo>,
+    /// The earliest day it can close on, its pots included; `None` when
+    /// any day will do ([`coffer_core::account::close::closing`]).
+    pub close_from: Option<NaiveDate>,
+    /// What deleting it would remove, or why it can't be deleted.
+    pub deletion: Deletion,
 }
 
 /// Everything the accounts panel and inspector show.

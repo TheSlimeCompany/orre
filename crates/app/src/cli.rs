@@ -10,7 +10,7 @@
 //! - `coffer import <file>`: detect the file's importer, preview the import
 //!   into an account, and commit it ([`import`]).
 //! - `coffer accounts [list]`, `coffer accounts add`: the accounts an import
-//!   goes into ([`accounts`]).
+//!   goes into; `accounts close` and `reopen` (M3.17) ([`accounts`]).
 //! - `coffer undo-import <batch>`: remove an import again ([`undo`]).
 //! - `coffer backup [--list]`, `coffer restore <file>`: local backups
 //!   ([`backup`]).
@@ -70,7 +70,9 @@ use clap::{Parser, Subcommand};
 use coffer_core::db::Database;
 use coffer_import::preset::Presets;
 
-pub use accounts::{AccountsArgs, AccountsCommand, AddAccountArgs};
+pub use accounts::{
+    AccountsArgs, AccountsCommand, AddAccountArgs, CloseAccountArgs, ReopenAccountArgs,
+};
 pub use ai_access::{AiAccessArgs, AiAccessCommand};
 pub use backup::{BackupArgs, RestoreArgs};
 pub use categorize::CategorizeArgs;
@@ -104,7 +106,7 @@ pub enum Command {
     /// Import a bank export (CSV with a bundled preset, OFX or QFX) into an
     /// account.
     Import(ImportArgs),
-    /// List the accounts, or add one.
+    /// List the accounts, add one, or close or reopen one.
     Accounts(AccountsArgs),
     /// Undo an import: remove its transactions, balances and flags.
     UndoImport(UndoImportArgs),
@@ -170,6 +172,18 @@ pub fn run(command: Command, database: &Path, out: &mut dyn Write) -> anyhow::Re
             let presets = presets(database)?;
             let mut db = open_or_create(database)?;
             accounts::add(&mut db, &presets, &args, out)
+        }
+        Command::Accounts(AccountsArgs {
+            command: Some(AccountsCommand::Close(args)),
+        }) => {
+            let mut db = open_existing(database)?;
+            accounts::close(&mut db, &args, out)
+        }
+        Command::Accounts(AccountsArgs {
+            command: Some(AccountsCommand::Reopen(args)),
+        }) => {
+            let mut db = open_existing(database)?;
+            accounts::reopen(&mut db, &args, out)
         }
         Command::Accounts(AccountsArgs {
             command: None | Some(AccountsCommand::List),

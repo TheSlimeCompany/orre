@@ -343,6 +343,15 @@ impl TransactionsView {
         accounts.read(cx).selected().map(|_| inspector.clone())
     }
 
+    /// The valuations canvas to show instead of the table: set while an
+    /// asset or liability account is selected, which holds values, not
+    /// transactions (M3.17, `DESIGN.md` → "Accounts you keep yourself").
+    fn valuations_canvas(&self, cx: &App) -> Option<AnyElement> {
+        let (_, inspector) = self.accounts.as_ref()?;
+        let canvas = inspector.read(cx).valuations(cx)?;
+        Some(canvas.into_any_element())
+    }
+
     /// Clears the selection, so the inspector shows the selected account.
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
         self.selection.clear();
@@ -1337,7 +1346,10 @@ impl Render for TransactionsView {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(self.render_canvas(cx))
+            .map(|this| match self.valuations_canvas(cx) {
+                Some(canvas) => this.child(canvas),
+                None => this.child(self.render_canvas(cx)),
+            })
             .child(inspector::render(self, window, cx))
     }
 }

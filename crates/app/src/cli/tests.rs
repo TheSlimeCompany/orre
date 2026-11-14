@@ -326,11 +326,24 @@ fn accounts_add_creates_the_database_and_list_shows_them() {
 
     assert_eq!(
         scratch.ok(&["accounts"]),
-        "ID  NAME       KIND     CURRENCY  INSTITUTION  PARENT  PRESET    LOCKED THROUGH\n\
-         1   Monzo      current  GBP       Monzo        -       uk-monzo  -\n\
-         2   Rainy Day  pot      GBP       -            1       -         -\n"
+        "ID  NAME       KIND     CURRENCY  INSTITUTION  PARENT  PRESET    LOCKED THROUGH  CLOSED\n\
+         1   Monzo      current  GBP       Monzo        -       uk-monzo  -               -\n\
+         2   Rainy Day  pot      GBP       -            1       -         -               -\n"
     );
     assert_eq!(scratch.ok(&["accounts", "list"]), scratch.ok(&["accounts"]));
+
+    // Closing takes its pots with it, keeps both, and reopening brings
+    // both back (M3.17).
+    assert_eq!(
+        scratch.ok(&["accounts", "close", "Monzo", "--on", "2026-11-06"]),
+        "Closed 1 Monzo (current, GBP) on 2026-11-06\n  and its pot 2 Rainy Day (pot, GBP)\n"
+    );
+    assert!(scratch.ok(&["accounts"]).contains("2026-11-06"));
+    assert_eq!(
+        scratch.ok(&["accounts", "reopen", "1"]),
+        "Reopened 1 Monzo (current, GBP)\n  and its pot 2 Rainy Day (pot, GBP)\n"
+    );
+    assert!(!scratch.ok(&["accounts"]).contains("2026-11-06"));
 }
 
 #[test]

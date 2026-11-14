@@ -53,6 +53,8 @@ use gpui_kit::{
 };
 
 use crate::accounts::add_balance::AddBalanceDialog;
+use crate::accounts::close::CloseAccountDialog;
+use crate::accounts::delete::DeleteAccountDialog;
 use crate::accounts::new_account::NewAccountDialog;
 use crate::accounts::store::AccountStore;
 use crate::accounts::{self, Accounts, AccountsEvent, DialogClosed};
@@ -687,9 +689,31 @@ impl ShellView {
                 let dialog = cx.new(|cx| NewAccountDialog::new(accounts, window, cx));
                 self.open_dialog(dialog, window, cx);
             }
+            AccountsEvent::NewValuedAccountRequested => {
+                let accounts = self.accounts.clone();
+                let dialog = cx.new(|cx| {
+                    NewAccountDialog::with_kind(
+                        accounts,
+                        coffer_core::account::AccountKind::Asset,
+                        window,
+                        cx,
+                    )
+                });
+                self.open_dialog(dialog, window, cx);
+            }
             AccountsEvent::AddBalanceRequested(account) => {
                 let accounts = self.accounts.clone();
                 let dialog = cx.new(|cx| AddBalanceDialog::new(accounts, account, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            AccountsEvent::CloseRequested(account) => {
+                let accounts = self.accounts.clone();
+                let dialog = cx.new(|cx| CloseAccountDialog::new(accounts, account, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            AccountsEvent::DeleteRequested(account) => {
+                let accounts = self.accounts.clone();
+                let dialog = cx.new(|cx| DeleteAccountDialog::new(accounts, account, window, cx));
                 self.open_dialog(dialog, window, cx);
             }
             AccountsEvent::ChecksRequested(account) => {
@@ -982,6 +1006,11 @@ impl Render for ShellView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.view;
         let notice = import::notice_layer(&self.imports, cx);
+        // After closing an account: its undo bar (M3.17).
+        let closed = view
+            .has_accounts_panel()
+            .then(|| accounts::notice_layer(&self.accounts, cx))
+            .flatten();
         let body = div()
             .relative()
             .flex()
@@ -1007,7 +1036,8 @@ impl Render for ShellView {
                 View::Settings => this.child(self.settings.clone()),
                 _ => this.child(self.render_unbuilt()),
             })
-            .children(notice);
+            .children(notice)
+            .children(closed);
         window_border().child(
             div()
                 .key_context(SHELL_CONTEXT)

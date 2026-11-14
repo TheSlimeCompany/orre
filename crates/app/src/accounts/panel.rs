@@ -16,9 +16,12 @@
 //! Composed for M3.2 (not drawn): with no accounts, the Accounts section
 //! says so in a `text-muted` row, and net worth reads "—"; accounts in more
 //! than one currency show one net worth line per currency, since nothing is
-//! converted until exchange rates arrive (M4.6); asset and liability
-//! accounts (made with the CLI until M3.17) are listed under ASSETS AND
-//! LIABILITIES (D6.9), without its `+` until then.
+//! converted until exchange rates arrive (M4.6). Asset and liability
+//! accounts are listed under ASSETS AND LIABILITIES (D6.9), whose `+` opens
+//! New account with Kind set to Asset (M3.17); with none, the section is
+//! its label row and `+` alone (decided with the user, 2026-11-14). A
+//! liability's negative balance isn't `danger`. ⌘N here adds a valuation
+//! to a selected asset or liability.
 //!
 //! The categories are still the Transactions fixture's, with its counts,
 //! until the table reads the database and filters by them (M3.3).
@@ -44,8 +47,8 @@ use crate::ui::marker::Marker;
 use crate::ui::section_label::SectionLabelRow;
 use crate::ui::text::TextRoleExt as _;
 
-use super::Accounts;
 use super::data::AccountsData;
+use super::{Accounts, AddValuation};
 
 /// The panel's key context, where the arrow keys move the selection.
 pub const CONTEXT: &str = "CofferAccountsPanel";
@@ -73,6 +76,9 @@ const NET_WORTH: TextRole = TextRole {
 
 /// The element id of the Accounts section's `+`.
 pub const ADD_ACCOUNT: &str = "add-account";
+
+/// The element id of the Assets and liabilities section's `+`.
+pub const ADD_VALUED_ACCOUNT: &str = "add-valued-account";
 
 /// The icon for an account of `kind`.
 pub fn glyph(kind: AccountKind) -> Glyph {
@@ -250,20 +256,27 @@ pub fn render(
             )
         });
 
-    let valued_section = (!valued.is_empty()).then(|| {
-        list_section(SectionLabelRow::new("Assets and liabilities")).children(valued.iter().map(
-            |node| {
-                account_row(
-                    node,
-                    false,
-                    accounts,
-                    selected == Some(node.account.id),
-                    ring,
-                    focus,
-                )
+    let add_valued = {
+        let accounts = accounts.clone();
+        IconButton::new(ADD_VALUED_ACCOUNT, Glyph::Plus, "Add asset or liability").on_click(
+            move |_, _, cx| {
+                accounts.update(cx, |accounts, cx| accounts.request_new_valued_account(cx))
             },
-        ))
-    });
+        )
+    };
+    let valued_section = list_section(
+        SectionLabelRow::new("Assets and liabilities").action(add_valued),
+    )
+    .children(valued.iter().map(|node| {
+        account_row(
+            node,
+            false,
+            accounts,
+            selected == Some(node.account.id),
+            ring,
+            focus,
+        )
+    }));
 
     let categories = list_section(SectionLabelRow::new("Categories").action(IconButton::new(
         "add-category",
@@ -284,7 +297,12 @@ pub fn render(
             .trailing_tone(TrailingTone::Faint),
     );
 
-    let (up, down, clear) = (accounts.clone(), accounts.clone(), accounts.clone());
+    let (up, down, clear, add_value) = (
+        accounts.clone(),
+        accounts.clone(),
+        accounts.clone(),
+        accounts.clone(),
+    );
     div()
         .id("left-panel")
         .key_context(CONTEXT)
@@ -298,6 +316,11 @@ pub fn render(
         .on_action(move |_: &Cancel, _, cx| {
             clear.update(cx, |accounts, cx| accounts.select(None, cx))
         })
+        .on_action(move |_: &AddValuation, _, cx| {
+            if !add_value.update(cx, |accounts, cx| accounts.request_add_valuation(cx)) {
+                cx.propagate();
+            }
+        })
         .flex()
         .flex_col()
         .flex_none()
@@ -308,6 +331,6 @@ pub fn render(
         .border_color(color::HAIRLINE)
         .child(net_worth)
         .child(accounts_section)
-        .children(valued_section)
+        .child(valued_section)
         .child(categories)
 }
