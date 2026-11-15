@@ -6,9 +6,10 @@
 //! [`Editor`] holds what the inspector types into: the Merchant and Note
 //! fields and the split being edited. The view fills it from the selected
 //! row ([`TransactionsView::sync_editor`]) when the selection changes or
-//! the register is read again, and every change goes through the store to
-//! core's `edit`, one undoable change batch each, then reads the register
-//! again so the table shows it.
+//! the register is read again, and every change goes through the edit
+//! pipeline (`transactions::write`, [`Policy::edit`]) to core's `edit`, one
+//! undoable change batch each, then reads the register again so the table
+//! shows it.
 //!
 //! - **Merchant and Note** save when the field loses focus or on Enter, and
 //!   when the selection moves on (what was typed is kept, as the account
@@ -38,7 +39,8 @@ use gpui_kit::{
 use crate::format::{self, Sign};
 use crate::ui::menu::SelectState;
 
-use super::{Source, TransactionsView};
+use super::TransactionsView;
+use super::write::Policy;
 
 /// Where an edit's error is said.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -260,10 +262,8 @@ impl TransactionsView {
             self.commit_manual_date(window, cx);
             self.commit_manual_amount(window, cx);
             self.save_split(cx);
-            if let Some(left) = left
-                && let Some((place, reason)) = self.editor.error.take()
-            {
-                self.edit_failed(left, place, reason);
+            if let Some(left) = left {
+                self.say_on_failure_bar(left);
             }
             self.editor.shown = shown;
             self.editor.shared_draft = false;
@@ -601,9 +601,10 @@ impl TransactionsView {
         if lines == stored_lines(self, &row) {
             return;
         }
-        self.run_edit(EditPlace::Split, cx, |store| {
+        self.write(Policy::edit(EditPlace::Split), cx, |store| {
             store.set_split(row.id, &lines)
-        });
+        })
+        .ok();
     }
 
     /// "Remove split": takes the stored split off (the row is left
@@ -615,7 +616,10 @@ impl TransactionsView {
         self.editor.split = None;
         self.editor.error = None;
         if matches!(row.category, RowCategory::Split(_)) {
-            self.run_edit(EditPlace::Split, cx, |store| store.remove_split(row.id));
+            self.write(Policy::edit(EditPlace::Split), cx, |store| {
+                store.remove_split(row.id)
+            })
+            .ok();
         }
         cx.notify();
     }
@@ -625,12 +629,13 @@ impl TransactionsView {
         let Some(row) = self.single_row().cloned() else {
             return;
         };
+        let policy = Policy::edit(EditPlace::Details);
         if row.tags.contains(&tag) {
-            self.run_edit(EditPlace::Details, cx, |store| {
-                store.remove_tag(row.id, tag)
-            });
+            self.write(policy, cx, |store| store.remove_tag(row.id, tag))
+                .ok();
         } else {
-            self.run_edit(EditPlace::Details, cx, |store| store.add_tag(row.id, tag));
+            self.write(policy, cx, |store| store.add_tag(row.id, tag))
+                .ok();
         }
     }
 
@@ -639,9 +644,10 @@ impl TransactionsView {
         let Some(row) = self.single_row().cloned() else {
             return;
         };
-        self.run_edit(EditPlace::Details, cx, |store| {
+        self.write(Policy::edit(EditPlace::Details), cx, |store| {
             store.remove_tag(row.id, tag)
-        });
+        })
+        .ok();
     }
 
     /// Tags the selected row with the tag named `name`, creating it.
@@ -649,9 +655,10 @@ impl TransactionsView {
         let Some(row) = self.single_row().cloned() else {
             return;
         };
-        self.run_edit(EditPlace::Details, cx, |store| {
+        self.write(Policy::edit(EditPlace::Details), cx, |store| {
             store.add_new_tag(row.id, name, private)
-        });
+        })
+        .ok();
     }
 
     /// Saves the Merchant field when it differs from the stored name.
@@ -675,9 +682,10 @@ impl TransactionsView {
             ""
         };
         if typed != stored {
-            self.run_edit(EditPlace::Details, cx, |store| {
+            self.write(Policy::edit(EditPlace::Details), cx, |store| {
                 store.set_merchant(row.id, &typed)
-            });
+            })
+            .ok();
         }
     }
 
@@ -697,41 +705,10 @@ impl TransactionsView {
         }
         let typed = typed.trim().to_owned();
         if typed != row.note.as_deref().unwrap_or_default().trim() {
-            self.run_edit(EditPlace::Details, cx, |store| {
+            self.write(Policy::edit(EditPlace::Details), cx, |store| {
                 store.set_note(row.id, &typed)
-            });
+            })
+            .ok();
         }
-    }
-
-    /// Runs one edit through the store, then reads the register again; an
-    /// error is said at `place`. The fixture can't change.
-    pub(super) fn run_edit(
-        &mut self,
-        place: EditPlace,
-        cx: &mut Context<Self>,
-        edit: impl FnOnce(
-            &super::store::TransactionStore,
-        ) -> Result<
-            Option<coffer_core::id::ChangeBatchId>,
-            crate::accounts::store::StoreError,
-        >,
-    ) {
-        let Source::Database(store) = &self.source else {
-            self.editor.error =
-                Some((place, "This is sample data, which can't be changed.".into()));
-            cx.notify();
-            return;
-        };
-        match edit(store) {
-            Ok(_) => {
-                self.editor.error = None;
-                self.reload(cx);
-            }
-            Err(error) => {
-                tracing::warn!(%error, "couldn't save an edit");
-                self.editor.error = Some((place, error.to_string().into()));
-            }
-        }
-        cx.notify();
     }
 }

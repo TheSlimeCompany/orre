@@ -13,7 +13,7 @@
 //! pair until it's unpaired), and the reason is said under Details. A Date
 //! or Amount saved as the user leaves the row can't be said there, as
 //! Details shows the next row by then: the failure bar says it instead
-//! (`TransactionsView::edit_failed`), and its Show goes back to the row
+//! (`TransactionsView::say_on_failure_bar`), and its Show goes back to the row
 //! with the reason under Details.
 
 use coffer_core::id::{AccountId, TransactionId};
@@ -23,8 +23,9 @@ use gpui_kit::{Context, Focusable as _, SharedString, Window};
 use crate::format;
 use crate::ui::menu::{MenuGroup, MenuOption};
 
-use super::TransactionsView;
 use super::editor::EditPlace;
+use super::write::Policy;
+use super::{TransactionsEvent, TransactionsView};
 
 /// The accounts a manual row can be on, or a new one added to: every
 /// account that holds transactions, in the register's order.
@@ -156,14 +157,8 @@ impl TransactionsView {
         cx: &mut Context<Self>,
         change: impl FnOnce(&mut coffer_core::manual::ManualTransaction),
     ) {
-        let mut changed = false;
-        self.run_edit(EditPlace::Details, cx, |store| {
-            store.update_manual(id, change)?;
-            changed = true;
-            Ok(None)
-        });
-        if changed {
-            cx.emit(super::TransactionsEvent::LedgerChanged);
-        }
+        let policy = Policy::edit(EditPlace::Details).emit(TransactionsEvent::LedgerChanged);
+        self.write(policy, cx, |store| store.update_manual(id, change))
+            .ok();
     }
 }

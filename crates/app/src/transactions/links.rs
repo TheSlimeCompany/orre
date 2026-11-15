@@ -19,7 +19,7 @@
 //! change batch each. A link, an unlink or a rejected suggestion shows the
 //! D6.3 undo bar; a share change, like M3.9's edits, doesn't.
 
-use coffer_core::id::{LinkId, TransactionId};
+use coffer_core::id::{ChangeBatchId, LinkId, TransactionId};
 use coffer_core::link::{LinkKind, NewLink, ShareLabel, Sharing};
 use coffer_core::money::{Currency, Money};
 use coffer_core::reporting::linking as core_linking;
@@ -43,7 +43,8 @@ use crate::ui::text::TextRoleExt as _;
 
 use super::editor::EditPlace;
 use super::linking;
-use super::{Menu, Source, TransactionsEvent, TransactionsView, Undo, UndoAction, present};
+use super::write::{Clears, Offer, Policy, Said};
+use super::{Menu, TransactionsEvent, TransactionsView, UndoAction, present};
 
 /// The Share control's keys.
 const JUST_ME: &str = "just-me";
@@ -60,6 +61,15 @@ pub enum LinkFrom {
     Transaction(TransactionId),
     /// A person's "Link a payment…" on Owed to you.
     Person(ShareLabel, Currency),
+}
+
+/// The undo bar after a link edit: reverting the change batch the store
+/// returned, saying `message`; without one, the bar stays as it is.
+fn offer_batch(message: impl Into<SharedString>) -> impl FnOnce(&Option<ChangeBatchId>) -> Offer {
+    move |batch| match batch {
+        Some(batch) => Offer::Show(UndoAction::Batch(*batch), message.into()),
+        None => Offer::Keep,
+    }
 }
 
 /// Whether `row` has the Share section: money out outside a transfer.
@@ -154,49 +164,6 @@ impl TransactionsView {
         ))
     }
 
-    /// Runs one link or share edit through the store and reads the
-    /// register again; `undo` is the undo bar's message, if it shows one.
-    fn run_link_edit(
-        &mut self,
-        place: EditPlace,
-        undo: Option<String>,
-        cx: &mut Context<Self>,
-        edit: impl FnOnce(
-            &super::store::TransactionStore,
-        ) -> Result<
-            Option<coffer_core::id::ChangeBatchId>,
-            crate::accounts::store::StoreError,
-        >,
-    ) -> bool {
-        let Source::Database(store) = &self.source else {
-            self.editor.error =
-                Some((place, "This is sample data, which can't be changed.".into()));
-            cx.notify();
-            return false;
-        };
-        match edit(store) {
-            Ok(batch) => {
-                self.editor.error = None;
-                if let (Some(batch), Some(message)) = (batch, undo) {
-                    self.undo = Some(Undo {
-                        action: UndoAction::Batch(batch),
-                        message: message.into(),
-                    });
-                }
-                self.reload(cx);
-                cx.emit(TransactionsEvent::Changed);
-                cx.notify();
-                true
-            }
-            Err(error) => {
-                tracing::warn!(%error, "couldn't save a link or share");
-                self.editor.error = Some((place, error.to_string().into()));
-                cx.notify();
-                false
-            }
-        }
-    }
-
     /// Just me, Shared or Claim back: Just me and Claim back save now;
     /// Shared waits for a person unless one is stored.
     pub(super) fn choose_share(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -224,9 +191,10 @@ impl TransactionsView {
                 return;
             }
         };
-        self.run_link_edit(EditPlace::Share, None, cx, |store| {
+        self.write(Policy::link(EditPlace::Share), cx, |store| {
             store.set_sharing(row.id, &sharing)
-        });
+        })
+        .ok();
     }
 
     /// Shares the selected row with `person` (a name chosen or typed),
@@ -251,9 +219,12 @@ impl TransactionsView {
             cx.notify();
             return;
         };
-        if self.run_link_edit(EditPlace::Share, None, cx, |store| {
-            store.set_sharing(row.id, &Sharing::Shared { my_share, label })
-        }) {
+        if self
+            .write(Policy::link(EditPlace::Share), cx, |store| {
+                store.set_sharing(row.id, &Sharing::Shared { my_share, label })
+            })
+            .is_ok()
+        {
             self.editor.shared_draft = false;
         }
     }
@@ -286,9 +257,10 @@ impl TransactionsView {
         let Ok(label) = ShareLabel::new(&label) else {
             return;
         };
-        self.run_link_edit(EditPlace::Share, None, cx, |store| {
+        self.write(Policy::link(EditPlace::Share), cx, |store| {
             store.set_sharing(row.id, &Sharing::Shared { my_share, label })
-        });
+        })
+        .ok();
     }
 
     /// Confirms Coffer's suggestion on the selected row.
@@ -314,9 +286,9 @@ impl TransactionsView {
             })
             .collect();
         let message = linking::linked_message(kind, &row, &purchases, None, self.today);
-        self.run_link_edit(EditPlace::Links, Some(message), cx, |store| {
-            store.confirm_links(&ids)
-        });
+        let policy = Policy::link(EditPlace::Links).undo(offer_batch(message));
+        self.write(policy, cx, |store| store.confirm_links(&ids))
+            .ok();
     }
 
     /// Confirms every suggestion on the selected row, as its card's Link
@@ -349,9 +321,9 @@ impl TransactionsView {
             link.kind,
             link.status == coffer_core::link::LinkStatus::Suggested,
         );
-        self.run_link_edit(EditPlace::Links, Some(message.into()), cx, |store| {
-            store.reject_links(&ids)
-        });
+        let policy = Policy::link(EditPlace::Links).undo(offer_batch(message));
+        self.write(policy, cx, |store| store.reject_links(&ids))
+            .ok();
     }
 
     /// Makes a link from the link dialog. Returns why it couldn't, for the
@@ -362,38 +334,25 @@ impl TransactionsView {
         person: Option<&str>,
         cx: &mut Context<Self>,
     ) -> Result<(), SharedString> {
-        let Source::Database(store) = &self.source else {
-            return Err("This is sample data, which can't be changed.".into());
-        };
-        let inflow = self.register.row(link.inflow).cloned();
-        let purchase = link
-            .target
-            .purchase()
-            .and_then(|id| self.register.row(id))
-            .cloned();
-        match store.link(link) {
-            Ok(batch) => {
-                if let (Some(batch), Some(inflow)) = (batch, inflow) {
-                    let purchases: Vec<&RegisterRow> = purchase.iter().collect();
-                    self.undo = Some(Undo {
-                        action: UndoAction::Batch(batch),
-                        message: linking::linked_message(
-                            link.kind, &inflow, &purchases, person, self.today,
-                        )
-                        .into(),
-                    });
-                }
-                self.editor.error = None;
-                self.reload(cx);
-                cx.emit(TransactionsEvent::Changed);
-                cx.notify();
-                Ok(())
-            }
-            Err(error) => {
-                tracing::warn!(%error, "couldn't link");
-                Err(error.to_string().into())
-            }
-        }
+        let purchase = link.target.purchase().and_then(|id| self.register.row(id));
+        let purchases: Vec<&RegisterRow> = purchase.into_iter().collect();
+        // The undo bar names the money in, when the register has it.
+        let message = self.register.row(link.inflow).map(|inflow| {
+            linking::linked_message(link.kind, inflow, &purchases, person, self.today)
+        });
+        let policy = Policy::new(Said::Dialog)
+            .log("couldn't link")
+            .clears(Clears::Inspector)
+            .emit(TransactionsEvent::Changed)
+            .undo(
+                move |batch: &Option<ChangeBatchId>| match (batch, message) {
+                    (Some(batch), Some(message)) => {
+                        Offer::Show(UndoAction::Batch(*batch), message.into())
+                    }
+                    _ => Offer::Keep,
+                },
+            );
+        self.write(policy, cx, |store| store.link(link)).map(drop)
     }
 
     /// Renames a person everywhere (Owed to you's Name).
@@ -403,21 +362,18 @@ impl TransactionsView {
         to: &str,
         cx: &mut Context<Self>,
     ) -> Result<(), SharedString> {
-        let Source::Database(store) = &self.source else {
-            return Err("This is sample data, which can't be changed.".into());
-        };
-        let to = ShareLabel::new(to).map_err(|error| SharedString::from(error.to_string()))?;
-        if &to == from {
-            return Ok(());
-        }
-        match store.rename_person(from, &to) {
-            Ok(_) => {
-                self.reload(cx);
-                cx.emit(TransactionsEvent::Changed);
-                Ok(())
+        let policy = Policy::new(Said::Dialog)
+            .emit(TransactionsEvent::Changed)
+            .wrote(|renamed| *renamed);
+        self.write(policy, cx, |store| {
+            let to = ShareLabel::new(to)?;
+            if &to == from {
+                return Ok(false);
             }
-            Err(error) => Err(error.to_string().into()),
-        }
+            store.rename_person(from, &to)?;
+            Ok(true)
+        })
+        .map(drop)
     }
 
     /// Asks the shell for the link dialog.

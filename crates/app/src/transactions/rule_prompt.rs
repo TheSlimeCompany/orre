@@ -32,6 +32,7 @@ use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::inspector::{section, section_title};
 use crate::ui::text::TextRoleExt as _;
 
+use super::write::{Clears, Policy, Said};
 use super::{Source, TransactionsEvent, TransactionsView};
 
 /// The prompt for one row: core's proposal and what the card says.
@@ -87,34 +88,28 @@ impl TransactionsView {
         let Some(prompt) = self.editor.rule_prompt.take() else {
             return;
         };
-        if let Source::Database(store) = &self.source
-            && let Err(error) = store.dismiss_rule(&prompt.proposal.definition)
-        {
-            tracing::warn!(%error, "couldn't remember Not now");
-        }
-        cx.notify();
+        // Nothing to say if it isn't remembered: the prompt still goes.
+        let policy = Policy::new(Said::Logged)
+            .log("couldn't remember Not now")
+            .no_reload();
+        self.write(policy, cx, |store| {
+            store.dismiss_rule(&prompt.proposal.definition)
+        })
+        .ok();
     }
 
     /// "Create rule from this".
     fn create_rule_from_row(&mut self, transaction: TransactionId, cx: &mut Context<Self>) {
-        let Source::Database(store) = &self.source else {
-            self.edit_error = Some("This is sample data, which can't be changed.".into());
-            cx.notify();
-            return;
-        };
-        match store.rule_from(transaction) {
-            Ok(Some(definition)) => {
-                cx.emit(TransactionsEvent::CreateRule(definition, RuleOrigin::Edit))
-            }
-            Ok(None) => {
-                self.edit_error =
-                    Some("Coffer can’t find a name in this row to build a rule on.".into());
-                cx.notify();
-            }
-            Err(error) => {
-                self.edit_error = Some(error.to_string().into());
-                cx.notify();
-            }
+        // Only a read: nothing to read again, and an earlier error stays.
+        let policy = Policy::new(Said::Category)
+            .clears(Clears::Nothing)
+            .no_reload();
+        if let Ok(definition) = self.write(policy, cx, |store| {
+            store
+                .rule_from(transaction)?
+                .ok_or_else(|| "Coffer can’t find a name in this row to build a rule on.".into())
+        }) {
+            cx.emit(TransactionsEvent::CreateRule(definition, RuleOrigin::Edit));
         }
     }
 }

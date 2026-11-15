@@ -15,6 +15,7 @@
 //! [`TransactionStore::decide_transfer`]: super::store::TransactionStore::decide_transfer
 
 use coffer_core::id::TransferGroupId;
+use coffer_core::inbox::TransferDecided;
 use coffer_core::reporting::pairing::{self, Pair};
 use coffer_core::reporting::register::RegisterRow;
 use coffer_core::transfer::{Action, Blocked, Decision, TransferStatus};
@@ -24,7 +25,6 @@ use gpui_kit::{
     AnyElement, Context, IntoElement, ParentElement as _, SharedString, Styled as _, div,
 };
 
-use crate::accounts::new_account::sentence;
 use crate::format;
 use crate::inbox::text::unsigned;
 use crate::theme::tokens::{color, radius, size, spacing, typography};
@@ -35,7 +35,8 @@ use crate::ui::inspector::{section, section_title_row};
 use crate::ui::text::TextRoleExt as _;
 
 use super::editor::EditPlace;
-use super::{TransactionsEvent, TransactionsView, Undo, UndoAction};
+use super::write::{Offer, Policy, Said};
+use super::{TransactionsEvent, TransactionsView, UndoAction};
 
 /// What confirming does, from the Inbox transfer pair's preview (D6.6).
 pub const CONFIRM_EFFECT: &str =
@@ -81,6 +82,14 @@ pub fn undo_message(action: Action, from: &str, to: &str) -> String {
     }
 }
 
+/// A transfer decision or its undo: said under the Transfer section as a
+/// sentence; the checks read again.
+fn transfer_policy<'a, T>() -> Policy<'a, T> {
+    Policy::new(Said::Inspector(EditPlace::Transfer))
+        .sentence()
+        .emit(TransactionsEvent::Changed)
+}
+
 impl TransactionsView {
     /// Confirms, rejects or unpairs the pair `group` that `row` is in; the
     /// undo bar offers to reverse it.
@@ -92,46 +101,26 @@ impl TransactionsView {
         cx: &mut Context<Self>,
     ) {
         let (from, to) = self.pair_accounts(row);
-        let result = self.store().and_then(|store| {
-            store
-                .decide_transfer(group, action)
-                .map_err(|error| sentence(&error.to_string()))
-        });
-        match result {
-            Ok(decided) => {
-                self.editor.error = None;
-                self.undo = Some(Undo {
-                    action: UndoAction::Transfer(decided.decision),
-                    message: undo_message(action, &from, &to).into(),
-                });
-                self.reload(cx);
-                cx.emit(TransactionsEvent::Changed);
-            }
-            Err(error) => {
-                tracing::warn!(%error, "couldn't decide a transfer pair");
-                self.editor.error = Some((EditPlace::Transfer, error));
-            }
-        }
-        cx.notify();
+        let message = undo_message(action, &from, &to);
+        let policy = transfer_policy()
+            .log("couldn't decide a transfer pair")
+            .undo(move |decided: &TransferDecided| {
+                Offer::Show(UndoAction::Transfer(decided.decision), message.into())
+            });
+        self.write(policy, cx, |store| store.decide_transfer(group, action))
+            .ok();
     }
 
-    /// The undo bar's Undo after a transfer decision.
+    /// The undo bar's Undo after a transfer decision. If it fails, the bar
+    /// offers it again with the reason; the table and the checks read again
+    /// either way.
     pub(super) fn undo_transfer(&mut self, decision: Decision, cx: &mut Context<Self>) {
-        let result = self.store().and_then(|store| {
-            store
-                .undo_transfer(&decision)
-                .map_err(|error| sentence(&error.to_string()))
-        });
-        match result {
-            Ok(()) => self.editor.error = None,
-            Err(error) => {
-                tracing::warn!(%error, "couldn't undo a transfer decision");
-                self.editor.error = Some((EditPlace::Transfer, error));
-            }
-        }
-        self.reload(cx);
-        cx.emit(TransactionsEvent::Changed);
-        cx.notify();
+        let policy = transfer_policy()
+            .log("couldn't undo a transfer decision")
+            .retry(UndoAction::Transfer(decision))
+            .always();
+        self.write(policy, cx, |store| store.undo_transfer(&decision))
+            .ok();
     }
 
     /// The pair's accounts, money out first: "Current account", "Savings".

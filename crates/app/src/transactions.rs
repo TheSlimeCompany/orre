@@ -36,6 +36,9 @@
 //!   transaction" open [`new_transaction`]; a manual row's Date, Amount and
 //!   Account are fields (`transactions::manual_edit`). After excluding, the
 //!   undo bar offers to include the row again.
+//! - **Every change** goes through the edit pipeline (`transactions::write`):
+//!   sample data refused, the error said where the change was made, the
+//!   undo bar, the register read again and the shell told, in one place.
 //!
 //! The table is a GPUI `list`: virtualised, with rows of their own heights
 //! (day headers carry 4px more than a row when they draw a divider). The
@@ -59,6 +62,7 @@ pub mod selection;
 pub mod source;
 pub mod store;
 pub mod transfer;
+mod write;
 
 use chrono::NaiveDate;
 use coffer_core::account::AccountKind;
@@ -79,7 +83,6 @@ use gpui_kit::{
 };
 
 use crate::accounts::inspector::AccountInspector;
-use crate::accounts::new_account::sentence;
 use crate::accounts::{Accounts, AccountsEvent};
 use crate::format::{self, Sign};
 use crate::theme::tokens::{color, size as token_size, spacing};
@@ -96,6 +99,7 @@ use crate::ui::undo_bar::UndoBar;
 
 use selection::{ClickKind, Selection};
 use store::TransactionStore;
+use write::{Offer, Policy, Said};
 
 /// The key context of the canvas, where the arrow keys move the selection.
 const TABLE_CONTEXT: &str = "CofferTransactionsTable";
@@ -594,18 +598,6 @@ impl TransactionsView {
         let text = self.filter.text.clone();
         self.search
             .update(cx, |search, cx| search.set_value(text, window, cx));
-    }
-
-    /// Records that saving what was typed on row `row`, which the user just
-    /// left, failed for `reason`, said at `place` when the row is shown.
-    pub(super) fn edit_failed(
-        &mut self,
-        row: TransactionId,
-        place: editor::EditPlace,
-        reason: SharedString,
-    ) {
-        self.undo = None;
-        self.edit_failure = Some(EditFailure { row, place, reason });
     }
 
     /// The failure bar's message, while it shows.
@@ -1158,30 +1150,24 @@ impl TransactionsView {
         if items.is_empty() {
             return;
         }
-        let Source::Database(store) = &self.source else {
-            self.edit_error = Some("This is sample data, which can't be changed.".into());
-            cx.notify();
-            return;
-        };
-        match store.recategorize(&items) {
-            Ok(batch) => {
-                self.edit_error = None;
-                // One row's category set by hand may become a rule (D6.3).
-                if let [(id, _)] = items.as_slice() {
-                    self.propose_rule(*id, cx);
-                }
-                self.undo = batch.filter(|_| items.len() > 1).map(|batch| Undo {
-                    action: UndoAction::Batch(batch),
-                    message: present::categorised_message(items.len(), &label),
-                });
-                self.reload(cx);
-            }
-            Err(error) => {
-                tracing::warn!(%error, "couldn't change the category");
-                self.edit_error = Some(error.to_string().into());
-            }
+        let count = items.len();
+        let message = present::categorised_message(count, &label);
+        let policy = Policy::new(Said::Category)
+            .log("couldn't change the category")
+            .undo(
+                move |batch: &Option<ChangeBatchId>| match batch.filter(|_| count > 1) {
+                    Some(batch) => Offer::Show(UndoAction::Batch(batch), message),
+                    None => Offer::Clear,
+                },
+            );
+        if self
+            .write(policy, cx, |store| store.recategorize(&items))
+            .is_ok()
+            // One row's category set by hand may become a rule (D6.3).
+            && let [(id, _)] = items.as_slice()
+        {
+            self.propose_rule(*id, cx);
         }
-        cx.notify();
     }
 
     fn undo_change(&mut self, cx: &mut Context<Self>) {
@@ -1190,53 +1176,23 @@ impl TransactionsView {
         };
         match undo.action {
             UndoAction::Batch(batch) => {
-                if let Source::Database(store) = &self.source {
-                    match store.undo(batch) {
-                        Ok(_) => self.edit_error = None,
-                        Err(error) => {
-                            tracing::warn!(%error, "couldn't undo the change");
-                            self.edit_error = Some(error.to_string().into());
-                        }
-                    }
-                    self.reload(cx);
-                    cx.emit(TransactionsEvent::Changed);
-                }
+                let policy = Policy::new(Said::Category)
+                    .log("couldn't undo the change")
+                    .emit(TransactionsEvent::Changed)
+                    .always();
+                self.write(policy, cx, |store| store.undo(batch)).ok();
             }
             UndoAction::Include(id) => {
                 // The row comes back selected, where the user left it.
                 self.reveal = Some(id);
-                self.include_again(id, cx);
-                self.keep_failed_undo(undo.action, editor::EditPlace::Exclusion);
+                self.include(id, true, cx);
             }
-            UndoAction::Transfer(decision) => {
-                self.undo_transfer(decision, cx);
-                self.keep_failed_undo(undo.action, editor::EditPlace::Transfer);
-            }
+            UndoAction::Transfer(decision) => self.undo_transfer(decision, cx),
         }
         cx.notify();
     }
 
-    /// After an undo the bar offered failed: the reason goes in the bar,
-    /// which stays (to try again or dismiss), since the row it concerns may
-    /// be filtered out or no longer show the section that would say it.
-    fn keep_failed_undo(&mut self, action: UndoAction, place: editor::EditPlace) {
-        if let Some(error) = self.editor.error_at(place) {
-            self.undo = Some(Undo {
-                action,
-                message: format!("Couldn't undo: {error}").into(),
-            });
-        }
-    }
-
     // Exclusions, imports and manual rows (M3.10) --------------------------
-
-    /// The store, or the words for why sample data can't change.
-    fn store(&self) -> Result<&TransactionStore, SharedString> {
-        match &self.source {
-            Source::Database(store) => Ok(store),
-            Source::Fixture => Err("This is sample data, which can't be changed.".into()),
-        }
-    }
 
     /// Excludes `id` for `reason` (or changes the reason and details of an
     /// excluded row) through core. Newly excluded, the undo bar offers to
@@ -1253,56 +1209,49 @@ impl TransactionsView {
             .register
             .row(id)
             .is_some_and(|row| row.excluded.is_some());
-        self.store()?
-            .exclude(id, reason, note)
-            .map_err(|error| sentence(&error.to_string()))?;
-        if !was_excluded {
-            self.undo = Some(Undo {
-                action: UndoAction::Include(id),
-                message: format!(
-                    "Excluded as {}",
-                    source::reason_label(reason).to_lowercase()
-                )
-                .into(),
-            });
-        }
-        self.reload(cx);
-        cx.emit(TransactionsEvent::LedgerChanged);
-        cx.notify();
-        Ok(())
+        let message = format!(
+            "Excluded as {}",
+            source::reason_label(reason).to_lowercase()
+        );
+        let policy = Policy::ledger().undo(move |_| {
+            if was_excluded {
+                Offer::Keep
+            } else {
+                Offer::Show(UndoAction::Include(id), message.into())
+            }
+        });
+        self.write(policy, cx, |store| store.exclude(id, reason, note))
     }
 
     /// "Include again": the undo of excluding. A refusal (a lock) is said
     /// in the exclusion card.
     pub fn include_again(&mut self, id: TransactionId, cx: &mut Context<Self>) {
-        let result = self.store().and_then(|store| {
-            store
-                .include_again(id)
-                .map_err(|error| sentence(&error.to_string()))
-        });
-        match result {
-            Ok(()) => {
-                self.editor.error = None;
-                if self.undo.as_ref().map(|undo| undo.action) == Some(UndoAction::Include(id)) {
-                    self.undo = None;
-                }
-                self.reload(cx);
-                cx.emit(TransactionsEvent::LedgerChanged);
-            }
-            Err(error) => {
-                tracing::warn!(%error, "couldn't include a transaction again");
-                self.reveal = None;
-                self.editor.error = Some((editor::EditPlace::Exclusion, error));
-            }
+        self.include(id, false, cx);
+    }
+
+    /// Includes `id` again; `from_bar` when it's the undo bar's Undo, which
+    /// offers it again if it fails.
+    fn include(&mut self, id: TransactionId, from_bar: bool, cx: &mut Context<Self>) {
+        let action = UndoAction::Include(id);
+        let mut policy = Policy::new(Said::Inspector(editor::EditPlace::Exclusion))
+            .sentence()
+            .log("couldn't include a transaction again")
+            .undo(move |_| Offer::ClearIf(action))
+            .emit(TransactionsEvent::LedgerChanged);
+        if from_bar {
+            policy = policy.retry(action);
         }
-        cx.notify();
+        if self
+            .write(policy, cx, |store| store.include_again(id))
+            .is_err()
+        {
+            self.reveal = None;
+        }
     }
 
     /// What undoing import `batch` would remove.
     pub fn undo_import_preview(&self, batch: BatchId) -> Result<UndoPreview, SharedString> {
-        self.store()?
-            .undo_import_preview(batch)
-            .map_err(|error| sentence(&error.to_string()))
+        self.query(|store| store.undo_import_preview(batch))
     }
 
     /// Undoes import `batch`; the table and the accounts panel read again.
@@ -1311,14 +1260,9 @@ impl TransactionsView {
         batch: BatchId,
         cx: &mut Context<Self>,
     ) -> Result<(), SharedString> {
-        self.store()?
-            .undo_import(batch)
-            .map_err(|error| sentence(&error.to_string()))?;
-        self.undo = None;
-        self.reload(cx);
-        cx.emit(TransactionsEvent::LedgerChanged);
-        cx.notify();
-        Ok(())
+        let policy = Policy::ledger().undo(|_| Offer::Clear);
+        self.write(policy, cx, |store| store.undo_import(batch))
+            .map(drop)
     }
 
     /// Adds a manual transaction with the user's `note`; once the register
@@ -1329,15 +1273,10 @@ impl TransactionsView {
         note: &str,
         cx: &mut Context<Self>,
     ) -> Result<TransactionId, SharedString> {
-        let id = self
-            .store()?
-            .create_manual(entry, note)
-            .map_err(|error| sentence(&error.to_string()))?;
-        self.undo = None;
+        let policy = Policy::ledger().undo(|_| Offer::Clear);
+        let id = self.write(policy, cx, |store| store.create_manual(entry, note))?;
+        // Selected once the register, read again in the background, has it.
         self.reveal = Some(id);
-        self.reload(cx);
-        cx.emit(TransactionsEvent::LedgerChanged);
-        cx.notify();
         Ok(id)
     }
 
@@ -1347,14 +1286,8 @@ impl TransactionsView {
         id: TransactionId,
         cx: &mut Context<Self>,
     ) -> Result<(), SharedString> {
-        self.store()?
-            .delete_manual(id)
-            .map_err(|error| sentence(&error.to_string()))?;
-        self.undo = None;
-        self.reload(cx);
-        cx.emit(TransactionsEvent::LedgerChanged);
-        cx.notify();
-        Ok(())
+        let policy = Policy::ledger().undo(|_| Offer::Clear);
+        self.write(policy, cx, |store| store.delete_manual(id))
     }
 
     // Selection -----------------------------------------------------------
@@ -1851,3 +1784,5 @@ mod source_tests;
 mod tests;
 #[cfg(test)]
 mod transfer_tests;
+#[cfg(test)]
+mod write_tests;
