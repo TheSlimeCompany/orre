@@ -278,10 +278,11 @@ fn a_rule_from_an_edit_is_previewed_then_created_and_applied(cx: &mut TestAppCon
     cx.update(|_, cx| {
         transactions.update(cx, |view, cx| view.propose_rule(scratch.seeded.vinted, cx))
     });
-    let proposal = TransactionStore::new(scratch.path.clone())
-        .propose_rule(scratch.seeded.vinted)
+    let db = TransactionStore::new(scratch.path.clone()).open().unwrap();
+    let proposal = core_rule::propose(&db, scratch.seeded.vinted)
         .unwrap()
         .expect("VINTED proposes a rule");
+    drop(db);
     assert_eq!(proposal.definition.pattern().as_str(), "VINTED");
     assert_eq!(proposal.matches, 6);
     assert_eq!(proposal.uncategorized, 4);

@@ -1,11 +1,17 @@
-//! Reading and changing transactions in the database (`docs/ARCHITECTURE.md`
+//! Opening the database for the Transactions view (`docs/ARCHITECTURE.md`
 //! → "Decision record: the Transactions view").
 //!
 //! Like [`crate::accounts::store::AccountStore`], the store holds no
-//! connection: each call opens the database at its path (creating and
-//! migrating it as the CLI does) after checking the restore lock. Reading
-//! the register runs on a background thread; a category change is one small
-//! write on the main thread.
+//! connection: [`TransactionStore::open`] opens the database at its path
+//! for one call (creating and migrating it as the CLI does) through
+//! [`gate::open`], which checks the restore lock before and after opening.
+//! It does nothing else: each place that reads or changes something names
+//! core's function itself, on the database the store opened. Changes go
+//! through the view's edit pipeline (`TransactionsView::write`), which
+//! opens the database for its `op`; reads that only fill a dialog or a
+//! prompt go through `TransactionsView::query` or call
+//! [`TransactionStore::open`] themselves. Reading the register runs on a
+//! background thread; a change is one small write on the main thread.
 //!
 //! Every change is core's: [`own::recategorize`] sets the categories as the
 //! user's, in one DB transaction recorded as one undoable change batch (the
@@ -13,7 +19,7 @@
 //! reverts it. The inspector's split, tags, note and merchant name go
 //! through [`edit`] (M3.9), each one undoable change batch too, and so do
 //! its links and shares (M3.11: link, confirm, unlink or reject, share,
-//! rename a person). Nothing here touches an imported source field.
+//! rename a person). Nothing touches an imported source field.
 //!
 //! M3.10 adds what the Source section and the dialogs do: excluding and
 //! including again ([`exclusion`]: fields on the row, not a change batch;
@@ -25,40 +31,23 @@
 //! ([`inbox::decide_transfer`], which also settles an agent's pending
 //! suggestion for the same pair) and undoing that ([`transfer::undo`]):
 //! a status change, not a change batch.
+//!
+//! [`own::recategorize`]: coffer_core::inbox::own::recategorize
+//! [`change::undo`]: coffer_core::change::undo
+//! [`edit`]: coffer_core::edit
+//! [`exclusion`]: coffer_core::exclusion
+//! [`import::undo`]: coffer_core::import::undo
+//! [`import::undo_preview`]: coffer_core::import::undo_preview
+//! [`manual`]: coffer_core::manual
+//! [`inbox::decide_transfer`]: coffer_core::inbox::decide_transfer
+//! [`transfer::undo`]: coffer_core::transfer::undo
 
 use std::path::PathBuf;
 
-use chrono::NaiveDate;
-use coffer_core::backup;
-use coffer_core::category::CategoryKey;
-use coffer_core::change::{self, UndoSummary};
+use coffer_core::backup::gate;
 use coffer_core::db::Database;
-use coffer_core::edit;
-use coffer_core::exclusion::{self, ExclusionReason};
-use coffer_core::id::{BatchId, ChangeBatchId, LinkId, TagId, TransactionId, TransferGroupId};
-use coffer_core::import::{self, UndoPreview};
-use coffer_core::inbox::{self, TransferDecided, own};
-use coffer_core::link::{NewLink, ShareLabel, Sharing};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::note::UserNote;
-use coffer_core::reporting::register::Register;
-use coffer_core::rule;
-use coffer_core::split::SplitLine;
-use coffer_core::transfer;
 
 use crate::accounts::store::StoreError;
-
-/// A restore is replacing the database.
-#[derive(Debug)]
-struct Restoring;
-
-impl std::fmt::Display for Restoring {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("A backup is being restored; try again when it's done.")
-    }
-}
-
-impl std::error::Error for Restoring {}
 
 /// The transactions in the database at `database`.
 #[derive(Clone, Debug)]
@@ -71,266 +60,35 @@ impl TransactionStore {
         Self { database }
     }
 
-    fn open(&self) -> Result<Database, StoreError> {
-        if backup::restoring(&self.database)? {
-            return Err(Box::new(Restoring));
-        }
-        Ok(Database::open(&self.database)?)
-    }
-
-    /// Every transaction, with the colours ranked over the 12 months to
-    /// `today`.
-    pub fn load(&self, today: NaiveDate) -> Result<Register, StoreError> {
-        let db = self.open()?;
-        Ok(Register::load(&db.reader()?, today)?)
-    }
-
-    /// Sets the category of each transaction as the user's: one undoable
-    /// change batch, `None` when nothing changed.
-    pub fn recategorize(
-        &self,
-        items: &[(TransactionId, CategoryKey)],
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(own::recategorize(&mut db, items)?)
-    }
-
-    /// Splits `transaction` into `lines`, replacing any split it has.
-    pub fn set_split(
-        &self,
-        transaction: TransactionId,
-        lines: &[SplitLine],
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::set_split(&mut db, transaction, lines)?)
-    }
-
-    /// Removes `transaction`'s split, leaving it uncategorised.
-    pub fn remove_split(
-        &self,
-        transaction: TransactionId,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::remove_split(&mut db, transaction)?)
-    }
-
-    /// Tags `transaction` with `tag`.
-    pub fn add_tag(
-        &self,
-        transaction: TransactionId,
-        tag: TagId,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::add_tag(&mut db, transaction, tag)?)
-    }
-
-    /// Takes `tag` off `transaction`.
-    pub fn remove_tag(
-        &self,
-        transaction: TransactionId,
-        tag: TagId,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::remove_tag(&mut db, transaction, tag)?)
-    }
-
-    /// Tags `transaction` with the tag named `name`, creating it (`private`
-    /// or not) when there is none.
-    pub fn add_new_tag(
-        &self,
-        transaction: TransactionId,
-        name: &str,
-        private: bool,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::add_new_tag(&mut db, transaction, name, private)?.1)
-    }
-
-    /// Sets the user's note on `transaction`; blank clears it.
-    pub fn set_note(
-        &self,
-        transaction: TransactionId,
-        text: &str,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::set_note(&mut db, transaction, text)?)
-    }
-
-    /// Names `transaction`'s merchant; blank goes back to the derived name.
-    pub fn set_merchant(
-        &self,
-        transaction: TransactionId,
-        text: &str,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::set_merchant(&mut db, transaction, text)?)
-    }
-
-    /// The rule "Create a rule from this edit?" proposes after the user set
-    /// `transaction`'s category, if any (M3.13).
-    pub fn propose_rule(
-        &self,
-        transaction: TransactionId,
-    ) -> Result<Option<rule::Proposal>, StoreError> {
-        Ok(rule::propose(&self.open()?, transaction)?)
-    }
-
-    /// The rule "Create rule from this" starts from (M3.13).
-    pub fn rule_from(
-        &self,
-        transaction: TransactionId,
-    ) -> Result<Option<rule::RuleDefinition>, StoreError> {
-        Ok(rule::rule_from(&self.open()?, transaction)?)
-    }
-
-    /// "Not now": the prompt doesn't propose this pattern again.
-    pub fn dismiss_rule(&self, definition: &rule::RuleDefinition) -> Result<(), StoreError> {
-        Ok(rule::dismiss(&mut self.open()?, definition)?)
-    }
-
-    /// Makes a confirmed link (a suggestion for the pair becomes it).
-    pub fn link(&self, link: &NewLink) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::link(&mut db, link)?.1)
-    }
-
-    /// Confirms suggested links: one, or a payment's set of claims.
-    pub fn confirm_links(&self, ids: &[LinkId]) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::confirm_links(&mut db, ids)?)
-    }
-
-    /// Confirms, rejects ("Not a transfer") or unpairs transfer pair
-    /// `group` (M3.8). A pending agent suggestion for the same pair is
-    /// settled in the same DB transaction ([`inbox::decide_transfer`]).
-    pub fn decide_transfer(
-        &self,
-        group: TransferGroupId,
-        action: transfer::Action,
-    ) -> Result<TransferDecided, StoreError> {
-        let mut db = self.open()?;
-        Ok(inbox::decide_transfer(&mut db, group, action)?)
-    }
-
-    /// Reverses a transfer decision, if the pair is as it left it.
-    pub fn undo_transfer(&self, decision: &transfer::Decision) -> Result<(), StoreError> {
-        let mut db = self.open()?;
-        Ok(transfer::undo(&mut db, decision)?)
-    }
-
-    /// Unlinks, or rejects suggestions: the pairs aren't suggested again.
-    pub fn reject_links(&self, ids: &[LinkId]) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::reject_links(&mut db, ids)?)
-    }
-
-    /// Sets how `transaction` is shared.
-    pub fn set_sharing(
-        &self,
-        transaction: TransactionId,
-        sharing: &Sharing,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::set_sharing(&mut db, transaction, sharing)?)
-    }
-
-    /// Renames a person everywhere.
-    pub fn rename_person(
-        &self,
-        from: &ShareLabel,
-        to: &ShareLabel,
-    ) -> Result<Option<ChangeBatchId>, StoreError> {
-        let mut db = self.open()?;
-        Ok(edit::rename_person(&mut db, from, to)?)
-    }
-
-    /// Reverts a change batch where its values still hold.
-    pub fn undo(&self, batch: ChangeBatchId) -> Result<UndoSummary, StoreError> {
-        let mut db = self.open()?;
-        Ok(change::undo(&mut db, batch)?)
-    }
-
-    /// Excludes `transaction` for `reason`, or changes the reason and
-    /// details of an excluded one. `note` is the user's; blank is none.
-    pub fn exclude(
-        &self,
-        transaction: TransactionId,
-        reason: ExclusionReason,
-        note: Option<&str>,
-    ) -> Result<(), StoreError> {
-        let mut db = self.open()?;
-        exclusion::exclude(&mut db, transaction, reason, note)?;
-        Ok(())
-    }
-
-    /// Includes excluded `transaction` again: the undo of [`Self::exclude`].
-    pub fn include_again(&self, transaction: TransactionId) -> Result<(), StoreError> {
-        let mut db = self.open()?;
-        Ok(exclusion::include_again(&mut db, transaction)?)
-    }
-
-    /// What undoing import `batch` would remove, for its confirmation.
-    pub fn undo_import_preview(&self, batch: BatchId) -> Result<UndoPreview, StoreError> {
-        Ok(import::undo_preview(&self.open()?, batch)?)
-    }
-
-    /// Undoes import `batch`: its rows, balances and flags go.
-    pub fn undo_import(&self, batch: BatchId) -> Result<UndoPreview, StoreError> {
-        let mut db = self.open()?;
-        Ok(import::undo(&mut db, batch)?)
-    }
-
-    /// Adds a manual transaction with the user's `note`, and returns its ID.
-    /// The note is checked first, and stored with the row in one DB
-    /// transaction, so a failure adds nothing (and trying again can't add
-    /// the row twice).
-    pub fn create_manual(
-        &self,
-        entry: &ManualTransaction,
-        note: &str,
-    ) -> Result<TransactionId, StoreError> {
-        let note = UserNote::new(note)?;
-        let mut db = self.open()?;
-        Ok(manual::create_with_note(&mut db, entry, note.as_ref())?)
-    }
-
-    /// Manual transaction `transaction` as [`Self::update_manual`] takes it.
-    pub fn manual(&self, transaction: TransactionId) -> Result<ManualTransaction, StoreError> {
-        Ok(manual::get(&self.open()?, transaction)?)
-    }
-
-    /// Changes manual transaction `transaction`: `change` edits what is
-    /// stored (its date, amount, account), and the rest stays.
-    pub fn update_manual(
-        &self,
-        transaction: TransactionId,
-        change: impl FnOnce(&mut ManualTransaction),
-    ) -> Result<(), StoreError> {
-        let mut db = self.open()?;
-        let mut entry = manual::get(&db, transaction)?;
-        change(&mut entry);
-        manual::update(&mut db, transaction, &entry)?;
-        Ok(())
-    }
-
-    /// Deletes manual transaction `transaction`. Imported rows are excluded
-    /// instead; core refuses them.
-    pub fn delete_manual(&self, transaction: TransactionId) -> Result<(), StoreError> {
-        let mut db = self.open()?;
-        manual::delete(&mut db, transaction)?;
-        Ok(())
+    /// Opens the database for one call ([`gate::open`]): refused while a
+    /// restore holds its lock.
+    pub fn open(&self) -> Result<Database, StoreError> {
+        Ok(gate::open(&self.database, Database::open)?)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDate;
     use coffer_core::account::{self, AccountKind, NewAccount};
+    use coffer_core::category::CategoryKey;
+    use coffer_core::change;
+    use coffer_core::edit;
+    use coffer_core::inbox::own;
     use coffer_core::manual::{self, ManualTransaction};
     use coffer_core::money::{Currency, Money};
-    use coffer_core::reporting::register::RowCategory;
+    use coffer_core::reporting::register::{Register, RowCategory};
+    use coffer_core::split::SplitLine;
     use tempfile::TempDir;
 
     use super::*;
+
+    /// The register, read as the view reads it: on a database the store
+    /// opened.
+    fn load(store: &TransactionStore, today: NaiveDate) -> Register {
+        let db = store.open().unwrap();
+        Register::load(&db.reader().unwrap(), today).unwrap()
+    }
 
     #[test]
     fn categorises_reads_back_and_undoes() {
@@ -353,23 +111,24 @@ mod tests {
         let store = TransactionStore::new(path);
         let today = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
         assert_eq!(
-            store.load(today).unwrap().row(id).unwrap().category,
+            load(&store, today).row(id).unwrap().category,
             RowCategory::Uncategorised
         );
 
         let key = CategoryKey::new("food.eating_out").unwrap();
-        let batch = store.recategorize(&[(id, key.clone())]).unwrap().unwrap();
-        let register = store.load(today).unwrap();
+        let recategorize = |items: &[_]| own::recategorize(&mut store.open().unwrap(), items);
+        let batch = recategorize(&[(id, key.clone())]).unwrap().unwrap();
+        let register = load(&store, today);
         let RowCategory::Category(category) = register.row(id).unwrap().category else {
             panic!("categorised");
         };
         assert_eq!(register.category(category).unwrap().key, key);
         // The same category again changes nothing.
-        assert_eq!(store.recategorize(&[(id, key)]).unwrap(), None);
+        assert_eq!(recategorize(&[(id, key)]).unwrap(), None);
 
-        store.undo(batch).unwrap();
+        change::undo(&mut store.open().unwrap(), batch).unwrap();
         assert_eq!(
-            store.load(today).unwrap().row(id).unwrap().category,
+            load(&store, today).row(id).unwrap().category,
             RowCategory::Uncategorised
         );
     }
@@ -396,38 +155,40 @@ mod tests {
         let today = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
         let gbp = |minor| Money::new(minor, Currency::GBP);
         let groceries = CategoryKey::new("food.groceries").unwrap();
+        let db = || store.open().unwrap();
 
-        let batch = store
-            .set_split(
-                id,
-                &[
-                    SplitLine::new(gbp(-3866), Some(groceries)),
-                    SplitLine::new(gbp(-1350), None),
-                ],
-            )
-            .unwrap()
-            .unwrap();
-        let register = store.load(today).unwrap();
+        let batch = edit::set_split(
+            &mut db(),
+            id,
+            &[
+                SplitLine::new(gbp(-3866), Some(groceries)),
+                SplitLine::new(gbp(-1350), None),
+            ],
+        )
+        .unwrap()
+        .unwrap();
+        let register = load(&store, today);
         let RowCategory::Split(parts) = &register.row(id).unwrap().category else {
             panic!("split");
         };
         assert_eq!(parts.len(), 2);
-        store.undo(batch).unwrap();
+        change::undo(&mut db(), batch).unwrap();
         assert_eq!(
-            store.load(today).unwrap().row(id).unwrap().category,
+            load(&store, today).row(id).unwrap().category,
             RowCategory::Uncategorised
         );
 
-        store
-            .add_new_tag(id, "Mum's birthday", true)
+        edit::add_new_tag(&mut db(), id, "Mum's birthday", true)
+            .unwrap()
+            .1
+            .unwrap();
+        edit::set_note(&mut db(), id, "Card for Mum")
             .unwrap()
             .unwrap();
-        store.set_note(id, "Card for Mum").unwrap().unwrap();
-        store
-            .set_merchant(id, "Waitrose & Partners")
+        edit::set_merchant(&mut db(), id, "Waitrose & Partners")
             .unwrap()
             .unwrap();
-        let register = store.load(today).unwrap();
+        let register = load(&store, today);
         let row = register.row(id).unwrap();
         let tag = register.tag(row.tags[0]).unwrap();
         assert_eq!((tag.name.as_str(), tag.private), ("Mum's birthday", true));
@@ -436,10 +197,28 @@ mod tests {
         assert!(row.merchant_set);
 
         let tag = row.tags[0];
-        store.remove_tag(id, tag).unwrap().unwrap();
-        assert!(store.load(today).unwrap().row(id).unwrap().tags.is_empty());
-        store.add_tag(id, tag).unwrap().unwrap();
-        assert_eq!(store.load(today).unwrap().row(id).unwrap().tags, [tag]);
-        assert_eq!(store.remove_split(id).unwrap(), None);
+        edit::remove_tag(&mut db(), id, tag).unwrap().unwrap();
+        assert!(load(&store, today).row(id).unwrap().tags.is_empty());
+        edit::add_tag(&mut db(), id, tag).unwrap().unwrap();
+        assert_eq!(load(&store, today).row(id).unwrap().tags, [tag]);
+        assert_eq!(edit::remove_split(&mut db(), id).unwrap(), None);
+    }
+
+    #[test]
+    fn opening_is_refused_while_a_restore_holds_the_lock() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("coffer.db");
+        let store = TransactionStore::new(path.clone());
+        drop(store.open().unwrap());
+
+        // A restore holds an exclusive lock on `<database>-restoring`.
+        let lock = std::fs::File::create(coffer_core::backup::restore_lock_path(&path)).unwrap();
+        lock.lock().unwrap();
+        assert_eq!(
+            store.open().unwrap_err().to_string(),
+            "A backup is being restored; try again when it's done."
+        );
+        lock.unlock().unwrap();
+        store.open().unwrap();
     }
 }

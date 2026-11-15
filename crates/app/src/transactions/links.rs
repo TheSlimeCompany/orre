@@ -19,6 +19,7 @@
 //! change batch each. A link, an unlink or a rejected suggestion shows the
 //! D6.3 undo bar; a share change, like M3.9's edits, doesn't.
 
+use coffer_core::edit;
 use coffer_core::id::{ChangeBatchId, LinkId, TransactionId};
 use coffer_core::link::{LinkKind, NewLink, ShareLabel, Sharing};
 use coffer_core::money::{Currency, Money};
@@ -29,6 +30,7 @@ use gpui_kit::{
     AnyElement, Context, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div,
 };
 
+use crate::accounts::store::StoreError;
 use crate::format::{self, Sign};
 use crate::inbox::text::{Part, rich, unsigned};
 use crate::theme::tokens::{color, font, radius, size, spacing, typography};
@@ -191,8 +193,8 @@ impl TransactionsView {
                 return;
             }
         };
-        self.write(Policy::link(EditPlace::Share), cx, |store| {
-            store.set_sharing(row.id, &sharing)
+        self.write(Policy::link(EditPlace::Share), cx, |db| {
+            edit::set_sharing(db, row.id, &sharing)
         })
         .ok();
     }
@@ -220,8 +222,8 @@ impl TransactionsView {
             return;
         };
         if self
-            .write(Policy::link(EditPlace::Share), cx, |store| {
-                store.set_sharing(row.id, &Sharing::Shared { my_share, label })
+            .write(Policy::link(EditPlace::Share), cx, |db| {
+                edit::set_sharing(db, row.id, &Sharing::Shared { my_share, label })
             })
             .is_ok()
         {
@@ -257,8 +259,8 @@ impl TransactionsView {
         let Ok(label) = ShareLabel::new(&label) else {
             return;
         };
-        self.write(Policy::link(EditPlace::Share), cx, |store| {
-            store.set_sharing(row.id, &Sharing::Shared { my_share, label })
+        self.write(Policy::link(EditPlace::Share), cx, |db| {
+            edit::set_sharing(db, row.id, &Sharing::Shared { my_share, label })
         })
         .ok();
     }
@@ -287,7 +289,7 @@ impl TransactionsView {
             .collect();
         let message = linking::linked_message(kind, &row, &purchases, None, self.today);
         let policy = Policy::link(EditPlace::Links).undo(offer_batch(message));
-        self.write(policy, cx, |store| store.confirm_links(&ids))
+        self.write(policy, cx, |db| edit::confirm_links(db, &ids))
             .ok();
     }
 
@@ -322,7 +324,7 @@ impl TransactionsView {
             link.status == coffer_core::link::LinkStatus::Suggested,
         );
         let policy = Policy::link(EditPlace::Links).undo(offer_batch(message));
-        self.write(policy, cx, |store| store.reject_links(&ids))
+        self.write(policy, cx, |db| edit::reject_links(db, &ids))
             .ok();
     }
 
@@ -352,7 +354,10 @@ impl TransactionsView {
                     _ => Offer::Keep,
                 },
             );
-        self.write(policy, cx, |store| store.link(link)).map(drop)
+        self.write(policy, cx, |db| {
+            edit::link(db, link).map(|(_, batch)| batch)
+        })
+        .map(drop)
     }
 
     /// Renames a person everywhere (Owed to you's Name).
@@ -365,12 +370,12 @@ impl TransactionsView {
         let policy = Policy::new(Said::Dialog)
             .emit(TransactionsEvent::Changed)
             .wrote(|renamed| *renamed);
-        self.write(policy, cx, |store| {
+        self.write(policy, cx, |db| -> Result<bool, StoreError> {
             let to = ShareLabel::new(to)?;
             if &to == from {
                 return Ok(false);
             }
-            store.rename_person(from, &to)?;
+            edit::rename_person(db, from, &to)?;
             Ok(true)
         })
         .map(drop)

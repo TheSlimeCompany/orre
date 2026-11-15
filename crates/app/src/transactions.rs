@@ -66,10 +66,13 @@ mod write;
 
 use chrono::NaiveDate;
 use coffer_core::account::AccountKind;
-use coffer_core::exclusion::ExclusionReason;
+use coffer_core::change;
+use coffer_core::exclusion::{self, ExclusionReason};
 use coffer_core::id::{AccountId, BatchId, ChangeBatchId, TransactionId};
-use coffer_core::import::UndoPreview;
-use coffer_core::manual::ManualTransaction;
+use coffer_core::import::{self, UndoPreview};
+use coffer_core::inbox::own;
+use coffer_core::manual::{self, ManualTransaction};
+use coffer_core::note::UserNote;
 use coffer_core::reporting::register::{DatePreset, Filter, Listing, Register, Sort, SortColumn};
 use coffer_core::transfer as core_transfer;
 use gpui_kit::base::actions::{Cancel, SelectDown, SelectFirst, SelectLast, SelectUp};
@@ -83,6 +86,7 @@ use gpui_kit::{
 };
 
 use crate::accounts::inspector::AccountInspector;
+use crate::accounts::store::StoreError;
 use crate::accounts::{Accounts, AccountsEvent};
 use crate::format::{self, Sign};
 use crate::theme::tokens::{color, size as token_size, spacing};
@@ -531,7 +535,11 @@ impl TransactionsView {
         let today = self.today;
         self.loading = Some(cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { store.load(today) })
+                .background_spawn(async move {
+                    store
+                        .open()
+                        .and_then(|db| Ok(Register::load(&db.reader()?, today)?))
+                })
                 .await
                 .map_err(|error| SharedString::from(error.to_string()));
             this.update(cx, |this, cx| this.apply(result, cx)).ok();
@@ -1161,7 +1169,7 @@ impl TransactionsView {
                 },
             );
         if self
-            .write(policy, cx, |store| store.recategorize(&items))
+            .write(policy, cx, |db| own::recategorize(db, &items))
             .is_ok()
             // One row's category set by hand may become a rule (D6.3).
             && let [(id, _)] = items.as_slice()
@@ -1180,7 +1188,7 @@ impl TransactionsView {
                     .log("couldn't undo the change")
                     .emit(TransactionsEvent::Changed)
                     .always();
-                self.write(policy, cx, |store| store.undo(batch)).ok();
+                self.write(policy, cx, |db| change::undo(db, batch)).ok();
             }
             UndoAction::Include(id) => {
                 // The row comes back selected, where the user left it.
@@ -1220,7 +1228,9 @@ impl TransactionsView {
                 Offer::Show(UndoAction::Include(id), message.into())
             }
         });
-        self.write(policy, cx, |store| store.exclude(id, reason, note))
+        self.write(policy, cx, |db| {
+            exclusion::exclude(db, id, reason, note).map(drop)
+        })
     }
 
     /// "Include again": the undo of excluding. A refusal (a lock) is said
@@ -1242,7 +1252,7 @@ impl TransactionsView {
             policy = policy.retry(action);
         }
         if self
-            .write(policy, cx, |store| store.include_again(id))
+            .write(policy, cx, |db| exclusion::include_again(db, id))
             .is_err()
         {
             self.reveal = None;
@@ -1251,7 +1261,7 @@ impl TransactionsView {
 
     /// What undoing import `batch` would remove.
     pub fn undo_import_preview(&self, batch: BatchId) -> Result<UndoPreview, SharedString> {
-        self.query(|store| store.undo_import_preview(batch))
+        self.query(|db| import::undo_preview(db, batch))
     }
 
     /// Undoes import `batch`; the table and the accounts panel read again.
@@ -1261,7 +1271,7 @@ impl TransactionsView {
         cx: &mut Context<Self>,
     ) -> Result<(), SharedString> {
         let policy = Policy::ledger().undo(|_| Offer::Clear);
-        self.write(policy, cx, |store| store.undo_import(batch))
+        self.write(policy, cx, |db| import::undo(db, batch))
             .map(drop)
     }
 
@@ -1274,7 +1284,13 @@ impl TransactionsView {
         cx: &mut Context<Self>,
     ) -> Result<TransactionId, SharedString> {
         let policy = Policy::ledger().undo(|_| Offer::Clear);
-        let id = self.write(policy, cx, |store| store.create_manual(entry, note))?;
+        let id = self.write(policy, cx, |db| -> Result<_, StoreError> {
+            // Checked before the row is added: stored with it in one DB
+            // transaction, so a failure adds nothing (and trying again can't
+            // add the row twice).
+            let note = UserNote::new(note)?;
+            Ok(manual::create_with_note(db, entry, note.as_ref())?)
+        })?;
         // Selected once the register, read again in the background, has it.
         self.reveal = Some(id);
         Ok(id)
@@ -1287,7 +1303,7 @@ impl TransactionsView {
         cx: &mut Context<Self>,
     ) -> Result<(), SharedString> {
         let policy = Policy::ledger().undo(|_| Offer::Clear);
-        self.write(policy, cx, |store| store.delete_manual(id))
+        self.write(policy, cx, |db| manual::delete(db, id).map(drop))
     }
 
     // Selection -----------------------------------------------------------

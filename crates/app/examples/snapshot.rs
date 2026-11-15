@@ -961,12 +961,12 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 }),
                 RulesShot::Apply => {
                     let proposal = vinted.and_then(|vinted| {
-                        coffer_app::transactions::store::TransactionStore::new(
+                        let db = coffer_app::transactions::store::TransactionStore::new(
                             database_path.clone(),
                         )
-                        .propose_rule(vinted)
-                        .ok()
-                        .flatten()
+                        .open()
+                        .ok()?;
+                        coffer_core::rule::propose(&db, vinted).ok().flatten()
                     });
                     if let Some(proposal) = proposal {
                         rules.update(cx, |rules, cx| {

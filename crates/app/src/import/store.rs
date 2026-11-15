@@ -3,18 +3,18 @@
 //!
 //! As the other stores ([`crate::accounts::store`]), it holds no
 //! connection: each call opens the database at the path it was given,
-//! creating and migrating it as the CLI does, and checks the restore lock
-//! first. The dialog calls these on a background thread: reading a file,
-//! previewing and rehearsing the import, the commit (with its backup) and
-//! undo. Business rules are core's ([`coffer_core::import`]) and the import
-//! crate's; nothing here logs a row's text.
+//! creating and migrating it as the CLI does, through [`gate::open`], which
+//! checks the restore lock. The dialog calls these on a background thread:
+//! reading a file, previewing and rehearsing the import, the commit (with
+//! its backup) and undo. Business rules are core's
+//! ([`coffer_core::import`]) and the import crate's; nothing here logs a
+//! row's text.
 
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use coffer_core::account::{self, Account, AccountEdit};
-use coffer_core::backup;
+use coffer_core::backup::gate;
 use coffer_core::db::Database;
 use coffer_core::id::{AccountId, BatchId};
 use coffer_core::import::{
@@ -30,18 +30,6 @@ pub use crate::accounts::store::StoreError;
 
 /// How many imports the File step lists (Paper `6K5-0` draws three).
 pub const RECENT_IMPORTS: usize = 3;
-
-/// A restore is replacing the database.
-#[derive(Debug)]
-struct Restoring;
-
-impl fmt::Display for Restoring {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("A backup is being restored; try again when it's done.")
-    }
-}
-
-impl std::error::Error for Restoring {}
 
 /// One of the last imports, as the File step lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,10 +82,7 @@ impl ImportStore {
     }
 
     fn open(&self) -> Result<Database, StoreError> {
-        if backup::restoring(&self.database)? {
-            return Err(Box::new(Restoring));
-        }
-        Ok(Database::open(&self.database)?)
+        Ok(gate::open(&self.database, Database::open)?)
     }
 
     /// The presets (bundled and saved), the accounts and the last imports.

@@ -297,9 +297,8 @@ impl Scratch {
     /// The stored category key of `id`, read afresh.
     fn category(&self, id: TransactionId) -> Option<String> {
         let today = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
-        let register = TransactionStore::new(self.path.clone())
-            .load(today)
-            .unwrap();
+        let db = TransactionStore::new(self.path.clone()).open().unwrap();
+        let register = Register::load(&db.reader().unwrap(), today).unwrap();
         match register.row(id).unwrap().category {
             RowCategory::Category(category) => {
                 Some(register.category(category).unwrap().key.to_string())

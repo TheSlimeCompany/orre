@@ -25,6 +25,7 @@
 //!   through core's `manual::update`; its Account select saves on a choice
 //!   (`transactions::manual_edit`).
 
+use coffer_core::edit;
 use coffer_core::id::{TagId, TransactionId};
 use coffer_core::money::Money;
 use coffer_core::reporting::register::{RegisterRow, RowCategory};
@@ -601,8 +602,8 @@ impl TransactionsView {
         if lines == stored_lines(self, &row) {
             return;
         }
-        self.write(Policy::edit(EditPlace::Split), cx, |store| {
-            store.set_split(row.id, &lines)
+        self.write(Policy::edit(EditPlace::Split), cx, |db| {
+            edit::set_split(db, row.id, &lines)
         })
         .ok();
     }
@@ -616,8 +617,8 @@ impl TransactionsView {
         self.editor.split = None;
         self.editor.error = None;
         if matches!(row.category, RowCategory::Split(_)) {
-            self.write(Policy::edit(EditPlace::Split), cx, |store| {
-                store.remove_split(row.id)
+            self.write(Policy::edit(EditPlace::Split), cx, |db| {
+                edit::remove_split(db, row.id)
             })
             .ok();
         }
@@ -631,10 +632,10 @@ impl TransactionsView {
         };
         let policy = Policy::edit(EditPlace::Details);
         if row.tags.contains(&tag) {
-            self.write(policy, cx, |store| store.remove_tag(row.id, tag))
+            self.write(policy, cx, |db| edit::remove_tag(db, row.id, tag))
                 .ok();
         } else {
-            self.write(policy, cx, |store| store.add_tag(row.id, tag))
+            self.write(policy, cx, |db| edit::add_tag(db, row.id, tag))
                 .ok();
         }
     }
@@ -644,8 +645,8 @@ impl TransactionsView {
         let Some(row) = self.single_row().cloned() else {
             return;
         };
-        self.write(Policy::edit(EditPlace::Details), cx, |store| {
-            store.remove_tag(row.id, tag)
+        self.write(Policy::edit(EditPlace::Details), cx, |db| {
+            edit::remove_tag(db, row.id, tag)
         })
         .ok();
     }
@@ -655,8 +656,8 @@ impl TransactionsView {
         let Some(row) = self.single_row().cloned() else {
             return;
         };
-        self.write(Policy::edit(EditPlace::Details), cx, |store| {
-            store.add_new_tag(row.id, name, private)
+        self.write(Policy::edit(EditPlace::Details), cx, |db| {
+            edit::add_new_tag(db, row.id, name, private).map(|(_, batch)| batch)
         })
         .ok();
     }
@@ -682,8 +683,8 @@ impl TransactionsView {
             ""
         };
         if typed != stored {
-            self.write(Policy::edit(EditPlace::Details), cx, |store| {
-                store.set_merchant(row.id, &typed)
+            self.write(Policy::edit(EditPlace::Details), cx, |db| {
+                edit::set_merchant(db, row.id, &typed)
             })
             .ok();
         }
@@ -705,8 +706,8 @@ impl TransactionsView {
         }
         let typed = typed.trim().to_owned();
         if typed != row.note.as_deref().unwrap_or_default().trim() {
-            self.write(Policy::edit(EditPlace::Details), cx, |store| {
-                store.set_note(row.id, &typed)
+            self.write(Policy::edit(EditPlace::Details), cx, |db| {
+                edit::set_note(db, row.id, &typed)
             })
             .ok();
         }

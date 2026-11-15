@@ -1167,8 +1167,9 @@ Everything else follows `DESIGN.md` or an earlier record.
 3. **So the GUI opens the database from M3.1 on.** `coffer` (no subcommand) opens it with
    `Database::open` at startup, creating and migrating it as the CLI does (with the
    migration backup), and opens it again for each save. Like the MCP server, it holds no
-   connection between reads and writes, and checks the restore lock first: during a
-   restore it reads nothing and skips the save. The window state is a convenience: any
+   connection between reads and writes, and opens through `backup::gate` (decision record
+   "one gate for opening the database"): during a restore it reads nothing and skips the
+   save. The window state is a convenience: any
    failure (no data dir, a database Coffer can't open, a bad value) leaves the window at its
    defaults with a warning on stderr (`COFFER_LOG`, as `coffer mcp`), and never stops the
    app.
@@ -1230,8 +1231,8 @@ Everything else follows `DESIGN.md` → "Accounts panel" or an earlier record.
    account still needs its lock-date guard (M1 wave 4, point 21), and M3.17 brings the
    close dialog for valuation accounts. The inspector has no footer until then.
 6. **The app holds no connection (as M3.1).** `accounts::store::AccountStore` opens the
-   database for each read or write, creating and migrating it as the CLI does, and checks
-   the restore lock first. Reads and writes are a person's accounts, so they run on the
+   database for each read or write, creating and migrating it as the CLI does, through
+   `backup::gate`, which checks the restore lock before and after opening. Reads and writes are a person's accounts, so they run on the
    main thread; the panel and inspector reread everything after a change. A database
    that can't be read leaves the panel empty with the reason in `danger`.
 7. **Where the account inspector shows (user).** On Transactions, while an account is
@@ -1343,7 +1344,7 @@ the build. Everything else follows `DESIGN.md` → "Inbox", "Inbox impact previe
    invisible and bidi characters removed, whitespace collapsed, cut to a length. GPUI
    draws text without markup or links, and nothing in it is acted on.
 8. **The app holds no connection (as M3.2).** `inbox::store::InboxStore` opens the
-   database per call and checks the restore lock. The pending list is read with every
+   database per call through `backup::gate`, which checks the restore lock. The pending list is read with every
    preview when the Inbox opens and after each decision, on the main thread (decision
    record "Inbox impact preview", point 6). The tab's badge counts pending suggestions
    from AI clients; Coffer's own aren't counted.
@@ -1497,8 +1498,8 @@ the records above ("Import commit, dedupe and undo", "The CSV importer", "Preset
    splitting and normalizing an export takes milliseconds, so the preview follows every
    change at once (`import::session::Session`, pure and unit-tested). Everything that
    touches the database or the disk runs on a background thread through
-   `import::store::ImportStore`, which opens the database per call and checks the
-   restore lock, like the other stores: the setup (presets, accounts, recent imports),
+   `import::store::ImportStore`, which opens the database per call through
+   `backup::gate`, like the other stores: the setup (presets, accounts, recent imports),
    reading the file, the review, the commit (core takes the backup), undo, saving a
    preset and its copy.
 5. **The Review step's AFTER IMPORT figures are a rehearsal.** `import::rehearse` runs
@@ -1955,6 +1956,43 @@ keys are forever, labels belong to the user, deleting is refused while used). Ma
 9. **The delete dialog** is opened by the Rules view itself, not the shell (composed).
 10. **Supersedes** "Decision record: the Rules view (built)", point 10, and the "for M3.7
     to design" in "Decision record: categories", point 5.
+
+### Decision record: one gate for opening the database, and the Transactions edit pipeline (2026-11-15)
+
+From an architecture review of the Transactions view. Neither change alters what the user
+sees, except point 1's extra refusal.
+
+1. **Every per-call open goes through `backup::gate::open`.** It checks the restore lock,
+   runs the caller's opener (`Database::open` for the app, `Database::open_existing` and
+   `reader()` for the MCP server), and checks the lock again. If a restore holds the lock
+   at either check, the call is refused, and whatever was opened is closed first. The MCP
+   server already checked before and after opening (decision record "M2: MCP server",
+   F.1). The app's seven stores and the window state each had their own copy of the
+   check, and checked only before opening, so a connection opened just as a restore took
+   the lock could be used across the swap. They now share the server's check. The
+   refusal still says "A backup is being restored; try again when it's done.", and a
+   lock or open error keeps its own text.
+2. **The lock is checked for an instant each time, not held for the call.** `restore`
+   already waits up to `RELEASE_WAIT` for connections opened before it took the lock.
+   Holding a shared lock for a whole call would make a restore's one-second `LOCK_WAIT`
+   fail (`RestoreLocked`) on any call longer than that.
+3. **The Transactions view writes through one edit pipeline** (`transactions::write`,
+   `TransactionsView::write`/`query`). Each change declares a policy and one call to
+   core on the database the pipeline opens. The policy covers where its error is said
+   and how it is worded, the undo-bar offer, and the event for the shell. The pipeline
+   owns everything else: the sample-data refusal, the reload and the event.
+   `TransactionStore` keeps only `open`. Its 28 methods that each opened the database
+   and forwarded to one core function are gone, so each call site names core's function
+   itself. The single-row rule stays (decision record "splits, tags and notes in the
+   inspector", point 1): a single-row edit shows no undo bar; links, changes to several
+   rows, exclusions and transfer decisions do. Input checks that need the database
+   (the user's note on a new manual row) now run after it is opened.
+4. **The other stores keep their methods for now.** Accounts, Inbox, Checks, Rules,
+   Settings and Import still forward most calls (49 of their 62 methods). They gain
+   nothing from losing those methods until they have a pipeline like Transactions.
+5. **Supersedes** "checks the restore lock first" in decision records "the app shell and
+   window state", point 3, "accounts management", point 6, "Inbox", point 8, and "the
+   import flow" (its stores).
 
 ## Architecture
 

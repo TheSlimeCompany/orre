@@ -94,7 +94,8 @@ day and sorted in memory, category colours ranked at read time, M3.3) and budget
 (`recurring`, M2.6) and schedules (`schedule`: confirm, match at import, skips, missed and
 late; M2.10; `V12__schedule.sql`), the inbox (`inbox`: typed payloads, filing with dedupe
 and caps, `approve`/`approve_all`/`reject`, `impact`, and `own`, Coffer's own rule
-suggestions; M2.3, M2.14; `V13__inbox.sql`), and the restore lock (`backup::restoring`).
+suggestions; M2.3, M2.14; `V13__inbox.sql`), and the restore lock (`backup::restoring`; `backup::gate`, the one way every
+per-call open checks it, before and after opening).
 `crates/mcp` is the server: `server` (gate → call → log per call, the database opened per
 call, `tools/list_changed`), `access` (the gate, argument redaction, result hash),
 `registry` (`ToolSpec`, `Call`), `store` (the only writer), `tools/` (catalog, aggregate,
@@ -129,15 +130,16 @@ SQLite), `backup::detail` (what a backup holds, read `immutable`; reasons; "sinc
 `ui::dialog` and `ui::menu` (since M3.3 also `MenuList`, the menu opened from a chip, a
 row or the bulk-action bar, with a filter field), on the unstyled `gpui-base` roots;
 `format` writes and reads money and dates. Transactions (`crates/app/src/transactions.rs`,
-M3.3) reads the database through `transactions::store::TransactionStore` (the register
-on a background thread, category changes through `inbox::own::recategorize`, undo
-through `change::undo`), is filtered by the accounts panel and its chips, sorts within
+M3.3) opens the database through `transactions::store::TransactionStore` (the register
+on a background thread); every change goes through the edit pipeline
+(`transactions/write.rs`: `TransactionsView::write`/`query`, a policy plus one core call,
+e.g. `inbox::own::recategorize`, `change::undo`), is filtered by the accounts panel and its chips, sorts within
 each day, and sets categories in place; `present` turns rows into cells and menu
 options, `fixture` keeps the Paper rows as a `Register` for snapshots and tests, and
 `ui::undo_bar` is the undo notification. Since M3.9 the inspector edits the selected
 row (`transactions/editor.rs`: Merchant, Tags with `ui::tag` pills and the tag menu,
 Note, the bank's note read-only, and the split editor), each change through
-`TransactionStore` to core's `edit`; the register carries tags, the bank's note, the
+the edit pipeline to core's `edit`; the register carries tags, the bank's note, the
 user-set name and whether a row can be split. Importing (M3.4, M3.5) is `crates/app/src/import/`: `Imports` (the notification after an import, with Undo; tells
 the shell to reload the panel and Transactions), `dialog` (`ImportDialog`: File → Map →
 Review, Save as preset… and Save a copy…), `session` (one file in memory: preset,

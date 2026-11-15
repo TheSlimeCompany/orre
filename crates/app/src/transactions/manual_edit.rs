@@ -4,8 +4,8 @@
 //! A row the user entered has no imported source fields, so Details shows
 //! its Date and Amount as fields (mono, the amount signed with the
 //! currency as its unit) and its Account as a select, where an imported
-//! row shows them locked. Each saves through core's `manual::update`
-//! ([`super::store::TransactionStore::update_manual`]): Date and Amount
+//! row shows them locked. Each saves through core's [`manual::update`],
+//! after [`manual::get`] reads what is stored: Date and Amount
 //! when the field is left or on Enter, like Merchant and Note; the Account
 //! on a choice. Core refuses what it must (a locked period, a date after
 //! the account closed, a split or linked row's amount, another currency,
@@ -17,9 +17,11 @@
 //! with the reason under Details.
 
 use coffer_core::id::{AccountId, TransactionId};
+use coffer_core::manual;
 use coffer_core::reporting::register::{Register, RegisterRow};
 use gpui_kit::{Context, Focusable as _, SharedString, Window};
 
+use crate::accounts::store::StoreError;
 use crate::format;
 use crate::ui::menu::{MenuGroup, MenuOption};
 
@@ -158,7 +160,12 @@ impl TransactionsView {
         change: impl FnOnce(&mut coffer_core::manual::ManualTransaction),
     ) {
         let policy = Policy::edit(EditPlace::Details).emit(TransactionsEvent::LedgerChanged);
-        self.write(policy, cx, |store| store.update_manual(id, change))
-            .ok();
+        self.write(policy, cx, |db| -> Result<(), StoreError> {
+            let mut entry = manual::get(db, id)?;
+            change(&mut entry);
+            manual::update(db, id, &entry)?;
+            Ok(())
+        })
+        .ok();
     }
 }

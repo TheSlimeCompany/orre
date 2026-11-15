@@ -113,7 +113,9 @@ impl Scratch {
         entry.merchant = Some("Corner shop".to_owned());
         let corner_shop = manual::create(&mut db, &entry).unwrap();
         drop(db);
-        let register = TransactionStore::new(path.clone()).load(day(14)).unwrap();
+        let db = TransactionStore::new(path.clone()).open().unwrap();
+        let register = Register::load(&db.reader().unwrap(), day(14)).unwrap();
+        drop(db);
         let mut imported: Vec<_> = register
             .rows()
             .iter()

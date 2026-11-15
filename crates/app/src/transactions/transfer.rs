@@ -9,16 +9,14 @@
 //! a link row, its ✕ unpairing. Every decision shows the undo bar.
 //!
 //! What the section shows and allows is core's `reporting::pairing`, over
-//! the register; the write ([`TransactionStore::decide_transfer`]) checks
-//! again and also settles an agent's pending suggestion for the same pair.
-//!
-//! [`TransactionStore::decide_transfer`]: super::store::TransactionStore::decide_transfer
+//! the register; the write ([`inbox::decide_transfer`]) checks again and
+//! also settles an agent's pending suggestion for the same pair.
 
 use coffer_core::id::TransferGroupId;
-use coffer_core::inbox::TransferDecided;
+use coffer_core::inbox::{self, TransferDecided};
 use coffer_core::reporting::pairing::{self, Pair};
 use coffer_core::reporting::register::RegisterRow;
-use coffer_core::transfer::{Action, Blocked, Decision, TransferStatus};
+use coffer_core::transfer::{self, Action, Blocked, Decision, TransferStatus};
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -107,7 +105,7 @@ impl TransactionsView {
             .undo(move |decided: &TransferDecided| {
                 Offer::Show(UndoAction::Transfer(decided.decision), message.into())
             });
-        self.write(policy, cx, |store| store.decide_transfer(group, action))
+        self.write(policy, cx, |db| inbox::decide_transfer(db, group, action))
             .ok();
     }
 
@@ -119,7 +117,7 @@ impl TransactionsView {
             .log("couldn't undo a transfer decision")
             .retry(UndoAction::Transfer(decision))
             .always();
-        self.write(policy, cx, |store| store.undo_transfer(&decision))
+        self.write(policy, cx, |db| transfer::undo(db, &decision))
             .ok();
     }
 

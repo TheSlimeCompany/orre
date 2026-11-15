@@ -1,7 +1,7 @@
 //! Reading the review queues and acting on them in the database, the way
 //! [`crate::inbox::store`] does suggestions: no connection is held between
-//! calls. Each call opens the database at its path after checking the
-//! restore lock, so a restore can swap the file.
+//! calls. Each call opens the database at its path through [`gate::open`],
+//! which checks the restore lock, so a restore can swap the file.
 //!
 //! Everything it reads and every change is core's: the queues are
 //! [`coffer_core::checks::review`]; merging is
@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 
 use chrono::NaiveDate;
-use coffer_core::backup;
+use coffer_core::backup::gate;
 use coffer_core::change::{self, UndoSummary};
 use coffer_core::checks::{self, Pair, Review};
 use coffer_core::db::Database;
@@ -31,18 +31,6 @@ use coffer_core::reporting::palette::{Palette, category_palette};
 use coffer_core::schedule;
 
 use crate::accounts::store::StoreError;
-
-/// A restore is replacing the database.
-#[derive(Debug)]
-struct Restoring;
-
-impl std::fmt::Display for Restoring {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("A backup is being restored; try again when it's done.")
-    }
-}
-
-impl std::error::Error for Restoring {}
 
 /// What the queues show.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -67,10 +55,7 @@ impl ChecksStore {
     }
 
     fn open(&self) -> Result<Database, StoreError> {
-        if backup::restoring(&self.database)? {
-            return Err(Box::new(Restoring));
-        }
-        Ok(Database::open(&self.database)?)
+        Ok(gate::open(&self.database, Database::open)?)
     }
 
     /// Both queues, read now.

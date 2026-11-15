@@ -1,8 +1,9 @@
 //! Reading and deciding suggestions in the database (`docs/ARCHITECTURE.md`
 //! → "Decision record: Inbox"), the way [`crate::accounts::store`] does
 //! accounts: no connection is held between calls. Each call opens the
-//! database at its path (creating and migrating it, as the CLI does) after
-//! checking the restore lock, so a restore can swap the file.
+//! database at its path (creating and migrating it, as the CLI does)
+//! through [`gate::open`], which checks the restore lock, so a restore can
+//! swap the file.
 //!
 //! Everything it reads and every decision is core's
 //! ([`coffer_core::inbox`]): approving and rejecting go through
@@ -13,7 +14,7 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use coffer_core::backup;
+use coffer_core::backup::gate;
 use coffer_core::db::Database;
 use coffer_core::inbox::preview::{self, Covered, Preview, Subject};
 use coffer_core::inbox::{
@@ -24,18 +25,6 @@ use coffer_core::reporting::palette::{Palette, category_palette};
 use coffer_core::schedule;
 
 use crate::accounts::store::StoreError;
-
-/// A restore is replacing the database.
-#[derive(Debug)]
-struct Restoring;
-
-impl std::fmt::Display for Restoring {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("A backup is being restored; try again when it's done.")
-    }
-}
-
-impl std::error::Error for Restoring {}
 
 /// One suggestion as the Inbox lists it.
 #[derive(Clone, Debug, PartialEq)]
@@ -101,10 +90,7 @@ impl InboxStore {
     }
 
     fn open(&self) -> Result<Database, StoreError> {
-        if backup::restoring(&self.database)? {
-            return Err(Box::new(Restoring));
-        }
-        Ok(Database::open(&self.database)?)
+        Ok(gate::open(&self.database, Database::open)?)
     }
 
     /// The counts and the suggestions with `status`; pending ones with

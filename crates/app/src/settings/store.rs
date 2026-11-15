@@ -3,9 +3,9 @@
 //!
 //! As [`crate::accounts::store::AccountStore`]: the app holds no
 //! connection, so each call opens the database at the path it was given,
-//! creating and migrating it as the CLI does, after checking the restore
-//! lock. The rules are core's: [`coffer_core::setting`] (the kill switch),
-//! [`coffer_core::mcp_client`], [`coffer_core::access_log`],
+//! creating and migrating it as the CLI does, through [`gate::open`], which
+//! checks the restore lock. The rules are core's: [`coffer_core::setting`]
+//! (the kill switch), [`coffer_core::mcp_client`], [`coffer_core::access_log`],
 //! [`coffer_core::backup`] and [`coffer_core::export`]. The CLI's
 //! `ai-access`, `backup`, `restore` and `export` are the reference
 //! behaviour; this shows nothing they don't (no result hash).
@@ -21,7 +21,7 @@ use chrono::{DateTime, Duration, Utc};
 use coffer_core::access_log::activity::{self, Cursor, Query};
 use coffer_core::access_log::{self, Outcome};
 use coffer_core::backup::detail::{self, Assessment, Contents, Since};
-use coffer_core::backup::{self, Backup, Reason, Restored};
+use coffer_core::backup::{self, Backup, Reason, Restored, gate};
 use coffer_core::clock;
 use coffer_core::db::Database;
 use coffer_core::export::{self, Counts, Format, Options};
@@ -36,18 +36,6 @@ use crate::accounts::store::StoreError;
 
 /// How many calls a page of the access log holds.
 pub const LOG_PAGE: u32 = 100;
-
-/// A restore is replacing the database.
-#[derive(Debug)]
-struct Restoring;
-
-impl std::fmt::Display for Restoring {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("A backup is being restored; try again when it's done.")
-    }
-}
-
-impl std::error::Error for Restoring {}
 
 /// The tools that write to the Inbox, from the MCP server's registry (core
 /// doesn't know which tools exist).
@@ -100,10 +88,7 @@ impl SettingsStore {
     }
 
     fn open(&self) -> Result<Database, StoreError> {
-        if backup::restoring(&self.database)? {
-            return Err(Box::new(Restoring));
-        }
-        Ok(Database::open(&self.database)?)
+        Ok(gate::open(&self.database, Database::open)?)
     }
 
     /// The kill switch, the clients and the requests, with what each did

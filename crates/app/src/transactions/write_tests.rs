@@ -1,8 +1,8 @@
 //! Tests of the edit pipeline ([`TransactionsView::write`]) at its
-//! interface: a policy and a store call, on the Paper fixture and on a
-//! scratch database, checking where errors are said and how they're worded,
-//! the undo bar, the events the shell gets and the register being read
-//! again.
+//! interface: a policy and a call on the database, on the Paper fixture and
+//! on a scratch database, checking where errors are said and how they're
+//! worded, the undo bar, the events the shell gets and the register being
+//! read again.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -63,18 +63,18 @@ fn write<T: 'static>(
     view: &Entity<TransactionsView>,
     cx: &mut VisualTestContext,
     policy: Policy<'static, T>,
-    op: impl FnOnce(&TransactionStore) -> Result<T, StoreError> + 'static,
+    op: impl FnOnce(&mut Database) -> Result<T, StoreError> + 'static,
 ) -> Result<T, SharedString> {
     let result = cx.update(|_, cx| view.update(cx, |view, cx| view.write(policy, cx, op)));
     redraw(cx);
     result
 }
 
-fn refuse(_: &TransactionStore) -> Result<(), StoreError> {
+fn refuse(_: &mut Database) -> Result<(), StoreError> {
     Err(REFUSED.into())
 }
 
-fn save(_: &TransactionStore) -> Result<(), StoreError> {
+fn save(_: &mut Database) -> Result<(), StoreError> {
     Ok(())
 }
 
@@ -142,7 +142,7 @@ fn sample_data_is_refused_where_the_policy_says(cx: &mut TestAppContext) {
     let called = Rc::new(RefCell::new(false));
     let store_call = |called: &Rc<RefCell<bool>>| {
         let called = called.clone();
-        move |_: &TransactionStore| -> Result<(), StoreError> {
+        move |_: &mut Database| -> Result<(), StoreError> {
             *called.borrow_mut() = true;
             Ok(())
         }
@@ -234,7 +234,7 @@ fn sample_data_refused_from_the_bar_is_offered_again(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn a_query_is_refused_on_sample_data(cx: &mut TestAppContext) {
     let (view, cx) = fixture_view(cx);
-    let result = cx.update(|_, cx| view.read(cx).query(|_| Ok(1)));
+    let result = cx.update(|_, cx| view.read(cx).query(|_| Ok::<_, StoreError>(1)));
     assert_eq!(result, Err(SAMPLE_DATA.into()));
 }
 
@@ -242,10 +242,45 @@ fn a_query_is_refused_on_sample_data(cx: &mut TestAppContext) {
 fn a_query_says_the_store_error_as_a_sentence(cx: &mut TestAppContext) {
     let dir = TempDir::new().unwrap();
     let (view, cx) = database_view(cx, &dir);
-    let result: Result<(), _> = cx.update(|_, cx| view.read(cx).query(|_| Err(REFUSED.into())));
+    let result: Result<(), _> = cx.update(|_, cx| {
+        view.read(cx)
+            .query(|_| Err::<(), StoreError>(REFUSED.into()))
+    });
     assert_eq!(result, Err("The store refused it.".into()));
-    let result = cx.update(|_, cx| view.read(cx).query(|_| Ok(1)));
+    let result = cx.update(|_, cx| view.read(cx).query(|_| Ok::<_, StoreError>(1)));
     assert_eq!(result, Ok(1));
+}
+
+#[gpui_kit::test]
+fn a_restore_refuses_writes_and_queries_before_core_is_called(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (view, cx) = database_view(cx, &dir);
+    let path = dir.path().join("coffer.db");
+    let called = Rc::new(RefCell::new(false));
+
+    // A restore holds an exclusive lock on `<database>-restoring`.
+    let lock = std::fs::File::create(coffer_core::backup::restore_lock_path(&path)).unwrap();
+    lock.lock().unwrap();
+    let restoring = "A backup is being restored; try again when it's done.";
+    let flag = called.clone();
+    let result = write(&view, cx, Policy::new(Said::Category), move |_| {
+        *flag.borrow_mut() = true;
+        Ok(())
+    });
+    assert_eq!(result, Err(restoring.into()));
+    assert_eq!(said(&view, cx).category, Some(restoring.into()));
+    let flag = called.clone();
+    let result: Result<(), _> = cx.update(|_, cx| {
+        view.read(cx).query(move |_| {
+            *flag.borrow_mut() = true;
+            Ok::<_, StoreError>(())
+        })
+    });
+    assert_eq!(result, Err(restoring.into()), "a sentence already");
+    assert!(!*called.borrow(), "core is never called");
+
+    lock.unlock().unwrap();
+    assert_eq!(write(&view, cx, Policy::new(Said::Category), save), Ok(()));
 }
 
 // Errors -----------------------------------------------------------------------

@@ -26,6 +26,7 @@ use gpui_kit::{
     StatefulInteractiveElement as _, Styled as _, Window, div,
 };
 
+use crate::accounts::store::StoreError;
 use crate::inbox::text::{NAME_SHOWN, Part, plain, rich};
 use crate::theme::tokens::{color, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant};
@@ -50,7 +51,10 @@ impl TransactionsView {
         let Source::Database(store) = &self.source else {
             return;
         };
-        self.editor.rule_prompt = match store.propose_rule(transaction) {
+        let proposal = store
+            .open()
+            .and_then(|db| Ok(rule::propose(&db, transaction)?));
+        self.editor.rule_prompt = match proposal {
             Ok(Some(proposal)) => {
                 let category = self
                     .register
@@ -92,8 +96,8 @@ impl TransactionsView {
         let policy = Policy::new(Said::Logged)
             .log("couldn't remember Not now")
             .no_reload();
-        self.write(policy, cx, |store| {
-            store.dismiss_rule(&prompt.proposal.definition)
+        self.write(policy, cx, |db| {
+            rule::dismiss(db, &prompt.proposal.definition)
         })
         .ok();
     }
@@ -104,9 +108,8 @@ impl TransactionsView {
         let policy = Policy::new(Said::Category)
             .clears(Clears::Nothing)
             .no_reload();
-        if let Ok(definition) = self.write(policy, cx, |store| {
-            store
-                .rule_from(transaction)?
+        if let Ok(definition) = self.write(policy, cx, |db| -> Result<_, StoreError> {
+            rule::rule_from(db, transaction)?
                 .ok_or_else(|| "Coffer can’t find a name in this row to build a rule on.".into())
         }) {
             cx.emit(TransactionsEvent::CreateRule(definition, RuleOrigin::Edit));

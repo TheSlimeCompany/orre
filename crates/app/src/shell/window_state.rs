@@ -19,7 +19,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use coffer_core::backup;
+use coffer_core::backup::gate;
 use coffer_core::db::Database;
 use coffer_core::setting::{self, WindowMode, WindowState};
 use gpui_kit::{Bounds, Pixels, WindowBounds, point, px, size};
@@ -63,20 +63,23 @@ impl WindowStore {
     }
 
     fn read(&self) -> Result<Option<WindowState>, Box<dyn Error + Send + Sync>> {
-        if backup::restoring(&self.database)? {
-            return Ok(None);
-        }
-        let db = Database::open(&self.database)?;
-        Ok(setting::window_state(&db.reader()?)?)
+        let opened = gate::open(&self.database, |path| {
+            Database::open(path).and_then(|db| db.reader().map(|reader| (db, reader)))
+        });
+        let (_db, reader) = match opened {
+            Err(gate::Error::Restoring) => return Ok(None),
+            opened => opened?,
+        };
+        Ok(setting::window_state(&reader)?)
     }
 
     fn write(&self, state: &WindowState) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if backup::restoring(&self.database)? {
+        let mut db = match gate::open(&self.database, Database::open) {
             // The restored database is the user's choice; this state can
             // wait for the next save.
-            return Ok(());
-        }
-        let mut db = Database::open(&self.database)?;
+            Err(gate::Error::Restoring) => return Ok(()),
+            opened => opened?,
+        };
         setting::set_window_state(&mut db, state)?;
         Ok(())
     }
@@ -350,7 +353,8 @@ mod tests {
         store.save(&state);
 
         // A restore holds an exclusive lock on `<database>-restoring`.
-        let lock = std::fs::File::create(backup::restore_lock_path(&database)).unwrap();
+        let lock =
+            std::fs::File::create(coffer_core::backup::restore_lock_path(&database)).unwrap();
         lock.lock().unwrap();
         assert_eq!(store.load(), None, "nothing is read during a restore");
         store.save(&snapshot(WindowBounds::Windowed(fallback()), View::Rules));

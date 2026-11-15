@@ -31,13 +31,14 @@
 //! `coffer restore` is never blocked by an idle server, and the call after
 //! a restore reads the restored file. While a restore swaps the files it
 //! holds the operating system's lock on `<database>-restoring`
-//! ([`backup::restoring`]); the server checks it before and after opening,
-//! and refuses the call with a message saying so. The lock goes with the
-//! restore's process, so a restore that crashed or was killed blocks
-//! nothing: a lock file nobody holds is ignored, and the database is
-//! complete whichever step the restore stopped at (see
-//! [`backup::restore`]). A lock file the server can't open or lock is
-//! refused with a message naming it and saying what to do. The log isn't
+//! ([`backup::restoring`]); the server opens through [`backup::gate`],
+//! which checks it before and after opening, and refuses the call with a
+//! message saying so. The lock goes with the restore's process, so a
+//! restore that crashed or was killed blocks nothing: a lock file nobody
+//! holds is ignored, and the database is complete whichever step the
+//! restore stopped at (see [`backup::restore`]). A lock file the server
+//! can't open or lock is refused with a message naming it and saying what
+//! to do. The log isn't
 //! rolled back by a restore: it carries over the rows logged after the
 //! backup was taken ([`access_log::carry_forward`]). (Decision record "M2:
 //! MCP server (2026-11-13)", F.1, F.9.)
@@ -65,7 +66,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use coffer_core::access_log::{self, NewEntry, Outcome, pending};
-use coffer_core::backup;
+use coffer_core::backup::{self, gate};
 use coffer_core::db::{self, Database, Reader};
 use coffer_core::mcp_client::{AccessLevel, ClientName};
 use coffer_core::setting;
@@ -394,42 +395,37 @@ impl Unavailable {
 }
 
 impl Inner {
-    /// Opens the database for one call: refused while a restore holds its
-    /// lock, checked before opening and again after, so a connection is
-    /// never used across the swap. A lock file that nobody holds (a stopped
-    /// restore's) doesn't refuse: the database is complete whichever step
-    /// that restore stopped at, and `open_existing` refuses one it left at
-    /// an older schema.
+    /// Opens the database and its reader for one call ([`gate::open`]):
+    /// refused while a restore holds its lock, checked before opening and
+    /// again after, so a connection is never used across the swap. A lock
+    /// file that nobody holds (a stopped restore's) doesn't refuse: the
+    /// database is complete whichever step that restore stopped at, and
+    /// `open_existing` refuses one it left at an older schema.
     fn open(&self) -> Result<Session, Unavailable> {
-        self.check_restoring()?;
-        let opened = Database::open_existing(&self.path)
-            .and_then(|db| db.reader().map(|reader| (db, reader)));
-        let (db, reader) = opened.map_err(|error| {
-            tracing::debug!(%error, "couldn't open the database for a call");
-            Unavailable::Open
-        })?;
-        self.check_restoring()?;
-        Ok(Session {
-            reader,
-            store: Store::new(db, self.client.clone()),
-        })
-    }
-
-    fn check_restoring(&self) -> Result<(), Unavailable> {
-        match backup::restoring(&self.path) {
-            Ok(false) => Ok(()),
-            Ok(true) => Err(Unavailable::Restoring),
-            Err(error) => {
+        let opened = gate::open(&self.path, |path| {
+            Database::open_existing(path).and_then(|db| db.reader().map(|reader| (db, reader)))
+        });
+        let (db, reader) = opened.map_err(|error| match error {
+            gate::Error::Restoring => Unavailable::Restoring,
+            gate::Error::Lock(error) => {
                 let lock = backup::restore_lock_path(&self.path);
                 tracing::warn!(%error, path = %lock.display(), "couldn't check the restore lock");
-                Err(Unavailable::LockUnreadable {
+                Unavailable::LockUnreadable {
                     file: lock
                         .file_name()
                         .map(|name| name.to_string_lossy().into_owned())
                         .unwrap_or_default(),
-                })
+                }
             }
-        }
+            gate::Error::Open(error) => {
+                tracing::debug!(%error, "couldn't open the database for a call");
+                Unavailable::Open
+            }
+        })?;
+        Ok(Session {
+            reader,
+            store: Store::new(db, self.client.clone()),
+        })
     }
 }
 

@@ -1,7 +1,8 @@
 //! Reading rules, merchant names and the change history, and changing them,
 //! the way [`crate::inbox::store`] does suggestions: no connection is held
-//! between calls. Each call opens the database at its path after checking
-//! the restore lock, so a restore can swap the file.
+//! between calls. Each call opens the database at its path through
+//! [`gate::open`], which checks the restore lock, so a restore can swap the
+//! file.
 //!
 //! Everything is core's: the Rules table is [`rule::overview`], a rule is
 //! edited with [`rule::update`], moved with [`rule::move_to`] and deleted
@@ -21,7 +22,7 @@ use std::path::PathBuf;
 
 use chrono::{NaiveDate, NaiveDateTime};
 use coffer_core::account;
-use coffer_core::backup;
+use coffer_core::backup::gate;
 use coffer_core::category::{self, Category, CategoryKey, GroupOverview, NewCategory};
 use coffer_core::change::{self, HistoryEntry, HistoryItem, UndoSummary};
 use coffer_core::clock;
@@ -39,18 +40,6 @@ use coffer_core::schedule;
 use coffer_core::tag;
 
 use crate::accounts::store::StoreError;
-
-/// A restore is replacing the database.
-#[derive(Debug)]
-struct Restoring;
-
-impl std::fmt::Display for Restoring {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("A backup is being restored; try again when it's done.")
-    }
-}
-
-impl std::error::Error for Restoring {}
 
 /// A category as the selects and the table show it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -174,10 +163,7 @@ impl RulesStore {
     }
 
     fn open(&self) -> Result<Database, StoreError> {
-        if backup::restoring(&self.database)? {
-            return Err(Box::new(Restoring));
-        }
-        Ok(Database::open(&self.database)?)
+        Ok(gate::open(&self.database, Database::open)?)
     }
 
     pub fn load(&self) -> Result<RulesData, StoreError> {

@@ -31,10 +31,11 @@
 //! [`restore`] holds the restore lock: the operating system's exclusive
 //! lock (`File::try_lock`) on `<database>-restoring`, next to the database
 //! ([`restore_lock_path`]). An MCP server keeps no connection open between
-//! calls: before and after it opens the database for a call it checks
-//! [`restoring`], and refuses the call while the lock is held. So the swap
-//! never races a reader, and the next call after the restore opens the
-//! restored file. A call already running when the lock is taken finishes
+//! calls, and nor do the app's views: each opens the database for a call
+//! through [`gate::open`], which checks [`restoring`] before and after
+//! opening and refuses the call while the lock is held. So the swap never
+//! races a reader, and the next call after the restore opens the restored
+//! file. A call already running when the lock is taken finishes
 //! first: the restore waits up to [`RELEASE_WAIT`] for its connection to
 //! close. A second restore can't take the lock, so it is refused
 //! ([`Error::RestoreLocked`]). No network, no messages between processes.
@@ -72,6 +73,7 @@
 //! versions and SQLite's own messages only.
 
 pub mod detail;
+pub mod gate;
 #[cfg(test)]
 mod tests;
 
@@ -581,10 +583,10 @@ pub fn check(db_path: &Path, backup: &Path) -> Result<RestoreCheck, Error> {
 /// they can be deleted.
 ///
 /// No other Coffer process may hold the database open during a restore:
-/// one that does keeps reading the replaced file. MCP servers open it per
-/// call and check the restore lock, so they don't; step 2 notices any
-/// other open connection in WAL mode (after waiting [`RELEASE_WAIT`]), but
-/// it can't rule one out.
+/// one that does keeps reading the replaced file. MCP servers and the app's
+/// views open it per call through [`gate::open`], so they don't; step 2
+/// notices any other open connection in WAL mode (after waiting
+/// [`RELEASE_WAIT`]), but it can't rule one out.
 ///
 /// Once it's open (and migrated), the access-log rows the replaced database
 /// has that are newer than the backup's newest are copied in from the
@@ -802,8 +804,9 @@ pub fn restore_lock_path(db_path: &Path) -> PathBuf {
 /// Whether a restore is replacing the database at `db_path` now: a
 /// running process holds the restore lock ([`restore_lock_path`]). A lock
 /// file that nobody holds (one a crashed restore left, or the empty file a
-/// finished one leaves) is `false`. MCP servers check this before and after
-/// opening the database for a call, and refuse the call while it's `true`.
+/// finished one leaves) is `false`. [`gate::open`] checks this before and
+/// after opening the database for a call, and refuses the call while it's
+/// `true`.
 ///
 /// The check takes a shared lock for an instant, so it never waits. An
 /// error means the lock file exists but can't be opened or locked (its

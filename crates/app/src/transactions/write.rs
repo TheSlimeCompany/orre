@@ -3,16 +3,19 @@
 //! → "Decision record: the Transactions view", point 3, and "Decision
 //! record: splits, tags and notes in the inspector", point 1).
 //!
-//! A write is a [`Policy`] and one call to the [`TransactionStore`]. The
-//! pipeline owns the sequence around the call, so each place that changes
-//! something only says what differs:
+//! A write is a [`Policy`] and one call to core, an `op` on the database.
+//! The pipeline opens the database for it ([`TransactionStore::open`],
+//! refused while a restore holds its lock) and owns the sequence around
+//! the call, so each place that changes something only names core's
+//! function and says what differs:
 //!
-//! - **Sample data** can't change: the store isn't called and the
+//! - **Sample data** can't change: nothing is opened or called and the
 //!   [`SAMPLE_DATA`] refusal is said where the policy says errors.
 //! - **Where an error is said** ([`Said`]): under the inspector's Category
 //!   select, under an inspector section, only to the dialog that asked, or
-//!   nowhere (logged). The store's error is said as it is, or as a sentence
-//!   (the M3.10 dialogs, the exclusion card and the Transfer section).
+//!   nowhere (logged). The error (opening's or core's) is said as it is,
+//!   or as a sentence (the M3.10 dialogs, the exclusion card and the
+//!   Transfer section).
 //! - **The undo bar** ([`Offer`]): left as it is, taken away, or offering to
 //!   revert what was saved. A single-row edit shows none (the M3.3 rule);
 //!   links, a change to several rows, excluding and transfer decisions do.
@@ -20,10 +23,13 @@
 //! - **The register** is read again after a save, and the shell is told
 //!   through a [`TransactionsEvent`] when the policy names one.
 //!
-//! Reads that only fill a dialog or a prompt (`undo_import_preview`,
-//! `propose_rule`, `manual`) don't change anything and stay with their
-//! callers; [`TransactionsView::query`] gives them the same refusal.
+//! Reads that only fill a dialog or a prompt (what undoing an import
+//! removes, the rule prompt's proposal, a manual row's fields) don't change
+//! anything and stay with their callers: [`TransactionsView::query`] opens
+//! the database for them with the same refusal, or they call
+//! [`TransactionStore::open`] themselves.
 
+use coffer_core::db::Database;
 use coffer_core::id::TransactionId;
 use gpui_kit::{Context, SharedString};
 
@@ -74,7 +80,7 @@ pub(super) enum Offer {
     Show(UndoAction, SharedString),
 }
 
-/// What a write does around its store call. [`Policy::new`] says errors at
+/// What a write does around its call to core. [`Policy::new`] says errors at
 /// `said` as they are, logs nothing, leaves the undo bar, reads the register
 /// again after a save and tells the shell nothing; the rest are changes to
 /// that.
@@ -143,7 +149,7 @@ impl<'a, T> Policy<'a, T> {
         self
     }
 
-    /// A failed store call is logged with `message` (never the row's
+    /// A failed write is logged with `message` (never the row's
     /// contents).
     pub(super) fn log(mut self, message: &'static str) -> Self {
         self.log = Some(message);
@@ -156,7 +162,7 @@ impl<'a, T> Policy<'a, T> {
         self
     }
 
-    /// What the undo bar does after a save, from what the store returned.
+    /// What the undo bar does after a save, from what core returned.
     pub(super) fn undo(mut self, offer: impl FnOnce(&T) -> Offer + 'a) -> Self {
         self.offer = Box::new(offer);
         self
@@ -189,7 +195,7 @@ impl<'a, T> Policy<'a, T> {
         self
     }
 
-    /// Whether the store call wrote anything, from what it returned: when it
+    /// Whether the call wrote anything, from what it returned: when it
     /// didn't (a rename to the same name), nothing else happens.
     pub(super) fn wrote(mut self, wrote: fn(&T) -> bool) -> Self {
         self.wrote = wrote;
@@ -198,19 +204,19 @@ impl<'a, T> Policy<'a, T> {
 }
 
 impl TransactionsView {
-    /// Runs `op` on the store as `policy` says: refused on sample data; an
-    /// error said where the policy says, the undo bar and the register as
-    /// it says, and the shell told. Returns what the store returned, or why
-    /// it didn't save (already said, unless the policy leaves it to the
-    /// dialog).
-    pub(super) fn write<T>(
+    /// Opens the database and runs `op` on it as `policy` says: refused on
+    /// sample data; an error said where the policy says, the undo bar and
+    /// the register as it says, and the shell told. Returns what `op`
+    /// returned, or why it didn't save (already said, unless the policy
+    /// leaves it to the dialog).
+    pub(super) fn write<T, E: Into<StoreError>>(
         &mut self,
         policy: Policy<'_, T>,
         cx: &mut Context<Self>,
-        op: impl FnOnce(&TransactionStore) -> Result<T, StoreError>,
+        op: impl FnOnce(&mut Database) -> Result<T, E>,
     ) -> Result<T, SharedString> {
         let result = match &self.source {
-            Source::Database(store) => op(store).map_err(|error| {
+            Source::Database(store) => run(store, op).map_err(|error| {
                 if let Some(message) = policy.log {
                     tracing::warn!(%error, "{message}");
                 }
@@ -284,14 +290,17 @@ impl TransactionsView {
         cx.notify();
     }
 
-    /// Runs a read a dialog needs (what undoing an import removes): refused
-    /// on sample data, the store's error as a sentence.
-    pub(super) fn query<T>(
+    /// Opens the database and runs a read a dialog needs on it (what
+    /// undoing an import removes): refused on sample data, the error as a
+    /// sentence.
+    pub(super) fn query<T, E: Into<StoreError>>(
         &self,
-        op: impl FnOnce(&TransactionStore) -> Result<T, StoreError>,
+        op: impl FnOnce(&Database) -> Result<T, E>,
     ) -> Result<T, SharedString> {
         match &self.source {
-            Source::Database(store) => op(store).map_err(|error| sentence(&error.to_string())),
+            Source::Database(store) => {
+                run(store, |db| op(db)).map_err(|error| sentence(&error.to_string()))
+            }
             Source::Fixture => Err(SAMPLE_DATA.into()),
         }
     }
@@ -310,4 +319,14 @@ impl TransactionsView {
             });
         }
     }
+}
+
+/// Opens the database through `store` and runs `op` on it; the connection
+/// closes when `op` returns.
+fn run<T, E: Into<StoreError>>(
+    store: &TransactionStore,
+    op: impl FnOnce(&mut Database) -> Result<T, E>,
+) -> Result<T, StoreError> {
+    let mut db = store.open()?;
+    op(&mut db).map_err(Into::into)
 }

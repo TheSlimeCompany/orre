@@ -4,23 +4,22 @@
 //! Like the window state ([`crate::shell::window_state`]) and the MCP
 //! server, the app holds no connection between reads and writes: each call
 //! opens the database at the path it was given, creating and migrating it
-//! as the CLI does, and checks the restore lock first, so a restore can swap
-//! the file. Reads and writes are small (a person's accounts) and run on the
-//! main thread.
+//! as the CLI does, through [`gate::open`], which checks the restore lock
+//! before and after opening, so a restore can swap the file. Reads and
+//! writes are small (a person's accounts) and run on the main thread.
 //!
 //! All the business rules are core's ([`coffer_core::account`]): this only
 //! opens the database and reads what the panel and inspector show.
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::fmt;
 use std::path::PathBuf;
 
 use chrono::NaiveDate;
 
 use coffer_core::account::count::{self, Expectation, Recorded};
 use coffer_core::account::{self, AccountEdit, EnteredBalance, NewAccount};
-use coffer_core::backup;
+use coffer_core::backup::gate;
 use coffer_core::db::Database;
 use coffer_core::id::AccountId;
 use coffer_core::import::{self, BatchStatus};
@@ -34,18 +33,6 @@ use super::data::{AccountDetail, AccountsData, PresetChoice};
 /// Why a read or write didn't happen. Its message is shown to the user, and
 /// never holds transaction text: core's errors don't.
 pub type StoreError = Box<dyn Error + Send + Sync>;
-
-/// A restore is replacing the database.
-#[derive(Debug)]
-struct Restoring;
-
-impl fmt::Display for Restoring {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("A backup is being restored; try again when it's done.")
-    }
-}
-
-impl Error for Restoring {}
 
 /// The bundled CSV presets, as the Preset select offers them. Empty (with a
 /// warning) if they don't load, which a test rules out.
@@ -102,10 +89,7 @@ impl AccountStore {
     }
 
     fn open(&self) -> Result<Database, StoreError> {
-        if backup::restoring(&self.database)? {
-            return Err(Box::new(Restoring));
-        }
-        Ok(Database::open(&self.database)?)
+        Ok(gate::open(&self.database, Database::open)?)
     }
 
     /// Every open account with what the panel and inspector show.
