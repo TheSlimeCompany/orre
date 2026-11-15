@@ -16,8 +16,19 @@
 //! Coffer will store as it's typed. For an asset it is composed from that
 //! one (decided with the user, 2026-11-14): "Add a valuation for House",
 //! Value, unsigned, and "Add valuation". Neither takes a minus.
+//!
+//! On a cash account it is the Cash count dialog (D6.9, `EPF-0`; M3.10):
+//! "Count cash for Cash", Counted (the currency's symbol and the date),
+//! then, from the second count, Coffer's expectation and the Difference
+//! (see [`Counting`]). The footer is Cancel, "Save count only" and, when
+//! the count is off, "Add −£5.00 and save", which also adds the "Cash count
+//! difference" transaction. Nothing is added unless that is chosen, and
+//! Enter saves the count only. The first count is the starting point and
+//! has only a plain save. It opens through the same
+//! [`super::AccountsEvent::AddBalanceRequested`] as the other kinds.
 
 use chrono::NaiveDate;
+use coffer_core::account::count::Expectation;
 use coffer_core::account::{AccountKind, EnteredBalance, EnteredSource};
 use coffer_core::id::AccountId;
 use coffer_core::money::Currency;
@@ -29,11 +40,15 @@ use gpui_kit::{
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
 };
 
-use crate::format::{Sign, currency_prefix, field_date, money, parse_amount};
-use crate::theme::tokens::{color, spacing};
+use crate::format::{
+    Sign, currency_prefix, field_date, list_date, money, parse_amount, parse_date,
+};
+use crate::theme::tokens::{color, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::dialog::Dialog;
 use crate::ui::field::{FieldRow, amount_input, caption, date_input, error_caption, text_input};
+use crate::ui::icon::Glyph;
+use crate::ui::text::TextRoleExt as _;
 
 use super::new_account::{read_balance, sentence};
 use super::{Accounts, DialogClosed};
@@ -43,6 +58,42 @@ const CAPTION: &str = "Your balance at the end of that day, as your bank shows i
 
 /// The caption for an asset (composed from `FS6-0`).
 const ASSET_CAPTION: &str = "What it's worth on that day, from a survey, an estimate or a statement. Coffer holds it until the next one; it isn't checked against transactions.";
+
+/// The caption of a cash count after the first (composed from `EPF-0`).
+/// It doesn't name the difference's category: core files it in Other only
+/// while that category exists, under whatever the user calls it now.
+const COUNT_CAPTION: &str = "Coffer checks your count against the last one and what you've entered since. Adding the difference puts a \u{201c}Cash count difference\u{201d} entry on that day, so the check passes; saving the count only leaves it as a failed check to look into.";
+
+/// The caption of the first cash count (composed from `EPF-0`).
+const FIRST_COUNT_CAPTION: &str = "This is your first count, so it's the starting point: Coffer counts forward from it and checks every later count against what you enter.";
+
+/// What a cash count shows below Counted, once what was typed can be read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Counting {
+    pub expectation: Expectation,
+}
+
+impl Counting {
+    /// "£23.00 from transactions since the 1 Nov count": what Coffer
+    /// expects. `None` for the first count.
+    pub fn expected_text(&self, today: NaiveDate) -> Option<String> {
+        let expected = self.expectation.expected?;
+        let since = self.expectation.since?;
+        Some(format!(
+            "{} from transactions since the {} count",
+            money(expected, Sign::Negative),
+            list_date(since, today)
+        ))
+    }
+
+    /// The difference when the count is off ("−£5.00"), `None` when
+    /// it agrees or there's nothing to compare it with.
+    pub fn difference(&self) -> Option<Money> {
+        self.expectation
+            .difference
+            .filter(|difference| !difference.is_zero())
+    }
+}
 
 /// What the dialog says, by the account's kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +176,11 @@ pub struct AddBalanceDialog {
     note: Entity<InputState>,
     error: Option<SharedString>,
     today: NaiveDate,
+    /// For a cash account: what Coffer expects of what's typed, when it
+    /// can be read.
+    counting: Option<Counting>,
+    /// Whether the account has no count yet: this one is the starting point.
+    first_count: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -140,15 +196,19 @@ impl AddBalanceDialog {
     ) -> Self {
         let data = accounts.read(cx).data();
         let today = data.today;
+        let first_count = data
+            .detail(account)
+            .is_none_or(|detail| detail.balances.is_empty());
         let (title, kind, currency) = data.node(account).map_or_else(
             || ("Add a balance".into(), AccountKind::Current, Currency::GBP),
             |node| {
                 let wording = Wording::of(node.account.kind);
-                (
-                    format!("{} {}", wording.title, node.account.name).into(),
-                    node.account.kind,
-                    node.account.currency,
-                )
+                let title = if node.account.kind == AccountKind::Cash {
+                    format!("Count cash for {}", node.account.name)
+                } else {
+                    format!("{} {}", wording.title, node.account.name)
+                };
+                (title.into(), node.account.kind, node.account.currency)
             },
         );
         let amount = cx.new(|cx| InputState::new(window, cx));
@@ -161,8 +221,12 @@ impl AddBalanceDialog {
                                cx: &mut Context<Self>| {
             match event {
                 InputEvent::PressEnter { .. } => this.submit(window, cx),
-                // A liability's caption says what will be stored.
-                InputEvent::Change => cx.notify(),
+                // A liability's caption says what will be stored, and a
+                // cash count says what it differs by.
+                InputEvent::Change => {
+                    this.refresh_counting(cx);
+                    cx.notify();
+                }
                 _ => {}
             }
         };
@@ -171,7 +235,7 @@ impl AddBalanceDialog {
             .map(|input| cx.subscribe_in(input, window, submit_on_enter))
             .collect();
         amount.read(cx).focus_handle(cx).focus(window, cx);
-        Self {
+        let mut dialog = Self {
             accounts,
             account,
             title,
@@ -183,7 +247,52 @@ impl AddBalanceDialog {
             note,
             error: None,
             today,
+            counting: None,
+            first_count,
             _subscriptions: subscriptions,
+        };
+        dialog.refresh_counting(cx);
+        dialog
+    }
+
+    /// Whether this counts cash rather than adding a balance.
+    pub fn is_count(&self) -> bool {
+        self.kind == AccountKind::Cash
+    }
+
+    /// What a cash count shows: Coffer's expectation and the difference.
+    pub fn counting(&self) -> Option<&Counting> {
+        self.counting.as_ref()
+    }
+
+    /// Types `amount` into the Counted field (snapshots and tests).
+    pub fn type_amount(&mut self, amount: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.amount.update(cx, |input, cx| {
+            input.set_value(SharedString::from(amount.to_owned()), window, cx)
+        });
+        self.refresh_counting(cx);
+        cx.notify();
+    }
+
+    /// Reads what Coffer expects of the count in the fields, if they can
+    /// be read.
+    fn refresh_counting(&mut self, cx: &mut Context<Self>) {
+        self.counting = None;
+        if !self.is_count() {
+            return;
+        }
+        // A negative count is refused when saved, so it offers no difference.
+        let counted = parse_amount(&self.amount.read(cx).value(), self.currency)
+            .ok()
+            .filter(|counted| !counted.is_negative());
+        let date = parse_date(&self.date.read(cx).value(), self.today);
+        if let (Some(counted), Some(date)) = (counted, date) {
+            self.counting = self
+                .accounts
+                .read(cx)
+                .cash_expectation(self.account, date, counted)
+                .ok()
+                .map(|expectation| Counting { expectation });
         }
     }
 
@@ -191,8 +300,14 @@ impl AddBalanceDialog {
         self.error.as_ref()
     }
 
-    /// Records the balance from the fields, or says why it can't.
+    /// Records the balance from the fields, or says why it can't. A cash
+    /// count is saved on its own: the difference is added only on request
+    /// ([`Self::save_with_difference`]).
     pub fn submit(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_count() {
+            self.save_count(false, cx);
+            return;
+        }
         let value =
             |input: &Entity<InputState>, cx: &Context<Self>| input.read(cx).value().to_string();
         let amount = value(&self.amount, cx);
@@ -247,13 +362,184 @@ impl AddBalanceDialog {
         }
     }
 
+    /// "Add −£5.00 and save": the count and the difference, together.
+    pub fn save_with_difference(&mut self, cx: &mut Context<Self>) {
+        self.save_count(true, cx);
+    }
+
+    /// Stores the cash count in the fields, with its difference when asked.
+    fn save_count(&mut self, add_difference: bool, cx: &mut Context<Self>) {
+        let value =
+            |input: &Entity<InputState>, cx: &Context<Self>| input.read(cx).value().to_string();
+        let amount = value(&self.amount, cx);
+        let read = if amount.trim().is_empty() {
+            Err("Type what you counted, as 23.00.".into())
+        } else {
+            read_balance(&amount, &value(&self.date, cx), self.currency, self.today)
+        };
+        let (date, balance) = match read {
+            Ok(Some(read)) => read,
+            Ok(None) => return,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        if balance.is_negative() {
+            self.error = Some("Type what you counted without a minus.".into());
+            cx.notify();
+            return;
+        }
+        let count = EnteredBalance {
+            date,
+            balance,
+            source: EnteredSource::Manual,
+            note: None,
+        };
+        let account = self.account;
+        let result = self.accounts.update(cx, |accounts, cx| {
+            accounts.count_cash(account, &count, add_difference, cx)
+        });
+        match result {
+            Ok(()) => cx.emit(DialogClosed),
+            Err(error) => {
+                self.error = Some(sentence(&error));
+                cx.notify();
+            }
+        }
+    }
+
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
         cx.emit(DialogClosed);
+    }
+
+    /// The Cash count dialog: Counted, Coffer's expectation, the
+    /// Difference and the footer.
+    fn render_count(&mut self, cx: &mut Context<Self>) -> Dialog {
+        let counting = self.counting;
+        let expected = counting.and_then(|counting| counting.expected_text(self.today));
+        let difference = counting.and_then(|counting| counting.difference());
+        let first = self.first_count;
+        // A count dated before the starting point has nothing to differ from.
+        let has_base = expected.is_some();
+        let fields = div()
+            .flex()
+            .flex_col()
+            .gap(spacing::S2)
+            .child(FieldRow::new(
+                "Counted",
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(spacing::S2)
+                    .child(
+                        amount_input(&self.amount, currency_prefix(self.currency), cx)
+                            .id("count-amount")
+                            .flex_1(),
+                    )
+                    .child(date_input(&self.date).id("count-date")),
+            ))
+            .when_some(expected, |this, expected| {
+                this.child(FieldRow::new(
+                    "Coffer",
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .px(spacing::S2)
+                        .text_role(typography::BODY)
+                        .text_color(color::TEXT)
+                        .child(expected),
+                ))
+            })
+            .when(has_base && !first, |this| {
+                this.child(FieldRow::new(
+                    "Difference",
+                    self.difference_value(difference),
+                ))
+            });
+        let cancel = cx.listener(|this, _, _, cx| this.cancel(cx));
+        let on_cancel = cx.entity().downgrade();
+        Dialog::new(self.title.clone(), &self.focus)
+            .body(fields)
+            .body(caption(if first {
+                FIRST_COUNT_CAPTION
+            } else {
+                COUNT_CAPTION
+            }))
+            .when_some(self.error.clone(), |this, error| {
+                this.body(error_caption(error))
+            })
+            .action(
+                Button::new("count-cancel", "Cancel")
+                    .with_variant(ButtonVariant::Secondary)
+                    .with_surface(color::FLOAT)
+                    .on_click(cancel),
+            )
+            .when_some(difference, |this, difference| {
+                let label = format!("Add {} and save", money(difference, Sign::Negative));
+                this.action(
+                    Button::new("count-save-only", "Save count only")
+                        .with_variant(ButtonVariant::Secondary)
+                        .with_surface(color::FLOAT)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_count(false, cx))),
+                )
+                .action(
+                    Button::new("count-add", label)
+                        .with_variant(ButtonVariant::Primary)
+                        .with_surface(color::FLOAT)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_with_difference(cx))),
+                )
+            })
+            .when(difference.is_none(), |this| {
+                this.action(
+                    Button::new("count-save", "Save count")
+                        .with_variant(ButtonVariant::Primary)
+                        .with_surface(color::FLOAT)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_count(false, cx))),
+                )
+            })
+            .on_cancel(move |_, cx| {
+                let _ = on_cancel.update(cx, |this, cx| this.cancel(cx));
+            })
+    }
+
+    /// The Difference row's value: `warning` with the alert icon when the
+    /// count is off, unresolved rather than failed (as an unbalanced split);
+    /// plain when it agrees.
+    fn difference_value(&self, difference: Option<Money>) -> gpui_kit::AnyElement {
+        let shown = difference.unwrap_or(Money::zero(self.currency));
+        let tone = if difference.is_some() {
+            color::WARNING
+        } else {
+            color::TEXT_MUTED
+        };
+        div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .items_center()
+            .gap(spacing::S1_5)
+            .px(spacing::S2)
+            .when(difference.is_some(), |this| {
+                this.child(Glyph::Warning.render().text_color(color::WARNING))
+            })
+            .child(
+                div()
+                    .text_role(typography::MONO_AMOUNT)
+                    .text_color(tone)
+                    .child(money(shown, Sign::Negative)),
+            )
+            .into_any_element()
     }
 }
 
 impl Render for AddBalanceDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.is_count() {
+            return self.render_count(cx).into_any_element();
+        }
         let wording = Wording::of(self.kind);
         let caption_text = match self.kind {
             AccountKind::Liability => {
@@ -308,6 +594,7 @@ impl Render for AddBalanceDialog {
             .on_cancel(move |_, cx| {
                 let _ = on_cancel.update(cx, |this, cx| this.cancel(cx));
             })
+            .into_any_element()
     }
 }
 
@@ -334,5 +621,14 @@ mod tests {
         assert!(owed_caption(None).contains("stores it below zero"));
         assert_eq!(Wording::of(AccountKind::Asset).button, "Add valuation");
         assert_eq!(Wording::of(AccountKind::Cash).label, "Balance");
+    }
+
+    #[test]
+    fn the_count_caption_holds_without_other() {
+        // Core files the difference in Other only while it exists
+        // (`account::count`), and the user may have renamed it: the
+        // caption names no category.
+        assert!(COUNT_CAPTION.contains("Cash count difference"));
+        assert!(!COUNT_CAPTION.contains("Other"), "{COUNT_CAPTION}");
     }
 }

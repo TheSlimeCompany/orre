@@ -27,6 +27,9 @@
 //! - `transactions-split-start`: just after "Split" (composed for M3.9);
 //! - `transactions-tag-menu`: the tag menu with a new name typed (composed
 //!   for M3.9);
+//! - `transactions-edit-failed`: a name typed on Vinted, then another row
+//!   clicked: the sample data refuses it and the failure bar says so
+//!   (composed, M3.10 review follow-up);
 //! - `rules`: the shell with the Rules tab active and its screen not built
 //!   yet (title bar: Paper `B8Y-0`);
 //! - `settings`: Settings · AI clients on sample data (Paper `AQ2-0`, title
@@ -48,6 +51,9 @@
 //!   (`FS0-0`); `close-account` (`FT2-0`); `close-account-bank` and
 //!   `delete-account` (composed); `account-closed`, the undo bar after
 //!   closing (composed from D6.3's `53O-0`);
+//! - the cash account (M3.10): `accounts-cash`, Cash selected (the inspector
+//!   on `EPF-0`); `cash-count`, a count £5.00 short (`EPF-0`);
+//!   `cash-count-first`, the first count (composed);
 //! - `inbox-rule`: the Inbox with the UBER *EATS rule open (Paper `ABK-0`);
 //! - `inbox-name`: the LIME*RIDE merchant name open (Paper `DL8-0`);
 //! - `inbox-categorisation`, `inbox-transfer`, `inbox-refund`,
@@ -82,6 +88,10 @@
 //!   `rules-delete` and `rules-undo`: the dialogs (`HFH-0`); `rules-empty`:
 //!   no rules yet (`HFH-0`); `transactions-rule-prompt`: "Create a rule
 //!   from this edit?" after the VINTED edit (`3WT-0`);
+//! - `rules-categories`: Categories with Groceries selected;
+//!   `rules-category-new`: New category, "Coffee beans" under Food;
+//!   `rules-category-delete`: the dialog on the unused Coffee (composed,
+//!   not drawn);
 //! - `links-refund`: the ASOS.com refund with Coffer's suggestion (Paper
 //!   `9WS-0`); `links-shared`: Odeon shared with Sam (`BAT-0`);
 //!   `links-dialog`: the link dialog on the refund (`EUY-0`);
@@ -90,6 +100,15 @@
 //!   (`FE4-0`); `links-claim`: Trainline claimed back, partly repaid
 //!   (`FJ1-0`); `review-owed`: Owed to you with Sam selected (`CCF-0`);
 //!   `review-owed-empty`: nothing owed (`GCJ-0`);
+//! - `transactions-excluded`: the Excluded chip on, Odeon excluded as a
+//!   bank error and selected (Paper `3FE-0`); `transactions-exclude-dialog`
+//!   (`51L-0`); `transactions-manual`: Cash selected, a manual row in the
+//!   inspector (`4D7-0`); `transactions-new-transaction` (`529-0`);
+//!   `transactions-undo-import`: the undo-import confirmation (composed for
+//!   M3.10);
+//! - `transactions-transfer`, `transactions-transfer-confirmed`: the
+//!   inspector's Transfer section, a suggested and a confirmed pair
+//!   (composed for M3.8);
 //! - `showcase`: the component showcase.
 //!
 //! The Inbox reads a scratch database seeded with `inbox::fixture`, the
@@ -178,6 +197,7 @@ fn main() -> Result<()> {
         ("transactions-details", TableStep::Details),
         ("transactions-split-start", TableStep::SplitStart),
         ("transactions-tag-menu", TableStep::TagMenu),
+        ("transactions-edit-failed", TableStep::EditFailed),
     ] {
         let built: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::default();
         let keep = built.clone();
@@ -224,6 +244,11 @@ fn main() -> Result<()> {
                     view.select([fixture::id("txn-waitrose-07")], cx);
                     view.show_menu(Menu::Tags, window, cx);
                     view.type_in_menu("Gift", window, cx);
+                }
+                TableStep::EditFailed => {
+                    view.select([fixture::id("txn-vinted-06")], cx);
+                    view.type_merchant("Vinted (jacket)", window, cx);
+                    view.select([fixture::id("txn-bluebottle-09")], cx);
                 }
             });
         };
@@ -373,11 +398,15 @@ fn main() -> Result<()> {
         snapshot_then(&mut cx, &out, name, build, then)?;
     }
     valued_snapshots(&mut cx, &out)?;
+    cash_snapshots(&mut cx, &out)?;
     inbox_snapshots(&mut cx, &out)?;
     import_snapshots(&mut cx, &out)?;
     review_snapshots(&mut cx, &out)?;
     rules_snapshots(&mut cx, &out)?;
+    rules_category_snapshots(&mut cx, &out)?;
     links_snapshots(&mut cx, &out)?;
+    exclusion_snapshots(&mut cx, &out)?;
+    transfer_snapshots(&mut cx, &out)?;
     snapshot(&mut cx, &out, "showcase", |window, cx| {
         cx.new(|cx| Showcase::new(window, cx)).into()
     })?;
@@ -397,6 +426,7 @@ enum TableStep {
     Details,
     SplitStart,
     TagMenu,
+    EditFailed,
 }
 
 /// Which suggestion an Inbox snapshot opens.
@@ -968,6 +998,97 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
     Ok(())
 }
 
+/// What a Categories snapshot shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CategoryShot {
+    List,
+    New,
+    Delete,
+}
+
+/// The Categories snapshots (M3.7): each on a fresh scratch database seeded
+/// with `rules::fixture::seed` and `seed_categories`.
+fn rules_category_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
+    use coffer_app::rules::view::Input as RulesInput;
+    use coffer_app::rules::{CategorySelection, Section as RulesSection};
+    for (name, shot) in [
+        ("rules-categories", CategoryShot::List),
+        ("rules-category-new", CategoryShot::New),
+        ("rules-category-delete", CategoryShot::Delete),
+    ] {
+        let dir = tempfile::TempDir::new()?;
+        let database = dir.path().join("coffer.db");
+        let (groceries, coffee) = {
+            let mut db = Database::open(&database)?;
+            rules_fixture::seed(&mut db);
+            let seeded = rules_fixture::seed_categories(&mut db);
+            let groceries = db
+                .categories()?
+                .get(&coffer_core::category::CategoryKey::new("food.groceries")?)
+                .map(|category| category.id());
+            (groceries, seeded.coffee)
+        };
+        let shell_slot: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::new(RefCell::new(None));
+        let slot = shell_slot.clone();
+        let build = move |window: &mut Window, cx: &mut App| -> AnyView {
+            let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+            let inbox = cx.new(|_| Inbox::empty());
+            let settings = cx.new(SettingsView::fixture);
+            let source = coffer_app::transactions::Source::Database(
+                coffer_app::transactions::store::TransactionStore::new(database.clone()),
+            );
+            let rules = cx.new(|_| Rules::from_store(RulesStore::new(database)));
+            let shell = cx.new(|cx| {
+                let mut shell =
+                    ShellView::with_all(View::Rules, accounts, source, inbox, settings, window, cx);
+                shell.install_rules(rules.clone(), window, cx);
+                rules.update(cx, |rules, cx| {
+                    rules.show(RulesSection::Categories, cx);
+                    let selected = match shot {
+                        CategoryShot::List => groceries.map(CategorySelection::Stored),
+                        CategoryShot::New => Some(CategorySelection::New),
+                        CategoryShot::Delete => Some(CategorySelection::Stored(coffee)),
+                    };
+                    rules.select_category(selected, cx);
+                });
+                shell
+            });
+            *slot.borrow_mut() = Some(shell.clone());
+            shell.into()
+        };
+        let then = move |window: &mut Window, cx: &mut App| {
+            let Some(shell) = shell_slot.borrow().clone() else {
+                return;
+            };
+            let rules = shell.read(cx).rules().clone();
+            let view = shell.read(cx).rules_view().clone();
+            match shot {
+                CategoryShot::List => {}
+                CategoryShot::New => {
+                    view.update(cx, |view, cx| {
+                        view.type_into(RulesInput::CategoryName, "Coffee beans", window, cx)
+                    });
+                    rules.update(cx, |rules, cx| {
+                        rules.edit_category(
+                            false,
+                            |form| {
+                                form.group = coffer_core::category::CategoryKey::new("food").ok();
+                            },
+                            cx,
+                        )
+                    });
+                }
+                CategoryShot::Delete => {
+                    view.update(cx, |view, cx| view.request_delete_category(window, cx))
+                }
+            }
+        };
+        snapshot_then(cx, out, name, build, then)?;
+        drop(dir);
+    }
+    Ok(())
+}
+
 /// `fixtures/csv/signed-amount.csv`: a layout no preset has.
 fn signed_amount_fixture() -> coffer_import::SourceFile {
     coffer_import::SourceFile::from_bytes(
@@ -1040,6 +1161,219 @@ fn valued_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
             });
             shell.into()
         })?;
+    }
+    Ok(())
+}
+
+/// The cash account's screens (M3.10): its inspector and the Count cash
+/// dialog, short and for the first count.
+fn cash_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
+    use accounts_fixture::CASH;
+    for (name, counted, first) in [
+        ("accounts-cash", None, false),
+        ("cash-count", Some("18.00"), false),
+        ("cash-count-first", Some("23.00"), true),
+    ] {
+        let built: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::default();
+        let keep = built.clone();
+        let build = move |window: &mut Window, cx: &mut App| -> AnyView {
+            let mut data = accounts_fixture::valued();
+            if first {
+                let detail = data.details.get_mut(&CASH).expect("Cash");
+                detail.balances.clear();
+                detail.cash_expected = None;
+            }
+            let accounts = cx.new(|_| Accounts::fixture(data));
+            let shell = cx.new(|cx| {
+                ShellView::with_accounts(View::Transactions, accounts.clone(), window, cx)
+            });
+            accounts.update(cx, |accounts, cx| {
+                accounts.select(Some(CASH), cx);
+                if counted.is_some() {
+                    accounts.request_add_balance(CASH, cx);
+                }
+            });
+            *keep.borrow_mut() = Some(shell.clone());
+            shell.into()
+        };
+        // The count is typed once the dialog is open, as a person would.
+        let then = move |window: &mut Window, cx: &mut App| {
+            let Some(counted) = counted else {
+                return;
+            };
+            let shell = built.borrow().clone().expect("the shell was built");
+            let dialog = shell.read(cx).dialog().expect("the dialog is open").clone();
+            let dialog = dialog
+                .downcast::<coffer_app::accounts::add_balance::AddBalanceDialog>()
+                .expect("it is the count dialog");
+            dialog.update(cx, |dialog, cx| dialog.type_amount(counted, window, cx));
+        };
+        snapshot_then(cx, out, name, build, then)?;
+    }
+    Ok(())
+}
+
+/// What an M3.10 snapshot shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExclusionShot {
+    Excluded,
+    ExcludeDialog,
+    Manual,
+    NewTransaction,
+    UndoImport,
+}
+
+/// M3.10's snapshots, on the fixture: `transactions-excluded` (Paper
+/// `3FE-0`: the Excluded chip on, the Odeon row excluded and selected),
+/// `transactions-exclude-dialog` (`51L-0`, Bank error picked),
+/// `transactions-manual` (`4D7-0`: Cash selected, a manual row in the
+/// inspector), `transactions-new-transaction` (`529-0`) and
+/// `transactions-undo-import` (the undo-import confirmation, composed).
+fn exclusion_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
+    use coffer_app::transactions::confirm::{UndoImportDialog, undo_lines};
+    use coffer_core::exclusion::ExclusionReason;
+
+    for (name, shot) in [
+        ("transactions-excluded", ExclusionShot::Excluded),
+        ("transactions-exclude-dialog", ExclusionShot::ExcludeDialog),
+        ("transactions-manual", ExclusionShot::Manual),
+        (
+            "transactions-new-transaction",
+            ExclusionShot::NewTransaction,
+        ),
+        ("transactions-undo-import", ExclusionShot::UndoImport),
+    ] {
+        let built: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::default();
+        let keep = built.clone();
+        let manual = matches!(shot, ExclusionShot::Manual | ExclusionShot::NewTransaction);
+        let build = move |window: &mut Window, cx: &mut App| -> AnyView {
+            let data = if manual {
+                accounts_fixture::valued()
+            } else {
+                accounts_fixture::accounts()
+            };
+            let accounts = cx.new(|_| Accounts::fixture(data));
+            let shell = cx.new(|cx| {
+                ShellView::with_accounts(View::Transactions, accounts.clone(), window, cx)
+            });
+            if manual {
+                // Cash selected first: selecting an account clears the
+                // transaction selection, which `then` makes.
+                let view = shell.read(cx).transactions().clone();
+                view.update(cx, |view, cx| {
+                    view.show_fixture(fixture::manual_register(), cx)
+                });
+                accounts.update(cx, |accounts, cx| accounts.select(Some(fixture::CASH), cx));
+            }
+            *keep.borrow_mut() = Some(shell.clone());
+            shell.into()
+        };
+        let then = move |window: &mut Window, cx: &mut App| {
+            let shell = built.borrow().clone().expect("the shell was built");
+            let view = shell.read(cx).transactions().clone();
+            let odeon = fixture::id("txn-odeon-07");
+            match shot {
+                ExclusionShot::Excluded => view.update(cx, |view, cx| {
+                    view.show_fixture(fixture::excluded_register(), cx);
+                    view.set_excluded(true, cx);
+                    view.select([odeon], cx);
+                }),
+                ExclusionShot::ExcludeDialog => {
+                    view.update(cx, |view, cx| view.select([odeon], cx));
+                    let dialog =
+                        shell.update(cx, |shell, cx| shell.open_exclude_dialog(odeon, window, cx));
+                    dialog.update(cx, |dialog, cx| {
+                        dialog.choose_reason(ExclusionReason::BankError, window, cx);
+                        dialog.set_details(
+                            "Charged twice for one booking; the refund is on its way.",
+                            window,
+                            cx,
+                        );
+                    });
+                }
+                ExclusionShot::Manual | ExclusionShot::NewTransaction => {
+                    view.update(cx, |view, cx| view.select([fixture::manual_id(2)], cx));
+                    if shot == ExclusionShot::NewTransaction {
+                        let dialog = shell
+                            .update(cx, |shell, cx| shell.open_new_transaction(window, cx))
+                            .expect("Transactions is open");
+                        dialog.update(cx, |dialog, cx| {
+                            dialog.fill("12.80", "Farmers' market", "", window, cx)
+                        });
+                    }
+                }
+                ExclusionShot::UndoImport => {
+                    view.update(cx, |view, cx| view.select([odeon], cx));
+                    let preview = coffer_core::import::UndoPreview {
+                        batch: coffer_core::import::BatchInfo {
+                            id: coffer_core::id::BatchId::new(2),
+                            account: accounts_fixture::CURRENT,
+                            source_file: "monzo-november.csv".to_owned(),
+                            format: coffer_core::statement::SourceFormat::Csv,
+                            preset_id: Some("uk-monzo".to_owned()),
+                            imported_at: "2026-11-09T08:12:00.000Z".to_owned(),
+                            status: coffer_core::import::BatchStatus::Committed,
+                            transactions: 296,
+                        },
+                        transactions: 296,
+                        mirrored: 4,
+                        balances: 1,
+                        flags: 0,
+                        edited: 3,
+                        transfers: 0,
+                        merged_into: 0,
+                        later_batches: Vec::new(),
+                    };
+                    let lines = undo_lines(&preview, "Current account");
+                    let dialog = cx.new(|cx| {
+                        let focus = cx.focus_handle();
+                        UndoImportDialog::preview(view.clone(), &preview, lines, focus)
+                    });
+                    shell.update(cx, |shell, cx| shell.show_dialog(dialog, window, cx));
+                }
+            }
+        };
+        snapshot_then(cx, out, name, build, then)?;
+    }
+    Ok(())
+}
+
+/// M3.8's Transfer section, on the fixture with a £250.00 move from
+/// Current account to Savings: `transactions-transfer` (the pair
+/// suggested, Savings' side selected) and `transactions-transfer-confirmed`
+/// (confirmed, Current account's side selected). Composed, not drawn.
+fn transfer_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
+    use coffer_core::transfer::TransferStatus;
+
+    for (name, status) in [
+        ("transactions-transfer", TransferStatus::Suggested),
+        ("transactions-transfer-confirmed", TransferStatus::Confirmed),
+    ] {
+        let built: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::default();
+        let keep = built.clone();
+        let build = move |window: &mut Window, cx: &mut App| -> AnyView {
+            let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+            let shell = cx.new(|cx| {
+                ShellView::with_accounts(View::Transactions, accounts.clone(), window, cx)
+            });
+            *keep.borrow_mut() = Some(shell.clone());
+            shell.into()
+        };
+        let then = move |_: &mut Window, cx: &mut App| {
+            let shell = built.borrow().clone().expect("the shell was built");
+            let view = shell.read(cx).transactions().clone();
+            let (money_out, money_in) = fixture::transfer_ids();
+            let selected = if status == TransferStatus::Suggested {
+                money_in
+            } else {
+                money_out
+            };
+            view.update(cx, |view, cx| {
+                view.show_fixture(fixture::transfer_register(status), cx);
+                view.select([selected], cx);
+            });
+        };
+        snapshot_then(cx, out, name, build, then)?;
     }
     Ok(())
 }

@@ -25,6 +25,7 @@ use crate::ui::text::CasedText as _;
 pub struct Tracked {
     role: TextRole,
     text: SharedString,
+    struck: bool,
 }
 
 impl Tracked {
@@ -33,7 +34,16 @@ impl Tracked {
         Self {
             text: role.cased(text),
             role,
+            struck: false,
         }
+    }
+
+    /// Draws a line through the text in its colour, `size::STROKE` thick,
+    /// where GPUI's own strikethrough goes: an excluded transaction's
+    /// display figure (D6.3, Paper `3FE-0`).
+    pub fn struck(mut self, struck: bool) -> Self {
+        self.struck = struck;
+        self
     }
 
     /// The tracking in pixels: the role's em value at its size.
@@ -128,6 +138,21 @@ impl Element for Tracked {
         let baseline = bounds.origin.y + padding_top + line.ascent;
         let color = window.text_style().color;
         let spacing = self.spacing();
+        if self.struck {
+            // GPUI's strikethrough height: halfway between half the ascent
+            // and the baseline, from the line's top.
+            let y = bounds.origin.y + (line.ascent * 0.5 + padding_top + line.ascent) * 0.5;
+            // The tracking after the last character isn't text.
+            let width = (bounds.size.width - spacing).max(px(0.));
+            window.paint_strikethrough(
+                point(bounds.origin.x, y),
+                width,
+                &gpui_kit::StrikethroughStyle {
+                    thickness: crate::theme::tokens::size::STROKE,
+                    color: Some(color),
+                },
+            );
+        }
         for run in &line.runs {
             for glyph in &run.glyphs {
                 let origin = point(

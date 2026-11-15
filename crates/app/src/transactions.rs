@@ -28,27 +28,46 @@
 //! - **Splits, tags, notes and names** (M3.9) are edited in the inspector
 //!   (`transactions::editor`): each change is one undoable change batch too, and the
 //!   register is read again so the table shows it.
+//! - **Excluded rows, the Source section and manual rows** (M3.10): the
+//!   Excluded chip shows excluded rows in their days (they never count in
+//!   a day's net); the inspector's Source section ([`source`]) excludes,
+//!   undoes the import or deletes a manual row through dialogs the shell
+//!   opens ([`exclude_dialog`], [`confirm`]); ⌘N and a cash account's "New
+//!   transaction" open [`new_transaction`]; a manual row's Date, Amount and
+//!   Account are fields (`transactions::manual_edit`). After excluding, the
+//!   undo bar offers to include the row again.
 //!
 //! The table is a GPUI `list`: virtualised, with rows of their own heights
 //! (day headers carry 4px more than a row when they draw a divider). The
 //! view owns the selection (by transaction id, so it survives filtering)
 //! and the list's scroll state; rows only present (`ui::transaction_row`).
 
+pub mod confirm;
 mod editor;
+pub mod exclude_dialog;
 pub mod fixture;
 mod inspector;
 pub mod link_dialog;
 pub mod link_fixture;
 pub mod linking;
 pub mod links;
+mod manual_edit;
+pub mod new_transaction;
 pub mod present;
 pub mod rule_prompt;
 pub mod selection;
+pub mod source;
 pub mod store;
+pub mod transfer;
 
 use chrono::NaiveDate;
-use coffer_core::id::{AccountId, ChangeBatchId, TransactionId};
+use coffer_core::account::AccountKind;
+use coffer_core::exclusion::ExclusionReason;
+use coffer_core::id::{AccountId, BatchId, ChangeBatchId, TransactionId};
+use coffer_core::import::UndoPreview;
+use coffer_core::manual::ManualTransaction;
 use coffer_core::reporting::register::{DatePreset, Filter, Listing, Register, Sort, SortColumn};
+use coffer_core::transfer as core_transfer;
 use gpui_kit::base::actions::{Cancel, SelectDown, SelectFirst, SelectLast, SelectUp};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -60,6 +79,7 @@ use gpui_kit::{
 };
 
 use crate::accounts::inspector::AccountInspector;
+use crate::accounts::new_account::sentence;
 use crate::accounts::{Accounts, AccountsEvent};
 use crate::format::{self, Sign};
 use crate::theme::tokens::{color, size as token_size, spacing};
@@ -68,7 +88,10 @@ use crate::ui::button::{Button, ButtonVariant, Chip};
 use crate::ui::empty_state::EmptyState;
 use crate::ui::field::search_input;
 use crate::ui::menu::{self, MenuGroup, MenuList, SelectState, filter_groups};
-use crate::ui::transaction_row::{DayHeader, TransactionColumn, TransactionHeader, TransactionRow};
+use crate::ui::notification::NotificationBar;
+use crate::ui::transaction_row::{
+    CategoryCell, DayHeader, TransactionColumn, TransactionHeader, TransactionRow,
+};
 use crate::ui::undo_bar::UndoBar;
 
 use selection::{ClickKind, Selection};
@@ -132,6 +155,16 @@ pub enum TransactionsEvent {
     LinkRequested(links::LinkFrom),
     /// Links or shares changed: Owed to you reads them again.
     Changed,
+    /// "Exclude…" or "Edit reason…": open the Exclude dialog (M3.10).
+    ExcludeRequested(TransactionId),
+    /// "Undo import…": open the undo confirmation for the batch (M3.10).
+    UndoImportRequested(BatchId),
+    /// "Delete transaction…" on a manual row: open its confirmation
+    /// (M3.10).
+    DeleteRequested(TransactionId),
+    /// Rows were added, removed or moved, or left or rejoined a balance
+    /// (M3.10): the accounts panel and the checks read again.
+    LedgerChanged,
 }
 
 impl gpui_kit::EventEmitter<TransactionsEvent> for TransactionsView {}
@@ -157,17 +190,22 @@ pub enum Menu {
     SplitLine(u64),
     /// The Share section's Owed by select (M3.11).
     Person,
+    /// A manual row's Account select (M3.10).
+    ManualAccount,
 }
 
 impl Menu {
     /// Whether it has the filter field: the category and tag menus.
     fn has_filter(self) -> bool {
-        !matches!(self, Menu::Account | Menu::Date)
+        !matches!(self, Menu::Account | Menu::Date | Menu::ManualAccount)
     }
 
     /// Whether it's a select field's menu, with a state of its own.
     fn is_field_select(self) -> bool {
-        matches!(self, Menu::Inspector | Menu::SplitLine(_) | Menu::Person)
+        matches!(
+            self,
+            Menu::Inspector | Menu::SplitLine(_) | Menu::Person | Menu::ManualAccount
+        )
     }
 }
 
@@ -216,11 +254,45 @@ fn table_column(column: SortColumn) -> TransactionColumn {
     }
 }
 
+/// What the undo bar's Undo does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UndoAction {
+    /// Reverts a change batch.
+    Batch(ChangeBatchId),
+    /// Includes an excluded row again: exclusion isn't a change batch
+    /// ("Decision record: Transactions additions", point 1).
+    Include(TransactionId),
+    /// Reverses a transfer-pair decision: a status change, not a change
+    /// batch (M3.8).
+    Transfer(core_transfer::Decision),
+}
+
 /// A change the undo bar can revert.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Undo {
-    batch: ChangeBatchId,
+    action: UndoAction,
     message: SharedString,
+}
+
+/// An edit that didn't save on a row the user had already left (its
+/// fields were saved as the selection moved): the inspector no longer shows
+/// that row, so the failure bar says so, and its Show goes back to the row
+/// with the reason said where the inspector says it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct EditFailure {
+    row: TransactionId,
+    place: editor::EditPlace,
+    reason: SharedString,
+}
+
+/// What the status bar counts (M3.10): "328 transactions · 2 excluded".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    /// Transactions that count: every row but the excluded ones.
+    pub transactions: usize,
+    pub excluded: usize,
+    /// The sample data: the status bar keeps the artboard's figure.
+    pub sample: bool,
 }
 
 /// The Transactions screen.
@@ -263,6 +335,15 @@ pub struct TransactionsView {
     /// The accounts panel's state and the account inspector, shown while an
     /// account is selected and no transaction is. Set by the shell.
     accounts: Option<(Entity<Accounts>, Entity<AccountInspector>)>,
+    /// A row just added: selected and scrolled into view once the register
+    /// has it, the filters that hide it cleared.
+    reveal: Option<TransactionId>,
+    /// The filters were changed without a window to set the search field
+    /// with: it's set from `filter.text` at the next render.
+    search_stale: bool,
+    /// An edit typed on a row the user then left, which didn't save: the
+    /// failure bar says so until it's dismissed or the selection moves.
+    edit_failure: Option<EditFailure>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -330,6 +411,9 @@ impl TransactionsView {
             editor,
             undo: None,
             accounts: None,
+            reveal: None,
+            search_stale: false,
+            edit_failure: None,
             _subscriptions: subscriptions,
         };
         if fixture {
@@ -382,6 +466,7 @@ impl TransactionsView {
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
         self.selection.clear();
         self.undo = None;
+        self.edit_failure = None;
         cx.notify();
     }
 
@@ -464,6 +549,88 @@ impl TransactionsView {
             }
         }
         self.refilter(cx);
+        if let Some(id) = self.reveal.take() {
+            self.show_row(id, cx);
+        }
+    }
+
+    /// Selects row `id` and scrolls it into view, first clearing the
+    /// filters that hide it (core's `Register::filter_showing`), so a row
+    /// the user just added or asked to see is never left out of sight. The
+    /// others stay as they were.
+    fn show_row(&mut self, id: TransactionId, cx: &mut Context<Self>) {
+        let Some(shown) = self.register.filter_showing(&self.filter, id) else {
+            return;
+        };
+        if shown != self.filter {
+            if shown.text != self.filter.text {
+                self.search_stale = true;
+            }
+            if shown.dates.is_none() {
+                self.date = DatePreset::AllTime;
+            }
+            if shown.account.is_none()
+                && self.filter.account.is_some()
+                && let Some((accounts, _)) = &self.accounts
+            {
+                accounts.update(cx, |accounts, cx| accounts.select(None, cx));
+            }
+            self.filter = shown;
+            self.refilter(cx);
+        }
+        if self.order.contains(&id) {
+            self.selection.set([id]);
+            self.reveal_current();
+        }
+        cx.notify();
+    }
+
+    /// Sets the search field to `filter.text` after [`Self::show_row`]
+    /// cleared it.
+    fn sync_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.search_stale) {
+            return;
+        }
+        let text = self.filter.text.clone();
+        self.search
+            .update(cx, |search, cx| search.set_value(text, window, cx));
+    }
+
+    /// Records that saving what was typed on row `row`, which the user just
+    /// left, failed for `reason`, said at `place` when the row is shown.
+    pub(super) fn edit_failed(
+        &mut self,
+        row: TransactionId,
+        place: editor::EditPlace,
+        reason: SharedString,
+    ) {
+        self.undo = None;
+        self.edit_failure = Some(EditFailure { row, place, reason });
+    }
+
+    /// The failure bar's message, while it shows.
+    pub fn edit_failure_message(&self) -> Option<SharedString> {
+        let failure = self.edit_failure.as_ref()?;
+        let merchant = self
+            .register
+            .row(failure.row)
+            .map(|row| row.merchant.as_str());
+        Some(present::unsaved_message(merchant).into())
+    }
+
+    /// The failure bar's Show: back to the row, with why the edit didn't
+    /// save said where the inspector says it.
+    fn show_failed_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(failure) = self.edit_failure.take() else {
+            return;
+        };
+        if self.register.row(failure.row).is_none() {
+            cx.notify();
+            return;
+        }
+        self.show_row(failure.row, cx);
+        self.editor.restore_error = Some((failure.row, failure.place, failure.reason));
+        cx.notify();
     }
 
     /// Picks the rows again from the register: after a filter, sort or
@@ -500,6 +667,7 @@ impl TransactionsView {
         self.filter.category = None;
         self.filter.uncategorised = false;
         self.filter.dates = None;
+        self.filter.include_excluded = false;
         self.date = DatePreset::AllTime;
         match &self.accounts {
             Some((accounts, _)) => accounts.update(cx, |accounts, cx| accounts.select(None, cx)),
@@ -513,11 +681,48 @@ impl TransactionsView {
             || self.filter.category.is_some()
             || self.filter.dates.is_some()
             || self.filter.uncategorised
+            || self.filter.include_excluded
             || !self.filter.text.trim().is_empty()
     }
 
     fn toggle_uncategorised(&mut self, cx: &mut Context<Self>) {
         self.set_uncategorised(!self.filter.uncategorised, cx);
+    }
+
+    /// Shows excluded rows in their days, or hides them (the Excluded chip,
+    /// off by default).
+    pub fn set_excluded(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.filter.include_excluded = on;
+        self.refilter(cx);
+    }
+
+    /// What the status bar counts.
+    pub fn counts(&self) -> Counts {
+        let excluded = self
+            .register
+            .rows()
+            .iter()
+            .filter(|row| row.excluded.is_some())
+            .count();
+        Counts {
+            transactions: self.register.rows().len() - excluded,
+            excluded,
+            sample: matches!(self.source, Source::Fixture),
+        }
+    }
+
+    /// The account the accounts panel filters by, if any.
+    pub fn selected_account(&self) -> Option<AccountId> {
+        self.filter.account
+    }
+
+    /// Whether the selected account is one the user keeps by hand (cash):
+    /// the toolbar offers "New transaction" in place of Import.
+    fn on_manual_account(&self) -> bool {
+        self.filter
+            .account
+            .and_then(|id| self.register.account(id))
+            .is_some_and(|account| account.kind == AccountKind::Cash)
     }
 
     fn sort_by(&mut self, column: TransactionColumn, cx: &mut Context<Self>) {
@@ -538,6 +743,7 @@ impl TransactionsView {
             }
             Menu::Tags => present::tag_groups(&self.register, self.row_tags(), ""),
             Menu::Person => links::person_groups(self, ""),
+            Menu::ManualAccount => manual_edit::account_groups(&self.register),
         }
     }
 
@@ -552,6 +758,7 @@ impl TransactionsView {
             Menu::Inspector => Some(&mut self.inspector_select),
             Menu::SplitLine(key) => self.editor.line_select(key),
             Menu::Person => Some(&mut self.editor.person_select),
+            Menu::ManualAccount => Some(&mut self.editor.account_select),
             _ => Some(&mut self.menu_state),
         }
     }
@@ -629,6 +836,7 @@ impl TransactionsView {
             Menu::Person => self
                 .chosen_person()
                 .map(|label| format!("person-{label}").into()),
+            Menu::ManualAccount => self.single_row().map(|row| row.account.to_string().into()),
         }
     }
 
@@ -679,6 +887,16 @@ impl TransactionsView {
             input.focus(window, cx);
         });
         self.line_amount_event(key, &input, &InputEvent::Change, window, cx);
+    }
+
+    /// Types `text` into the selected row's Merchant field, as the user
+    /// would, without leaving it (snapshots).
+    pub fn type_merchant(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_editor(window, cx);
+        let text = SharedString::from(text.to_owned());
+        self.editor
+            .merchant
+            .update(cx, |input, cx| input.set_value(text, window, cx));
     }
 
     /// Removes split line `line` as its ✕ does (snapshots).
@@ -854,6 +1072,11 @@ impl TransactionsView {
                     }
                 }
             },
+            Menu::ManualAccount => {
+                if let Ok(id) = key.parse::<i64>() {
+                    self.set_manual_account(AccountId::new(id), cx);
+                }
+            }
             Menu::Tags => match key.as_ref() {
                 present::NEW_TAG => self.create_tag(&typed, false, cx),
                 present::NEW_PRIVATE_TAG => self.create_tag(&typed, true, cx),
@@ -875,7 +1098,7 @@ impl TransactionsView {
             &self.menu_state
         };
         let label = match menu {
-            Menu::Account => "Account",
+            Menu::Account | Menu::ManualAccount => "Account",
             Menu::Date => "Date",
             Menu::Tags => "Tags",
             _ => "Category",
@@ -948,7 +1171,7 @@ impl TransactionsView {
                     self.propose_rule(*id, cx);
                 }
                 self.undo = batch.filter(|_| items.len() > 1).map(|batch| Undo {
-                    batch,
+                    action: UndoAction::Batch(batch),
                     message: present::categorised_message(items.len(), &label),
                 });
                 self.reload(cx);
@@ -965,18 +1188,173 @@ impl TransactionsView {
         let Some(undo) = self.undo.take() else {
             return;
         };
-        if let Source::Database(store) = &self.source {
-            match store.undo(undo.batch) {
-                Ok(_) => self.edit_error = None,
-                Err(error) => {
-                    tracing::warn!(%error, "couldn't undo the change");
-                    self.edit_error = Some(error.to_string().into());
+        match undo.action {
+            UndoAction::Batch(batch) => {
+                if let Source::Database(store) = &self.source {
+                    match store.undo(batch) {
+                        Ok(_) => self.edit_error = None,
+                        Err(error) => {
+                            tracing::warn!(%error, "couldn't undo the change");
+                            self.edit_error = Some(error.to_string().into());
+                        }
+                    }
+                    self.reload(cx);
+                    cx.emit(TransactionsEvent::Changed);
                 }
             }
-            self.reload(cx);
-            cx.emit(TransactionsEvent::Changed);
+            UndoAction::Include(id) => {
+                // The row comes back selected, where the user left it.
+                self.reveal = Some(id);
+                self.include_again(id, cx);
+                self.keep_failed_undo(undo.action, editor::EditPlace::Exclusion);
+            }
+            UndoAction::Transfer(decision) => {
+                self.undo_transfer(decision, cx);
+                self.keep_failed_undo(undo.action, editor::EditPlace::Transfer);
+            }
         }
         cx.notify();
+    }
+
+    /// After an undo the bar offered failed: the reason goes in the bar,
+    /// which stays (to try again or dismiss), since the row it concerns may
+    /// be filtered out or no longer show the section that would say it.
+    fn keep_failed_undo(&mut self, action: UndoAction, place: editor::EditPlace) {
+        if let Some(error) = self.editor.error_at(place) {
+            self.undo = Some(Undo {
+                action,
+                message: format!("Couldn't undo: {error}").into(),
+            });
+        }
+    }
+
+    // Exclusions, imports and manual rows (M3.10) --------------------------
+
+    /// The store, or the words for why sample data can't change.
+    fn store(&self) -> Result<&TransactionStore, SharedString> {
+        match &self.source {
+            Source::Database(store) => Ok(store),
+            Source::Fixture => Err("This is sample data, which can't be changed.".into()),
+        }
+    }
+
+    /// Excludes `id` for `reason` (or changes the reason and details of an
+    /// excluded row) through core. Newly excluded, the undo bar offers to
+    /// include it again: with the Excluded chip off, the row leaves the
+    /// table.
+    pub fn exclude(
+        &mut self,
+        id: TransactionId,
+        reason: ExclusionReason,
+        note: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let was_excluded = self
+            .register
+            .row(id)
+            .is_some_and(|row| row.excluded.is_some());
+        self.store()?
+            .exclude(id, reason, note)
+            .map_err(|error| sentence(&error.to_string()))?;
+        if !was_excluded {
+            self.undo = Some(Undo {
+                action: UndoAction::Include(id),
+                message: format!(
+                    "Excluded as {}",
+                    source::reason_label(reason).to_lowercase()
+                )
+                .into(),
+            });
+        }
+        self.reload(cx);
+        cx.emit(TransactionsEvent::LedgerChanged);
+        cx.notify();
+        Ok(())
+    }
+
+    /// "Include again": the undo of excluding. A refusal (a lock) is said
+    /// in the exclusion card.
+    pub fn include_again(&mut self, id: TransactionId, cx: &mut Context<Self>) {
+        let result = self.store().and_then(|store| {
+            store
+                .include_again(id)
+                .map_err(|error| sentence(&error.to_string()))
+        });
+        match result {
+            Ok(()) => {
+                self.editor.error = None;
+                if self.undo.as_ref().map(|undo| undo.action) == Some(UndoAction::Include(id)) {
+                    self.undo = None;
+                }
+                self.reload(cx);
+                cx.emit(TransactionsEvent::LedgerChanged);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "couldn't include a transaction again");
+                self.reveal = None;
+                self.editor.error = Some((editor::EditPlace::Exclusion, error));
+            }
+        }
+        cx.notify();
+    }
+
+    /// What undoing import `batch` would remove.
+    pub fn undo_import_preview(&self, batch: BatchId) -> Result<UndoPreview, SharedString> {
+        self.store()?
+            .undo_import_preview(batch)
+            .map_err(|error| sentence(&error.to_string()))
+    }
+
+    /// Undoes import `batch`; the table and the accounts panel read again.
+    pub fn undo_import(
+        &mut self,
+        batch: BatchId,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        self.store()?
+            .undo_import(batch)
+            .map_err(|error| sentence(&error.to_string()))?;
+        self.undo = None;
+        self.reload(cx);
+        cx.emit(TransactionsEvent::LedgerChanged);
+        cx.notify();
+        Ok(())
+    }
+
+    /// Adds a manual transaction with the user's `note`; once the register
+    /// has it, the new row is selected and scrolled into view.
+    pub fn create_manual(
+        &mut self,
+        entry: &ManualTransaction,
+        note: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<TransactionId, SharedString> {
+        let id = self
+            .store()?
+            .create_manual(entry, note)
+            .map_err(|error| sentence(&error.to_string()))?;
+        self.undo = None;
+        self.reveal = Some(id);
+        self.reload(cx);
+        cx.emit(TransactionsEvent::LedgerChanged);
+        cx.notify();
+        Ok(id)
+    }
+
+    /// Deletes manual transaction `id`.
+    pub fn delete_manual(
+        &mut self,
+        id: TransactionId,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        self.store()?
+            .delete_manual(id)
+            .map_err(|error| sentence(&error.to_string()))?;
+        self.undo = None;
+        self.reload(cx);
+        cx.emit(TransactionsEvent::LedgerChanged);
+        cx.notify();
+        Ok(())
     }
 
     // Selection -----------------------------------------------------------
@@ -998,6 +1376,7 @@ impl TransactionsView {
         };
         self.selection.click(id, kind, &self.order);
         self.undo = None;
+        self.edit_failure = None;
         self.focus.clone().focus(window, cx);
         cx.notify();
     }
@@ -1005,6 +1384,7 @@ impl TransactionsView {
     fn move_selection(&mut self, delta: isize, extend: bool, cx: &mut Context<Self>) {
         self.selection.move_by(delta, extend, &self.order);
         self.undo = None;
+        self.edit_failure = None;
         self.reveal_current();
         cx.notify();
     }
@@ -1014,7 +1394,11 @@ impl TransactionsView {
         let Some(id) = self.selection.current() else {
             return;
         };
-        if self.register.row(id).is_some_and(present::can_recategorise) {
+        if self
+            .register
+            .row(id)
+            .is_some_and(|row| present::can_recategorise(row) && row.excluded.is_none())
+        {
             self.open(Menu::Row(id), window, cx);
         }
     }
@@ -1082,11 +1466,17 @@ impl TransactionsView {
         let focus_visible = self.selection.current() == Some(id)
             && self.focus.is_focused(window)
             && window.last_input_was_keyboard();
-        let editable = present::can_recategorise(row);
+        // An excluded row's category cell says why; its category is set
+        // in the inspector.
+        let editable = present::can_recategorise(row) && row.excluded.is_none();
+        let cell = match row.excluded {
+            Some(reason) => CategoryCell::excluded(source::reason_label(reason)),
+            None => linking::cell(&self.register, row),
+        };
         TransactionRow::new(
             format!("txn-{id}"),
             row.merchant.clone(),
-            linking::cell(&self.register, row),
+            cell,
             format::money(row.amount, Sign::Always),
         )
         .when(self.filter.account.is_none(), |this| {
@@ -1198,7 +1588,14 @@ impl TransactionsView {
             .gap(spacing::S2)
             .py(spacing::S3)
             .px(spacing::S4)
-            .child(search_input(&self.search).id("search"))
+            // With "New transaction" (wider than Import) the toolbar
+            // overflows 1440 by a few pixels: the search field gives them up.
+            .child(
+                search_input(&self.search)
+                    .id("search")
+                    .flex_shrink(1.)
+                    .min_w_0(),
+            )
             .child(
                 self.menu_chip(
                     Menu::Account,
@@ -1232,16 +1629,40 @@ impl TransactionsView {
                     .active(self.filter.uncategorised)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_uncategorised(cx))),
             )
-            .child(div().flex_1())
+            // No count: with one it overflowed the toolbar at 1440 (D6.3);
+            // the status bar counts the excluded rows.
             .child(
-                Button::new("import", "Import")
-                    .with_variant(ButtonVariant::Outline)
-                    .shortcut("⌘I")
-                    // The shell opens the Import dialog (M3.4).
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(crate::shell::ImportStatement), cx)
-                    }),
+                Chip::new("filter-excluded", "Excluded")
+                    .active(self.filter.include_excluded)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let on = !this.filter.include_excluded;
+                        this.set_excluded(on, cx)
+                    })),
             )
+            .child(div().flex_1())
+            .map(|this| {
+                if self.on_manual_account() {
+                    // A cash account takes rows by hand (D6.3, `4D7-0`).
+                    this.child(
+                        Button::new("new-transaction", "New transaction")
+                            .with_variant(ButtonVariant::Outline)
+                            .shortcut("⌘N")
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(crate::shell::NewTransaction), cx)
+                            }),
+                    )
+                } else {
+                    this.child(
+                        Button::new("import", "Import")
+                            .with_variant(ButtonVariant::Outline)
+                            .shortcut("⌘I")
+                            // The shell opens the Import dialog (M3.4).
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(crate::shell::ImportStatement), cx)
+                            }),
+                    )
+                }
+            })
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> TransactionHeader {
@@ -1302,7 +1723,20 @@ impl TransactionsView {
     }
 
     fn render_floating(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let bar = if let Some(undo) = &self.undo {
+        let bar = if let Some(message) = self.edit_failure_message() {
+            NotificationBar::new(message)
+                .failed(true)
+                .action(
+                    Button::new("edit-failure-show", "Show")
+                        .with_variant(ButtonVariant::Outline)
+                        .on_click(cx.listener(|this, _, _, cx| this.show_failed_edit(cx))),
+                )
+                .on_dismiss(cx.listener(|this, _, _, cx| {
+                    this.edit_failure = None;
+                    cx.notify();
+                }))
+                .into_any_element()
+        } else if let Some(undo) = &self.undo {
             UndoBar::new(undo.message.clone())
                 .on_undo(cx.listener(|this, _, _, cx| this.undo_change(cx)))
                 .on_dismiss(cx.listener(|this, _, _, cx| {
@@ -1394,6 +1828,7 @@ impl TransactionsView {
 
 impl Render for TransactionsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_search(window, cx);
         self.sync_editor(window, cx);
         div()
             .flex()
@@ -1411,4 +1846,8 @@ impl Render for TransactionsView {
 #[cfg(test)]
 mod link_tests;
 #[cfg(test)]
+mod source_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_tests;

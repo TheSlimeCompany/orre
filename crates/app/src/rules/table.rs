@@ -13,6 +13,12 @@
 //! - **Change history** (`GZT-0`): WHEN (96) · CHANGE · KIND (140) ·
 //!   TRANSACTIONS (96); an undone change struck through, its KIND "Undone
 //!   28 Oct".
+//! - **Categories** (composed from Merchant names' table): CATEGORY (flex:
+//!   the marker and label, a group's label 500, a subcategory indented so
+//!   its marker lines up with the group's label, a hidden one `text-muted`
+//!   with "Hidden" in caption) · KIND (140) · RULES (72) · TRANSACTIONS (96:
+//!   transactions and split lines filed under it); zero counts in
+//!   `text-faint`.
 //!
 //! Bank text, names and patterns are plain text ([`text::plain`]).
 
@@ -262,6 +268,32 @@ pub fn toolbar(entity: &Entity<Rules>, window: &Window, cx: &mut Context<RulesVi
                 )),
                 None,
             ),
+            (Section::Categories, _) => {
+                let entity = entity.clone();
+                let hidden = data.categories.iter().filter(|c| c.hidden).count();
+                let hidden_words = if hidden > 0 {
+                    format!(" · {hidden} hidden")
+                } else {
+                    String::new()
+                };
+                (
+                    false,
+                    "Categories",
+                    caption_text(format!(
+                        "{}{hidden_words} · what transactions are filed under",
+                        text::count(data.categories.len(), "category", "categories")
+                    )),
+                    Some(
+                        Button::new("rules-new-category", "New category")
+                            .icon(Glyph::Plus)
+                            .with_variant(ButtonVariant::Outline)
+                            .on_click(move |_, _, cx| {
+                                entity.update(cx, |rules, cx| rules.new_category(cx))
+                            })
+                            .into_any_element(),
+                    ),
+                )
+            }
         };
     div()
         .flex()
@@ -308,6 +340,7 @@ pub fn render(
         (Section::Rules, false) => rules_body(entity, rules, window),
         (Section::Names, _) => names_body(entity, rules, window),
         (Section::History, _) => history_body(entity, rules, window),
+        (Section::Categories, _) => categories_body(entity, rules),
     }
 }
 
@@ -1119,6 +1152,136 @@ fn history_body(entity: &Entity<Rules>, rules: &Rules, window: &Window) -> AnyEl
             "A change is anything that edits many existing transactions at once: applying a \
              rule, a bulk edit, merging duplicates. Imports have their own history on each \
              account. Undo puts back the values from before the change.",
+        ))
+        .into_any_element()
+}
+
+// Categories ---------------------------------------------------------------------
+
+/// A count in a table lane: mono, `text-faint` when it's zero.
+fn count_lane(width: gpui_kit::Pixels, count: usize, tone: gpui_kit::Rgba) -> gpui_kit::Div {
+    lane(width)
+        .justify_end()
+        .text_role(typography::MONO_AMOUNT)
+        .text_color(if count == 0 { color::TEXT_FAINT } else { tone })
+        .child(count.to_string())
+}
+
+fn category_row(
+    entity: &Entity<Rules>,
+    data: &RulesData,
+    category_row: &super::CategoryRow<'_>,
+    selected: bool,
+) -> AnyElement {
+    let category = &category_row.summary.category;
+    let usage = category_row.summary.usage;
+    let (child, hidden) = (category_row.child, category_row.hidden);
+    let id = category.id();
+    let (label_tone, secondary, count_tone) = match (selected, hidden) {
+        (true, true) => (
+            color::TEXT_SECONDARY,
+            color::TEXT_SECONDARY,
+            color::TEXT_STRONG,
+        ),
+        (true, false) => (color::WHITE, color::TEXT_STRONG, color::WHITE),
+        (false, true) => (color::TEXT_MUTED, color::TEXT_MUTED, color::TEXT_SECONDARY),
+        (false, false) => (color::TEXT, color::TEXT_SECONDARY, color::TEXT),
+    };
+    let name = div()
+        .flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .gap(spacing::S2)
+        // A subcategory's marker lines up with its group's label.
+        .when(child, |this| this.pl(size::MARKER + spacing::S2))
+        .child(marker(data, category.key()).render())
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_role(typography::BODY)
+                .when(!child, |this| {
+                    this.font_weight(crate::theme::tokens::weight::MEDIUM)
+                })
+                .text_color(label_tone)
+                .child(category.label().to_owned()),
+        )
+        .when(hidden, |this| {
+            this.child(
+                div()
+                    .flex_none()
+                    .text_role(typography::CAPTION)
+                    .text_color(color::TEXT_MUTED)
+                    .child("Hidden"),
+            )
+        });
+    let select = entity.clone();
+    row(format!("category-{id}"), selected)
+        .on_click(move |_, _, cx| select.update(cx, |rules, cx| rules.toggle_category(id, cx)))
+        .child(name)
+        .child(
+            lane(size::COLUMN_ACCOUNT)
+                .text_role(typography::BODY)
+                .text_color(secondary)
+                .child(text::category_kind(category.kind())),
+        )
+        .child(count_lane(LAST_SEEN_LANE, usage.rules, count_tone))
+        .child(count_lane(
+            size::COLUMN_AMOUNT,
+            usage.transactions + usage.split_lines,
+            count_tone,
+        ))
+        .test_support()
+        .into_any_element()
+}
+
+fn categories_body(entity: &Entity<Rules>, rules: &Rules) -> AnyElement {
+    let data = rules.data();
+    let selected = match rules.selected_category() {
+        Some(super::CategorySelection::Stored(id)) => Some(id),
+        _ => None,
+    };
+    let header = header_row()
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .child(lane_label("Category")),
+        )
+        .child(lane(size::COLUMN_ACCOUNT).child(lane_label("Kind")))
+        .child(
+            lane(LAST_SEEN_LANE)
+                .justify_end()
+                .child(lane_label("Rules")),
+        )
+        .child(
+            lane(size::COLUMN_AMOUNT)
+                .justify_end()
+                .child(lane_label("Transactions")),
+        );
+    let rows: Vec<AnyElement> = rules
+        .category_rows()
+        .iter()
+        .map(|row| {
+            category_row(
+                entity,
+                data,
+                row,
+                Some(row.summary.category.id()) == selected,
+            )
+        })
+        .collect();
+    body()
+        .child(header)
+        .children(rows)
+        .child(note(
+            "A category’s name is what you see; rules, presets and AI clients use its key, which \
+             never changes, so renaming is safe. A category in use can’t be deleted: hide it to \
+             stop offering it, and its transactions and reports stay as they are.",
         ))
         .into_any_element()
 }

@@ -9,6 +9,7 @@ use chrono::NaiveDate;
 use coffer_core::account::{Deletion, StoredBalance, Usage};
 use coffer_core::id::AccountId;
 use coffer_core::import::BatchInfo;
+use coffer_core::money::Money;
 use coffer_core::reporting::account_tree::{AccountNode, AccountTree};
 
 /// A CSV preset the Preset select offers.
@@ -34,6 +35,10 @@ pub struct AccountDetail {
     pub close_from: Option<NaiveDate>,
     /// What deleting it would remove, or why it can't be deleted.
     pub deletion: Deletion,
+    /// A cash account's last count plus the transactions since, for sample
+    /// data, which has no transactions to add up
+    /// ([`super::Accounts::cash_expectation`]).
+    pub cash_expected: Option<Money>,
 }
 
 /// Everything the accounts panel and inspector show.

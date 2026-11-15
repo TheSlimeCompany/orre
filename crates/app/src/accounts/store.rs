@@ -18,11 +18,13 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 
+use coffer_core::account::count::{self, Expectation, Recorded};
 use coffer_core::account::{self, AccountEdit, EnteredBalance, NewAccount};
 use coffer_core::backup;
 use coffer_core::db::Database;
 use coffer_core::id::AccountId;
 use coffer_core::import::{self, BatchStatus};
+use coffer_core::money::Money;
 use coffer_core::reporting::account_tree::account_tree;
 use coffer_core::schedule;
 use coffer_import::preset::Presets;
@@ -126,6 +128,7 @@ impl AccountStore {
                     imports,
                     close_from: account::close::closing(&db, id)?.earliest,
                     deletion: account::close::deletion(&db, id)?,
+                    cash_expected: None,
                 },
             );
         }
@@ -158,6 +161,29 @@ impl AccountStore {
         let mut db = self.open()?;
         account::add_balance(&mut db, id, balance)?;
         Ok(())
+    }
+
+    /// What Coffer expects of a cash count of `counted` on `date`.
+    pub fn cash_expectation(
+        &self,
+        id: AccountId,
+        date: NaiveDate,
+        counted: Money,
+    ) -> Result<Expectation, StoreError> {
+        let db = self.open()?;
+        Ok(count::expectation(&db, id, date, counted)?)
+    }
+
+    /// Records a cash count, with the "Cash count difference" transaction
+    /// when `add_difference`, in one DB transaction.
+    pub fn count_cash(
+        &self,
+        id: AccountId,
+        count: &EnteredBalance,
+        add_difference: bool,
+    ) -> Result<Recorded, StoreError> {
+        let mut db = self.open()?;
+        Ok(count::record(&mut db, id, count, add_difference)?)
     }
 
     /// Closes an account (and its open pots) on `on`; returns every

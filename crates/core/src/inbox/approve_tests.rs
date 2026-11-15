@@ -9,7 +9,7 @@ use super::super::testing::{Fixture, day};
 use super::super::{SuggestionKind, SuggestionStatus, get};
 use super::*;
 use crate::change::{self, BatchStatus};
-use crate::id::TransactionId;
+use crate::id::{TransactionId, TransferGroupId};
 use crate::link::LinkStatus;
 use crate::manual;
 
@@ -429,6 +429,102 @@ fn approving_detections_suggested_pair_confirms_its_group() {
     assert_eq!(
         crate::transfer::group(&f.db, group).unwrap().status,
         crate::transfer::TransferStatus::Confirmed
+    );
+}
+
+/// Detection's suggested group for `out` and `inn`, as an import leaves it.
+fn suggested_pair(f: &Fixture, out: TransactionId, inn: TransactionId) -> TransferGroupId {
+    f.conn()
+        .execute(
+            "INSERT INTO transfer_group (status) VALUES ('suggested')",
+            [],
+        )
+        .unwrap();
+    let group = f.conn().last_insert_rowid();
+    f.conn()
+        .execute(
+            "UPDATE \"transaction\" SET transfer_group_id = ?1 WHERE id IN (?2, ?3)",
+            params![group, out, inn],
+        )
+        .unwrap();
+    TransferGroupId::new(group)
+}
+
+#[test]
+fn confirming_in_transactions_approves_the_agents_pair() {
+    let mut f = Fixture::new();
+    let out = f.row(day(2), -5000, "To savings", None);
+    let inn = f.row_on(f.savings, day(2), 5000, "From current", None);
+    let other_out = f.row(day(3), -700, "To savings", None);
+    let other_in = f.row_on(f.savings, day(3), 700, "From current", None);
+    let group = suggested_pair(&f, out, inn);
+    let same = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": inn.get()}),
+    );
+    let other = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": other_out.get(), "inflow_id": other_in.get()}),
+    );
+
+    let decided = decide_transfer(&mut f.db, group, transfer::Action::Confirm).unwrap();
+    assert_eq!(decided.settled, vec![same]);
+    assert_eq!(decided.decision.action, transfer::Action::Confirm);
+    assert_eq!(
+        transfer::group(&f.db, group).unwrap().status,
+        TransferStatus::Confirmed
+    );
+    let settled = get(&f.db, same).unwrap();
+    assert_eq!(settled.status, SuggestionStatus::Approved);
+    assert_eq!(
+        settled.applied,
+        Some(json!({"transfer_group_id": group.get(), "settled_by": "transactions"}))
+    );
+    assert_eq!(get(&f.db, other).unwrap().status, SuggestionStatus::Pending);
+
+    // Undoing the confirmation leaves the settled suggestion decided.
+    transfer::undo(&mut f.db, &decided.decision).unwrap();
+    assert_eq!(get(&f.db, same).unwrap().status, SuggestionStatus::Approved);
+}
+
+#[test]
+fn not_a_transfer_in_transactions_rejects_the_agents_pair() {
+    let mut f = Fixture::new();
+    let out = f.row(day(2), -5000, "To savings", None);
+    let inn = f.row_on(f.savings, day(2), 5000, "From current", None);
+    let group = suggested_pair(&f, out, inn);
+    let id = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": inn.get()}),
+    );
+
+    let decided = decide_transfer(&mut f.db, group, transfer::Action::Reject).unwrap();
+    assert_eq!(decided.settled, vec![id]);
+    let rejected = get(&f.db, id).unwrap();
+    assert_eq!(rejected.status, SuggestionStatus::Rejected);
+    assert_eq!(
+        rejected.decision_reason.as_deref(),
+        Some(DECIDED_IN_TRANSACTIONS)
+    );
+}
+
+#[test]
+fn a_refused_decision_settles_nothing() {
+    let mut f = Fixture::new();
+    let out = f.row(day(2), -5000, "To savings", None);
+    let inn = f.row_on(f.savings, day(2), 5000, "From current", None);
+    let group = suggested_pair(&f, out, inn);
+    let id = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": inn.get()}),
+    );
+
+    // A suggested pair can't be unpaired; nothing changes.
+    assert!(decide_transfer(&mut f.db, group, transfer::Action::Unpair).is_err());
+    assert_eq!(get(&f.db, id).unwrap().status, SuggestionStatus::Pending);
+    assert_eq!(
+        transfer::group(&f.db, group).unwrap().status,
+        TransferStatus::Suggested
     );
 }
 

@@ -18,6 +18,13 @@
 //!   account go (decided with the user, 2026-11-14); an asset or liability
 //!   adds D6.9's caption.
 //!
+//! A cash account (D6.9's cash inspector, `EPF-0`; M3.10): the header says
+//! "Balance on 10 Nov · from your count and entries", the Balances section
+//! is "Counts" with outline "Count cash…" (the Count cash dialog,
+//! [`super::add_balance`]), the oldest count is labelled "Starting point"
+//! (as in Balance checks), and the footer is "Close account…" alone while
+//! the account has transactions.
+//!
 //! An asset or liability (D6.9, `BSI-0`, `EPF-0`): the header says when it
 //! was valued ("Valued by you on 12 Oct · in net worth"; "Owed on 1 Oct ·
 //! in net worth" for a liability, composed), Details has no Bank or Preset,
@@ -158,6 +165,18 @@ fn balance_label(balance: &StoredBalance) -> String {
         BalanceSource::Manual | BalanceSource::Ofx | BalanceSource::Csv => "Entered by you",
     }
     .to_owned()
+}
+
+/// What a cash count row says it is: "Starting point" for the oldest (the
+/// count Coffer counts forward from), with the user's note after it; else
+/// the note, else "Counted by you".
+fn count_label(count: &StoredBalance, oldest: bool) -> String {
+    match (&count.note, oldest) {
+        (Some(note), true) => format!("Starting point · {note}"),
+        (None, true) => "Starting point".to_owned(),
+        (Some(note), false) => note.clone(),
+        (None, false) => "Counted by you".to_owned(),
+    }
 }
 
 /// Which of the inspector's selects.
@@ -461,6 +480,8 @@ impl AccountInspector {
                 );
                 if !node.account.kind.holds_transactions() {
                     line = line.child(" · in net worth");
+                } else if node.account.kind == AccountKind::Cash {
+                    line = line.child(" · from your count and entries");
                 } else if !node.pots.is_empty() {
                     line = line.child(" · pots not included");
                 } else if let Some(parent) = data.parent_of(node.account.id) {
@@ -570,7 +591,9 @@ impl AccountInspector {
         let with_year = balances
             .iter()
             .any(|balance| list_date(balance.date, data.today).len() > 6);
-        let rows = balances.iter().map(|balance| {
+        let cash = node.account.kind == AccountKind::Cash;
+        let oldest = balances.len().saturating_sub(1);
+        let rows = balances.iter().enumerate().map(|(at, balance)| {
             div()
                 .flex()
                 .flex_none()
@@ -593,7 +616,11 @@ impl AccountInspector {
                         .text_ellipsis()
                         .text_role(typography::BODY)
                         .text_color(color::TEXT_SECONDARY)
-                        .child(balance_label(balance)),
+                        .child(if cash {
+                            count_label(balance, at == oldest)
+                        } else {
+                            balance_label(balance)
+                        }),
                 )
                 .child(
                     div()
@@ -606,15 +633,26 @@ impl AccountInspector {
         let id = node.account.id;
         let accounts = self.accounts.clone();
         let add = (!valuations).then(|| {
-            Button::new("add-balance", "Add balance…")
-                .on_click(move |_, _, cx| {
-                    accounts.update(cx, |accounts, cx| accounts.request_add_balance(id, cx))
-                })
-                .into_any_element()
+            Button::new(
+                "add-balance",
+                if cash {
+                    "Count cash…"
+                } else {
+                    "Add balance…"
+                },
+            )
+            .on_click(move |_, _, cx| {
+                accounts.update(cx, |accounts, cx| accounts.request_add_balance(id, cx))
+            })
+            .into_any_element()
         });
         let monzo = node.account.preset.as_deref() == Some("uk-monzo");
         let note = if valuations {
             None
+        } else if cash {
+            Some(
+                "Coffer counts forward from your first count and the entries you add. Each later count is checked against them.",
+            )
         } else if monzo {
             Some(
                 "Monzo exports carry no balances, so Coffer counts forward from the ones you enter. Each one is checked against the transactions.",
@@ -627,7 +665,13 @@ impl AccountInspector {
         section(true)
             .gap(spacing::S1)
             .child(section_title_row(
-                if valuations { "Valuations" } else { "Balances" },
+                if valuations {
+                    "Valuations"
+                } else if cash {
+                    "Counts"
+                } else {
+                    "Balances"
+                },
                 add,
             ))
             .children(rows)

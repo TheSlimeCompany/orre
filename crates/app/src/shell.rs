@@ -29,6 +29,13 @@
 //! ([`crate::import::dialog`]); after an import the accounts panel and
 //! Transactions read the database again, and the notification offers Undo.
 //!
+//! Excluding and manual rows (M3.10): ⌘N on Transactions, or a cash
+//! account's "New transaction", opens the New-transaction dialog with the
+//! selected account preset; the Transactions inspector's Source section
+//! asks for the Exclude dialog, the undo-import confirmation and Delete
+//! transaction, which the shell opens like the others. The status bar
+//! counts the transactions and, when there are some, the excluded ones.
+//!
 //! It also owns the accounts ([`Accounts`], M3.2), which the panel, the
 //! Transactions inspector and the account dialogs share, and opens those
 //! dialogs over everything when the panel or inspector asks; and Settings
@@ -79,10 +86,13 @@ use crate::settings::restore::RestoreDialog;
 use crate::settings::store::SettingsStore;
 use crate::settings::{self, Section, SettingsEvent, SettingsView};
 use crate::theme::tokens::{color, size as token_size, typography};
-use crate::transactions::TransactionsEvent;
+use crate::transactions::confirm::{DeleteTransactionDialog, UndoImportDialog};
+use crate::transactions::exclude_dialog::ExcludeDialog;
 use crate::transactions::link_dialog::LinkDialog;
+use crate::transactions::new_transaction::NewTransactionDialog;
 use crate::transactions::store::TransactionStore;
 use crate::transactions::{self, TransactionsView};
+use crate::transactions::{Counts, TransactionsEvent};
 use crate::ui::button::IconButton;
 use crate::ui::empty_state::EmptyState;
 use crate::ui::icon::Glyph;
@@ -122,6 +132,8 @@ gpui_kit::actions!(
         OpenSettings,
         /// ⌘I: import a statement (M3.4).
         ImportStatement,
+        /// ⌘N on Transactions: add a transaction by hand (M3.10).
+        NewTransaction,
     ]
 );
 
@@ -241,7 +253,7 @@ impl View {
 /// Binds the shell's shortcuts and the Transactions table's keys. Call once,
 /// before [`open`] or the first [`ShellView`].
 pub fn init(cx: &mut App) {
-    let bindings: [(&str, Box<dyn Action>); 10] = [
+    let bindings: [(&str, Box<dyn Action>); 11] = [
         ("secondary-1", Box::new(ShowOverview)),
         ("secondary-2", Box::new(ShowTransactions)),
         ("secondary-3", Box::new(ShowTrends)),
@@ -252,6 +264,7 @@ pub fn init(cx: &mut App) {
         ("secondary-8", Box::new(ShowRules)),
         ("secondary-,", Box::new(OpenSettings)),
         ("secondary-i", Box::new(ImportStatement)),
+        ("secondary-n", Box::new(NewTransaction)),
     ];
     let context = Rc::new(
         KeyBindingContextPredicate::parse(SHELL_CONTEXT).expect("the shell's key context parses"),
@@ -388,6 +401,8 @@ pub struct ShellView {
     settings: Entity<SettingsView>,
     /// The dialog open over the window, and its subscription.
     dialog: Option<(AnyView, Subscription)>,
+    /// What the status bar counts, as Transactions last said.
+    counts: Counts,
     /// Where imports go, and the notification after one (M3.4).
     imports: Entity<Imports>,
     /// The Import dialog while it's the one open, for a file dropped on
@@ -494,6 +509,14 @@ impl ShellView {
             cx.subscribe_in(&transactions, window, |this, _, event, window, cx| {
                 this.on_transactions_event(event.clone(), window, cx)
             }),
+            // The status bar's counts follow the register.
+            cx.observe(&transactions, |this, transactions, cx| {
+                let counts = transactions.read(cx).counts();
+                if counts != this.counts {
+                    this.counts = counts;
+                    cx.notify();
+                }
+            }),
         ];
         let imports = cx.new(|_| Imports::sample());
         let mut subscriptions = subscriptions;
@@ -521,6 +544,7 @@ impl ShellView {
             rules_subscriptions: Vec::new(),
             settings,
             dialog: None,
+            counts: Counts::default(),
             imports,
             import_dialog: None,
             panel_focus: cx.focus_handle(),
@@ -768,7 +792,66 @@ impl ShellView {
             TransactionsEvent::Changed => {
                 self.checks.update(cx, |checks, cx| checks.reload(cx));
             }
+            TransactionsEvent::ExcludeRequested(transaction) => {
+                self.open_exclude_dialog(transaction, window, cx);
+            }
+            TransactionsEvent::UndoImportRequested(batch) => {
+                let transactions = self.transactions.clone();
+                let dialog = cx.new(|cx| UndoImportDialog::new(transactions, batch, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            TransactionsEvent::DeleteRequested(transaction) => {
+                let transactions = self.transactions.clone();
+                let dialog = cx
+                    .new(|cx| DeleteTransactionDialog::new(transactions, transaction, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            TransactionsEvent::LedgerChanged => {
+                // Balances, and what the checks compare, moved.
+                self.accounts.update(cx, |accounts, cx| accounts.reload(cx));
+                self.checks.update(cx, |checks, cx| checks.reload(cx));
+            }
         }
+    }
+
+    /// Opens the Exclude dialog on `transaction` ("Exclude…", or "Edit
+    /// reason…" on an excluded row).
+    pub fn open_exclude_dialog(
+        &mut self,
+        transaction: coffer_core::id::TransactionId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<ExcludeDialog> {
+        let transactions = self.transactions.clone();
+        let dialog = cx.new(|cx| ExcludeDialog::new(transactions, transaction, window, cx));
+        self.open_dialog(dialog.clone(), window, cx);
+        dialog
+    }
+
+    /// ⌘N: opens the New-transaction dialog with the selected account
+    /// preset, on Transactions only. Another dialog keeps the window.
+    pub fn open_new_transaction(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<NewTransactionDialog>> {
+        if self.view != View::Transactions || self.dialog.is_some() {
+            return None;
+        }
+        let transactions = self.transactions.clone();
+        let account = transactions.read(cx).selected_account();
+        let dialog = cx.new(|cx| NewTransactionDialog::new(transactions, account, window, cx));
+        self.open_dialog(dialog.clone(), window, cx);
+        Some(dialog)
+    }
+
+    /// Shows `dialog` over the window (snapshots: a dialog built over
+    /// sample data).
+    pub fn show_dialog<D>(&mut self, dialog: Entity<D>, window: &mut Window, cx: &mut Context<Self>)
+    where
+        D: Render + gpui_kit::EventEmitter<DialogClosed>,
+    {
+        self.open_dialog(dialog, window, cx);
     }
 
     /// Opens the link dialog from `from` (a transaction's "Link…", a
@@ -910,6 +993,9 @@ impl ShellView {
                 this.import_dialog = None;
                 // A balance added or a lock changed: the checks read again.
                 this.checks.update(cx, |checks, cx| checks.reload(cx));
+                // A cash count may have added its difference (M3.10).
+                this.transactions
+                    .update(cx, |transactions, cx| transactions.reload(cx));
                 this.focus.focus(window, cx);
                 cx.notify();
             });
@@ -1109,11 +1195,15 @@ impl ShellView {
 /// The status bar, with the Transactions fixture's values on every view
 /// until each reads the database. The first item follows the kill switch
 /// (M3.15): "AI access off" with the `refused` icon while it's off
-/// (Paper `GW6-0`); either opens Settings → AI clients.
-fn status_bar(ai_on: bool, failing: usize, cx: &mut Context<ShellView>) -> StatusBar {
-    // The fixture holds a page of the month; the status bar counts the
-    // whole import, as Paper does.
-    const IMPORTED: usize = 328;
+/// (Paper `GW6-0`); either opens Settings → AI clients. The transactions
+/// count is the database's (M3.10), "· 2 excluded" after it when some are
+/// (D6.3, `3FE-0`); the sample data keeps the artboard's 328.
+fn status_bar(
+    ai_on: bool,
+    failing: usize,
+    counts: Counts,
+    cx: &mut Context<ShellView>,
+) -> StatusBar {
     let shell = cx.entity().downgrade();
     let open = move |window: &mut Window, cx: &mut gpui_kit::App| {
         let _ = shell.update(cx, |shell, cx| shell.show_ai_clients(window, cx));
@@ -1144,11 +1234,32 @@ fn status_bar(ai_on: bool, failing: usize, cx: &mut Context<ShellView>) -> Statu
         .start(StatusItem::text(
             "Imported 2 min ago from monzo-november.csv",
         ))
-        .start(StatusItem::mono(SharedString::from(format!(
-            "{IMPORTED} transactions"
+        .start(StatusItem::mono(SharedString::from(transactions_count(
+            counts,
         ))))
         .end(StatusItem::text("3 new").new_dot())
         .end(StatusItem::mono("GBP"))
+}
+
+/// "328 transactions", or "328 transactions · 2 excluded".
+fn transactions_count(counts: Counts) -> String {
+    // The fixture holds a page of the month; the status bar counts the
+    // whole import, as Paper does.
+    const IMPORTED: usize = 328;
+    let transactions = if counts.sample {
+        IMPORTED
+    } else {
+        counts.transactions
+    };
+    let noun = if transactions == 1 {
+        "transaction"
+    } else {
+        "transactions"
+    };
+    match counts.excluded {
+        0 => format!("{transactions} {noun}"),
+        excluded => format!("{transactions} {noun} · {excluded} excluded"),
+    }
 }
 
 impl Render for ShellView {
@@ -1229,6 +1340,9 @@ impl Render for ShellView {
                 .on_action(cx.listener(|this, _: &ImportStatement, window, cx| {
                     this.open_import(None, window, cx)
                 }))
+                .on_action(cx.listener(|this, _: &NewTransaction, window, cx| {
+                    this.open_new_transaction(window, cx);
+                }))
                 // A statement dropped anywhere on the window (`6J4-0`).
                 .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
                     if let Some(path) = paths.paths().first().cloned() {
@@ -1246,6 +1360,7 @@ impl Render for ShellView {
                 .child(status_bar(
                     self.settings.read(cx).ai_on(),
                     self.checks.read(cx).failing(),
+                    self.transactions.read(cx).counts(),
                     cx,
                 ))
                 .when_some(

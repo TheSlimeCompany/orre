@@ -25,6 +25,12 @@
 //!   charts and table agree. Amounts in different currencies are never
 //!   added: the ranking uses the currency with the most spending lines.
 //!
+//! - **Source and exclusion** (M3.10): each row says where it came from
+//!   ([`RowSource`]: its import batch's file and day, or the day the user
+//!   added it) and, when excluded, the user's details and the day. Days
+//!   are local, read from the stored UTC times through SQLite's
+//!   `localtime`, as [`crate::schedule::local_today`] reads today.
+//!
 //! Text search matches the display merchant, the bank's merchant and the
 //! raw description, ignoring case. That text is the user's own data and
 //! untrusted: it is only ever matched and shown, and nothing here logs it.
@@ -40,9 +46,11 @@ use crate::account::{self, AccountKind};
 use crate::category::{CategoryKey, CategoryKind, CategoryTree};
 use crate::db::Reader;
 use crate::exclusion::ExclusionReason;
-use crate::id::{AccountId, LinkId, RuleId, TagId, TransactionId};
+use crate::id::{AccountId, BatchId, LinkId, RuleId, TagId, TransactionId, TransferGroupId};
 use crate::link::{LinkKind, LinkStatus, PersonOwed};
+use crate::manual::Origin;
 use crate::money::{Currency, Money};
+use crate::transfer::TransferStatus;
 
 use super::{DateRange, Error, Ledger};
 
@@ -73,6 +81,9 @@ pub struct RegisterCategory {
     /// Its group's ID; `None` for a group.
     pub group: Option<i64>,
     pub colour: Colour,
+    /// The user hid it, or its group (M3.7): left out of the menus that
+    /// set a category, kept in the Category filter and on its rows.
+    pub hidden: bool,
 }
 
 /// An account as the table names it (closed ones too: their rows stay).
@@ -81,6 +92,8 @@ pub struct RegisterAccount {
     pub id: AccountId,
     pub name: String,
     pub kind: AccountKind,
+    /// What its amounts are in: a new manual row's (M3.10).
+    pub currency: Currency,
 }
 
 /// A tag as the inspector shows it.
@@ -187,6 +200,47 @@ impl RowShare {
     }
 }
 
+/// Where a row came from: the inspector's Source section (M3.10). Dates
+/// are local days, read from the stored UTC times.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RowSource {
+    /// From an import: the bank's row (`imported`), or the pot side an
+    /// import created for it (`mirrored`). Undoing the batch removes it.
+    Import {
+        batch: BatchId,
+        /// The file's name, without its directory.
+        file: String,
+        imported_on: NaiveDate,
+        origin: Origin,
+    },
+    /// Entered by the user (`manual`): every field can change, and it can
+    /// be deleted.
+    Manual { created_on: NaiveDate },
+}
+
+impl RowSource {
+    /// Whether the user entered it.
+    pub fn is_manual(&self) -> bool {
+        matches!(self, RowSource::Manual { .. })
+    }
+
+    /// The import batch it came from, if any.
+    pub fn batch(&self) -> Option<BatchId> {
+        match self {
+            RowSource::Import { batch, .. } => Some(*batch),
+            RowSource::Manual { .. } => None,
+        }
+    }
+}
+
+/// The transfer pair a row is in (M3.8).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowPair {
+    pub group: TransferGroupId,
+    /// `Suggested` or `Confirmed`.
+    pub status: TransferStatus,
+}
+
 /// One transaction in the table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegisterRow {
@@ -214,6 +268,13 @@ pub struct RegisterRow {
     /// left out of the day nets, and the table names them by the other side.
     pub transfer: Option<Vec<AccountId>>,
     pub excluded: Option<ExclusionReason>,
+    /// The user's details of the exclusion: user text, like the note.
+    /// `None` when there are none or the row isn't excluded (M3.10).
+    pub excluded_note: Option<String>,
+    /// The local day it was excluded; `None` when it isn't (M3.10).
+    pub excluded_on: Option<NaiveDate>,
+    /// Where it came from (M3.10).
+    pub source: RowSource,
     /// The user's own note.
     pub note: Option<String>,
     /// The bank's note, as imported: read-only.
@@ -228,6 +289,10 @@ pub struct RegisterRow {
     pub splittable: bool,
     /// In a suggested or confirmed transfer: no links, no share (M3.11).
     pub in_transfer: bool,
+    /// The suggested or confirmed transfer pair it's in: the inspector's
+    /// Transfer section (M3.8, [`super::pairing`]). `None` outside a pair
+    /// and for a pair the user rejected.
+    pub pair: Option<RowPair>,
     /// Its suggested and confirmed links, oldest first (M3.11).
     pub links: Vec<RowLink>,
     /// How it is shared and what it can still take (M3.11).
@@ -596,6 +661,60 @@ impl Register {
         }
     }
 
+    /// `filter` with the parts that hide row `id` cleared, so the table
+    /// shows it: a new row the user just added (M3.10), or one they asked
+    /// to see again. Parts that already show it stay as they are; an
+    /// excluded row turns the Excluded filter on. `None` when the register
+    /// has no such row.
+    pub fn filter_showing(&self, filter: &Filter, id: TransactionId) -> Option<Filter> {
+        let index = *self.by_id.get(&id)?;
+        let row = &self.rows[index];
+        let mut shown = filter.clone();
+        if row.excluded.is_some() {
+            shown.include_excluded = true;
+        }
+        if filter.account.is_some_and(|account| account != row.account) {
+            shown.account = None;
+        }
+        if filter
+            .dates
+            .is_some_and(|range| !(range.from() <= row.date && row.date <= range.to()))
+        {
+            shown.dates = None;
+        }
+        if filter
+            .category
+            .is_some_and(|wanted| !self.in_category(row, wanted))
+        {
+            shown.category = None;
+        }
+        if filter.uncategorised && !row.is_uncategorised() {
+            shown.uncategorised = false;
+        }
+        if !self.row_matches(id, &filter.text) {
+            shown.text.clear();
+        }
+        Some(shown)
+    }
+
+    /// Whether `row`, or a line of it when it's split, is in category
+    /// `wanted` or, for a group, one of its subcategories.
+    fn in_category(&self, row: &RegisterRow, wanted: i64) -> bool {
+        let in_wanted = |id: i64| {
+            id == wanted
+                || self
+                    .category(id)
+                    .is_some_and(|category| category.group == Some(wanted))
+        };
+        match &row.category {
+            RowCategory::Uncategorised => false,
+            RowCategory::Category(id) => in_wanted(*id),
+            RowCategory::Split(parts) => parts
+                .iter()
+                .any(|part| part.category.is_some_and(in_wanted)),
+        }
+    }
+
     /// Every part of `filter` but the text and `uncategorised`.
     fn matches(&self, row: &RegisterRow, filter: &Filter) -> bool {
         if row.excluded.is_some() && !filter.include_excluded {
@@ -609,23 +728,10 @@ impl Register {
         {
             return false;
         }
-        if let Some(wanted) = filter.category {
-            let in_wanted = |id: i64| {
-                id == wanted
-                    || self
-                        .category(id)
-                        .is_some_and(|category| category.group == Some(wanted))
-            };
-            let matched = match &row.category {
-                RowCategory::Uncategorised => false,
-                RowCategory::Category(id) => in_wanted(*id),
-                RowCategory::Split(parts) => parts
-                    .iter()
-                    .any(|part| part.category.is_some_and(in_wanted)),
-            };
-            if !matched {
-                return false;
-            }
+        if let Some(wanted) = filter.category
+            && !self.in_category(row, wanted)
+        {
+            return false;
         }
         true
     }
@@ -716,7 +822,7 @@ fn net<'a>(rows: impl Iterator<Item = &'a RegisterRow>) -> Vec<Money> {
 }
 
 fn load_accounts(conn: &Connection) -> Result<Vec<RegisterAccount>, Error> {
-    let mut statement = conn.prepare("SELECT id, name, kind FROM account ORDER BY id")?;
+    let mut statement = conn.prepare("SELECT id, name, kind, currency FROM account ORDER BY id")?;
     let accounts = statement
         .query_map([], |row| {
             let kind: String = row.get("kind")?;
@@ -724,6 +830,7 @@ fn load_accounts(conn: &Connection) -> Result<Vec<RegisterAccount>, Error> {
                 id: row.get("id")?,
                 name: row.get("name")?,
                 kind: AccountKind::from_key(&kind).ok_or_else(|| account::invalid(row, "kind"))?,
+                currency: row.get("currency")?,
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -752,6 +859,7 @@ fn load_categories(reader: &Reader, today: NaiveDate) -> Result<Vec<RegisterCate
             kind: parent.kind(),
             group: None,
             colour,
+            hidden: parent.is_hidden(),
         });
         for child in group.children() {
             categories.push(RegisterCategory {
@@ -761,6 +869,7 @@ fn load_categories(reader: &Reader, today: NaiveDate) -> Result<Vec<RegisterCate
                 kind: child.kind(),
                 group: Some(parent.id()),
                 colour,
+                hidden: !tree.is_visible(child.key()),
             });
         }
     }
@@ -961,12 +1070,16 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
                 t.original_amount_minor, t.original_currency, t.merchant, \
                 t.merchant_display, t.merchant_display_source, t.description_raw, \
                 t.source_type, t.category_id, t.rule_id, t.excluded_reason, t.user_note, \
-                t.note, g.status AS transfer_status, t.my_share_minor, t.share_label, \
-                t.reimbursable, \
+                t.note, g.status AS transfer_status, t.transfer_group_id, t.my_share_minor, t.share_label, \
+                t.reimbursable, t.excluded_note, t.origin, t.batch_id, b.source_file, \
+                date(t.excluded_at, 'localtime') AS excluded_on, \
+                date(t.created_at, 'localtime') AS created_on, \
+                date(b.imported_at, 'localtime') AS imported_on, \
                 EXISTS (SELECT 1 FROM transaction_link k \
                          WHERE k.inflow_id = t.id AND k.status = 'confirmed') AS linked_in \
            FROM \"transaction\" t \
            LEFT JOIN transfer_group g ON g.id = t.transfer_group_id \
+           LEFT JOIN import_batch b ON b.id = t.batch_id \
           ORDER BY t.date DESC, t.id DESC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -993,6 +1106,23 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
                     .ok_or_else(|| account::invalid(row, "excluded_reason"))
             })
             .transpose()?;
+        let origin: String = row.get("origin")?;
+        let origin = Origin::from_key(&origin).ok_or_else(|| account::invalid(row, "origin"))?;
+        let source = match (origin, row.get::<_, Option<BatchId>>("batch_id")?) {
+            (Origin::Manual, _) | (_, None) => RowSource::Manual {
+                created_on: account::date(row, "created_on")?,
+            },
+            (origin, Some(batch)) => RowSource::Import {
+                batch,
+                file: row.get("source_file")?,
+                imported_on: account::date(row, "imported_on")?,
+                origin,
+            },
+        };
+        let excluded_on = match excluded {
+            Some(_) => Some(account::date(row, "excluded_on")?),
+            None => None,
+        };
         let bank_merchant: Option<String> = row.get("merchant")?;
         let display: Option<String> = row.get("merchant_display")?;
         let description: String = row.get("description_raw")?;
@@ -1006,6 +1136,15 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
         let transfer_status: Option<String> = row.get("transfer_status")?;
         let confirmed = transfer_status.as_deref() == Some("confirmed");
         let in_transfer = matches!(transfer_status.as_deref(), Some("suggested" | "confirmed"));
+        let pair = match transfer_status
+            .as_deref()
+            .and_then(TransferStatus::from_key)
+        {
+            Some(status @ (TransferStatus::Suggested | TransferStatus::Confirmed)) => row
+                .get::<_, Option<TransferGroupId>>("transfer_group_id")?
+                .map(|group| RowPair { group, status }),
+            _ => None,
+        };
         let linked_in: bool = row.get("linked_in")?;
         let category = match row.get::<_, Option<i64>>("category_id")? {
             Some(category) => RowCategory::Category(category),
@@ -1035,6 +1174,9 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
             rule: row.get("rule_id")?,
             transfer: confirmed.then(Vec::new),
             excluded,
+            excluded_note: row.get("excluded_note")?,
+            excluded_on,
+            source,
             note: row.get("user_note")?,
             bank_note: row.get("note")?,
             merchant_set: row
@@ -1044,6 +1186,7 @@ fn load_rows(conn: &Connection) -> Result<Vec<RegisterRow>, Error> {
             tags: Vec::new(),
             splittable: !in_transfer && !linked_in,
             in_transfer,
+            pair,
             links: Vec::new(),
             share,
         })

@@ -25,6 +25,8 @@ pub const CURRENT: AccountId = AccountId::new(1);
 pub const JOINT: AccountId = AccountId::new(4);
 /// Amex, with no balance (states board only).
 pub const AMEX: AccountId = AccountId::new(7);
+/// D6.9's Cash ([`valued`]): counted on 1 Nov, £23.00 by 10 Nov.
+pub const CASH: AccountId = AccountId::new(8);
 /// D6.9's House, valued five times ([`valued`]).
 pub const HOUSE: AccountId = AccountId::new(9);
 /// D6.9's Mortgage, a liability ([`valued`]).
@@ -200,7 +202,7 @@ pub fn valued() -> AccountsData {
         .retain(|node| node.account.name != "Stocks ISA");
     data.details.remove(&AccountId::new(6));
     let cash = node(
-        account(8, "Cash", AccountKind::Cash, None),
+        account(CASH.get(), "Cash", AccountKind::Cash, None),
         Some((2_300, date(10))),
     );
     let on = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a date");
@@ -249,12 +251,23 @@ pub fn valued() -> AccountsData {
     }
     net_worth.add(gbp(2_300)).expect("the fixture's sums fit");
     data.details.insert(
-        AccountId::new(8),
+        CASH,
         AccountDetail {
             usage: Usage {
                 transactions: 4,
+                balances: 1,
                 ..Usage::default()
             },
+            // The count Cash counts forward from: £50.00 on 1 Nov, and
+            // what the entries since leave of it.
+            balances: vec![StoredBalance {
+                id: Some(BalanceId::new(2)),
+                date: date(1),
+                balance: gbp(5_000),
+                source: BalanceSource::Manual,
+                note: None,
+            }],
+            cash_expected: Some(gbp(2_300)),
             deletion: coffer_core::account::Deletion {
                 values: 0,
                 refused: Some(coffer_core::account::DeleteLock::Transactions),

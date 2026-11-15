@@ -185,10 +185,20 @@ pub fn total(rows: &[&RegisterRow]) -> Vec<Money> {
 }
 
 /// The category menu: each group under its own caps label, the group's own
-/// category first, then its subcategories. Keys are category IDs.
+/// category first, then its subcategories. Keys are category IDs. Hidden
+/// categories aren't offered (M3.7); a row filed under one still shows it.
 pub fn category_groups(register: &Register) -> Vec<MenuGroup> {
+    groups_of(register, false)
+}
+
+/// [`category_groups`], with hidden categories when `hidden`.
+fn groups_of(register: &Register, hidden: bool) -> Vec<MenuGroup> {
     let mut groups: Vec<MenuGroup> = Vec::new();
-    for category in register.categories() {
+    for category in register
+        .categories()
+        .iter()
+        .filter(|category| hidden || !category.hidden)
+    {
         let option = MenuOption::new(category.id.to_string(), category.label.clone())
             .marker(marker(category.colour));
         match category.group {
@@ -202,13 +212,14 @@ pub fn category_groups(register: &Register) -> Vec<MenuGroup> {
     groups
 }
 
-/// The Category filter's menu: "All categories", then [`category_groups`].
+/// The Category filter's menu: "All categories", then every category,
+/// hidden ones too: their history can still be filtered to.
 pub fn category_filter_groups(register: &Register) -> Vec<MenuGroup> {
     let mut groups = vec![MenuGroup::new(
         None,
         vec![MenuOption::new(ALL, "All categories")],
     )];
-    groups.extend(category_groups(register));
+    groups.extend(groups_of(register, true));
     groups
 }
 
@@ -272,6 +283,16 @@ pub fn categorised_message(count: usize, label: &str) -> SharedString {
         format!("{count} transactions")
     };
     format!("Categorised {what} as {label}").into()
+}
+
+/// The failure bar's message after an edit typed on a row the user then
+/// left didn't save: "Couldn't save the change to Corner shop". Short, as
+/// the bar is one line; its Show says why, under the row's fields.
+pub fn unsaved_message(merchant: Option<&str>) -> String {
+    match merchant.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => format!("Couldn't save the change to {name}"),
+        None => "Couldn't save the change".to_owned(),
+    }
 }
 
 /// The tag menu's "Create “…”" option: a public tag named as typed.
@@ -478,6 +499,28 @@ mod tests {
             "−€12.00 · −£5.00"
         );
         assert_eq!(net(&[]), "");
+    }
+
+    /// A hidden category leaves the menus that set one, not the filter.
+    #[test]
+    fn hidden_categories_stay_in_the_filter_only() {
+        let register = fixture::register();
+        let mut categories = register.categories().to_vec();
+        categories[1].hidden = true;
+        let hidden = categories[1].id.to_string();
+        let register = Register::new(
+            register.rows().to_vec(),
+            register.accounts().to_vec(),
+            categories,
+        );
+        let offers = |groups: Vec<MenuGroup>| {
+            groups
+                .iter()
+                .flat_map(|group| group.options.iter())
+                .any(|option| option.key.as_ref() == hidden)
+        };
+        assert!(!offers(category_groups(&register)));
+        assert!(offers(category_filter_groups(&register)));
     }
 
     #[test]

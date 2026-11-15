@@ -46,6 +46,7 @@ pub mod catalog;
 pub mod ledger;
 pub mod linking;
 pub mod net_worth;
+pub mod pairing;
 pub mod palette;
 pub mod period;
 pub mod register;

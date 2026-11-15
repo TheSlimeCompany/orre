@@ -390,6 +390,11 @@ enum CategoryKind {
     Transfer {
         label: SharedString,
     },
+    /// Left out of totals (D6.3, Paper `3FE-0`): the 12px `excluded` icon
+    /// in the marker lane and "Excluded · {reason}".
+    Excluded {
+        reason: SharedString,
+    },
 }
 
 impl CategoryCell {
@@ -454,8 +459,26 @@ impl CategoryCell {
         )
     }
 
+    /// An excluded row (D6.3, Paper `3FE-0`): "Excluded · Bank error" after
+    /// the 12px `excluded` icon. The merchant, account and amount go
+    /// `text-muted` and the amount is struck through; selected, the muted
+    /// text lifts to `text-secondary`, not `text`, so the row still reads as
+    /// excluded.
+    pub fn excluded(reason: impl Into<SharedString>) -> Self {
+        Self(
+            CategoryKind::Excluded {
+                reason: reason.into(),
+            },
+            None,
+        )
+    }
+
     pub fn is_transfer(&self) -> bool {
         matches!(self.0, CategoryKind::Transfer { .. })
+    }
+
+    pub fn is_excluded(&self) -> bool {
+        matches!(self.0, CategoryKind::Excluded { .. })
     }
 
     /// The category's name as a screen reader hears it.
@@ -466,6 +489,7 @@ impl CategoryCell {
             CategoryKind::Uncategorised => "Uncategorised".into(),
             CategoryKind::Suggested { name } => format!("{name}, suggested").into(),
             CategoryKind::Transfer { label } => label.clone(),
+            CategoryKind::Excluded { reason } => format!("Excluded, {reason}").into(),
         };
         match &self.1 {
             Some(suffix) => format!("{name}, {suffix}").into(),
@@ -488,6 +512,19 @@ impl RowColors {
     /// fill with text labels"); hover changes only the fill. The agent's
     /// colour keeps its meaning in every state.
     fn new(category: &CategoryCell, selected: bool) -> Self {
+        if category.is_excluded() {
+            let muted = if selected {
+                color::TEXT_SECONDARY
+            } else {
+                color::TEXT_MUTED
+            };
+            return Self {
+                merchant: muted,
+                category: muted,
+                account: muted,
+                amount: muted,
+            };
+        }
         let lift = |rest: Rgba| if selected { color::TEXT } else { rest };
         let transfer = category.is_transfer();
         let dimmed = |rest: Rgba| lift(if transfer { color::TEXT_MUTED } else { rest });
@@ -497,9 +534,9 @@ impl RowColors {
                 CategoryKind::Assigned { .. } | CategoryKind::Repays { .. } => {
                     lift(color::TEXT_SECONDARY)
                 }
-                CategoryKind::Uncategorised | CategoryKind::Transfer { .. } => {
-                    lift(color::TEXT_MUTED)
-                }
+                CategoryKind::Uncategorised
+                | CategoryKind::Transfer { .. }
+                | CategoryKind::Excluded { .. } => lift(color::TEXT_MUTED),
                 CategoryKind::Suggested { .. } => color::MOLDAVITE_TEXT,
             },
             account: lift(color::TEXT_MUTED),
@@ -698,6 +735,12 @@ impl TransactionRow {
                 )
                 .child(label(name.clone())),
             CategoryKind::Transfer { label: name } => cell.child(label(name.clone())),
+            // The 12px icon is 4px wider than a marker: a 4px tighter gap
+            // keeps the name in the markers' lane (12 + 4 = 8 + 8).
+            CategoryKind::Excluded { reason } => cell
+                .gap(spacing::S1)
+                .child(Glyph::Excluded.render().text_color(text))
+                .child(label(format!("Excluded · {reason}").into())),
         };
         let on_edit = self.on_edit_category.take();
         let menu = self.category_menu.take();
@@ -769,6 +812,7 @@ impl RenderOnce for TransactionRow {
                             .whitespace_nowrap()
                             .text_role(typography::MONO_AMOUNT)
                             .text_color(colors.amount)
+                            .when(self.category.is_excluded(), |this| this.line_through())
                             .child(self.amount.clone()),
                     )
                     .when_some(self.original_amount.clone(), |this, original| {

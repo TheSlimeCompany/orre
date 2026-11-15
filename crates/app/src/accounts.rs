@@ -76,8 +76,10 @@ pub fn init(cx: &mut gpui_kit::App) {
 }
 
 use chrono::NaiveDate;
+use coffer_core::account::count::Expectation;
 use coffer_core::account::{AccountEdit, EnteredBalance, NewAccount};
 use coffer_core::id::AccountId;
+use coffer_core::money::Money;
 use coffer_core::reporting::account_tree::AccountNode;
 use gpui_kit::{Context, EventEmitter, SharedString};
 
@@ -431,6 +433,57 @@ impl Accounts {
     ) -> Result<(), SharedString> {
         self.store()?
             .delete(account)
+            .map_err(|error| SharedString::from(error.to_string()))?;
+        self.reload(cx);
+        Ok(())
+    }
+
+    /// What Coffer expects of a cash count of `counted` on `date` in
+    /// `account`, and how far the count is from it. Sample data answers from
+    /// [`data::AccountDetail::cash_expected`].
+    pub fn cash_expectation(
+        &self,
+        account: AccountId,
+        date: NaiveDate,
+        counted: Money,
+    ) -> Result<Expectation, SharedString> {
+        match &self.source {
+            Source::Database(store) => store
+                .cash_expectation(account, date, counted)
+                .map_err(|error| SharedString::from(error.to_string())),
+            Source::Fixture => {
+                let detail = self.data.detail(account);
+                let since = detail
+                    .and_then(|detail| detail.balances.first())
+                    .map(|count| count.date);
+                let expected = detail.and_then(|detail| detail.cash_expected);
+                Ok(Expectation {
+                    since,
+                    expected,
+                    difference: expected
+                        .map(|expected| counted.checked_sub(expected))
+                        .transpose()
+                        .map_err(|error| SharedString::from(error.to_string()))?,
+                })
+            }
+        }
+    }
+
+    /// Records a cash count for `account`, with the "Cash count difference"
+    /// transaction when `add_difference`. The error says why it wasn't.
+    ///
+    /// Reloads the accounts, so the panel's balance changes. A difference
+    /// transaction also changes what Transactions shows, which the shell has
+    /// to read again once the dialog closes.
+    pub fn count_cash(
+        &mut self,
+        account: AccountId,
+        count: &EnteredBalance,
+        add_difference: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        self.store()?
+            .count_cash(account, count, add_difference)
             .map_err(|error| SharedString::from(error.to_string()))?;
         self.reload(cx);
         Ok(())

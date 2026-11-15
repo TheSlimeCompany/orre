@@ -10,6 +10,15 @@
 //! - **A merchant name**: Match (Test, Text, Shows as), the bank text it
 //!   catches, the footer (Added on, Delete name…).
 //! - **A change**: what changed, row by row, and Undo this change….
+//! - **A category** (composed, not drawn: the name inspector's layout): the
+//!   label as title, the transactions filed under it as the figure;
+//!   Category (Name, saved on blur and Enter as a rename; Group and Kind
+//!   locked, as the account inspector's Currency); Used by (the five
+//!   counts); In pickers (Hide or Show); the footer (the key in mono, and
+//!   "Delete category…" only when nothing uses it). A new category has
+//!   Name, Group ("New group" or a group) and Kind (a segmented control for
+//!   a new group, else the group's, locked), the key it will get, and
+//!   "Create category".
 //!
 //! Composed, not drawn (`DESIGN.md` → "Rules" → "Built in M3.13"): the
 //! Amount condition's second row, the Split action's lines, the Exclude
@@ -27,7 +36,9 @@ use gpui_kit::{
 use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
 use crate::theme::tokens::{color, font, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
-use crate::ui::field::{self as fields, FieldRow, SelectField, error_caption, text_input};
+use crate::ui::field::{
+    self as fields, FieldRow, LockedValue, SelectField, error_caption, text_input,
+};
 use crate::ui::icon::Glyph;
 use crate::ui::inspector::{caption, section, section_title_row};
 use crate::ui::marker::Marker;
@@ -37,10 +48,10 @@ use crate::ui::tag::{AddTagPill, TagPill};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
 
-use super::form::{ActionForm, AmountChoice, Direction, FormError, NameError};
+use super::form::{ActionForm, AmountChoice, CategoryError, Direction, FormError, NameError};
 use super::text::{self, Part, rich};
 use super::view::{Input, Menu, RulesView, amount_label};
-use super::{NameSelection, Rules, Section};
+use super::{CategorySelection, NameSelection, Rules, Section};
 
 /// The inspector for the open section.
 pub fn render(
@@ -54,6 +65,7 @@ pub fn render(
         Section::Rules => rule_sections(view, entity, window, cx),
         Section::Names => name_sections(view, entity, window, cx),
         Section::History => change_sections(entity, window, cx),
+        Section::Categories => category_sections(view, entity, window, cx),
     };
     div()
         .id("rules-inspector")
@@ -170,7 +182,7 @@ fn select(
             .filter(&view.menu_filter)
             .max_height(size::CONTROL * super::view::MENU_ROWS);
     }
-    if menu == Menu::Position {
+    if matches!(menu, Menu::Position | Menu::CategoryGroup) {
         select = select.max_height(size::CONTROL * super::view::MENU_ROWS);
     }
     select.into_any_element()
@@ -1339,5 +1351,346 @@ fn change_sections(
             );
     }
     sections.push(changed.into_any_element());
+    sections
+}
+
+// A category ---------------------------------------------------------------------
+
+/// The Name field, in a 1px `danger` border with the `alert` icon when
+/// `error` (the pattern field's error state).
+fn category_name_field(view: &RulesView, error: bool) -> AnyElement {
+    match view.input(Input::CategoryName) {
+        Some(state) => text_input(state)
+            .w_full()
+            .when(error, |this| {
+                this.border(size::HAIRLINE)
+                    .border_color(color::DANGER)
+                    .suffix(Glyph::Alert.render().text_color(color::DANGER))
+            })
+            .into_any_element(),
+        None => div().into_any_element(),
+    }
+}
+
+/// The error under a field, lined up with the controls.
+fn under_field(words: &'static str) -> AnyElement {
+    div()
+        .pl(size::FIELD_LABEL + spacing::S2)
+        .child(error_caption(words))
+        .into_any_element()
+}
+
+fn category_sections(
+    view: &RulesView,
+    entity: &Entity<Rules>,
+    window: &mut Window,
+    cx: &mut Context<RulesView>,
+) -> Vec<AnyElement> {
+    match entity.read(cx).selected_category() {
+        None => {
+            nothing("Select a category to rename, hide or delete it, or add one with New category.")
+        }
+        Some(CategorySelection::New) => new_category_sections(view, entity, window, cx),
+        Some(CategorySelection::Stored(_)) => stored_category_sections(view, entity, window, cx),
+    }
+}
+
+fn stored_category_sections(
+    view: &RulesView,
+    entity: &Entity<Rules>,
+    window: &mut Window,
+    cx: &mut Context<RulesView>,
+) -> Vec<AnyElement> {
+    let rules = entity.read(cx);
+    let Some((summary, group)) = rules.selected_category_entry() else {
+        return nothing("Select a category to rename, hide or delete it.");
+    };
+    let (summary, group) = (summary.clone(), group.group.category.clone());
+    let subcategories = rules
+        .data()
+        .category_group(summary.category.key())
+        .map_or(0, |group| group.children.len());
+    let error = rules.category_error();
+    let category = &summary.category;
+    let usage = summary.usage;
+    let is_group = category.is_group();
+    let group_hidden = !is_group && group.is_hidden();
+
+    // Header.
+    let rows = usage.transactions + usage.split_lines;
+    let place = if is_group {
+        format!(
+            "transactions · a group of {}",
+            text::count(subcategories, "subcategory", "subcategories")
+        )
+    } else {
+        format!("transactions · in {}", group.label())
+    };
+    let hidden_words = if category.is_hidden() || group_hidden {
+        " · hidden"
+    } else {
+        ""
+    };
+    let mut sections = vec![header(
+        window,
+        vec![Part::text(category.label().to_owned())],
+        Some((rows.to_string(), rows == 0)),
+        Some(caption_line(format!("{place}{hidden_words}"))),
+    )];
+
+    // Category.
+    let mut fields_section = section(true)
+        .gap(spacing::S2)
+        .child(section_title_row("Category", None))
+        .child(FieldRow::new(
+            "Name",
+            category_name_field(view, error.is_some()),
+        ));
+    if let Some(error) = &error {
+        fields_section = fields_section.child(under_field(error.message()));
+    }
+    fields_section = fields_section
+        .child(FieldRow::new(
+            "Group",
+            LockedValue::new(if is_group {
+                "None: it’s a group".to_owned()
+            } else {
+                group.label().to_owned()
+            }),
+        ))
+        .child(FieldRow::new(
+            "Kind",
+            LockedValue::new(text::category_kind(category.kind())),
+        ))
+        .child(fields::caption(
+            "Renaming changes only what you see. Rules, presets and AI clients use the key, which \
+             never changes, so a category can’t move to another group or change its kind.",
+        ));
+    sections.push(fields_section.into_any_element());
+
+    // Used by.
+    let count_row = |label: &'static str, count: usize| {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(spacing::S2)
+            .h(size::CONTROL_SM)
+            .child(
+                div()
+                    .flex_1()
+                    .text_role(typography::BODY)
+                    .text_color(color::TEXT_SECONDARY)
+                    .child(label),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_role(typography::MONO_VALUE)
+                    .text_color(if count == 0 {
+                        color::TEXT_FAINT
+                    } else {
+                        color::TEXT
+                    })
+                    .child(count.to_string()),
+            )
+    };
+    let deletable = usage.is_unused() && subcategories == 0;
+    let use_words = if deletable {
+        "Nothing uses it, so it can be deleted."
+    } else if usage.only_suggestions() {
+        "Only pending Inbox suggestions use it. Approve or reject them in the Inbox, then it \
+         can be deleted."
+    } else if !usage.is_unused() {
+        "In use, so it can’t be deleted. Hide it to stop offering it; what’s filed under it \
+         stays."
+    } else {
+        "A group with subcategories can’t be deleted. Delete or hide them first."
+    };
+    sections.push(
+        section(true)
+            .gap(spacing::S2)
+            .child(section_title_row("Used by", None))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(spacing::S1)
+                    .child(count_row("Transactions", usage.transactions))
+                    .child(count_row("Split lines", usage.split_lines))
+                    .child(count_row("Rules", usage.rules))
+                    .child(count_row("Budgets", usage.budgets))
+                    .child(count_row("Schedules", usage.schedules))
+                    .child(count_row("Inbox suggestions", usage.suggestions)),
+            )
+            .child(fields::caption(use_words))
+            .into_any_element(),
+    );
+
+    // In pickers.
+    let hidden = category.is_hidden();
+    let picker_words = match (hidden, group_hidden) {
+        (_, true) => format!(
+            "Hidden with its group, {}: it isn’t offered when you choose a category. Show the \
+             group to offer it again.",
+            group.label()
+        ),
+        (true, false) => "Hidden: it isn’t offered when you choose a category. Its transactions, \
+                          rules and reports stay as they are."
+            .to_owned(),
+        (false, false) if is_group => "Offered when you choose a category. Hiding it keeps its \
+                                       transactions and reports, and hides its subcategories \
+                                       with it."
+            .to_owned(),
+        (false, false) => "Offered when you choose a category. Hiding it keeps its transactions \
+                           and reports as they are."
+            .to_owned(),
+    };
+    let toggle = {
+        let entity = entity.clone();
+        Button::new(
+            "rules-category-hide",
+            if hidden {
+                "Show category"
+            } else {
+                "Hide category"
+            },
+        )
+        .with_variant(ButtonVariant::Outline)
+        .on_click(move |_, _, cx| {
+            entity.update(cx, |rules, cx| rules.set_category_hidden(!hidden, cx))
+        })
+    };
+    sections.push(
+        section(true)
+            .gap(spacing::S2)
+            .child(section_title_row("In pickers", None))
+            .child(fields::caption(picker_words))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(spacing::S1_5)
+                    .pt(spacing::S1)
+                    .child(toggle),
+            )
+            .into_any_element(),
+    );
+
+    // Footer.
+    let action = if deletable {
+        Button::new("rules-delete-category", "Delete category…")
+            .with_variant(ButtonVariant::DestructiveCompact)
+            .on_click(cx.listener(|this, _, window, cx| this.request_delete_category(window, cx)))
+            .into_any_element()
+    } else {
+        div().into_any_element()
+    };
+    sections.push(footer(
+        "Key ",
+        Some(category.key().as_str().to_owned()),
+        action,
+    ));
+    sections
+}
+
+fn new_category_sections(
+    view: &RulesView,
+    entity: &Entity<Rules>,
+    window: &mut Window,
+    cx: &mut Context<RulesView>,
+) -> Vec<AnyElement> {
+    let rules = entity.read(cx);
+    let Some(form) = rules.category_form().cloned() else {
+        return Vec::new();
+    };
+    let error = rules.category_error();
+    let data = rules.data();
+    let group = form
+        .group
+        .as_ref()
+        .and_then(|key| data.category_group(key))
+        .map(|group| group.group.category.clone());
+    let key = (!form.name.trim().is_empty()).then(|| {
+        coffer_core::category::derive_key(&form.name, group.as_ref().map(|g| g.key()), |key| {
+            data.category(key).is_some()
+        })
+    });
+    let title = if form.name.trim().is_empty() {
+        "New category".to_owned()
+    } else {
+        form.name.trim().to_owned()
+    };
+    let mut sections = vec![header(
+        window,
+        vec![Part::text(title)],
+        None,
+        Some(caption_line("new category, not added yet")),
+    )];
+
+    // A blank name only disables Create; a taken one says so.
+    let taken = error == Some(CategoryError::Taken);
+    let group_field = match &group {
+        Some(group) => SelectField::new("rules-category-group-field", group.label().to_owned())
+            .marker(super::table::marker(data, group.key())),
+        None => SelectField::new("rules-category-group-field", "New group"),
+    };
+    let kind_control = match &group {
+        Some(group) => LockedValue::new(text::category_kind(group.kind())).into_any_element(),
+        None => {
+            let view_handle = cx.entity().downgrade();
+            let mut control = Segmented::new("rules-category-kind", form.kind.as_str()).fill();
+            for kind in text::CATEGORY_KINDS {
+                control = control.segment(kind.as_str(), text::category_kind(kind));
+            }
+            control
+                .on_choose(move |key, _, cx| {
+                    if let Ok(kind) = key.parse::<coffer_core::category::CategoryKind>() {
+                        let _ = view_handle.update(cx, |this, cx| this.set_category_kind(kind, cx));
+                    }
+                })
+                .into_any_element()
+        }
+    };
+    let key_words = match &key {
+        Some(key) => format!(
+            "Its key will be {key}. The key never changes, so rules, presets and AI clients keep \
+             working when you rename it."
+        ),
+        None => "Its key is made from the name when it’s added, and never changes.".to_owned(),
+    };
+    let kind_words = if group.is_some() {
+        " A subcategory has its group’s kind."
+    } else {
+        " A group’s kind can’t change later."
+    };
+    let mut fields_section = section(true)
+        .gap(spacing::S2)
+        .child(section_title_row("Category", None))
+        .child(FieldRow::new("Name", category_name_field(view, taken)));
+    if taken {
+        fields_section = fields_section.child(under_field(CategoryError::Taken.message()));
+    }
+    fields_section = fields_section
+        .child(FieldRow::new(
+            "Group",
+            select(view, Menu::CategoryGroup, "Group", group_field, cx),
+        ))
+        .child(FieldRow::new("Kind", kind_control))
+        .child(fields::caption(format!("{key_words}{kind_words}")));
+    sections.push(fields_section.into_any_element());
+
+    let create = {
+        let entity = entity.clone();
+        Button::new("rules-create-category", "Create category")
+            .with_variant(ButtonVariant::Primary)
+            .disabled(error.is_some())
+            .on_click(move |_, _, cx| entity.update(cx, |rules, cx| rules.create_category(cx)))
+    };
+    sections.push(
+        section(true)
+            .child(div().flex().items_center().gap(spacing::S1_5).child(create))
+            .into_any_element(),
+    );
     sections
 }

@@ -14,6 +14,10 @@
 //! - **Merchant names** (`G2O-0`): the aliases, applied at once with no
 //!   batch (the display name is derived).
 //! - **Change history** (`GZT-0`): every change batch, each undoable.
+//! - **Categories** (M3.7's categories editor; composed from the sections
+//!   above, not drawn): every group with its subcategories and what uses
+//!   each; renamed, hidden, shown, added and (when nothing uses it) deleted
+//!   at once, with no batch, since no transaction changes.
 //!
 //! [`Rules`] holds what the view shows (from [`store::RulesStore`], which
 //! opens the database per call), the open section, its filter, the
@@ -33,6 +37,7 @@ pub mod view;
 
 use std::collections::BTreeSet;
 
+use coffer_core::category::{CategoryKind, CategorySummary, GroupOverview};
 use coffer_core::change::{ChangeKind, HistoryItem};
 use coffer_core::id::{ChangeBatchId, MerchantAliasId, RuleId, TransactionId};
 use coffer_core::inbox::{Suggestion, SuggestionId};
@@ -42,7 +47,7 @@ use coffer_core::rule::{
 };
 use gpui_kit::{Context, EventEmitter, SharedString};
 
-use form::{FormError, NameForm, RuleForm};
+use form::{CategoryError, CategoryForm, FormError, NameForm, RuleForm};
 use store::{RulesData, RulesStore};
 
 /// Binds the view's keys: ↑↓ move the selection, Escape clears it or goes
@@ -57,13 +62,42 @@ pub fn init(cx: &mut gpui_kit::App) {
     ]);
 }
 
-/// The three lists under RULES in the panel.
+/// The lists under RULES in the panel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Section {
     #[default]
     Rules,
     Names,
     History,
+    Categories,
+}
+
+/// What the Categories section's panel filter keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CategoryFilter {
+    /// The groups of this kind, with their subcategories.
+    Kind(CategoryKind),
+    /// The categories pickers leave out: hidden, or in a hidden group.
+    Hidden,
+}
+
+/// The category selected in Categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CategorySelection {
+    /// A stored category, by row ID.
+    Stored(i64),
+    /// "+ New category", not stored yet.
+    New,
+}
+
+/// A row of the Categories table.
+#[derive(Clone, Copy, Debug)]
+pub struct CategoryRow<'a> {
+    pub summary: &'a CategorySummary,
+    /// Whether it's a subcategory (indented under its group).
+    pub child: bool,
+    /// Hidden itself, or with its group.
+    pub hidden: bool,
 }
 
 /// What the view asks its owner (the shell) to do.
@@ -179,6 +213,7 @@ pub enum FormKey {
     Rule(RuleId),
     NewRule,
     Name(NameSelection),
+    Category(CategorySelection),
 }
 
 /// The Rules view's state (module docs).
@@ -202,6 +237,9 @@ pub struct Rules {
     name_form: Option<NameForm>,
     batch: Option<ChangeBatchId>,
     batch_items: Vec<HistoryItem>,
+    category_filter: Option<CategoryFilter>,
+    category: Option<CategorySelection>,
+    category_form: Option<CategoryForm>,
     outcome: Option<Outcome>,
     load_error: Option<SharedString>,
 }
@@ -252,6 +290,9 @@ impl Rules {
             name_form: None,
             batch: None,
             batch_items: Vec::new(),
+            category_filter: None,
+            category: None,
+            category_form: None,
             outcome: None,
             load_error: None,
         }
@@ -333,6 +374,19 @@ impl Rules {
                 self.batch_items.clear();
             }
         }
+        if let Some(CategorySelection::Stored(id)) = self.category {
+            match self.data.category_entry(id) {
+                // A rename that isn't valid yet isn't overwritten.
+                Some((summary, _)) if self.category_error().is_none() => {
+                    self.category_form = Some(CategoryForm::of(&summary.category));
+                }
+                Some(_) => {}
+                None => {
+                    self.category = None;
+                    self.category_form = None;
+                }
+            }
+        }
         cx.notify();
     }
 
@@ -377,6 +431,15 @@ impl Rules {
                     self.set_batch(Some(first));
                 }
             }
+            Section::Categories if self.category.is_none() => {
+                let first = self
+                    .category_rows()
+                    .first()
+                    .map(|row| row.summary.category.id());
+                if let Some(first) = first {
+                    self.set_category(Some(CategorySelection::Stored(first)));
+                }
+            }
             _ => {}
         }
     }
@@ -411,6 +474,60 @@ impl Rules {
         self.section = Section::History;
         self.kind_filter = (self.kind_filter != Some(kind)).then_some(kind);
         cx.notify();
+    }
+
+    pub fn toggle_category_filter(&mut self, filter: CategoryFilter, cx: &mut Context<Self>) {
+        self.section = Section::Categories;
+        self.category_filter = (self.category_filter != Some(filter)).then_some(filter);
+        cx.notify();
+    }
+
+    pub fn category_filter(&self) -> Option<CategoryFilter> {
+        self.category_filter
+    }
+
+    /// Every category as the table lists it, each group followed by its
+    /// subcategories, before the filter.
+    fn all_category_rows(&self) -> Vec<CategoryRow<'_>> {
+        let mut rows = Vec::new();
+        for group in &self.data.category_overview {
+            let group_hidden = group.group.category.is_hidden();
+            rows.push(CategoryRow {
+                summary: &group.group,
+                child: false,
+                hidden: group_hidden,
+            });
+            rows.extend(group.children.iter().map(|child| CategoryRow {
+                summary: child,
+                child: true,
+                hidden: group_hidden || child.category.is_hidden(),
+            }));
+        }
+        rows
+    }
+
+    fn keeps(filter: CategoryFilter, row: &CategoryRow<'_>) -> bool {
+        match filter {
+            CategoryFilter::Kind(kind) => row.summary.category.kind() == kind,
+            CategoryFilter::Hidden => row.hidden,
+        }
+    }
+
+    /// The categories the table lists, filtered by KIND or Hidden.
+    pub fn category_rows(&self) -> Vec<CategoryRow<'_>> {
+        let filter = self.category_filter;
+        self.all_category_rows()
+            .into_iter()
+            .filter(|row| filter.is_none_or(|filter| Self::keeps(filter, row)))
+            .collect()
+    }
+
+    /// How many categories `filter` keeps (the panel's counts).
+    pub fn count_categories(&self, filter: CategoryFilter) -> usize {
+        self.all_category_rows()
+            .iter()
+            .filter(|row| Self::keeps(filter, row))
+            .count()
     }
 
     /// The rules the table lists, filtered by ACTION.
@@ -484,6 +601,7 @@ impl Rules {
             Section::Rules => self.rule.map_or(FormKey::None, FormKey::Rule),
             Section::Names => self.name.map_or(FormKey::None, FormKey::Name),
             Section::History => FormKey::None,
+            Section::Categories => self.category.map_or(FormKey::None, FormKey::Category),
         }
     }
 
@@ -563,6 +681,20 @@ impl Rules {
                     self.select_batch(Some(next), cx);
                 }
             }
+            Section::Categories => {
+                let order: Vec<i64> = self
+                    .category_rows()
+                    .iter()
+                    .map(|row| row.summary.category.id())
+                    .collect();
+                let current = match self.category {
+                    Some(CategorySelection::Stored(id)) => Some(id),
+                    _ => None,
+                };
+                if let Some(next) = step_in(&order, current, step) {
+                    self.select_category(Some(CategorySelection::Stored(next)), cx);
+                }
+            }
             Section::Rules => {}
         }
     }
@@ -577,6 +709,7 @@ impl Rules {
             Section::Rules => self.select_rule(None, cx),
             Section::Names => self.select_name(None, cx),
             Section::History => self.select_batch(None, cx),
+            Section::Categories => self.select_category(None, cx),
         }
     }
 
@@ -1096,6 +1229,227 @@ impl Rules {
         if let Some(batch) = self.batch {
             cx.emit(RulesEvent::UndoRequested(batch));
         }
+    }
+
+    // Categories -------------------------------------------------------------------
+
+    pub fn selected_category(&self) -> Option<CategorySelection> {
+        self.category
+    }
+
+    /// The selected stored category and its group (its own, for a group).
+    pub fn selected_category_entry(&self) -> Option<(&CategorySummary, &GroupOverview)> {
+        match self.category? {
+            CategorySelection::Stored(id) => self.data.category_entry(id),
+            CategorySelection::New => None,
+        }
+    }
+
+    pub fn category_form(&self) -> Option<&CategoryForm> {
+        self.category_form.as_ref()
+    }
+
+    /// The categories beside the selected one, or beside where the new one
+    /// goes: row ID and label.
+    fn category_siblings(&self) -> Vec<(i64, &str)> {
+        let parent = match self.category {
+            Some(CategorySelection::Stored(id)) => match self.data.category_entry(id) {
+                Some((summary, group)) if !summary.category.is_group() => {
+                    Some(group.group.category.key().clone())
+                }
+                Some(_) => None,
+                None => return Vec::new(),
+            },
+            Some(CategorySelection::New) => self
+                .category_form
+                .as_ref()
+                .and_then(|form| form.group.clone()),
+            None => return Vec::new(),
+        };
+        let summaries: Vec<&CategorySummary> = match parent {
+            Some(parent) => self
+                .data
+                .category_group(&parent)
+                .map(|group| group.children.iter().collect())
+                .unwrap_or_default(),
+            None => self
+                .data
+                .category_overview
+                .iter()
+                .map(|group| &group.group)
+                .collect(),
+        };
+        summaries
+            .into_iter()
+            .map(|summary| (summary.category.id(), summary.category.label()))
+            .collect()
+    }
+
+    /// Why the category's name can't be saved, if it can't.
+    pub fn category_error(&self) -> Option<CategoryError> {
+        let form = self.category_form.as_ref()?;
+        let except = match self.category? {
+            CategorySelection::Stored(id) => Some(id),
+            CategorySelection::New => None,
+        };
+        form.label(self.category_siblings(), except).err()
+    }
+
+    fn set_category(&mut self, selection: Option<CategorySelection>) {
+        self.category = selection;
+        self.category_form = match selection {
+            Some(CategorySelection::Stored(id)) => self
+                .data
+                .category_entry(id)
+                .map(|(summary, _)| CategoryForm::of(&summary.category)),
+            Some(CategorySelection::New) => Some(CategoryForm::default()),
+            None => None,
+        };
+    }
+
+    pub fn select_category(
+        &mut self,
+        selection: Option<CategorySelection>,
+        cx: &mut Context<Self>,
+    ) {
+        // A rename typed before another row is chosen is kept, as leaving
+        // the field would: the field's blur arrives after the selection.
+        if self.category != selection && self.section == Section::Categories {
+            self.save_category_name(cx);
+        }
+        self.section = Section::Categories;
+        if self.category != selection {
+            self.set_category(selection);
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_category(&mut self, id: i64, cx: &mut Context<Self>) {
+        let stored = CategorySelection::Stored(id);
+        let next = (self.category != Some(stored)).then_some(stored);
+        self.select_category(next, cx);
+    }
+
+    /// "+ New category": the inspector's form, empty.
+    pub fn new_category(&mut self, cx: &mut Context<Self>) {
+        self.outcome = None;
+        self.select_category(Some(CategorySelection::New), cx);
+    }
+
+    /// Changes the category's fields. A stored category is renamed when
+    /// `save` (blur, Enter) and the name is valid; a new one waits for
+    /// "Create category".
+    pub fn edit_category(
+        &mut self,
+        save: bool,
+        change: impl FnOnce(&mut CategoryForm),
+        cx: &mut Context<Self>,
+    ) {
+        let Some(form) = self.category_form.as_mut() else {
+            return;
+        };
+        change(form);
+        if save {
+            self.save_category_name(cx);
+        }
+        cx.notify();
+    }
+
+    /// Renames the selected stored category when its name is valid and
+    /// changed.
+    pub fn save_category_name(&mut self, cx: &mut Context<Self>) {
+        let Some((summary, _)) = self.selected_category_entry() else {
+            return;
+        };
+        let (id, key) = (summary.category.id(), summary.category.key().clone());
+        let stored = summary.category.label().to_owned();
+        let Some(form) = self.category_form.as_ref() else {
+            return;
+        };
+        let Ok(label) = form.label(self.category_siblings(), Some(id)) else {
+            return;
+        };
+        if label == stored {
+            return;
+        }
+        let result = self
+            .store()
+            .and_then(|store| store.rename_category(&key, &label).map_err(message));
+        self.after_category_change(result, cx);
+    }
+
+    /// "Create category": adds the new category and selects it.
+    pub fn create_category(&mut self, cx: &mut Context<Self>) {
+        let Some(form) = self.category_form.clone() else {
+            return;
+        };
+        if self.category != Some(CategorySelection::New) || self.category_error().is_some() {
+            return;
+        }
+        let result = self
+            .store()
+            .and_then(|store| store.add_category(&form.new_category()).map_err(message));
+        match result {
+            Ok(category) => {
+                self.outcome = None;
+                self.load();
+                self.category_filter = None;
+                self.set_category(Some(CategorySelection::Stored(category.id())));
+                cx.emit(RulesEvent::Changed);
+            }
+            Err(message) => self.outcome = Some(Outcome::Refused(message)),
+        }
+        cx.notify();
+    }
+
+    /// Hides the selected category from pickers, or shows it again.
+    pub fn set_category_hidden(&mut self, hidden: bool, cx: &mut Context<Self>) {
+        let Some((summary, _)) = self.selected_category_entry() else {
+            return;
+        };
+        let key = summary.category.key().clone();
+        let result = self
+            .store()
+            .and_then(|store| store.set_category_hidden(&key, hidden).map_err(message));
+        self.after_category_change(result, cx);
+    }
+
+    fn after_category_change(&mut self, result: Result<(), SharedString>, cx: &mut Context<Self>) {
+        match result {
+            Ok(()) => {
+                self.outcome = None;
+                self.load();
+                let selection = self.category;
+                self.set_category(selection);
+                cx.emit(RulesEvent::Changed);
+            }
+            Err(message) => self.outcome = Some(Outcome::Refused(message)),
+        }
+        cx.notify();
+    }
+
+    /// Deletes category `id` (the dialog) and selects the row after it.
+    pub fn delete_category(&mut self, id: i64, cx: &mut Context<Self>) -> Result<(), SharedString> {
+        let key = self
+            .data
+            .category_entry(id)
+            .map(|(summary, _)| summary.category.key().clone())
+            .ok_or_else(|| SharedString::from("The category is gone."))?;
+        self.store()?.delete_category(&key).map_err(message)?;
+        let order: Vec<i64> = self
+            .category_rows()
+            .iter()
+            .map(|row| row.summary.category.id())
+            .collect();
+        let next = step_in(&order, Some(id), 1)
+            .filter(|next| *next != id)
+            .or_else(|| step_in(&order, Some(id), -1).filter(|before| *before != id));
+        self.load();
+        self.set_category(next.map(CategorySelection::Stored));
+        self.outcome = None;
+        cx.emit(RulesEvent::Changed);
+        cx.notify();
+        Ok(())
     }
 }
 

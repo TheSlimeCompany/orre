@@ -8,7 +8,11 @@
 //! (which sets the category through core like the table's in-place select;
 //! a split row has none, its lines do), the Tags, the bank's note read-only
 //! above the user's Note; the Split section (M3.9: the split editor, or a
-//! Split button); the raw description; and whether a rule set the category.
+//! Split button); the Source section (M3.10: the raw description, the
+//! import or "Added by you", and Exclude…, Undo import… or Delete
+//! transaction…); and whether a rule set the category. An excluded row's
+//! figure is struck through, with the exclusion card under the header; a
+//! manual row's Date, Amount and Account are fields (M3.10).
 //! A transfer shows its category read-only (M3.8) and has no Split section.
 //! Several transactions: a count, the total, what they share, one Category
 //! select that sets all of them, and the list.
@@ -26,10 +30,12 @@ use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
 use crate::theme::tokens::{color, font, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
 use crate::ui::field::{
-    self as fields, FieldRow, LockedValue, SelectField, error_caption, text_input,
+    self as fields, FieldRow, LockedValue, SelectField, date_input, error_caption, text_input,
 };
 use crate::ui::icon::Glyph;
-use crate::ui::inspector::{caption, header, section, section_title, section_title_row};
+use crate::ui::inspector::{
+    caption, header, section, section_title, section_title_row, struck_header,
+};
 use crate::ui::marker::Marker;
 use crate::ui::menu::{self, Select, filter_groups};
 use crate::ui::tag::{AddTagPill, TagPill};
@@ -80,6 +86,53 @@ fn category_select(
                 if open != (this.menu == Some(Menu::Inspector)) {
                     if open {
                         this.open(Menu::Inspector, window, cx);
+                    } else {
+                        this.close(window, cx);
+                    }
+                }
+            })
+            .ok();
+    })
+    .on_choose(move |key, window, cx| {
+        chosen
+            .update(cx, |this, cx| this.choose(key, window, cx))
+            .ok();
+    })
+    .on_move(move |step, _, cx| {
+        moved
+            .update(cx, |this, cx| this.move_highlight(step, cx))
+            .ok();
+    })
+    .into_any_element()
+}
+
+/// A manual row's Account select (D6.3, `4D7-0`): every account that holds
+/// transactions; a choice moves the row through core.
+fn manual_account_select(
+    view: &TransactionsView,
+    account: String,
+    cx: &mut Context<TransactionsView>,
+) -> AnyElement {
+    let (toggled, chosen, moved) = (
+        cx.entity().downgrade(),
+        cx.entity().downgrade(),
+        cx.entity().downgrade(),
+    );
+    Select::new(
+        "manual-account",
+        "Account",
+        SelectField::new("manual-account-field", account),
+        super::manual_edit::account_groups(&view.register),
+        view.chosen_key(Menu::ManualAccount),
+        &view.editor.account_select,
+    )
+    .max_height(size::CONTROL * super::MENU_ROWS)
+    .on_toggle(move |open, window, cx| {
+        toggled
+            .update(cx, |this, cx| {
+                if open != (this.menu == Some(Menu::ManualAccount)) {
+                    if open {
+                        this.open(Menu::ManualAccount, window, cx);
                     } else {
                         this.close(window, cx);
                     }
@@ -461,21 +514,51 @@ fn single(
         Some(LockedValue::new(present::category_label(register, row)).into_any_element())
     };
     let bank_note = row.bank_note.clone().filter(|note| !note.trim().is_empty());
-
-    let mut sections = vec![
-        header(
-            row.merchant.clone(),
-            Some(format::money(row.amount, Sign::Always)),
-            caption_line,
-        )
-        .into_any_element(),
-        section(true)
-            .gap(spacing::S2)
+    let figure = format::money(row.amount, Sign::Always);
+    // An excluded row's figure is struck through, the card below it (D6.3).
+    let header = match row.excluded {
+        Some(_) => struck_header(row.merchant.clone(), figure, caption_line),
+        None => header(row.merchant.clone(), Some(figure), caption_line),
+    }
+    .children(super::source::exclusion_card(view, row, cx));
+    // A manual row's source fields are the user's own (D6.3, `4D7-0`).
+    let manual = row.source.is_manual();
+    let details = section(true).gap(spacing::S2);
+    let details = if manual {
+        details
+            .child(FieldRow::new(
+                "Date",
+                date_input(&view.editor.date).id("manual-date").w_full(),
+            ))
+            .child(FieldRow::new(
+                "Amount",
+                text_input(&view.editor.amount)
+                    .id("manual-amount")
+                    .w_full()
+                    .font_family(font::MONO)
+                    .suffix(
+                        div()
+                            .text_role(typography::MONO_VALUE)
+                            .text_color(color::TEXT_MUTED)
+                            .child(row.amount.currency().code().to_owned()),
+                    ),
+            ))
+            .child(FieldRow::new(
+                "Account",
+                manual_account_select(view, account, cx),
+            ))
+    } else {
+        details
             .child(FieldRow::new(
                 "Date",
                 LockedValue::new(format::field_date(row.date)).mono(true),
             ))
             .child(FieldRow::new("Account", LockedValue::new(account)))
+    };
+
+    let mut sections = vec![
+        header.into_any_element(),
+        details
             .child(FieldRow::new(
                 "Merchant",
                 text_input(&view.editor.merchant).w_full(),
@@ -499,6 +582,9 @@ fn single(
             .children(super::rule_prompt::card(view, row, window, cx))
             .into_any_element(),
     ];
+    // A row in a transfer pair has neither Share nor Links: the Transfer
+    // section takes their place, after Details (M3.8).
+    sections.extend(super::transfer::transfer_section(view, row, cx));
     // Share on money out, Links on everything outside a transfer, between
     // Details and Split (D6.5).
     if super::links::has_share(row) {
@@ -512,18 +598,8 @@ fn single(
     if split || row.splittable {
         sections.push(split_section(view, window, cx));
     }
-    sections.push(
-        section(true)
-            .gap(spacing::S2)
-            .child(section_title("Raw description"))
-            .child(
-                div()
-                    .text_role(typography::MONO_VALUE)
-                    .text_color(color::TEXT_SECONDARY)
-                    .child(row.description.clone()),
-            )
-            .into_any_element(),
-    );
+    // Between Split and Rule (D6.3, `2Q3-0`): where the row came from.
+    sections.push(super::source::source_section(view, row, cx));
     if row.transfer.is_none() {
         sections.push(super::rule_prompt::rule_section(row, cx));
     }

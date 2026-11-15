@@ -407,3 +407,268 @@ fn typing_then_selecting_another_rule_keeps_each_rules_text(cx: &mut TestAppCont
     let shown = cx.update(|_, cx| rules.read(cx).form().unwrap().text.clone());
     assert_eq!(shown, "UBER");
 }
+
+// Categories -------------------------------------------------------------------------
+
+fn category_key(text: &str) -> coffer_core::category::CategoryKey {
+    coffer_core::category::CategoryKey::new(text).unwrap()
+}
+
+/// The stored category with `key` in `scratch`'s database.
+fn stored_category(scratch: &Scratch, key: &str) -> Option<coffer_core::category::Category> {
+    scratch
+        .db()
+        .categories()
+        .unwrap()
+        .get(&category_key(key))
+        .cloned()
+}
+
+#[gpui_kit::test]
+fn the_categories_section_lists_and_filters_every_category(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let seeded = fixture::seed_categories(&mut scratch.db());
+    let (_, rules, cx) = open(cx, &scratch);
+    click("rules-section-categories", cx);
+    let (section, selected, rows, all) = cx.update(|_, cx| {
+        let rules = rules.read(cx);
+        (
+            rules.section(),
+            rules.selected_category(),
+            rules.category_rows().len(),
+            rules.data().categories.len(),
+        )
+    });
+    assert_eq!(section, Section::Categories);
+    assert_eq!(rows, all, "every category, hidden ones too");
+    assert!(
+        matches!(selected, Some(CategorySelection::Stored(_))),
+        "the first row opens"
+    );
+    assert!(shows(&format!("category-{}", seeded.coffee), cx));
+    assert!(shows(&format!("category-{}", seeded.side_projects), cx));
+    assert!(shows("rules-category-hide", cx));
+
+    // KIND keeps a kind's groups and subcategories; a second click clears.
+    click("rules-category-kind-income", cx);
+    let kinds = cx.update(|_, cx| {
+        rules
+            .read(cx)
+            .category_rows()
+            .iter()
+            .map(|row| row.summary.category.kind())
+            .collect::<Vec<_>>()
+    });
+    assert!(!kinds.is_empty());
+    assert!(
+        kinds
+            .iter()
+            .all(|kind| *kind == coffer_core::category::CategoryKind::Income)
+    );
+    click("rules-category-kind-income", cx);
+    assert_eq!(cx.update(|_, cx| rules.read(cx).category_rows().len()), all);
+
+    // Hidden: Mortgage, and Travel with its subcategories.
+    click("rules-category-hidden", cx);
+    let hidden: Vec<String> = cx.update(|_, cx| {
+        rules
+            .read(cx)
+            .category_rows()
+            .iter()
+            .map(|row| row.summary.category.key().as_str().to_owned())
+            .collect()
+    });
+    assert_eq!(
+        hidden,
+        [
+            "home.mortgage",
+            "travel",
+            "travel.flights",
+            "travel.accommodation"
+        ]
+    );
+
+    // ↓ moves the selection through the listed rows.
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_category(None, cx)));
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_next(1, cx)));
+    let first = cx.update(|_, cx| rules.read(cx).selected_category());
+    let mortgage = stored_category(&scratch, "home.mortgage").unwrap().id();
+    assert_eq!(first, Some(CategorySelection::Stored(mortgage)));
+
+    // Another section and back keeps the Categories selection.
+    click("rules-section-rules", cx);
+    assert_eq!(cx.update(|_, cx| rules.read(cx).section()), Section::Rules);
+    click("rules-section-categories", cx);
+    assert_eq!(cx.update(|_, cx| rules.read(cx).selected_category()), first);
+}
+
+#[gpui_kit::test]
+fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    click("rules-section-categories", cx);
+    click("rules-new-category", cx);
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_category()),
+        Some(CategorySelection::New)
+    );
+    // Nothing typed: Create waits, and says nothing yet.
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).category_error()),
+        Some(form::CategoryError::Blank)
+    );
+    let view = cx.update(|_, cx| shell.read(cx).rules_view().clone());
+
+    // A name a sibling has is refused, ignoring case.
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.type_into(Input::CategoryName, "groceries", window, cx)
+        })
+    });
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit_category(false, |form| form.group = Some(category_key("food")), cx)
+        })
+    });
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).category_error()),
+        Some(form::CategoryError::Taken)
+    );
+    click("rules-create-category", cx);
+    assert!(stored_category(&scratch, "food.groceries_2").is_none());
+
+    // Another name under Food is created with Food's kind, and selected.
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.type_into(Input::CategoryName, "Coffee beans", window, cx)
+        })
+    });
+    assert_eq!(cx.update(|_, cx| rules.read(cx).category_error()), None);
+    click("rules-create-category", cx);
+    let created = stored_category(&scratch, "food.coffee_beans").expect("created");
+    assert_eq!(created.label(), "Coffee beans");
+    assert_eq!(
+        created.kind(),
+        coffer_core::category::CategoryKind::Spending
+    );
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_category()),
+        Some(CategorySelection::Stored(created.id()))
+    );
+
+    // A new group takes the kind chosen for it.
+    click("rules-new-category", cx);
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit_category(
+                false,
+                |form| {
+                    form.name = "Side income".into();
+                    form.kind = coffer_core::category::CategoryKind::Income;
+                },
+                cx,
+            )
+        })
+    });
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.create_category(cx)));
+    let group = stored_category(&scratch, "side_income").expect("a new group");
+    assert!(group.is_group());
+    assert_eq!(group.kind(), coffer_core::category::CategoryKind::Income);
+}
+
+#[gpui_kit::test]
+fn renaming_hiding_and_deleting_a_category_go_to_the_database(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let seeded = fixture::seed_categories(&mut scratch.db());
+    let (shell, rules, cx) = open(cx, &scratch);
+    let view = cx.update(|_, cx| shell.read(cx).rules_view().clone());
+    let groceries = stored_category(&scratch, "food.groceries").unwrap().id();
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.select_category(Some(CategorySelection::Stored(groceries)), cx)
+        })
+    });
+    redraw(cx);
+
+    // A rename saves on leaving the field; the key stays.
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.type_into(Input::CategoryName, "Food shop", window, cx)
+        })
+    });
+    assert_eq!(
+        stored_category(&scratch, "food.groceries").unwrap().label(),
+        "Groceries",
+        "not yet"
+    );
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.save_category_name(cx)));
+    assert_eq!(
+        stored_category(&scratch, "food.groceries").unwrap().label(),
+        "Food shop"
+    );
+    // A name its group already has isn't saved.
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.type_into(Input::CategoryName, "Takeaways", window, cx)
+        })
+    });
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.save_category_name(cx)));
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).category_error()),
+        Some(form::CategoryError::Taken)
+    );
+    assert_eq!(
+        stored_category(&scratch, "food.groceries").unwrap().label(),
+        "Food shop"
+    );
+
+    // Groceries is used, so it can be hidden but not deleted.
+    redraw(cx);
+    assert!(!shows("rules-delete-category", cx));
+    click("rules-category-hide", cx);
+    assert!(
+        stored_category(&scratch, "food.groceries")
+            .unwrap()
+            .is_hidden()
+    );
+    // The rule editor's category menu leaves it out, unless it's chosen.
+    let data = cx.update(|_, cx| rules.read(cx).data().clone());
+    let offered = |chosen: Option<&coffer_core::category::CategoryKey>| {
+        view::category_groups(&data, chosen)
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .any(|option| option.key.as_ref() == "food.groceries")
+    };
+    assert!(!offered(None));
+    assert!(offered(Some(&category_key("food.groceries"))));
+    // Travel is hidden as a group: none of it is offered.
+    let travel = view::category_groups(&data, None)
+        .iter()
+        .flat_map(|group| group.options.iter())
+        .any(|option| option.key.as_ref().starts_with("travel"));
+    assert!(!travel);
+    click("rules-category-hide", cx);
+    assert!(
+        !stored_category(&scratch, "food.groceries")
+            .unwrap()
+            .is_hidden()
+    );
+
+    // Coffee is unused: Delete category… opens the dialog, which deletes it.
+    click(&format!("category-{}", seeded.coffee), cx);
+    assert!(shows("rules-delete-category", cx));
+    click("rules-delete-category", cx);
+    let dialog = cx.update(|_, cx| view.read(cx).delete_category_dialog().cloned());
+    let dialog = dialog.expect("the dialog opens");
+    cx.update(|_, cx| dialog.update(cx, |dialog, cx| dialog.submit(cx)));
+    redraw(cx);
+    assert!(stored_category(&scratch, "food.coffee").is_none());
+    assert!(
+        cx.update(|_, cx| view.read(cx).delete_category_dialog().is_none()),
+        "the dialog closes"
+    );
+    assert!(matches!(
+        cx.update(|_, cx| rules.read(cx).selected_category()),
+        Some(CategorySelection::Stored(_))
+    ));
+}

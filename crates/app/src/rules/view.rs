@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use coffer_core::category::CategoryKey;
+use coffer_core::category::{CategoryKey, CategoryKind};
 use coffer_core::id::AccountId;
 use coffer_core::merchant::AliasKind;
 use coffer_core::rule::{ActionKind, ExcludeReason, MatchField, MatchKind};
@@ -31,6 +31,9 @@ use crate::ui::menu::{MenuGroup, MenuList, MenuOption, SelectState, filter_group
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::undo_bar::UndoBar;
 
+use crate::accounts::DialogClosed;
+
+use super::dialogs::DeleteCategoryDialog;
 use super::form::{ActionForm, AmountChoice, Direction, SplitLineForm, Unavailable};
 use super::store::RulesData;
 use super::text;
@@ -45,6 +48,8 @@ pub const MENU_ROWS: f32 = 12.;
 /// Option keys that aren't IDs.
 const ANY: &str = "any";
 const NEW_TAG: &str = "new-tag";
+/// The Group select's "New group" (no category key has a `-`).
+const NEW_GROUP: &str = "new-group";
 
 /// Which select or menu is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,6 +63,8 @@ pub enum Menu {
     Exclude,
     SplitLine(usize),
     NameTest,
+    /// A new category's Group.
+    CategoryGroup,
     /// "+ Add action".
     AddAction,
     /// The Tag action's "+ Tag".
@@ -88,6 +95,8 @@ pub enum Input {
     SplitPercent(usize),
     NamePattern,
     NameShows,
+    /// A category's Name: a stored one's (a rename) or the new one's.
+    CategoryName,
 }
 
 /// The Rules canvas and inspector.
@@ -104,6 +113,8 @@ pub struct RulesView {
     pub(super) tag_focus: FocusHandle,
     /// What the fields were last filled from.
     filled_for: Option<super::FormKey>,
+    /// The Delete category dialog while it's open, and its subscription.
+    delete_category: Option<(Entity<DeleteCategoryDialog>, Subscription)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -135,6 +146,7 @@ impl RulesView {
             add_action_focus: cx.focus_handle(),
             tag_focus: cx.focus_handle(),
             filled_for: None,
+            delete_category: None,
             _subscriptions: Vec::new(),
         };
         for input in [
@@ -146,6 +158,7 @@ impl RulesView {
             Input::Share,
             Input::NamePattern,
             Input::NameShows,
+            Input::CategoryName,
         ] {
             subscriptions.push(view.add_input(input, window, cx));
         }
@@ -158,6 +171,7 @@ impl RulesView {
             Menu::Category,
             Menu::Exclude,
             Menu::NameTest,
+            Menu::CategoryGroup,
         ] {
             view.selects.insert(menu, SelectState::new(cx));
         }
@@ -187,6 +201,7 @@ impl RulesView {
             Input::Merchant | Input::NameShows => "Name to show",
             Input::Note => "Note to add",
             Input::Share | Input::SplitPercent(_) => "0",
+            Input::CategoryName => "Category name",
         };
         let state = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         let subscription = cx.subscribe_in(&state, window, move |this, state, event, _, cx| {
@@ -222,6 +237,9 @@ impl RulesView {
     /// What the form holds for `input`.
     fn form_value(&self, input: Input, cx: &App) -> Option<String> {
         let rules = self.rules.read(cx);
+        if input == Input::CategoryName {
+            return rules.category_form().map(|form| form.name.clone());
+        }
         if matches!(input, Input::NamePattern | Input::NameShows) {
             let form = rules.name_form()?;
             return Some(match input {
@@ -250,7 +268,7 @@ impl RulesView {
                 ActionForm::Split(lines) => lines.get(line)?.percent.clone(),
                 _ => return None,
             },
-            Input::NamePattern | Input::NameShows => return None,
+            Input::NamePattern | Input::NameShows | Input::CategoryName => return None,
         })
     }
 
@@ -267,6 +285,7 @@ impl RulesView {
         self.rules.update(cx, |rules, cx| match input {
             Input::NamePattern => rules.edit_name(save, |form| form.pattern = value, cx),
             Input::NameShows => rules.edit_name(save, |form| form.name = value, cx),
+            Input::CategoryName => rules.edit_category(save, |form| form.name = value, cx),
             _ => rules.edit(
                 save,
                 |form| match input {
@@ -299,7 +318,7 @@ impl RulesView {
                             line.percent = value;
                         }
                     }
-                    Input::NamePattern | Input::NameShows => {}
+                    Input::NamePattern | Input::NameShows | Input::CategoryName => {}
                 },
                 cx,
             ),
@@ -426,7 +445,27 @@ impl RulesView {
                     .collect();
                 vec![MenuGroup::new(None, options)]
             }
-            Menu::Category | Menu::SplitLine(_) => category_groups(data),
+            Menu::Category | Menu::SplitLine(_) => {
+                let chosen = self
+                    .chosen_key(menu, cx)
+                    .and_then(|key| CategoryKey::new(&key).ok());
+                category_groups(data, chosen.as_ref())
+            }
+            Menu::CategoryGroup => {
+                let mut options = vec![MenuOption::new(NEW_GROUP, "New group").icon(Glyph::Plus)];
+                options.extend(data.category_overview.iter().map(|group| {
+                    let category = &group.group.category;
+                    let option =
+                        MenuOption::new(category.key().as_str().to_owned(), category.label())
+                            .marker(super::table::marker(data, category.key()));
+                    if category.is_hidden() {
+                        option.hint("Hidden")
+                    } else {
+                        option
+                    }
+                }));
+                vec![MenuGroup::new(None, options)]
+            }
             Menu::Exclude => vec![MenuGroup::new(
                 None,
                 text::REASONS
@@ -537,6 +576,12 @@ impl RulesView {
         }
         if menu == Menu::Position {
             return Some(rules.new_position().to_string().into());
+        }
+        if menu == Menu::CategoryGroup {
+            return rules.category_form().map(|form| match &form.group {
+                Some(group) => group.as_str().to_owned().into(),
+                None => NEW_GROUP.into(),
+            });
         }
         let form = rules.form()?;
         Some(match menu {
@@ -712,6 +757,23 @@ impl RulesView {
                     rules.edit_name(true, |form| form.kind = kind, cx);
                 }
             }
+            Menu::CategoryGroup => {
+                let group = CategoryKey::new(&key).ok();
+                let kind = group
+                    .as_ref()
+                    .and_then(|group| rules.data().category_group(group))
+                    .map(|group| group.group.category.kind());
+                rules.edit_category(
+                    false,
+                    |form| {
+                        form.group = group;
+                        if let Some(kind) = kind {
+                            form.kind = kind;
+                        }
+                    },
+                    cx,
+                );
+            }
             Menu::AddAction => {
                 if let Ok(kind) = key.parse::<ActionKind>() {
                     rules.edit(
@@ -852,6 +914,43 @@ impl RulesView {
         });
     }
 
+    /// Sets a new group's kind.
+    pub(super) fn set_category_kind(&mut self, kind: CategoryKind, cx: &mut Context<Self>) {
+        self.rules.update(cx, |rules, cx| {
+            rules.edit_category(false, |form| form.kind = kind, cx)
+        });
+    }
+
+    /// "Delete category…": the dialog over the window. Composed: the view
+    /// opens it itself (`gpui-base` draws a dialog over the whole window
+    /// from wherever it's rendered) and puts focus back on the canvas when
+    /// it closes.
+    pub fn request_delete_category(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self
+            .rules
+            .read(cx)
+            .selected_category_entry()
+            .map(|(summary, _)| summary.category.id())
+        else {
+            return;
+        };
+        let rules = self.rules.clone();
+        let dialog = cx.new(|cx| DeleteCategoryDialog::new(rules, id, window, cx));
+        let subscription =
+            cx.subscribe_in(&dialog, window, |this, _, _: &DialogClosed, window, cx| {
+                this.delete_category = None;
+                this.focus.focus(window, cx);
+                cx.notify();
+            });
+        self.delete_category = Some((dialog, subscription));
+        cx.notify();
+    }
+
+    /// The Delete category dialog, while it's open.
+    pub fn delete_category_dialog(&self) -> Option<&Entity<DeleteCategoryDialog>> {
+        self.delete_category.as_ref().map(|(dialog, _)| dialog)
+    }
+
     /// Sets the amount condition's direction.
     pub(super) fn set_direction(&mut self, direction: Direction, cx: &mut Context<Self>) {
         self.rules.update(cx, |rules, cx| {
@@ -929,17 +1028,32 @@ impl RulesView {
 }
 
 /// The category menu: each group under its caps label, its own category
-/// first, with its marker (the Transactions view's menu).
-pub fn category_groups(data: &RulesData) -> Vec<MenuGroup> {
+/// first, with its marker (the Transactions view's menu). Hidden categories
+/// are left out, except `chosen`, which the field already shows.
+pub fn category_groups(data: &RulesData, chosen: Option<&CategoryKey>) -> Vec<MenuGroup> {
     let mut groups: Vec<MenuGroup> = Vec::new();
+    // Whether the last group pushed is the current category's group.
+    let mut in_group = false;
     for category in &data.categories {
+        let offered = !category.hidden || chosen == Some(&category.key);
         let option = MenuOption::new(category.key.as_str().to_owned(), category.label.clone())
             .marker(super::table::marker(data, &category.key));
         match &category.group {
-            None => groups.push(MenuGroup::named(category.label.clone(), vec![option])),
-            Some(_) => match groups.last_mut() {
-                Some(group) => group.options.push(option),
-                None => groups.push(MenuGroup::new(None, vec![option])),
+            None => {
+                in_group = offered;
+                if offered {
+                    groups.push(MenuGroup::named(category.label.clone(), vec![option]));
+                }
+            }
+            Some(_) if !offered => {}
+            Some(label) => match groups.last_mut() {
+                Some(group) if in_group => group.options.push(option),
+                // A chosen subcategory of a hidden group: under its group's
+                // label, without the group itself.
+                _ => {
+                    in_group = true;
+                    groups.push(MenuGroup::named(label.clone(), vec![option]));
+                }
             },
         }
     }
@@ -1043,6 +1157,10 @@ impl Render for RulesView {
             .children(refusal.map(refused))
             .child(canvas_body)
             .children(bar);
-        root.child(canvas).child(inspector)
+        let dialog = self
+            .delete_category
+            .as_ref()
+            .map(|(dialog, _)| dialog.clone());
+        root.child(canvas).child(inspector).children(dialog)
     }
 }

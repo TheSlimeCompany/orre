@@ -34,7 +34,9 @@ pub const LIST_CATEGORIES: ToolSpec = ToolSpec {
     name: "list_categories",
     description: "The user's categories as a two-level tree: groups (e.g. `food`) and their \
                   subcategories (e.g. `food.groceries`). Keys are stable; labels are what the \
-                  user sees. Use the keys when you propose categories.",
+                  user sees. Use the keys when you propose categories. A category marked \
+                  `hidden` is one the user no longer files under: it keeps its history, but \
+                  don't propose it.",
     level: AccessLevel::Aggregate,
     writes: Writes::Nothing,
 };
@@ -53,6 +55,10 @@ pub struct CategoryGroup {
     pub key: String,
     pub label: String,
     pub kind: Kind,
+    /// The user hid it: it keeps its history but isn't offered for new
+    /// transactions, and neither are its subcategories. Left out when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
     pub children: Vec<Subcategory>,
 }
 
@@ -62,6 +68,10 @@ pub struct Subcategory {
     /// Stable key, `<group key>.<part>`, e.g. `food.groceries`.
     pub key: String,
     pub label: String,
+    /// The user hid it, or its group: it keeps its history but isn't
+    /// offered for new transactions. Left out when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 /// What a category's amounts count as.
@@ -91,6 +101,7 @@ fn list_categories(call: &Call<'_>, _args: NoArgs) -> Result<Reply<CategoryList>
     let subcategory = |category: &Category| Subcategory {
         key: category.key().as_str().to_owned(),
         label: category.label().to_owned(),
+        hidden: !tree.is_visible(category.key()),
     };
     let groups: Vec<CategoryGroup> = tree
         .groups()
@@ -101,6 +112,7 @@ fn list_categories(call: &Call<'_>, _args: NoArgs) -> Result<Reply<CategoryList>
                 key: category.key().as_str().to_owned(),
                 label: category.label().to_owned(),
                 kind: category.kind().into(),
+                hidden: category.is_hidden(),
                 children: group.children().iter().map(subcategory).collect(),
             }
         })

@@ -771,10 +771,36 @@ Every tool call appears in the access log.
   no CHECKS, Show in Transactions or Edit in Rules (user). Snapshots (`inbox-*`) checked
   by eye against `564-0`, `ABK-0`, `DL8-0`, `EWZ-0`; the window itself only
   build-verified. Decisions: `ARCHITECTURE.md` → "Decision record: Inbox"
-- ⬜ M3.7 Rules and categories editors. The rules editor is built with M3.13 (the Rules
-  view's inspector: When, Then with every action kind, Order, reordering, delete); the
-  categories editor isn't drawn in Paper and still needs a design decision
-- ⬜ M3.8 Transfer-pair confirmation
+- ✅ M3.7 Rules and categories editors. The rules editor is built with M3.13 (the Rules
+  view's inspector: When, Then with every action kind, Order, reordering, delete). The
+  categories editor (2026-11-15) is the Rules view's fourth section, Categories,
+  composed from existing specs, not drawn (user): every group and its subcategories
+  with kind and usage, filtered by kind or Hidden; the inspector renames (the label
+  only), hides or shows, and deletes a category nothing uses (with a confirmation);
+  "New category" adds a group with a kind, or a subcategory taking its group's kind.
+  Core: `category::{add, rename, set_hidden, delete, usage, overview, derive_key}`
+  (`category/edit.rs`), `CategoryTree::visible`/`is_visible`. Migration
+  `V18__category_hidden.sql`: a used category can be hidden instead of deleted (user);
+  hidden categories leave the menus that set a category (rules, Transactions, the
+  new-transaction dialog), stay in the Category filter and the export, and MCP's
+  `list_categories` marks them `hidden`. Snapshots (`rules-categories`,
+  `rules-category-new`, `rules-category-delete`) checked by eye; the window itself
+  only build-verified. Decisions: `ARCHITECTURE.md` → "Decision record: the categories
+  editor (built)"
+- ✅ M3.8 Transfer-pair confirmation. The Transactions inspector's Transfer section,
+  composed from existing specs, not drawn (user, 2026-11-15): a suggested pair is a card
+  like Coffer's refund suggestion ("Is this a transfer?", why, the other side, "Confirm
+  transfer" / "Not a transfer"); a confirmed pair is one row like a link row, its ✕
+  unpairing; each decision has the undo bar. Core: `transfer::{confirm, reject, unpair,
+  undo, pair_of, availability}` (`transfer/decision.rs`): status changes on the
+  detected group, re-checked in `BEGIN IMMEDIATE`, refused for excluded, split or
+  linked rows, a pot's mirrored pair never unpaired; undo is the inverse change, no
+  change batch, no migration. `reporting::pairing` (the section's read model over the
+  register, `RegisterRow::pair`) and `inbox::decide_transfer`, which settles an agent's
+  pending suggestion for the same pair in the same DB transaction. Snapshots
+  (`transactions-transfer`, `transactions-transfer-confirmed`) checked by eye; the window
+  itself only build-verified. Decisions: `ARCHITECTURE.md` → "Decision record:
+  transfer-pair confirmation (built)"
 - ✅ M3.9 Split editor (the remaining amount fills in automatically; lines are locked to the
   total), tags and notes in the inspector. Core's `split::draft::SplitDraft` is the
   editor's model (remainder, the sign never typed, "Add line" filling in the rest, saved
@@ -788,8 +814,23 @@ Every tool call appears in the access log.
   `-split-start`, `-tag-menu`) checked by eye against `2Q3-0`, `4XF-0` and `3WT-0`; the
   window itself only build-verified. Decisions: `ARCHITECTURE.md` → "Decision record:
   splits, tags and notes in the inspector"
-- ⬜ M3.10 Manual transactions and cash accounts; exclude a row with a reason, with an
-  "excluded" filter so nothing disappears
+- ✅ M3.10 Manual transactions and cash accounts; exclude a row with a reason, with an
+  "excluded" filter so nothing disappears. Transactions: the Excluded chip and excluded
+  rows (`3FE-0`), the exclusion card with Include again and Edit reason…, the Source
+  section on every row (raw description, the batch or "Added by you", Exclude…, Undo
+  import…, Delete transaction…), the Exclude, undo-import, delete and New-transaction
+  dialogs (`51L-0`, `529-0`), ⌘N (from Transactions and the accounts panel) and a cash
+  account's New transaction, a manual row's Date, Amount and Account in the inspector
+  (`4D7-0`); the status bar counts excluded rows. Cash accounts (`EPF-0`): the inspector's
+  Counts with "Count cash…" and the starting point, and the Count cash dialog with an
+  optional "Cash count difference" entry, saved with the count in one DB transaction
+  (`account::count`). Core: `reporting::register`'s `RowSource`, exclusion details and
+  account currency; `manual::create_in`. No migration. Undrawn states composed (review).
+  Snapshots (`transactions-excluded`, `-exclude-dialog`, `-manual`, `-new-transaction`,
+  `-undo-import`, `accounts-cash`, `cash-count`, `cash-count-first`) checked by eye; the
+  window itself only build-verified. Decisions: `ARCHITECTURE.md` → "Decision record:
+  excluding, the Source section and manual transactions (built)" and "Decision record:
+  cash counts (built)"
 - ✅ M3.11 Link refunds, reimbursements and settlements; outstanding-claims and owed-to-me
   lists. As D6.5 draws them: the Transactions inspector's Share (Just me / Shared /
   Claim back, Yours and Owed by) and Links sections (rows with ✕ and the undo bar,

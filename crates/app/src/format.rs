@@ -39,6 +39,24 @@ fn symbol(currency: Currency) -> Option<&'static str> {
 /// `amount` for display: `£1,284.10`, `−£24.10`, `+€34.00`, `CHF 12.00`.
 pub fn money(amount: Money, sign: Sign) -> String {
     let currency = amount.currency();
+    let (prefix, number) = signed_number(amount, sign);
+    match symbol(currency) {
+        Some(symbol) => format!("{prefix}{symbol}{number}"),
+        None => format!("{prefix}{} {number}", currency.code()),
+    }
+}
+
+/// `amount` as an amount field holds it, with no currency (the field
+/// names it): `−1,284.10`, `34.00`. [`parse_amount`] reads it back.
+pub fn field_amount(amount: Money) -> String {
+    let (prefix, number) = signed_number(amount, Sign::Negative);
+    format!("{prefix}{number}")
+}
+
+/// The sign `sign` asks for, and the unsigned number grouped in thousands
+/// with the currency's decimals.
+fn signed_number(amount: Money, sign: Sign) -> (&'static str, String) {
+    let currency = amount.currency();
     let digits = amount.to_decimal_string();
     let unsigned = digits.trim_start_matches('-');
     let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
@@ -65,10 +83,7 @@ pub fn money(amount: Money, sign: Sign) -> String {
     } else {
         ""
     };
-    match symbol(currency) {
-        Some(symbol) => format!("{prefix}{symbol}{number}"),
-        None => format!("{prefix}{} {number}", currency.code()),
-    }
+    (prefix, number)
 }
 
 /// The text before an amount field's value: the currency's symbol, or its
@@ -171,6 +186,16 @@ mod tests {
         );
         let franc = Currency::new("CHF").unwrap();
         assert_eq!(money(Money::new(1200, franc), Sign::Negative), "CHF 12.00");
+    }
+
+    #[test]
+    fn a_field_amount_has_no_currency_and_reads_back() {
+        for minor in [-128_410, 2_300, 0, -5] {
+            let text = field_amount(gbp(minor));
+            assert_eq!(parse_amount(&text, Currency::GBP), Ok(gbp(minor)), "{text}");
+        }
+        assert_eq!(field_amount(gbp(-128_410)), "\u{2212}1,284.10");
+        assert_eq!(field_amount(gbp(2_300)), "23.00");
     }
 
     #[test]

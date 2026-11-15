@@ -687,6 +687,100 @@ fn confirm_transfer(
     }
 }
 
+/// A transfer pair the user decided in Transactions, with the Inbox
+/// suggestions that decision settled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransferDecided {
+    /// What changed, kept for [`transfer::undo`].
+    pub decision: transfer::Decision,
+    /// Pending `transfer_pair` suggestions for the same two rows: approved
+    /// when the pair was confirmed, rejected when it was marked as not a
+    /// transfer.
+    pub settled: Vec<SuggestionId>,
+}
+
+/// The reason recorded on a suggestion rejected by a decision in
+/// Transactions.
+pub const DECIDED_IN_TRANSACTIONS: &str = "Decided in Transactions";
+
+/// Confirms, rejects or unpairs transfer group `group` ([`transfer`]'s
+/// decisions) and, in the same DB transaction, settles any pending agent
+/// suggestion for exactly that pair, so the Inbox doesn't keep one the user
+/// has already answered (decision record "transfer-pair confirmation
+/// (built)"). Unpairing settles nothing: the pair was confirmed already.
+/// Undoing the decision later leaves settled suggestions as they are.
+pub fn decide_transfer(
+    db: &mut Database,
+    group: TransferGroupId,
+    action: transfer::Action,
+) -> Result<TransferDecided, ApproveError> {
+    let tx = db
+        .conn_mut()
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let decision = match action {
+        transfer::Action::Confirm => transfer::confirm_in(&tx, group)?,
+        transfer::Action::Reject => transfer::reject_in(&tx, group)?,
+        transfer::Action::Unpair => transfer::unpair_in(&tx, group)?,
+    };
+    let settled = match action {
+        transfer::Action::Unpair => Vec::new(),
+        transfer::Action::Confirm | transfer::Action::Reject => {
+            settle_transfer_pair(&tx, &decision)?
+        }
+    };
+    tx.commit()?;
+    Ok(TransferDecided { decision, settled })
+}
+
+/// Settles the pending `transfer_pair` suggestions naming `decision`'s two
+/// rows (kept lower ID first, so the payload's pair is sorted to compare).
+fn settle_transfer_pair(
+    conn: &Connection,
+    decision: &transfer::Decision,
+) -> Result<Vec<SuggestionId>, ApproveError> {
+    let pending: Vec<(SuggestionId, String)> = conn
+        .prepare(
+            "SELECT id, payload_json FROM suggestion \
+             WHERE status = 'pending' AND kind = 'transfer_pair' ORDER BY id",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    let mut settled = Vec::new();
+    for (id, json) in pending {
+        let Ok(Payload::TransferPair(pair)) =
+            Payload::from_stored(SuggestionKind::TransferPair, &json)
+        else {
+            continue;
+        };
+        let mut rows = [pair.outflow, pair.inflow];
+        rows.sort();
+        if rows != decision.transactions {
+            continue;
+        }
+        match decision.action {
+            transfer::Action::Confirm => decide(
+                conn,
+                id,
+                None,
+                &json!({
+                    "transfer_group_id": decision.group.get(),
+                    "settled_by": "transactions",
+                }),
+            )?,
+            transfer::Action::Reject | transfer::Action::Unpair => {
+                conn.execute(
+                    "UPDATE suggestion SET status = 'rejected', decision_reason = ?1, \
+                     decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+                     WHERE id = ?2 AND status = 'pending'",
+                    params![DECIDED_IN_TRANSACTIONS, id],
+                )?;
+            }
+        }
+        settled.push(id);
+    }
+    Ok(settled)
+}
+
 /// What a link approved now would be: the payload's amount, or as much as
 /// both sides can still take.
 pub(super) fn link_amount(conn: &Connection, refund: &RefundLink) -> Result<Money, ApproveError> {

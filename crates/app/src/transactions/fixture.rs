@@ -11,12 +11,15 @@
 use chrono::{NaiveDate, NaiveTime};
 use coffer_core::account::AccountKind;
 use coffer_core::category::{CategoryKey, CategoryKind};
-use coffer_core::id::{AccountId, TagId, TransactionId};
+use coffer_core::exclusion::ExclusionReason;
+use coffer_core::id::{AccountId, BatchId, TagId, TransactionId, TransferGroupId};
+use coffer_core::manual::Origin;
 use coffer_core::money::{Currency, Money};
 use coffer_core::reporting::register::{
     Colour, Register, RegisterAccount, RegisterCategory, RegisterRow, RegisterTag, RowCategory,
-    RowShare, SplitPart,
+    RowPair, RowShare, RowSource, SplitPart,
 };
+use coffer_core::transfer::TransferStatus;
 use gpui_kit::Rgba;
 
 use crate::theme::tokens::color;
@@ -577,6 +580,7 @@ fn register_accounts() -> Vec<RegisterAccount> {
         id: AccountId::new(id),
         name: name.to_owned(),
         kind,
+        currency: Currency::GBP,
     };
     vec![
         account(1, CURRENT, AccountKind::Current),
@@ -588,11 +592,81 @@ fn register_accounts() -> Vec<RegisterAccount> {
     ]
 }
 
+/// The import a fixture row on `account` came from: Current account's
+/// `monzo-november.csv` (the account inspector's batch 2) and Joint
+/// account's `monzo-joint-november.csv` (D6.3's `2Q3-0`), both imported on
+/// 9 Nov.
+fn fixture_source(account: AccountId) -> RowSource {
+    let (batch, file) = if account == AccountId::new(4) {
+        (3, "monzo-joint-november.csv")
+    } else {
+        (2, "monzo-november.csv")
+    };
+    RowSource::Import {
+        batch: BatchId::new(batch),
+        file: file.to_owned(),
+        imported_on: NaiveDate::from_ymd_opt(2026, 11, 9).expect("a date"),
+        origin: Origin::Imported,
+    }
+}
+
 fn account_id(name: &str) -> AccountId {
     register_accounts()
         .into_iter()
         .find(|account| account.name == name || format!("{} pot", account.name) == name)
         .map_or(AccountId::new(0), |account| account.id)
+}
+
+/// The two rows of [`transfer_register`]'s pair: £250.00 from Current
+/// account to Savings on 9 Nov, money out first.
+pub fn transfer_ids() -> (TransactionId, TransactionId) {
+    (TransactionId::new(200), TransactionId::new(201))
+}
+
+/// [`register`] with a £250.00 move from Current account to Savings that
+/// detection paired, in `status` (M3.8's Transfer section). Made up, like
+/// the rest.
+pub fn transfer_register(status: TransferStatus) -> Register {
+    let (out, inn) = transfer_ids();
+    let mut rows = rows();
+    let template = rows[0].clone();
+    let pair = Some(RowPair {
+        group: TransferGroupId::new(1),
+        status,
+    });
+    let side = |id: TransactionId, account: i64, minor: i64, text: &str| {
+        let amount = Money::new(minor, Currency::GBP);
+        RegisterRow {
+            id,
+            account: AccountId::new(account),
+            date: NaiveDate::from_ymd_opt(2026, 11, 9).expect("a date"),
+            time: None,
+            amount,
+            original: None,
+            merchant: text.to_owned(),
+            bank_merchant: Some(text.to_owned()),
+            description: text.to_owned(),
+            payment_type: Some("Faster payment".to_owned()),
+            category: RowCategory::Uncategorised,
+            rule: None,
+            transfer: (status == TransferStatus::Confirmed).then(|| vec![AccountId::new(1)]),
+            source: fixture_source(AccountId::new(account)),
+            tags: Vec::new(),
+            splittable: false,
+            in_transfer: true,
+            pair,
+            links: Vec::new(),
+            share: RowShare::whole(amount),
+            ..template.clone()
+        }
+    };
+    let mut out_row = side(out, 1, -25_000, "To Savings");
+    let inn_row = side(inn, 5, 25_000, "From Current account");
+    if let Some(transfer) = &mut out_row.transfer {
+        *transfer = vec![AccountId::new(5)];
+    }
+    rows.extend([out_row, inn_row]);
+    Register::new(rows, register_accounts(), categories())
 }
 
 /// The rows of the Transactions artboards (`18E-0`, `1NP-0`) as a
@@ -639,6 +713,106 @@ pub fn split_register() -> Register {
     ])
 }
 
+/// [`register`] as Transactions · Excluded draws it (`3FE-0`): the Odeon
+/// payment excluded as a bank error on 8 Nov, with the user's details, and
+/// the second Pret on 4 Nov as a duplicate. With the Excluded chip on they
+/// show in their days, which net without them (Sat 7 Nov: −£160.54).
+pub fn excluded_register() -> Register {
+    let mut rows = rows();
+    let excluded_on = NaiveDate::from_ymd_opt(2026, 11, 8).expect("a date");
+    for (name, reason, note) in [
+        (
+            "txn-odeon-07",
+            ExclusionReason::BankError,
+            Some("Charged twice for one booking; the refund is on its way."),
+        ),
+        ("txn-pret-04", ExclusionReason::Duplicate, None),
+    ] {
+        if let Some(row) = rows.iter_mut().find(|row| row.id == id(name)) {
+            row.excluded = Some(reason);
+            row.excluded_note = note.map(str::to_owned);
+            row.excluded_on = Some(excluded_on);
+        }
+    }
+    Register::new(rows, register_accounts(), categories())
+}
+
+/// The Cash account of Transactions · Manual (`4D7-0`), as
+/// [`crate::accounts::fixture::valued`] numbers it.
+pub const CASH: AccountId = AccountId::new(8);
+
+/// The manual rows' IDs: after every [`TRANSACTIONS`] ID.
+pub fn manual_id(index: i64) -> TransactionId {
+    TransactionId::new(100 + index)
+}
+
+/// [`register`] with Transactions · Manual's Cash account (`4D7-0`): rows
+/// the user added, one of them the cash withdrawal from Current account,
+/// paired as a transfer. Made up, like the rest.
+pub fn manual_register() -> Register {
+    let gbp = |minor| Money::new(minor, Currency::GBP);
+    let day = |day| NaiveDate::from_ymd_opt(2026, 11, day).expect("a November date");
+    let manual = |index: i64,
+                  on: u32,
+                  merchant: &str,
+                  minor: i64,
+                  category: Option<Category>,
+                  transfer: Option<AccountId>| RegisterRow {
+        id: manual_id(index),
+        account: CASH,
+        date: day(on),
+        time: None,
+        amount: gbp(minor),
+        original: None,
+        merchant: merchant.to_owned(),
+        bank_merchant: Some(merchant.to_owned()),
+        description: merchant.to_owned(),
+        payment_type: None,
+        category: category.map_or(RowCategory::Uncategorised, |category| {
+            RowCategory::Category(category.id())
+        }),
+        rule: None,
+        transfer: transfer.map(|account| vec![account]),
+        excluded: None,
+        excluded_note: None,
+        excluded_on: None,
+        source: RowSource::Manual {
+            created_on: day(on),
+        },
+        note: None,
+        bank_note: None,
+        merchant_set: false,
+        tags: Vec::new(),
+        splittable: transfer.is_none(),
+        in_transfer: transfer.is_some(),
+        pair: None,
+        links: Vec::new(),
+        share: RowShare::whole(gbp(minor)),
+    };
+    let mut rows = rows();
+    rows.extend([
+        manual(1, 8, "Corner shop", -420, Some(Category::Groceries), None),
+        manual(
+            2,
+            7,
+            "Farmers' market",
+            -1280,
+            Some(Category::Groceries),
+            None,
+        ),
+        manual(3, 6, "Window cleaner", -1000, Some(Category::Bills), None),
+        manual(4, 5, "Cash withdrawal", 5000, None, Some(AccountId::new(1))),
+    ]);
+    let mut accounts = register_accounts();
+    accounts.push(RegisterAccount {
+        id: CASH,
+        name: "Cash".to_owned(),
+        kind: AccountKind::Cash,
+        currency: Currency::GBP,
+    });
+    Register::new(rows, accounts, categories())
+}
+
 fn categories() -> Vec<RegisterCategory> {
     Category::ALL
         .into_iter()
@@ -650,6 +824,7 @@ fn categories() -> Vec<RegisterCategory> {
             kind: CategoryKind::Spending,
             group: None,
             colour: category.colour(),
+            hidden: false,
         })
         .collect()
 }
@@ -669,9 +844,10 @@ fn rows() -> Vec<RegisterRow> {
                 }
             };
             let splittable = transfer.is_none();
+            let account = account_id(transaction.account);
             RegisterRow {
                 id: id(transaction.id),
-                account: account_id(transaction.account),
+                account,
                 date: first - chrono::Days::new(transaction.day as u64),
                 time: NaiveTime::parse_from_str(transaction.time, "%H:%M").ok(),
                 amount: Money::new(transaction.amount, Currency::GBP),
@@ -686,12 +862,16 @@ fn rows() -> Vec<RegisterRow> {
                 rule: None,
                 transfer,
                 excluded: None,
+                excluded_note: None,
+                excluded_on: None,
+                source: fixture_source(account),
                 note: None,
                 bank_note: None,
                 merchant_set: false,
                 tags: Vec::new(),
                 splittable,
                 in_transfer: !splittable,
+                pair: None,
                 links: Vec::new(),
                 share: RowShare::whole(Money::new(transaction.amount, Currency::GBP)),
             }
