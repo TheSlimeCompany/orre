@@ -8,6 +8,9 @@
 //! - **Delete name** (composed from Delete rule): the transactions that
 //!   showed it show the bank's cleaned text again, or another name. Cancel /
 //!   destructive solid "Delete name".
+//! - **Delete category** (composed from Delete rule; opened by the Rules
+//!   view itself, not the shell): only for a category nothing uses, so
+//!   nothing else changes. Cancel / destructive solid "Delete category".
 //! - **Undo a change** "Undo “Applied rule TFL TRAVEL → Transport”?": what
 //!   goes back and what stays because it changed since. Cancel / neutral
 //!   primary "Undo change" (reversible by applying again).
@@ -241,6 +244,103 @@ impl Render for DeleteNameDialog {
             )
             .action(
                 Button::new("delete-name-confirm", "Delete name")
+                    .with_variant(ButtonVariant::DestructiveSolid)
+                    .with_surface(color::FLOAT)
+                    .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
+            )
+            .on_cancel(move |_, cx| {
+                let _ = on_cancel.update(cx, |this, cx| this.cancel(cx));
+            })
+    }
+}
+
+/// "Delete the category …?" (composed from Delete rule). Offered only for a
+/// category nothing uses; core checks again.
+pub struct DeleteCategoryDialog {
+    rules: Entity<Rules>,
+    category: i64,
+    title: String,
+    body: String,
+    focus: FocusHandle,
+    error: Option<SharedString>,
+}
+
+impl EventEmitter<DialogClosed> for DeleteCategoryDialog {}
+
+impl DeleteCategoryDialog {
+    pub fn new(
+        rules: Entity<Rules>,
+        category: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let focus = cx.focus_handle();
+        focus.focus(window, cx);
+        let (title, body) = match rules.read(cx).data().category_entry(category) {
+            Some((summary, _)) => {
+                let category = &summary.category;
+                let what = if category.is_group() {
+                    "group"
+                } else {
+                    "category"
+                };
+                (
+                    format!("Delete the {what} “{}”?", category.label()),
+                    format!(
+                        "No transaction, split, rule, budget or schedule uses it, so nothing else \
+                         changes. This can’t be undone, but you can add a category with this \
+                         name again; it gets the key {} while that’s free.",
+                        category.key()
+                    ),
+                )
+            }
+            None => ("Delete the category?".to_owned(), String::new()),
+        };
+        Self {
+            rules,
+            category,
+            title,
+            body,
+            focus,
+            error: None,
+        }
+    }
+
+    pub fn submit(&mut self, cx: &mut Context<Self>) {
+        let category = self.category;
+        match self
+            .rules
+            .update(cx, |rules, cx| rules.delete_category(category, cx))
+        {
+            Ok(()) => cx.emit(DialogClosed),
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+            }
+        }
+    }
+
+    pub fn cancel(&mut self, cx: &mut Context<Self>) {
+        cx.emit(DialogClosed);
+    }
+}
+
+impl Render for DeleteCategoryDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let on_cancel = cx.entity().downgrade();
+        Dialog::with_title(title(self.title.clone()), &self.focus)
+            .body(body(self.body.clone()))
+            .when_some(self.error.clone(), |this, error| {
+                this.body(error_caption(error))
+            })
+            .action(
+                Button::new("delete-category-cancel", "Cancel")
+                    .with_variant(ButtonVariant::Secondary)
+                    .with_surface(color::FLOAT)
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
+            )
+            .action(
+                Button::new("delete-category-confirm", "Delete category")
                     .with_variant(ButtonVariant::DestructiveSolid)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),

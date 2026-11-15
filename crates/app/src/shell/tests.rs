@@ -221,6 +221,55 @@ fn shortcuts_work_from_inside_the_table(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn command_n_opens_new_transaction_on_transactions_only(cx: &mut TestAppContext) {
+    let (shell, cx) = open_shell(cx, View::Rules);
+    cx.simulate_keystrokes(&secondary("n"));
+    assert!(cx.update(|_, cx| shell.read(cx).dialog().is_none()));
+
+    cx.simulate_keystrokes(&secondary("2"));
+    // From inside the table, as from the shell.
+    cx.update(|window, cx| window.click(a_row(), cx));
+    cx.simulate_keystrokes(&secondary("n"));
+    redraw(cx);
+    assert!(cx.update(|_, cx| shell.read(cx).dialog().is_some()));
+    assert!(shows("new-transaction-add", cx));
+}
+
+/// ⌘N in the accounts panel adds what the selected account takes: on a bank
+/// account, a transaction (a valuation account's is the accounts' own test).
+#[gpui_kit::test]
+fn command_n_in_the_accounts_panel_opens_new_transaction(cx: &mut TestAppContext) {
+    let (shell, cx) = open_shell(cx, View::Transactions);
+    let current = crate::accounts::fixture::CURRENT;
+    cx.update(|window, cx| window.click(format!("account-{current}"), cx));
+    redraw(cx);
+    cx.simulate_keystrokes(&secondary("n"));
+    redraw(cx);
+    assert!(cx.update(|_, cx| shell.read(cx).dialog().is_some()));
+    assert!(shows("new-transaction-add", cx));
+}
+
+#[test]
+fn the_status_bar_counts_excluded_rows_when_there_are_some() {
+    let counts = |transactions, excluded, sample| crate::transactions::Counts {
+        transactions,
+        excluded,
+        sample,
+    };
+    assert_eq!(transactions_count(counts(12, 0, false)), "12 transactions");
+    assert_eq!(transactions_count(counts(1, 0, false)), "1 transaction");
+    assert_eq!(
+        transactions_count(counts(12, 2, false)),
+        "12 transactions · 2 excluded"
+    );
+    // The sample data keeps the artboard's figure (D6.3, `3FE-0`).
+    assert_eq!(
+        transactions_count(counts(23, 2, true)),
+        "328 transactions · 2 excluded"
+    );
+}
+
+#[gpui_kit::test]
 fn the_transactions_selection_survives_a_switch(cx: &mut TestAppContext) {
     let (shell, cx) = open_shell(cx, View::Transactions);
     let pret = crate::transactions::fixture::id("txn-pret-09");

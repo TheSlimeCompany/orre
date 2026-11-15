@@ -1,8 +1,9 @@
 //! The Rules view's left panel (`docs/DESIGN.md` → "Rules"; Paper `B1J-0`,
-//! `G2O-0`, `GZT-0`): RULES (Rules, Merchant names, Change history, each
-//! with its count), then the open list's filter: ACTION for rules, MATCH
-//! for merchant names, KIND for the history. A second click on a filter
-//! clears it. Zero counts stay listed, in mono `text-faint`.
+//! `G2O-0`, `GZT-0`): RULES (Rules, Merchant names, Change history,
+//! Categories, each with its count), then the open list's filter: ACTION
+//! for rules, MATCH for merchant names, KIND for the history and for
+//! categories (with Hidden). A second click on a filter clears it. Zero
+//! counts stay listed, in mono `text-faint`.
 
 use gpui_kit::{
     App, Entity, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
@@ -16,7 +17,7 @@ use crate::ui::section_label::SectionLabelRow;
 use crate::ui::text::TextRoleExt as _;
 
 use super::text;
-use super::{Rules, Section};
+use super::{CategoryFilter, Rules, Section};
 
 /// A section: 8px (the first) or 4px above, 6px inline, 10px below.
 fn section(first: bool, label: &str) -> gpui_kit::Div {
@@ -65,6 +66,13 @@ pub fn render(rules: &Entity<Rules>, cx: &App) -> impl IntoElement {
             "Change history",
             Glyph::History,
             data.history.len(),
+        ),
+        list(
+            Section::Categories,
+            "rules-section-categories",
+            "Categories",
+            Glyph::SetCategory,
+            data.categories.len(),
         ),
     ];
 
@@ -121,6 +129,33 @@ pub fn render(rules: &Entity<Rules>, cx: &App) -> impl IntoElement {
                 handle.update(cx, |rules, cx| rules.toggle_kind_filter(kind, cx))
             })
         })),
+        // Composed: the kinds have no icon of their own, so their rows keep
+        // the icon's slot empty; Hidden is the categories pickers leave out.
+        Section::Categories => {
+            let filters = text::CATEGORY_KINDS
+                .map(CategoryFilter::Kind)
+                .into_iter()
+                .chain([CategoryFilter::Hidden]);
+            section(false, "Kind").children(filters.map(|filter| {
+                let handle = rules.clone();
+                let (id, label) = match filter {
+                    CategoryFilter::Kind(kind) => (
+                        format!("rules-category-kind-{}", kind.as_str()),
+                        text::category_kind_filter(kind),
+                    ),
+                    CategoryFilter::Hidden => ("rules-category-hidden".to_owned(), "Hidden"),
+                };
+                ListRow::new(SharedString::from(id), label)
+                    .blank_slot()
+                    .dimmed(filter == CategoryFilter::Hidden)
+                    .trailing(state.count_categories(filter).to_string())
+                    .trailing_tone(TrailingTone::Faint)
+                    .selected(state.category_filter() == Some(filter))
+                    .on_click(move |_, _, cx| {
+                        handle.update(cx, |rules, cx| rules.toggle_category_filter(filter, cx))
+                    })
+            }))
+        }
     };
 
     div()

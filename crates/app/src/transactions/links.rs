@@ -43,7 +43,7 @@ use crate::ui::text::TextRoleExt as _;
 
 use super::editor::EditPlace;
 use super::linking;
-use super::{Menu, Source, TransactionsEvent, TransactionsView, Undo, present};
+use super::{Menu, Source, TransactionsEvent, TransactionsView, Undo, UndoAction, present};
 
 /// The Share control's keys.
 const JUST_ME: &str = "just-me";
@@ -179,7 +179,7 @@ impl TransactionsView {
                 self.editor.error = None;
                 if let (Some(batch), Some(message)) = (batch, undo) {
                     self.undo = Some(Undo {
-                        batch,
+                        action: UndoAction::Batch(batch),
                         message: message.into(),
                     });
                 }
@@ -376,7 +376,7 @@ impl TransactionsView {
                 if let (Some(batch), Some(inflow)) = (batch, inflow) {
                     let purchases: Vec<&RegisterRow> = purchase.iter().collect();
                     self.undo = Some(Undo {
-                        batch,
+                        action: UndoAction::Batch(batch),
                         message: linking::linked_message(
                             link.kind, &inflow, &purchases, person, self.today,
                         )

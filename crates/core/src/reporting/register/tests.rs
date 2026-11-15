@@ -227,6 +227,82 @@ fn filters_by_account_category_dates_and_text() {
 }
 
 #[test]
+fn filter_showing_clears_only_the_parts_that_hide_a_row() {
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current account", Currency::GBP);
+    let cash = ledger.account("Cash", Currency::GBP);
+    let groceries = ledger.row_at(
+        current,
+        "2026-11-09",
+        -1862,
+        Some("food.groceries"),
+        Some("Sainsbury's"),
+        "SAINSBURYS S/MKT CLAPHAM",
+    );
+    let market = ledger.row_at(
+        cash,
+        "2026-10-20",
+        -1280,
+        None,
+        Some("Farmers' market"),
+        "Farmers' market",
+    );
+    let register = load(&ledger);
+    let food = category_id(&register, "food");
+    let november = DateRange::new(date("2026-11-01"), date("2026-11-30")).unwrap();
+    let shown_in =
+        |filter: &Filter, id| ids(&register, &register.select(filter, Sort::Default)).contains(&id);
+
+    // Every part hides the market row: each is cleared.
+    let hiding = Filter {
+        account: Some(current),
+        category: Some(food),
+        dates: Some(november),
+        uncategorised: false,
+        text: "sainsbury".into(),
+        include_excluded: false,
+    };
+    assert!(!shown_in(&hiding, market));
+    let shown = register.filter_showing(&hiding, market).unwrap();
+    assert_eq!(shown, Filter::default());
+    assert!(shown_in(&shown, market));
+
+    // Parts that already show a row stay.
+    let showing = register.filter_showing(&hiding, groceries).unwrap();
+    assert_eq!(showing, hiding);
+    let uncategorised = Filter {
+        uncategorised: true,
+        account: Some(cash),
+        ..Filter::default()
+    };
+    assert_eq!(
+        register.filter_showing(&uncategorised, market).unwrap(),
+        uncategorised
+    );
+    assert_eq!(
+        register.filter_showing(&uncategorised, groceries).unwrap(),
+        Filter::default()
+    );
+    assert_eq!(
+        register.filter_showing(&Filter::default(), TransactionId::new(999_999)),
+        None
+    );
+
+    // An excluded row turns the Excluded filter on.
+    ledger.exclude(groceries, ExclusionReason::BankError);
+    let register = load(&ledger);
+    assert_eq!(
+        register
+            .filter_showing(&Filter::default(), groceries)
+            .unwrap(),
+        Filter {
+            include_excluded: true,
+            ..Filter::default()
+        }
+    );
+}
+
+#[test]
 fn uncategorised_rows_are_counted_and_filtered() {
     let mut ledger = TestLedger::new();
     let current = ledger.account("Current account", Currency::GBP);
@@ -512,4 +588,91 @@ fn rows_carry_tags_notes_the_users_name_and_whether_they_can_be_split() {
     assert!(purchase_row.splittable);
     assert!(purchase_row.tags.is_empty());
     assert!(!purchase_row.merchant_set);
+}
+
+#[test]
+fn rows_say_where_they_came_from_and_why_they_are_excluded() {
+    use crate::exclusion;
+    use crate::import::{self, Committed};
+    use crate::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
+
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current account", Currency::GBP);
+    let mut statement = Statement::new(SourceFormat::Csv, Currency::GBP);
+    statement.push(
+        SourceLocation::Line(2),
+        Ok(StatementLine::new(
+            date("2026-11-07"),
+            Money::new(-3180, Currency::GBP),
+            "ODEON LUXE LEICESTER SQ",
+        )),
+    );
+    let preview = import::preview(&ledger.db, current, "test-november.csv", statement).unwrap();
+    let Committed::Batch(summary) =
+        import::commit(&mut ledger.db, &preview, preview.needs_confirmation()).unwrap()
+    else {
+        panic!("a batch");
+    };
+    let cash = ledger.row(current, "2026-11-08", -420, None);
+    let imported: TransactionId = ledger
+        .db
+        .conn()
+        .query_row(
+            "SELECT id FROM \"transaction\" WHERE origin = 'imported'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    exclusion::exclude(
+        &mut ledger.db,
+        imported,
+        ExclusionReason::BankError,
+        Some("Charged twice"),
+    )
+    .unwrap();
+    // The local days of the stored UTC times, as the register reads them.
+    let local = |sql: &str, id: TransactionId| -> NaiveDate {
+        let text: String = ledger
+            .db
+            .conn()
+            .query_row(sql, [id], |row| row.get(0))
+            .unwrap();
+        date(&text)
+    };
+    let imported_on = local(
+        "SELECT date(b.imported_at, 'localtime') FROM \"transaction\" t \
+         JOIN import_batch b ON b.id = t.batch_id WHERE t.id = ?1",
+        imported,
+    );
+    let excluded_on = local(
+        "SELECT date(excluded_at, 'localtime') FROM \"transaction\" WHERE id = ?1",
+        imported,
+    );
+    let created_on = local(
+        "SELECT date(created_at, 'localtime') FROM \"transaction\" WHERE id = ?1",
+        cash,
+    );
+
+    let register = load(&ledger);
+    let row = register.row(imported).unwrap();
+    assert_eq!(
+        row.source,
+        RowSource::Import {
+            batch: summary.batch,
+            file: "test-november.csv".to_owned(),
+            imported_on,
+            origin: Origin::Imported,
+        }
+    );
+    assert_eq!(row.source.batch(), Some(summary.batch));
+    assert!(!row.source.is_manual());
+    assert_eq!(row.excluded, Some(ExclusionReason::BankError));
+    assert_eq!(row.excluded_note.as_deref(), Some("Charged twice"));
+    assert_eq!(row.excluded_on, Some(excluded_on));
+
+    let row = register.row(cash).unwrap();
+    assert_eq!(row.source, RowSource::Manual { created_on });
+    assert!(row.source.is_manual());
+    assert_eq!((row.excluded, row.excluded_on), (None, None));
+    assert_eq!(row.excluded_note, None);
 }

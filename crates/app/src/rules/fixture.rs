@@ -14,6 +14,8 @@
 //!   "Create rule…" (`EFT-0`).
 //! - **Merchant names**: Amazon Marketplace, Apple, Costa Coffee and more.
 //! - **Change history**: the applies, a bulk edit and an undone apply.
+//! - **Categories** ([`seed_categories`]): two of the user's own, a group of
+//!   their own, and two hidden.
 
 use std::collections::BTreeSet;
 
@@ -360,5 +362,40 @@ pub fn seed(db: &mut Database) -> Seeded {
         joint,
         rules,
         vinted,
+    }
+}
+
+/// What [`seed_categories`] made.
+pub struct SeededCategories {
+    /// Coffee, under Food: nothing uses it, so it can be deleted.
+    pub coffee: i64,
+    /// Side projects, a new spending group, with Tools under it.
+    pub side_projects: i64,
+}
+
+/// The categories editor's sample (composed, not drawn): the user's own
+/// Coffee under Food and a Side projects group with Tools, Mortgage hidden
+/// and the Travel group hidden with its subcategories. Run after [`seed`].
+pub fn seed_categories(db: &mut Database) -> SeededCategories {
+    use coffer_core::category::{self, CategoryKind, NewCategory, Placement};
+    let mut add = |label: &str, placement: Placement| {
+        category::add(
+            db,
+            &NewCategory {
+                label: label.to_owned(),
+                placement,
+            },
+        )
+        .expect("a fixture category")
+    };
+    let coffee = add("Coffee", Placement::Under(key("food")));
+    let side_projects = add("Side projects", Placement::Group(CategoryKind::Spending));
+    add("Tools", Placement::Under(side_projects.key().clone()));
+    for hidden in ["home.mortgage", "travel"] {
+        category::set_hidden(db, &key(hidden), true).expect("a fixture category hidden");
+    }
+    SeededCategories {
+        coffee: coffee.id(),
+        side_projects: side_projects.id(),
     }
 }

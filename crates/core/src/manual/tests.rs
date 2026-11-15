@@ -444,7 +444,7 @@ fn edits_keep_the_other_user_fields() {
 }
 
 #[test]
-fn deleting_or_moving_money_dissolves_a_transfer_pair() {
+fn moving_money_in_a_transfer_pair_is_refused_until_it_is_unpaired() {
     let mut f = Fixture::new();
     let cash = f.account("Cash", AccountKind::Cash);
     let current = f.account("Current", AccountKind::Current);
@@ -461,19 +461,52 @@ fn deleting_or_moving_money_dissolves_a_transfer_pair() {
     );
     assert!(transfer::group_of(&f.db, into).unwrap().is_some());
 
-    // A new amount doesn't.
-    moved.amount = gbp(1_500);
+    // A new amount or account is refused while the pair is confirmed, and
+    // nothing changes.
+    let mut bigger = moved.clone();
+    bigger.amount = gbp(1_500);
+    let mut elsewhere = moved.clone();
+    elsewhere.account = f.account("Wallet", AccountKind::Cash);
+    for refused in [&bigger, &elsewhere] {
+        assert!(matches!(
+            update(&mut f.db, into, refused),
+            Err(Error::Transfer(id)) if id == into
+        ));
+    }
+    let stored = get(&f.db, into).unwrap();
+    assert_eq!(stored.amount, gbp(2_000));
+    assert_eq!(stored.account, cash);
+    assert_eq!(transfer::group(&f.db, group).unwrap().transactions.len(), 2);
+
+    // A suggested pair refuses it too.
+    f.sql(&format!(
+        "UPDATE transfer_group SET status = 'suggested' WHERE id = {group}"
+    ));
+    assert!(matches!(
+        update(&mut f.db, into, &bigger),
+        Err(Error::Transfer(_))
+    ));
+
+    // Marked as not a transfer, the edit goes through and the rejected
+    // group, which was about the old amount, goes.
+    transfer::reject(&mut f.db, group).unwrap();
     assert_eq!(
-        update(&mut f.db, into, &moved).unwrap().dissolved_transfer,
+        update(&mut f.db, into, &bigger).unwrap().dissolved_transfer,
         Some(group)
     );
+    assert_eq!(get(&f.db, into).unwrap().amount, gbp(1_500));
     assert!(transfer::group_of(&f.db, into).unwrap().is_none());
     assert!(transfer::group_of(&f.db, out).unwrap().is_none());
     assert!(transfer::group(&f.db, group).is_err());
+}
 
-    // Deleting a paired row leaves the other side as an ordinary one.
-    moved.amount = gbp(2_000);
-    update(&mut f.db, into, &moved).unwrap();
+#[test]
+fn deleting_a_paired_row_dissolves_the_pair() {
+    let mut f = Fixture::new();
+    let cash = f.account("Cash", AccountKind::Cash);
+    let current = f.account("Current", AccountKind::Current);
+    let out = f.imported(current, 3, -2_000);
+    let into = create(&mut f.db, &entry(cash, 3, 2_000)).unwrap();
     let group = transfer::record_confirmed_pair(f.db.conn(), out, into).unwrap();
     assert_eq!(
         delete(&mut f.db, into).unwrap().dissolved_transfer,

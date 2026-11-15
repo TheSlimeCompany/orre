@@ -29,9 +29,15 @@
 //! - **Edits** replace every field [`ManualTransaction`] holds. The other
 //!   user-facing fields (note, share, reimbursable, exclusion) are left as
 //!   they are. A category that doesn't change keeps its source; a new one is
-//!   the user's (`category_source = 'user'`). A row in a transfer pair whose
-//!   account or amount changes is no longer that pair: the group is
-//!   dissolved, like [`crate::import::undo`] does, and [`Updated`] says so.
+//!   the user's (`category_source = 'user'`).
+//! - **Transfer pairs** ([`crate::transfer`]): an edit that changes the
+//!   account, amount or currency of a row in a suggested or confirmed pair
+//!   is refused ([`Error::Transfer`]), so a pair the user sees is never
+//!   undone behind their back: they unpair it, or mark it as not a
+//!   transfer, first (an undoable decision, M3.8). A `rejected` group the
+//!   row was kept in (so detection wouldn't suggest it again) is no longer
+//!   about these amounts: it is dissolved, like [`crate::import::undo`]
+//!   does, and [`Updated`] says so.
 //! - **Deleting** a row dissolves its transfer group the same way, and
 //!   removes its split lines, tag links and links ([`crate::link`]).
 //! - **Linked rows** ([`crate::link`]): an edit that changes the amount or
@@ -61,10 +67,12 @@ use crate::id::{AccountId, TransactionId, TransferGroupId};
 use crate::link;
 use crate::merchant;
 use crate::money::{Currency, Money};
+use crate::note::UserNote;
 use crate::schedule;
 use crate::split;
 use crate::statement::normalize_description;
 use crate::tag;
+use crate::transfer::TransferStatus;
 
 /// A manual transaction to create, or what to store in place of one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,8 +138,9 @@ impl Origin {
 /// What [`update`] changed besides the row itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Updated {
-    /// The transfer pair the row was in, dissolved because its account or
-    /// amount changed. Its other rows are ordinary transactions again.
+    /// The rejected transfer group the row was in, dissolved because its
+    /// account or amount changed. Its other rows are ordinary transactions
+    /// again. (A suggested or confirmed pair refuses the edit instead.)
     pub dissolved_transfer: Option<TransferGroupId>,
 }
 
@@ -197,6 +206,14 @@ pub enum Error {
     #[error("transaction {0} is linked: unlink it before changing its amount or currency")]
     Linked(TransactionId),
 
+    /// The row is in a suggested or confirmed transfer pair, which a new
+    /// account or amount would no longer be.
+    #[error(
+        "transaction {0} is in a transfer pair: unpair it, or mark it as not a transfer, before \
+         changing its amount or account"
+    )]
+    Transfer(TransactionId),
+
     #[error("merchant names: {0}")]
     Merchant(#[from] merchant::Error),
 
@@ -207,10 +224,41 @@ pub enum Error {
 /// Stores a manual transaction and returns its ID.
 pub fn create(db: &mut Database, entry: &ManualTransaction) -> Result<TransactionId, Error> {
     let tx = db.conn_mut().transaction()?;
-    let account = check_entry(&tx, entry)?;
+    let id = create_in(&tx, entry)?;
+    tx.commit()?;
+    Ok(id)
+}
+
+/// [`create`] with the user's own note, in one DB transaction, so a
+/// failure stores neither (the New-transaction dialog, M3.10).
+pub fn create_with_note(
+    db: &mut Database,
+    entry: &ManualTransaction,
+    note: Option<&UserNote>,
+) -> Result<TransactionId, Error> {
+    let tx = db.conn_mut().transaction()?;
+    let id = create_in(&tx, entry)?;
+    if let Some(note) = note {
+        tx.execute(
+            "UPDATE \"transaction\" SET user_note = ?1 WHERE id = ?2",
+            params![note.as_str(), id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(id)
+}
+
+/// [`create`]'s checks and insert, inside the caller's DB transaction: a
+/// cash count writes its difference row with its balance
+/// ([`crate::account::count`]).
+pub(crate) fn create_in(
+    tx: &Transaction<'_>,
+    entry: &ManualTransaction,
+) -> Result<TransactionId, Error> {
+    let account = check_entry(tx, entry)?;
     check_open(&account, entry.date)?;
     check_lock(&account, entry.date)?;
-    let category = category_id(&tx, entry.category.as_ref())?;
+    let category = category_id(tx, entry.category.as_ref())?;
     tx.execute(
         "INSERT INTO \"transaction\" (account_id, date, time, amount_minor, currency, merchant, \
          description_raw, description_normalized, origin, category_id, category_source) \
@@ -229,8 +277,7 @@ pub fn create(db: &mut Database, entry: &ManualTransaction) -> Result<Transactio
         ],
     )?;
     let id = TransactionId::new(tx.last_insert_rowid());
-    merchant::apply_to_transaction(&tx, id)?;
-    tx.commit()?;
+    merchant::apply_to_transaction(tx, id)?;
     tracing::info!(transaction = %id, account = %entry.account, "added a manual transaction");
     Ok(id)
 }
@@ -327,6 +374,12 @@ pub fn update(
     }
     let dissolved_transfer = match stored.transfer_group {
         Some(group) if moves_money => {
+            if matches!(
+                transfer_status(&tx, group)?,
+                Some(TransferStatus::Suggested | TransferStatus::Confirmed)
+            ) {
+                return Err(Error::Transfer(id));
+            }
             dissolve_transfer_group(&tx, group)?;
             Some(group)
         }
@@ -407,6 +460,22 @@ fn release_references(
     duplicate::clear(tx, id)?;
     schedule::clear(tx, id)?;
     Ok(group)
+}
+
+/// Transfer group `group`'s status; `None` for one the database doesn't
+/// know (it holds nothing to keep).
+fn transfer_status(
+    conn: &Connection,
+    group: TransferGroupId,
+) -> Result<Option<TransferStatus>, Error> {
+    let status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM transfer_group WHERE id = ?1",
+            [group],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(status.as_deref().and_then(TransferStatus::from_key))
 }
 
 /// Deletes a transfer group, leaving its rows as ordinary transactions.

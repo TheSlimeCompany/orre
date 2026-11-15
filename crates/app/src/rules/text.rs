@@ -9,7 +9,7 @@
 //! [`plain`] before they're drawn, and are never acted on.
 
 use chrono::{NaiveDate, NaiveDateTime};
-use coffer_core::category::CategoryKey;
+use coffer_core::category::{CategoryKey, CategoryKind};
 use coffer_core::change::{ChangeKind, Field, HistoryEntry, Shown, Summary};
 use coffer_core::merchant::AliasKind;
 use coffer_core::money::{Currency, Money};
@@ -474,6 +474,33 @@ pub fn alias_glyph(kind: AliasKind) -> Glyph {
         AliasKind::Exact => Glyph::Equals,
         AliasKind::Prefix => Glyph::StartsWith,
         AliasKind::Regex => Glyph::Asterisk,
+    }
+}
+
+// Categories -----------------------------------------------------------------------
+
+/// The KIND filter's order in the Categories section, the schema's.
+pub const CATEGORY_KINDS: [CategoryKind; 3] = [
+    CategoryKind::Spending,
+    CategoryKind::Income,
+    CategoryKind::Transfer,
+];
+
+/// A category's kind, as the table and the inspector say it.
+pub fn category_kind(kind: CategoryKind) -> &'static str {
+    match kind {
+        CategoryKind::Spending => "Spending",
+        CategoryKind::Income => "Income",
+        CategoryKind::Transfer => "Transfer",
+    }
+}
+
+/// The KIND filter's rows: each kind's categories.
+pub fn category_kind_filter(kind: CategoryKind) -> &'static str {
+    match kind {
+        CategoryKind::Spending => "Spending",
+        CategoryKind::Income => "Income",
+        CategoryKind::Transfer => "Transfers",
     }
 }
 

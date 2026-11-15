@@ -30,6 +30,7 @@ use crate::money::{Currency, Money};
 use crate::reconciliation::BalanceSource;
 
 pub mod close;
+pub mod count;
 
 pub use close::{Closing, DeleteLock, Deletion};
 

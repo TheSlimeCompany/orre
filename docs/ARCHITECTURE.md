@@ -1804,6 +1804,158 @@ record: accounts you keep yourself" above and "Decision record: accounts managem
    for a later decision. Editing or deleting a single valuation isn't built (not drawn;
    point 21 still lists it).
 
+### Decision record: excluding, the Source section and manual transactions (built) (2026-11-15)
+
+M3.10, the Transactions half. Follows `DESIGN.md` → "Transactions additions" (D6.3) and
+"Decision record: Transactions additions" above. Marked **(composed)**: not drawn, composed
+from existing specs (review). **No migration.**
+
+1. **Exclusion stays fields on the row**, as "Transactions additions" point 1 decided.
+   "Include again" is its undo, and after a new exclusion the undo bar offers it
+   (`UndoAction::Include`): the one single-row edit with an undo bar, because the row
+   leaves the table while the Excluded chip is off (composed).
+2. **The register says where each row came from and why it's excluded.**
+   `RowSource::Import { batch, file, imported_on, origin }` or `Manual { created_on }`,
+   plus `excluded_note` and `excluded_on`; days are local, read through SQLite's
+   `localtime`. `RegisterAccount` carries its currency (a new manual row's).
+3. **The status bar** counts transactions that count, plus "· N excluded" when there are
+   some; the sample data keeps the artboard's 328.
+4. **Undo import…** opens a confirmation composed from `import::undo_preview` and the
+   CLI's wording, with a destructive confirm, since undoing removes rows (composed).
+5. **The Exclude dialog's Reason starts empty**, so the user always decides whether the
+   balance changes (only `duplicate` leaves it). "Edit reason…" reuses the dialog, filled
+   in (composed).
+6. **Manual rows.** Merchant is required: it is also the row's description, which core
+   needs (composed). Date, Amount and Account save through `manual::update`; Account
+   offers every account that holds transactions. Only manual rows can be deleted (with a
+   confirmation); imported rows are excluded instead.
+   *Added 2026-11-15 (review follow-up):* a new account or amount on a row in a suggested
+   or confirmed transfer pair is refused (`manual::Error::Transfer`) instead of
+   dissolving the pair silently; the user unpairs it or marks it as not a transfer
+   first, an undoable decision (M3.8), and the edit then goes through. A `rejected`
+   group the row was kept in is still dissolved by the edit (nothing the user sees
+   changes). Refusing, like the split and link refusals beside it, keeps the edit one
+   DB transaction with nothing to undo behind it. An edit saved as the user leaves the
+   row that fails is said by a failure bar with Show (`DESIGN.md`, "Built in M3.10").
+7. **⌘N** is the shell's `NewTransaction`: from Transactions, and from the accounts panel
+   on an account that holds transactions (a valuation account's ⌘N adds a valuation,
+   M3.17). Changes that move a balance emit `TransactionsEvent::LedgerChanged`, so the
+   accounts panel and the checks read again; the shell also reloads Transactions after
+   any dialog closes (a cash count may add a row).
+8. **When "New transaction" would overflow the toolbar**, the search field gives up the
+   pixels (composed).
+9. **A row the table is asked to show** (a new manual row, a row included again) is
+   shown: `Register::filter_showing` clears only the filter parts that hide it, then it
+   is selected (composed, review follow-up).
+
+### Decision record: cash counts (built) (2026-11-15)
+
+M3.10, the cash half. Follows `DESIGN.md` → "Accounts you keep yourself" (D6.9) and
+"Decision record: accounts you keep yourself", point 5. **No migration.**
+
+1. **A cash count is a `manual` entered balance on a cash account**, checked like any
+   balance; the first is the starting point (review queues, point 1). Other kinds are
+   refused (`account::count`).
+2. **What Coffer expects** is the last passing balance (or the starting point) plus the
+   transactions after it, up to and including the count's day; a failed count is not a
+   base.
+3. **"Add −£5.00 and save"** writes the count and a manual "Cash count difference" row in
+   Other on the count's day, in one DB transaction (`manual::create_in`), opened
+   `IMMEDIATE` so the difference is worked out from what the database holds when it
+   writes. If the user has deleted Other (M3.7), the row is left uncategorised rather than
+   refused. Coffer never posts a difference on its own: Enter and "Save count only" add
+   nothing.
+4. **Guards** are add-balance's and manual-create's: no count or difference on or before
+   the lock date or after closing; a negative count is refused (composed).
+5. **The dialog** is the cash variant of Add balance, opened through the same
+   `AccountsEvent::AddBalanceRequested`. Its title, captions, the "Starting point" row and
+   the first count's single "Save count" are composed.
+6. **Open.** The expectation ignores a count already entered after the chosen day.
+
+### Decision record: transfer-pair confirmation (built) (2026-11-15)
+
+M3.8. The Transactions inspector's Transfer section is composed from existing specs, not
+drawn (user, 2026-11-15): the Inbox transfer pair's preview (D6.6, `EWZ-0`), the Links
+section's rows and Coffer's refund card (D6.5) and the undo bar (D6.3). Marked
+**(composed)**: decided while building. **No migration.**
+
+1. **A decision is a status change on the detected group** (`transfer::{confirm, reject,
+   unpair}`): suggested → confirmed; suggested → rejected ("Not a transfer"); confirmed →
+   rejected (unpair). Rejected rows stay in the group, so detection never suggests them
+   again (composed).
+2. **Each decision re-checks** the status and rows in `BEGIN IMMEDIATE` and refuses on a
+   mismatch, so a stale screen changes nothing.
+3. **Confirming is refused** while either row is excluded, split or linked, as an Inbox
+   approval refuses (`Blocked`). Rejecting has no row checks (composed).
+4. **A pot's mirrored pair can't be unpaired**: the import made both rows from one bank
+   row, so they are one movement of money, not a guess. A pot paired by detection is an
+   ordinary pair (composed).
+5. **Undo is the inverse status change**: no change batch, so it isn't in Change history.
+   It refuses if the pair or its rows changed, and restoring re-checks excluded, split and
+   linked rows (composed).
+6. **Nothing else changes**: no category, amount or balance, and no lock date applies;
+   only income and spending read the status.
+7. **The inspector reads the register** (`RegisterRow::pair`, `reporting::pairing`), and
+   whether each action is allowed comes from `transfer::availability`, the same checks the
+   write runs (composed).
+8. **An agent's pending suggestion for the same pair is settled** by the decision, in the
+   same DB transaction (`inbox::decide_transfer`): approved when the user confirms,
+   rejected ("Decided in Transactions") when they say it isn't a transfer. Unpairing
+   settles nothing; undoing a decision leaves the suggestion decided (composed, lead).
+9. **The section** sits after Details, in place of Share and Links. Suggested: "Is this a
+   transfer?", "Same amount out and in, the same day", the other side as a `field` strip
+   ("From Current account", amount without a sign), "Confirming leaves both out of income
+   and spending. Balances don't change.", outline "Confirm transfer" and ghost "Not a
+   transfer", with the reason in place of the caption when confirming is blocked.
+   Confirmed: one row ("To Savings", date, amount, ✕ to unpair) and "Not counted as
+   income or spending."; a pot's pair says to undo the import instead of a ✕. The undo
+   bar reads "Confirmed transfer: Current account → Savings", "Marked as not a transfer"
+   or "Unpaired transfer" (composed).
+10. **Open.** The table doesn't mark a suggested pair's rows yet, and there is no "Pair
+    with…" for rows detection didn't pair; both need a design.
+
+### Decision record: the categories editor (built) (2026-11-15)
+
+M3.7's categories half. Follows "Decision record: categories" above (kinds never change,
+keys are forever, labels belong to the user, deleting is refused while used). Marked
+**(user)**: decided by the user on 2026-11-15; **(composed)**: decided while building.
+
+1. **It's the Rules view's fourth section, Categories**, composed from the Rules view's
+   specs, not drawn (user).
+2. **A used category can be hidden** (`category.hidden`, migration
+   `V18__category_hidden.sql`): it leaves the menus that set a category (the rule editor,
+   the Transactions row menu, inspector, split lines and bulk bar, the new-transaction
+   dialog) but keeps its transactions, history and reports, and stays in the Category
+   filter and the export (user). `CategoryTree::visible`/`is_visible` serve pickers;
+   `iter` and `groups` still return everything. MCP's `list_categories` lists hidden
+   categories with `hidden: true` and asks agents not to propose them (composed, lead).
+3. **Hiding a group** hides its subcategories in pickers, each keeping its own flag, so
+   showing the group again restores them as they were (composed).
+4. **Keys** come from the label once, when the category is added: lowercase ASCII letters
+   and digits, other runs as one `_`, `custom` when nothing is left, `_2`, `_3`, … while
+   taken. "Taken" means a category has that key now, so a deleted category's key is free
+   again (composed).
+5. **Names** are trimmed, can't be blank, and are unique among the categories beside them,
+   ignoring case (composed).
+6. **Deleting** is refused while transactions, split lines, budgets, schedules, rule
+   actions or pending Inbox suggestions (a categorisation's items, a suggested rule's
+   `set_category` or `split_template` lines) use the category (`Error::InUse`, with the
+   counts), and for a group with subcategories (`Error::HasSubcategories`) (composed).
+   *Changed 2026-11-15 (review follow-up):* pending suggestions didn't count at first, so
+   deleting left one that could only fail as an unknown key. Counting them, rather than
+   rejecting them as part of the delete, keeps the decision with the user: approving one
+   puts the category to use, and a categorisation's other items may still be wanted.
+   Settling, as `inbox::decide_transfer` does, fits only when the user's action answers
+   the whole suggestion. When suggestions are all that use it, the refusal says to
+   approve or reject them in the Inbox instead of "hide it".
+7. **Add, rename, hide and delete apply at once**, with no change batch: no transaction
+   changes (composed).
+8. **The table's TRANSACTIONS column** counts transactions plus split lines in the
+   category; the inspector lists the six counts separately (composed).
+9. **The delete dialog** is opened by the Rules view itself, not the shell (composed).
+10. **Supersedes** "Decision record: the Rules view (built)", point 10, and the "for M3.7
+    to design" in "Decision record: categories", point 5.
+
 ## Architecture
 
 ```
@@ -2364,7 +2516,9 @@ doesn't see: like a confirmed transfer pair, it is neither income nor spending.
   writes in a transaction can map keys to IDs inside it.
 - `CategoryKey` and `CategoryKind` are SQLite `TEXT`; a stored value that doesn't parse
   is an error, not a guess.
-- Editing categories (add, rename, delete, hide) is M3.7.
+- Editing categories (add, rename, delete, hide) is the Rules view's Categories section
+  (M3.7; "Decision record: the categories editor (built)"). A hidden category
+  (`category.hidden`, V18) keeps its rows and history but isn't offered for new ones.
 
 ## Data model (initial)
 

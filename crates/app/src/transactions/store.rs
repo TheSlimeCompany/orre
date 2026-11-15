@@ -14,6 +14,17 @@
 //! through [`edit`] (M3.9), each one undoable change batch too, and so do
 //! its links and shares (M3.11: link, confirm, unlink or reject, share,
 //! rename a person). Nothing here touches an imported source field.
+//!
+//! M3.10 adds what the Source section and the dialogs do: excluding and
+//! including again ([`exclusion`]: fields on the row, not a change batch;
+//! "Include again" is the undo), undoing an import ([`import::undo`], after
+//! [`import::undo_preview`] said what goes), and manual rows ([`manual`]:
+//! create, edit, delete).
+//!
+//! M3.8 adds transfer pairs: confirming, rejecting and unpairing
+//! ([`inbox::decide_transfer`], which also settles an agent's pending
+//! suggestion for the same pair) and undoing that ([`transfer::undo`]):
+//! a status change, not a change batch.
 
 use std::path::PathBuf;
 
@@ -23,12 +34,17 @@ use coffer_core::category::CategoryKey;
 use coffer_core::change::{self, UndoSummary};
 use coffer_core::db::Database;
 use coffer_core::edit;
-use coffer_core::id::{ChangeBatchId, LinkId, TagId, TransactionId};
-use coffer_core::inbox::own;
+use coffer_core::exclusion::{self, ExclusionReason};
+use coffer_core::id::{BatchId, ChangeBatchId, LinkId, TagId, TransactionId, TransferGroupId};
+use coffer_core::import::{self, UndoPreview};
+use coffer_core::inbox::{self, TransferDecided, own};
 use coffer_core::link::{NewLink, ShareLabel, Sharing};
+use coffer_core::manual::{self, ManualTransaction};
+use coffer_core::note::UserNote;
 use coffer_core::reporting::register::Register;
 use coffer_core::rule;
 use coffer_core::split::SplitLine;
+use coffer_core::transfer;
 
 use crate::accounts::store::StoreError;
 
@@ -184,6 +200,24 @@ impl TransactionStore {
         Ok(edit::confirm_links(&mut db, ids)?)
     }
 
+    /// Confirms, rejects ("Not a transfer") or unpairs transfer pair
+    /// `group` (M3.8). A pending agent suggestion for the same pair is
+    /// settled in the same DB transaction ([`inbox::decide_transfer`]).
+    pub fn decide_transfer(
+        &self,
+        group: TransferGroupId,
+        action: transfer::Action,
+    ) -> Result<TransferDecided, StoreError> {
+        let mut db = self.open()?;
+        Ok(inbox::decide_transfer(&mut db, group, action)?)
+    }
+
+    /// Reverses a transfer decision, if the pair is as it left it.
+    pub fn undo_transfer(&self, decision: &transfer::Decision) -> Result<(), StoreError> {
+        let mut db = self.open()?;
+        Ok(transfer::undo(&mut db, decision)?)
+    }
+
     /// Unlinks, or rejects suggestions: the pairs aren't suggested again.
     pub fn reject_links(&self, ids: &[LinkId]) -> Result<Option<ChangeBatchId>, StoreError> {
         let mut db = self.open()?;
@@ -214,6 +248,77 @@ impl TransactionStore {
     pub fn undo(&self, batch: ChangeBatchId) -> Result<UndoSummary, StoreError> {
         let mut db = self.open()?;
         Ok(change::undo(&mut db, batch)?)
+    }
+
+    /// Excludes `transaction` for `reason`, or changes the reason and
+    /// details of an excluded one. `note` is the user's; blank is none.
+    pub fn exclude(
+        &self,
+        transaction: TransactionId,
+        reason: ExclusionReason,
+        note: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let mut db = self.open()?;
+        exclusion::exclude(&mut db, transaction, reason, note)?;
+        Ok(())
+    }
+
+    /// Includes excluded `transaction` again: the undo of [`Self::exclude`].
+    pub fn include_again(&self, transaction: TransactionId) -> Result<(), StoreError> {
+        let mut db = self.open()?;
+        Ok(exclusion::include_again(&mut db, transaction)?)
+    }
+
+    /// What undoing import `batch` would remove, for its confirmation.
+    pub fn undo_import_preview(&self, batch: BatchId) -> Result<UndoPreview, StoreError> {
+        Ok(import::undo_preview(&self.open()?, batch)?)
+    }
+
+    /// Undoes import `batch`: its rows, balances and flags go.
+    pub fn undo_import(&self, batch: BatchId) -> Result<UndoPreview, StoreError> {
+        let mut db = self.open()?;
+        Ok(import::undo(&mut db, batch)?)
+    }
+
+    /// Adds a manual transaction with the user's `note`, and returns its ID.
+    /// The note is checked first, and stored with the row in one DB
+    /// transaction, so a failure adds nothing (and trying again can't add
+    /// the row twice).
+    pub fn create_manual(
+        &self,
+        entry: &ManualTransaction,
+        note: &str,
+    ) -> Result<TransactionId, StoreError> {
+        let note = UserNote::new(note)?;
+        let mut db = self.open()?;
+        Ok(manual::create_with_note(&mut db, entry, note.as_ref())?)
+    }
+
+    /// Manual transaction `transaction` as [`Self::update_manual`] takes it.
+    pub fn manual(&self, transaction: TransactionId) -> Result<ManualTransaction, StoreError> {
+        Ok(manual::get(&self.open()?, transaction)?)
+    }
+
+    /// Changes manual transaction `transaction`: `change` edits what is
+    /// stored (its date, amount, account), and the rest stays.
+    pub fn update_manual(
+        &self,
+        transaction: TransactionId,
+        change: impl FnOnce(&mut ManualTransaction),
+    ) -> Result<(), StoreError> {
+        let mut db = self.open()?;
+        let mut entry = manual::get(&db, transaction)?;
+        change(&mut entry);
+        manual::update(&mut db, transaction, &entry)?;
+        Ok(())
+    }
+
+    /// Deletes manual transaction `transaction`. Imported rows are excluded
+    /// instead; core refuses them.
+    pub fn delete_manual(&self, transaction: TransactionId) -> Result<(), StoreError> {
+        let mut db = self.open()?;
+        manual::delete(&mut db, transaction)?;
+        Ok(())
     }
 }
 

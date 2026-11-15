@@ -571,3 +571,129 @@ fn delete_shows_only_where_core_allows_it(cx: &mut TestAppContext) {
     assert!(!shows(&row(house), cx));
     assert_eq!(selected(&accounts, cx), None);
 }
+
+/// A cash account counted at £50.00 on 1 Nov with £27.00 spent since: Coffer
+/// expects £23.00.
+fn cash_account(scratch: &Scratch, counted: bool) -> AccountId {
+    let mut db = scratch.db();
+    let cash = account::create(
+        &mut db,
+        &NewAccount::new("Cash", AccountKind::Cash, Currency::GBP),
+    )
+    .unwrap();
+    if counted {
+        let on = |d| NaiveDate::from_ymd_opt(2026, 11, d).unwrap();
+        let count = EnteredBalance {
+            date: on(1),
+            balance: Money::new(5_000, Currency::GBP),
+            source: EnteredSource::Manual,
+            note: None,
+        };
+        account::count::record(&mut db, cash, &count, false).unwrap();
+        let spent = coffer_core::manual::ManualTransaction::new(
+            cash,
+            on(4),
+            Money::new(-2_700, Currency::GBP),
+            "Market",
+        );
+        coffer_core::manual::create(&mut db, &spent).unwrap();
+    }
+    cash
+}
+
+fn count_dialog(
+    shell: &Entity<ShellView>,
+    cx: &mut VisualTestContext,
+) -> Option<add_balance::Counting> {
+    cx.update(|_, cx| {
+        let dialog = shell.read(cx).dialog()?.clone();
+        let dialog = dialog.downcast::<add_balance::AddBalanceDialog>().ok()?;
+        dialog.read(cx).counting().copied()
+    })
+}
+
+fn transaction_count(scratch: &Scratch, cash: AccountId) -> usize {
+    account::usage(&scratch.db(), cash).unwrap().transactions
+}
+
+#[gpui_kit::test]
+fn a_short_cash_count_offers_its_difference_and_saves_both(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let cash = cash_account(&scratch, true);
+    let (shell, _accounts, cx) = open(cx, &scratch);
+    click(&row(cash), cx);
+    assert!(shows("add-balance", cx), "the inspector's Count cash…");
+    click("add-balance", cx);
+    assert!(shows("count-amount", cx));
+    assert!(!shows("count-add", cx), "nothing to add before a count");
+
+    type_into("count-amount", "18.00", cx);
+    let counting = count_dialog(&shell, cx).expect("the count can be read");
+    assert_eq!(counting.expectation.expected.unwrap().minor(), 2_300);
+    assert_eq!(counting.difference().unwrap().minor(), -500);
+    assert!(shows("count-save-only", cx));
+    assert!(shows("count-add", cx));
+    assert!(!shows("count-save", cx));
+
+    click("count-add", cx);
+    assert!(!shows("count-add", cx), "the dialog closes");
+    let counts = account::entered_balances(&scratch.db(), cash).unwrap();
+    assert_eq!(counts.len(), 2);
+    assert_eq!(counts[0].balance.minor(), 1_800);
+    assert_eq!(transaction_count(&scratch, cash), 2);
+}
+
+#[gpui_kit::test]
+fn saving_a_cash_count_only_adds_no_transaction(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let cash = cash_account(&scratch, true);
+    let (_shell, _accounts, cx) = open(cx, &scratch);
+    click(&row(cash), cx);
+    click("add-balance", cx);
+    type_into("count-amount", "18.00", cx);
+    click("count-save-only", cx);
+    assert!(!shows("count-save-only", cx));
+    assert_eq!(
+        account::entered_balances(&scratch.db(), cash)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(transaction_count(&scratch, cash), 1);
+}
+
+#[gpui_kit::test]
+fn a_matching_count_has_a_plain_save_and_the_first_count_too(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let cash = cash_account(&scratch, true);
+    let empty = {
+        let mut db = scratch.db();
+        account::create(
+            &mut db,
+            &NewAccount::new("Wallet", AccountKind::Cash, Currency::GBP),
+        )
+        .unwrap()
+    };
+    let (shell, _accounts, cx) = open(cx, &scratch);
+    click(&row(cash), cx);
+    click("add-balance", cx);
+    type_into("count-amount", "23.00", cx);
+    assert!(shows("count-save", cx));
+    assert!(!shows("count-add", cx));
+    press("escape", cx);
+
+    click(&row(empty), cx);
+    click("add-balance", cx);
+    type_into("count-amount", "12.00", cx);
+    let counting = count_dialog(&shell, cx).unwrap();
+    assert_eq!(counting.expectation.expected, None, "the starting point");
+    assert!(shows("count-save", cx));
+    assert!(!shows("count-add", cx));
+    click("count-save", cx);
+    assert_eq!(
+        account::entered_balances(&scratch.db(), empty)
+            .unwrap()
+            .len(),
+        1
+    );
+}

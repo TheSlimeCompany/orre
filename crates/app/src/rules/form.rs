@@ -19,7 +19,7 @@
 //! - **Exclude**: D6.3's reason select without Other (a rule carries no
 //!   note).
 
-use coffer_core::category::CategoryKey;
+use coffer_core::category::{Category, CategoryKey, CategoryKind, NewCategory, Placement};
 use coffer_core::id::AccountId;
 use coffer_core::merchant::{AliasDefinition, AliasError, AliasKind, DisplayName};
 use coffer_core::money::Currency;
@@ -566,6 +566,90 @@ impl NameForm {
     }
 }
 
+/// A category's fields as the inspector holds them: the name of a stored
+/// category (a rename), or a new category's name, group and kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CategoryForm {
+    pub name: String,
+    /// The group a new category goes under; `None` makes it a new group.
+    pub group: Option<CategoryKey>,
+    /// A new group's kind; under a group the group's kind applies.
+    pub kind: CategoryKind,
+}
+
+impl Default for CategoryForm {
+    /// New category from scratch: a new spending group, nothing typed.
+    fn default() -> Self {
+        CategoryForm {
+            name: String::new(),
+            group: None,
+            kind: CategoryKind::Spending,
+        }
+    }
+}
+
+/// What's wrong with a category's name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CategoryError {
+    /// Nothing typed.
+    Blank,
+    /// A category beside it has the name already, ignoring case.
+    Taken,
+}
+
+impl CategoryError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            CategoryError::Blank => "A category needs a name.",
+            CategoryError::Taken => "There is already a category with this name there.",
+        }
+    }
+}
+
+impl CategoryForm {
+    /// A stored category's name, to rename it.
+    pub fn of(category: &Category) -> CategoryForm {
+        CategoryForm {
+            name: category.label().to_owned(),
+            group: None,
+            kind: category.kind(),
+        }
+    }
+
+    /// The name, trimmed, when it's not blank and none of `siblings` (the
+    /// categories beside it: row ID and label) other than `except` has it,
+    /// ignoring case. Core checks the same when it's stored.
+    pub fn label<'a>(
+        &self,
+        siblings: impl IntoIterator<Item = (i64, &'a str)>,
+        except: Option<i64>,
+    ) -> Result<String, CategoryError> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Err(CategoryError::Blank);
+        }
+        let folded = name.to_lowercase();
+        if siblings
+            .into_iter()
+            .any(|(id, label)| Some(id) != except && label.to_lowercase() == folded)
+        {
+            return Err(CategoryError::Taken);
+        }
+        Ok(name.to_owned())
+    }
+
+    /// The new category core adds.
+    pub fn new_category(&self) -> NewCategory {
+        NewCategory {
+            label: self.name.trim().to_owned(),
+            placement: match &self.group {
+                Some(group) => Placement::Under(group.clone()),
+                None => Placement::Group(self.kind),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -756,5 +840,52 @@ mod tests {
             lines[1].percent = "40".into();
         }
         assert!(form.definition(Currency::GBP).is_ok());
+    }
+
+    #[test]
+    fn a_category_name_is_trimmed_and_unique_beside_it() {
+        let siblings = [(1, "Groceries"), (2, "Eating out")];
+        let named = |name: &str| CategoryForm {
+            name: name.to_owned(),
+            ..CategoryForm::default()
+        };
+        assert_eq!(
+            named("  Coffee ").label(siblings, None),
+            Ok("Coffee".into())
+        );
+        assert_eq!(
+            named("   ").label(siblings, None),
+            Err(CategoryError::Blank)
+        );
+        assert_eq!(
+            named("GROCERIES").label(siblings, None),
+            Err(CategoryError::Taken)
+        );
+        // Its own name, renamed in another case.
+        assert_eq!(
+            named("groceries").label(siblings, Some(1)),
+            Ok("groceries".into())
+        );
+    }
+
+    #[test]
+    fn a_new_category_goes_under_its_group_or_makes_one() {
+        let mut form = CategoryForm {
+            name: " Coffee ".into(),
+            group: Some(key("food")),
+            kind: CategoryKind::Income,
+        };
+        assert_eq!(
+            form.new_category(),
+            NewCategory {
+                label: "Coffee".into(),
+                placement: Placement::Under(key("food")),
+            }
+        );
+        form.group = None;
+        assert_eq!(
+            form.new_category().placement,
+            Placement::Group(CategoryKind::Income)
+        );
     }
 }

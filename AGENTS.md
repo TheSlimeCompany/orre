@@ -25,9 +25,12 @@ mapping as a preset), M3.6 with M3.14 (the Inbox and its impact preview),
 M3.9 (the split editor, tags and notes in the inspector), M3.11 (links and shares in
 the inspector, the link dialog and Owed to you), M3.12 (the review queues:
 possible duplicates and balance checks, under CHECKS in the Inbox), M3.13 (the Rules
-view, with M3.7's rules editor; the categories editor waits for a design), M3.15 (AI
-access settings), M3.16 (backups and the export dialog) and M3.17 (asset and liability
-accounts with valuations; closing, reopening and deleting accounts) are done.
+view, with M3.7's rules editor), M3.15 (AI
+access settings), M3.16 (backups and the export dialog), M3.17 (asset and liability
+accounts with valuations; closing, reopening and deleting accounts), M3.7's categories
+editor, M3.8 (transfer-pair confirmation) and M3.10 (excluding rows, the Source
+section, manual transactions and cash counts) are done: every M3 item is built, and
+M3's exit check on real data is the user's.
 The Cargo
 workspace below exists (M1.1). `crates/core` has the database setup (`db`, `paths`: data
 dir, WAL, permissions, migrations; M1.3), the initial schema
@@ -177,11 +180,29 @@ seeded through core). Its read models are core's `rule::overview`, `rule::previe
 `transactions/rule_prompt.rs` is "Create a rule from this edit?" (`rule::propose`) and
 the Rule section; it emits `TransactionsEvent::CreateRule`/`OpenRule` for the shell. Migration
 `V16__rules_editor.sql` (`rule.origin`, `change_batch.rule_id`, `rule_prompt_dismissed`).
+The categories editor (M3.7) is the Rules view's Categories section (`rules/` panel,
+table, inspector, new-category form, `rules::dialogs::DeleteCategoryDialog`, every change
+through `RulesStore`) over core's `category::{add, rename, set_hidden, delete, usage,
+overview, derive_key}` (`category/edit.rs`); migration `V18__category_hidden.sql`; pickers
+use `CategoryTree::visible`/`is_visible` and `RegisterCategory::hidden`; MCP's
+`list_categories` marks hidden ones.
 Links and shares (M3.11):
 `crates/app/src/transactions/links.rs` (the inspector's Share and Links sections),
 `link_dialog.rs` (the link dialog, opened by the shell on `TransactionsEvent::LinkRequested`),
 `linking.rs` (wording) and `link_fixture.rs` (D6.5's sample data, seeded through core);
-Owed to you is the third CHECKS queue, `checks/owed.rs`. Each link, unlink, share and
+Owed to you is the third CHECKS queue, `checks/owed.rs`.
+M3.10 in Transactions: the Excluded chip and excluded rows, the exclusion card and the
+Source section (`transactions/source.rs`), the Exclude, undo-import, delete and
+New-transaction dialogs (`exclude_dialog.rs`, `confirm.rs`, `new_transaction.rs`), ⌘N
+(`shell::NewTransaction`, also from the accounts panel) and a manual row's Date, Amount
+and Account (`manual_edit.rs`); the register carries `RowSource` and the exclusion's
+details. Cash counts (M3.10): `account::count` (the count and an optional "Cash count
+difference" row in one DB transaction, via `manual::create_in`), the cash inspector's
+Counts and the Count cash dialog (`accounts/add_balance.rs`). Transfer pairs (M3.8):
+`transfer::{confirm, reject, unpair, undo, pair_of, availability}`
+(`transfer/decision.rs`), `inbox::decide_transfer` (settles an agent's pending
+suggestion for the pair), `reporting::pairing` over `RegisterRow::pair`, and the
+inspector's Transfer section (`transactions/transfer.rs`). Each link, unlink, share and
 rename is one undoable change batch through core's `edit` (`link`, `confirm_links`,
 `reject_links`, `set_sharing`, `rename_person`; `Recorder::track`), recorded on the
 money in's new `links` field (`V17__change_item_links.sql`). Core read models:

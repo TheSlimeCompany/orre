@@ -435,6 +435,32 @@ impl Payload {
         json.expect("payloads always encode")
     }
 
+    /// The category keys the payload names: a categorisation's items', and
+    /// a rule's `set_category` and `split_template` lines'. Each once.
+    pub fn category_keys(&self) -> BTreeSet<&CategoryKey> {
+        match self {
+            Payload::Categorization(items) => items.iter().map(|item| &item.category).collect(),
+            Payload::Rule(rule) => rule
+                .actions()
+                .iter()
+                .flat_map(|action| -> Vec<&CategoryKey> {
+                    match action {
+                        RuleAction::SetCategory(key) => vec![key],
+                        RuleAction::SplitTemplate(template) => template
+                            .lines()
+                            .iter()
+                            .map(|line| line.category())
+                            .collect(),
+                        _ => Vec::new(),
+                    }
+                })
+                .collect(),
+            Payload::TransferPair(_) | Payload::MerchantAlias(_) | Payload::RefundLink(_) => {
+                BTreeSet::new()
+            }
+        }
+    }
+
     /// Checks what the payload names against the database (module docs).
     /// Reads only. A refusal is [`Error::Invalid`].
     pub fn check(&self, conn: &Connection) -> Result<(), Error> {

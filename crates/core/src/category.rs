@@ -12,8 +12,14 @@
 //! database holds now: the defaults, as the user renamed them, plus their own.
 //! `docs/ARCHITECTURE.md` → "Categories" has the set and how keys stay
 //! stable through renames, additions and deletions.
+//!
+//! The categories editor (M3.7) changes the tree with [`add`], [`rename`],
+//! [`set_hidden`] and [`delete`], and reads [`overview`]: each category with
+//! what uses it. A hidden category (`V18__category_hidden.sql`) stays in the tree
+//! and in reports; [`CategoryTree::visible`] leaves it out for pickers.
 
 mod defaults;
+mod edit;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -23,6 +29,10 @@ use rusqlite::Connection;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 pub use defaults::{DEFAULT_CATEGORIES, DefaultCategory, default_category};
+pub use edit::{
+    CategorySummary, CategoryUsage, Error, GroupOverview, NewCategory, Placement, add, delete,
+    derive_key, overview, rename, set_hidden, usage,
+};
 
 use crate::rule::UnknownKey;
 
@@ -202,6 +212,7 @@ pub struct Category {
     key: CategoryKey,
     label: String,
     kind: CategoryKind,
+    hidden: bool,
 }
 
 impl Category {
@@ -234,6 +245,13 @@ impl Category {
     /// filed under a group directly, e.g. `transfer` or `other`.
     pub fn is_group(&self) -> bool {
         self.parent_id.is_none()
+    }
+
+    /// Whether the user hid this category itself (`category.hidden`). A
+    /// subcategory of a hidden group is also left out of pickers while its
+    /// own flag is clear: [`CategoryTree::is_visible`] answers for both.
+    pub fn is_hidden(&self) -> bool {
+        self.hidden
     }
 }
 
@@ -283,7 +301,7 @@ impl CategoryTree {
     /// it writes.
     pub(crate) fn load(conn: &Connection) -> rusqlite::Result<CategoryTree> {
         let mut statement = conn.prepare(
-            "SELECT id, parent_id, key, label, kind FROM category \
+            "SELECT id, parent_id, key, label, kind, hidden FROM category \
              ORDER BY parent_id IS NOT NULL, id",
         )?;
         let rows = statement.query_map([], |row| {
@@ -293,6 +311,7 @@ impl CategoryTree {
                 key: row.get(2)?,
                 label: row.get(3)?,
                 kind: row.get(4)?,
+                hidden: row.get(5)?,
             })
         })?;
 
@@ -347,11 +366,32 @@ impl CategoryTree {
         self.by_key.get(key).map(|&(group, _)| &self.groups[group])
     }
 
-    /// Every category, each group followed by its subcategories.
+    /// Every category, each group followed by its subcategories, hidden
+    /// ones included: what reports, exports and key lookups need.
     pub fn iter(&self) -> impl Iterator<Item = &Category> {
         self.groups
             .iter()
             .flat_map(|group| std::iter::once(&group.category).chain(&group.children))
+    }
+
+    /// The categories a picker offers, in [`iter`](Self::iter)'s order:
+    /// neither hidden itself nor in a hidden group.
+    pub fn visible(&self) -> impl Iterator<Item = &Category> {
+        self.groups
+            .iter()
+            .filter(|group| !group.category.hidden)
+            .flat_map(|group| {
+                std::iter::once(&group.category).chain(group.children.iter().filter(|c| !c.hidden))
+            })
+    }
+
+    /// Whether a picker offers the category with `key`: it exists, isn't
+    /// hidden and isn't in a hidden group.
+    pub fn is_visible(&self, key: &CategoryKey) -> bool {
+        self.get(key).is_some_and(|category| !category.hidden)
+            && self
+                .group_of(key)
+                .is_some_and(|group| !group.category.hidden)
     }
 
     /// How many categories there are, groups included.

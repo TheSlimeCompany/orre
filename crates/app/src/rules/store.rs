@@ -11,7 +11,10 @@
 //! [`rule::commit_apply`], one undoable change batch; names are
 //! [`merchant::overview`], [`merchant::add`], [`merchant::edit`] and
 //! [`merchant::delete`], which apply at once with no batch; the history is
-//! [`change::history`], undone with [`change::undo`].
+//! [`change::history`], undone with [`change::undo`]; categories are
+//! [`category::overview`], changed with [`category::add`],
+//! [`category::rename`], [`category::set_hidden`] and [`category::delete`],
+//! which apply at once with no batch (no transaction changes).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -19,7 +22,7 @@ use std::path::PathBuf;
 use chrono::{NaiveDate, NaiveDateTime};
 use coffer_core::account;
 use coffer_core::backup;
-use coffer_core::category::CategoryKey;
+use coffer_core::category::{self, Category, CategoryKey, GroupOverview, NewCategory};
 use coffer_core::change::{self, HistoryEntry, HistoryItem, UndoSummary};
 use coffer_core::clock;
 use coffer_core::db::Database;
@@ -56,6 +59,9 @@ pub struct CategoryOption {
     pub label: String,
     /// The group's label for a subcategory; `None` for a group.
     pub group: Option<String>,
+    /// Hidden, itself or with its group: pickers leave it out unless it's
+    /// already chosen.
+    pub hidden: bool,
 }
 
 /// An account as the Account select and lane show it.
@@ -89,6 +95,9 @@ pub struct RulesData {
     pub history_at: HashMap<ChangeBatchId, (NaiveDateTime, Option<NaiveDateTime>)>,
     /// Every category, groups first with their subcategories after them.
     pub categories: Vec<CategoryOption>,
+    /// Every group with its subcategories and what uses each (the
+    /// Categories section).
+    pub category_overview: Vec<GroupOverview>,
     pub palette: Palette,
     pub accounts: Vec<AccountOption>,
     pub tags: Vec<TagOption>,
@@ -132,6 +141,24 @@ impl RulesData {
 
     pub fn entry(&self, id: ChangeBatchId) -> Option<&HistoryEntry> {
         self.history.iter().find(|entry| entry.batch.id == id)
+    }
+
+    /// The category with row ID `id` and its group's overview (its own, for
+    /// a group).
+    pub fn category_entry(&self, id: i64) -> Option<(&category::CategorySummary, &GroupOverview)> {
+        self.category_overview.iter().find_map(|group| {
+            std::iter::once(&group.group)
+                .chain(&group.children)
+                .find(|summary| summary.category.id() == id)
+                .map(|summary| (summary, group))
+        })
+    }
+
+    /// The group with key `key`.
+    pub fn category_group(&self, key: &CategoryKey) -> Option<&GroupOverview> {
+        self.category_overview
+            .iter()
+            .find(|group| group.group.category.key() == key)
     }
 }
 
@@ -234,6 +261,26 @@ impl RulesStore {
         Ok(())
     }
 
+    /// Adds a category; it's returned as stored.
+    pub fn add_category(&self, new: &NewCategory) -> Result<Category, StoreError> {
+        Ok(category::add(&mut self.open()?, new)?)
+    }
+
+    /// Renames a category: its label only.
+    pub fn rename_category(&self, key: &CategoryKey, label: &str) -> Result<(), StoreError> {
+        Ok(category::rename(&mut self.open()?, key, label)?)
+    }
+
+    /// Hides a category from pickers, or shows it again.
+    pub fn set_category_hidden(&self, key: &CategoryKey, hidden: bool) -> Result<(), StoreError> {
+        Ok(category::set_hidden(&mut self.open()?, key, hidden)?)
+    }
+
+    /// Deletes a category nothing uses.
+    pub fn delete_category(&self, key: &CategoryKey) -> Result<(), StoreError> {
+        Ok(category::delete(&mut self.open()?, key)?)
+    }
+
     /// The items of `batch`, as "before → after".
     pub fn history_items(&self, batch: ChangeBatchId) -> Result<Vec<HistoryItem>, StoreError> {
         Ok(change::history_items(&self.open()?, batch)?)
@@ -306,11 +353,13 @@ pub fn load(db: &Database) -> Result<RulesData, StoreError> {
             key: parent.key().clone(),
             label: parent.label().to_owned(),
             group: None,
+            hidden: !tree.is_visible(parent.key()),
         });
         categories.extend(group.children().iter().map(|child| CategoryOption {
             key: child.key().clone(),
             label: child.label().to_owned(),
             group: Some(parent.label().to_owned()),
+            hidden: !tree.is_visible(child.key()),
         }));
     }
     let accounts = account::list(db)?
@@ -337,6 +386,7 @@ pub fn load(db: &Database) -> Result<RulesData, StoreError> {
         history,
         history_at,
         categories,
+        category_overview: category::overview(db)?,
         palette: category_palette(&db.reader()?, today)?,
         accounts,
         tags,

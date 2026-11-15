@@ -54,6 +54,25 @@ pub fn header(
     figure: Option<String>,
     caption: Option<AnyElement>,
 ) -> gpui_kit::Div {
+    header_with(title, figure, false, caption)
+}
+
+/// [`header`] with the figure struck through in `text-muted`: an excluded
+/// transaction's (D6.3, Paper `3FE-0`).
+pub fn struck_header(
+    title: impl Into<SharedString>,
+    figure: String,
+    caption: Option<AnyElement>,
+) -> gpui_kit::Div {
+    header_with(title, Some(figure), true, caption)
+}
+
+fn header_with(
+    title: impl Into<SharedString>,
+    figure: Option<String>,
+    struck: bool,
+    caption: Option<AnyElement>,
+) -> gpui_kit::Div {
     section(false)
         .gap(spacing::S1)
         .child(
@@ -68,8 +87,12 @@ pub fn header(
             this.child(
                 div()
                     .flex()
-                    .text_color(color::TEXT)
-                    .child(Tracked::new(typography::DISPLAY_FIGURE, figure)),
+                    .text_color(if struck {
+                        color::TEXT_MUTED
+                    } else {
+                        color::TEXT
+                    })
+                    .child(Tracked::new(typography::DISPLAY_FIGURE, figure).struck(struck)),
             )
         })
         .children(caption)

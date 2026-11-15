@@ -9,34 +9,34 @@ use crate::account::{AccountKind, NewAccount};
 use crate::import::{self, Committed, Confirmations};
 use crate::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
 
-struct Fixture {
-    db: Database,
+pub(super) struct Fixture {
+    pub(super) db: Database,
     _dir: TempDir,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = TempDir::new().unwrap();
         let db = Database::open(&dir.path().join("coffer.db")).unwrap();
         Fixture { db, _dir: dir }
     }
 
-    fn account(&mut self, kind: AccountKind) -> AccountId {
+    pub(super) fn account(&mut self, kind: AccountKind) -> AccountId {
         self.account_in(kind, Currency::GBP)
     }
 
-    fn account_in(&mut self, kind: AccountKind, currency: Currency) -> AccountId {
+    pub(super) fn account_in(&mut self, kind: AccountKind, currency: Currency) -> AccountId {
         account::create(&mut self.db, &NewAccount::new("Account", kind, currency)).unwrap()
     }
 
-    fn pot(&mut self, parent: AccountId) -> AccountId {
+    pub(super) fn pot(&mut self, parent: AccountId) -> AccountId {
         let mut pot = NewAccount::new("Pot", AccountKind::Pot, Currency::GBP);
         pot.parent = Some(parent);
         account::create(&mut self.db, &pot).unwrap()
     }
 
     /// Imports `rows` (`(day, minor)`) into `account` as one CSV batch.
-    fn import(&mut self, account: AccountId, rows: &[(u32, i64)]) -> BatchId {
+    pub(super) fn import(&mut self, account: AccountId, rows: &[(u32, i64)]) -> BatchId {
         let lines = rows
             .iter()
             .enumerate()
@@ -47,7 +47,11 @@ impl Fixture {
         self.import_lines(account, lines)
     }
 
-    fn import_lines(&mut self, account: AccountId, lines: Vec<StatementLine>) -> BatchId {
+    pub(super) fn import_lines(
+        &mut self,
+        account: AccountId,
+        lines: Vec<StatementLine>,
+    ) -> BatchId {
         let currency = account::get(&self.db, account).unwrap().currency;
         let mut statement = Statement::new(SourceFormat::Csv, currency);
         for (index, line) in lines.into_iter().enumerate() {
@@ -80,11 +84,11 @@ impl Fixture {
     }
 
     /// A manual transaction (no batch), in the account's currency.
-    fn manual(&mut self, account: AccountId, d: u32, minor: i64) -> TransactionId {
+    pub(super) fn manual(&mut self, account: AccountId, d: u32, minor: i64) -> TransactionId {
         self.manual_at(account, d, None, minor)
     }
 
-    fn manual_at(
+    pub(super) fn manual_at(
         &mut self,
         account: AccountId,
         d: u32,
@@ -104,7 +108,7 @@ impl Fixture {
     }
 
     /// The batch's transactions, by ID.
-    fn rows(&self, batch: BatchId) -> Vec<TransactionId> {
+    pub(super) fn rows(&self, batch: BatchId) -> Vec<TransactionId> {
         let mut statement = self
             .db
             .conn()
@@ -117,19 +121,19 @@ impl Fixture {
             .unwrap()
     }
 
-    fn detect(&mut self, batch: BatchId, window: TransferWindow) -> Vec<SuggestedPair> {
+    pub(super) fn detect(&mut self, batch: BatchId, window: TransferWindow) -> Vec<SuggestedPair> {
         suggest_for_batch(&mut self.db, batch, window).unwrap()
     }
 
     /// The pairs as `(outflow, inflow)`.
-    fn detect_ids(&mut self, batch: BatchId) -> Vec<(TransactionId, TransactionId)> {
+    pub(super) fn detect_ids(&mut self, batch: BatchId) -> Vec<(TransactionId, TransactionId)> {
         self.detect(batch, TransferWindow::DEFAULT)
             .into_iter()
             .map(|pair| (pair.outflow, pair.inflow))
             .collect()
     }
 
-    fn group_id(&self, transaction: TransactionId) -> Option<TransferGroupId> {
+    pub(super) fn group_id(&self, transaction: TransactionId) -> Option<TransferGroupId> {
         self.db
             .conn()
             .query_row(
@@ -142,7 +146,7 @@ impl Fixture {
 
     /// Puts `transaction` in a new group with `status`, as the user's
     /// confirm or reject would.
-    fn put_in_group(&self, transaction: TransactionId, status: TransferStatus) {
+    pub(super) fn put_in_group(&self, transaction: TransactionId, status: TransferStatus) {
         let conn = self.db.conn();
         conn.execute(
             "INSERT INTO transfer_group (status) VALUES (?1)",
@@ -157,18 +161,18 @@ impl Fixture {
         .unwrap();
     }
 
-    fn count(&self, sql: &str) -> i64 {
+    pub(super) fn count(&self, sql: &str) -> i64 {
         self.db.conn().query_row(sql, [], |row| row.get(0)).unwrap()
     }
 }
 
 /// Day `d` counted from 1 October 2026, so a day past the 31st runs on
 /// into November.
-fn day(d: u32) -> NaiveDate {
+pub(super) fn day(d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 10, 1).unwrap() + chrono::Days::new(u64::from(d) - 1)
 }
 
-fn money(minor: i64) -> Money {
+pub(super) fn money(minor: i64) -> Money {
     Money::new(minor, Currency::GBP)
 }
 

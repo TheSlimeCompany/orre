@@ -20,6 +20,9 @@
 //!   removed). An unbalanced draft isn't saved and stays through reloads;
 //!   leaving the row drops it, so the last balanced split stays.
 //! - **Tags** are added and removed from the tag menu and a pill's ✕.
+//! - **A manual row's Date and Amount** (M3.10) save like the text fields,
+//!   through core's `manual::update`; its Account select saves on a choice
+//!   (`transactions::manual_edit`).
 
 use coffer_core::id::{TagId, TransactionId};
 use coffer_core::money::Money;
@@ -48,6 +51,12 @@ pub enum EditPlace {
     Share,
     /// Under the Links section (M3.11).
     Links,
+    /// Under the Source section (M3.10).
+    Source,
+    /// Inside the exclusion card (M3.10).
+    Exclusion,
+    /// Under the Transfer section (M3.8).
+    Transfer,
 }
 
 /// One line's fields in the split editor.
@@ -79,11 +88,17 @@ pub(super) struct Editor {
     generation: u64,
     pub(super) merchant: Entity<InputState>,
     pub(super) note: Entity<InputState>,
-    /// What the Merchant and Note fields were last filled with, as they
-    /// read it back: only text the user changed is saved, so a value the
-    /// field can't hold as stored (a note over several lines, in a one-line
-    /// field) is never rewritten behind their back.
-    filled: [SharedString; 2],
+    /// What the Merchant, Note, Date and Amount fields were last filled
+    /// with, as they read it back: only text the user changed is saved, so
+    /// a value the field can't hold as stored (a note over several lines,
+    /// in a one-line field) is never rewritten behind their back.
+    pub(super) filled: [SharedString; 4],
+    /// A manual row's Date field (M3.10).
+    pub(super) date: Entity<InputState>,
+    /// A manual row's Amount field, signed, with the currency as its unit.
+    pub(super) amount: Entity<InputState>,
+    /// A manual row's Account select.
+    pub(super) account_select: SelectState,
     pub(super) split: Option<SplitEditor>,
     /// The "+ Tag" pill, where focus goes back when its menu closes.
     pub(super) tag_focus: FocusHandle,
@@ -91,6 +106,9 @@ pub(super) struct Editor {
     pub(super) add_line_focus: FocusHandle,
     /// Why the last edit wasn't saved, and where to say so.
     pub(super) error: Option<(EditPlace, SharedString)>,
+    /// An error to say once the editor shows that row again: the failure
+    /// bar's Show, for an edit that didn't save as the user left the row.
+    pub(super) restore_error: Option<(TransactionId, EditPlace, SharedString)>,
     /// "Create a rule from this edit?" for the row just categorised (M3.13).
     pub(super) rule_prompt: Option<super::rule_prompt::Prompt>,
     /// The Share section's Yours: the user's part, unsigned (M3.11).
@@ -112,7 +130,19 @@ impl Editor {
         let merchant = cx.new(|cx| InputState::new(window, cx));
         let note = cx.new(|cx| InputState::new(window, cx).placeholder("Add a note"));
         let yours = cx.new(|cx| InputState::new(window, cx));
+        let date = cx.new(|cx| InputState::new(window, cx));
+        let amount = cx.new(|cx| InputState::new(window, cx));
         let subscriptions = vec![
+            cx.subscribe_in(&date, window, |this, _, event, window, cx| {
+                if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                    this.commit_manual_date(window, cx);
+                }
+            }),
+            cx.subscribe_in(&amount, window, |this, _, event, window, cx| {
+                if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                    this.commit_manual_amount(window, cx);
+                }
+            }),
             cx.subscribe_in(&merchant, window, |this, _, event, _, cx| {
                 if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
                     this.commit_merchant(cx);
@@ -136,10 +166,14 @@ impl Editor {
             merchant,
             note,
             filled: Default::default(),
+            date,
+            amount,
+            account_select: SelectState::new(cx),
             split: None,
             tag_focus: cx.focus_handle(),
             add_line_focus: cx.focus_handle(),
             error: None,
+            restore_error: None,
             rule_prompt: None,
             yours,
             shared_draft: false,
@@ -214,15 +248,32 @@ impl TransactionsView {
         if shown != self.editor.shown {
             // Keep what was typed for the row being left: its fields' blur
             // arrives after this render, when they show the new row. A
-            // balanced split typed but not yet left is saved too.
+            // balanced split typed but not yet left is saved too. What
+            // doesn't save can't be said under the fields, which show the
+            // new row next: the failure bar says it (and an error already
+            // said there is said again if saving still fails).
+            let left = self.editor.shown;
+            self.editor.error = None;
             self.commit_merchant(cx);
             self.commit_note(cx);
             self.commit_yours(cx);
+            self.commit_manual_date(window, cx);
+            self.commit_manual_amount(window, cx);
             self.save_split(cx);
+            if let Some(left) = left
+                && let Some((place, reason)) = self.editor.error.take()
+            {
+                self.edit_failed(left, place, reason);
+            }
             self.editor.shown = shown;
             self.editor.shared_draft = false;
             self.editor.generation = self.generation;
-            self.editor.error = None;
+            self.editor.error = self
+                .editor
+                .restore_error
+                .take()
+                .filter(|(row, _, _)| Some(*row) == shown)
+                .map(|(_, place, reason)| (place, reason));
             self.editor.split = None;
             // The prompt goes away when the selection changes (D6.3).
             if self
@@ -248,6 +299,10 @@ impl TransactionsView {
                 Some(super::Menu::SplitLine(_)) => self.menu = None,
                 Some(super::Menu::Person) => {
                     self.editor.person_select.dismiss();
+                    self.menu = None;
+                }
+                Some(super::Menu::ManualAccount) => {
+                    self.editor.account_select.dismiss();
                     self.menu = None;
                 }
                 _ => {}
@@ -346,6 +401,7 @@ impl TransactionsView {
             });
             self.editor.filled[slot] = filled;
         }
+        self.fill_manual(row, force, window, cx);
     }
 
     /// The split editor for `row`'s stored split, if it has one.
@@ -649,7 +705,7 @@ impl TransactionsView {
 
     /// Runs one edit through the store, then reads the register again; an
     /// error is said at `place`. The fixture can't change.
-    fn run_edit(
+    pub(super) fn run_edit(
         &mut self,
         place: EditPlace,
         cx: &mut Context<Self>,

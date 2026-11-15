@@ -6,7 +6,7 @@
 //! transaction: for each of the batch's transactions it looks for a
 //! counterpart among all stored transactions (the batch's own included), and
 //! records each pair it finds as a `transfer_group` with status `suggested`.
-//! Confirming and rejecting a suggestion is the user's, elsewhere.
+//! Confirming, rejecting and unpairing is the user's (`decision`, M3.8).
 //!
 //! Two transactions pair when:
 //!
@@ -37,8 +37,16 @@
 //! Detection doesn't change categories, and logs counts only, never
 //! transaction text.
 
+mod decision;
+#[cfg(test)]
+mod decision_tests;
 #[cfg(test)]
 mod tests;
+
+pub use decision::{
+    Action, Availability, Blocked, Decision, PairRow, PairView, Partner, availability, confirm,
+    confirm_in, pair_of, reject, reject_in, undo, undo_in, unpair, unpair_in,
+};
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -74,6 +82,12 @@ pub enum Error {
 
     #[error("transaction {0} is already in a transfer group")]
     AlreadyGrouped(TransactionId),
+
+    #[error("the pair can't be changed: {0}")]
+    Blocked(#[from] Blocked),
+
+    #[error("transfer group {0} has changed since, so the change can't be undone")]
+    Changed(TransferGroupId),
 
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),

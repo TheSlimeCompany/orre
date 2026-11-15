@@ -316,9 +316,11 @@ pub fn render(
         .on_action(move |_: &Cancel, _, cx| {
             clear.update(cx, |accounts, cx| accounts.select(None, cx))
         })
-        .on_action(move |_: &AddValuation, _, cx| {
+        // ⌘N adds the record the selected account takes (D6.9): a valuation
+        // here, a transaction on a bank or cash account (M3.10).
+        .on_action(move |_: &AddValuation, window, cx| {
             if !add_value.update(cx, |accounts, cx| accounts.request_add_valuation(cx)) {
-                cx.propagate();
+                window.dispatch_action(Box::new(crate::shell::NewTransaction), cx);
             }
         })
         .flex()

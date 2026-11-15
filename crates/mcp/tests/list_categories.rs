@@ -10,6 +10,7 @@
 mod support;
 
 use coffer_core::access_log::Outcome;
+use coffer_core::category::{self, CategoryKey};
 use serde_json::json;
 use support::*;
 
@@ -58,6 +59,41 @@ async fn returns_the_category_tree() {
         count += 1 + children.len();
     }
     assert_eq!(count, tree.len());
+    client.close().await;
+}
+
+/// A hidden category is still listed, so agents can read its history, but
+/// marked so they don't propose it; a hidden group marks its subcategories.
+#[tokio::test]
+async fn marks_hidden_categories() {
+    let fixture = Fixture::new();
+    {
+        let mut db = fixture.open();
+        let key = |key: &str| CategoryKey::new(key).unwrap();
+        category::set_hidden(&mut db, &key("food.groceries"), true).unwrap();
+        category::set_hidden(&mut db, &key("transport"), true).unwrap();
+    }
+    let client = fixture.connect("claude-code", AccessLevel::Aggregate).await;
+    let result = client.call_ok(TOOL, json!({})).await;
+    let groups = result["groups"].as_array().unwrap();
+    let group = |key: &str| groups.iter().find(|g| g["key"] == key).unwrap();
+    let child = |group_key: &str, key: &str| {
+        group(group_key)["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["key"] == key)
+            .unwrap()
+            .clone()
+    };
+
+    assert_eq!(child("food", "food.groceries")["hidden"], true);
+    assert!(child("food", "food.eating_out").get("hidden").is_none());
+    assert!(group("food").get("hidden").is_none());
+    assert_eq!(group("transport")["hidden"], true);
+    for sub in group("transport")["children"].as_array().unwrap() {
+        assert_eq!(sub["hidden"], true, "{sub}");
+    }
     client.close().await;
 }
 

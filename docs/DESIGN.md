@@ -772,8 +772,9 @@ and flagged rows.
   `moldavite-text`), the agent's reason in caption `moldavite-text-muted`, then "Approve"
   (agent primary, fills) and "Reject" (agent outline). Then "Raw description" (mono 11/14
   `text-secondary`, wraps) and "Rule" ("No rule matched" + outline "Create rule from this").
-  Not drawn yet: transfer pairing (a transfer row's inspector) and the original-currency
-  detail (the euro row's inspector).
+  Not drawn yet: the original-currency detail (the euro row's inspector). Transfer
+  pairing (a transfer row's inspector) is composed: see "Transfer section (built in
+  M3.8)" below.
 - Multi-selection (`1NP-0`): three uncategorised rows selected, the bulk-action bar centred
   24px above the canvas bottom, over the rows. The inspector summarises the selection:
   "3 transactions" title, total as display figure, caption with what they share, one
@@ -930,7 +931,7 @@ token, `--container-dialog`.
   one, Note), the Split section with its states, and the split row's table label, which
   names every line ("Groceries, Shopping, Uncategorised", as `2Q3-0` draws it). A row
   in a transfer, or linked money in, has no Split section. Source, Exclude… and Undo
-  import… wait for M3.10; the Raw description and Rule sections stay as built in M3.3.
+  import… are built in M3.10 (below); the Rule section stays as built in M3.3.
   **Composed from existing specs, not drawn** (user, 2026-11-14; review):
   - *Starting a split*: "Split" opens the editor with one line holding the whole amount
     in the row's category, its amount field focused; the footer reads "Remaining £0.00"
@@ -958,6 +959,56 @@ token, `--container-dialog`.
   the signed amount; the lock follows the value text (as `LockedValue` has since M3.2)
   where `2Q3-0` puts it at the field's end; Paper's focus ring on the new line's
   category select (`2Q3-0`) sits on its amount field, as the Split section's spec says.
+- **Built in M3.10** (`crates/app/src/transactions/source.rs`, `exclude_dialog.rs`,
+  `confirm.rs`, `new_transaction.rs`, `manual_edit.rs`; `ARCHITECTURE.md` → "Decision
+  record: excluding, the Source section and manual transactions (built)"): the Excluded
+  chip and rows, the exclusion card, the Source section on every row (it replaces M3.3's
+  Raw description section), the Exclude and New-transaction dialogs, and a manual row's
+  Date, Amount and Account, as drawn. **Composed from existing specs, not drawn**
+  (review):
+  - the undo-import confirmation (`import::undo_preview`'s counts, destructive solid
+    "Undo import") and the delete confirmation for a manual row;
+  - the Reason select starts at "Choose a reason"; "Edit reason…" reuses the dialog,
+    titled "Change why “…” is excluded", with "Save";
+  - the exclusion card sits 8px below the header caption, with 8px gaps, a `text-muted`
+    icon and a mono `text-muted` date; the display figure's strike is 1.5px
+    (`size::STROKE`);
+  - the undo bar after a new exclusion ("Excluded as bank error"; Undo includes it
+    again);
+  - when "New transaction" would overflow the toolbar, the search field gives up the
+    pixels;
+  - a new transaction is always shown selected: the filters that would hide it (the
+    panel's account, Category, Date, Uncategorised, the search) are cleared, and the
+    others stay. Least surprising after an explicit add, and the chips say what changed
+    (review follow-up);
+  - an edit saved as the user leaves a row (a manual row's Date or Amount, Merchant,
+    Note, Yours, a split) that doesn't save can't be said under Details, which shows the
+    next row: the composed failure notification (M3.16: `alert` in `danger`) says
+    "Couldn't save the change to Corner shop" with outline "Show", which selects the row
+    again with the reason under Details. It stays until dismissed or the selection moves.
+    The reason isn't in the bar: core's reasons are too long for one line (review
+    follow-up);
+  - a manual row in a suggested or confirmed transfer pair keeps its amount and account
+    until it's unpaired or marked as not a transfer (the reason is said under Details).
+- **Transfer section (built in M3.8)** (`crates/app/src/transactions/transfer.rs`;
+  `ARCHITECTURE.md` → "Decision record: transfer-pair confirmation (built)"). **Composed
+  from existing specs, not drawn** (user, 2026-11-15). A row in a suggested or confirmed
+  pair has a Transfer section after Details, in place of Share and Links:
+  - *Suggested*: Coffer's refund card (`APQ-0`): "Is this a transfer?" in section-title
+    type, the reason in caption `text-muted` ("Same amount out and in, the same day" or
+    "…, 2 days apart"), the other side as the purchase strip (`APV-0`: mono date, "From
+    Current account", mono amount without a sign), the D6.6 caption "Confirming leaves
+    both out of income and spending. Balances don't change.", then outline "Confirm
+    transfer" and ghost "Not a transfer". When confirming is blocked (a side excluded,
+    split or linked), the caption says why and "Confirm transfer" is disabled.
+  - *Confirmed*: one 28px row like a link row: 12px `transfer` glyph in `text-muted`,
+    "To Savings" with the mono date, the mono amount without a sign, and a 24px ✕ that
+    unpairs; caption "Not counted as income or spending.". A pot's pair (mirrored by the
+    import) has no ✕; its caption says to undo the import instead.
+  - *Undo bar* (`53O-0`): "Confirmed transfer: Current account → Savings", "Marked as
+    not a transfer", "Unpaired transfer".
+  - Not designed yet: a mark on a suggested pair's table rows, and "Pair with…" for rows
+    detection didn't pair.
 - **Undo notification** (states board `53O-0`). After a change to many existing rows
   (bulk categorise, apply a rule, merge duplicates), a floating bar replaces the
   bulk-action bar in its place. It is drawn with `float`, a `border` line, `radius-lg` and
@@ -1742,6 +1793,17 @@ House £385,000.00, Workplace pension £41,820.00, Stocks ISA £7,030.55 and Mor
   This can't be undone; to keep its history, close it instead.", destructive solid
   "Delete account"); after closing, D6.3's undo bar "House closed" with Undo, centred
   over the window body like the import notification. No new tokens.
+- **Built in M3.10** (cash; `crates/app/src/accounts/add_balance.rs`, `inspector.rs`;
+  `ARCHITECTURE.md` → "Decision record: cash counts (built)"): the cash inspector's header
+  ("Balance on 10 Nov · from your count and entries"), Counts with outline "Count cash…"
+  and the oldest count labelled "Starting point", and the Count cash dialog, as drawn
+  (`EPF-0`). **Composed from existing specs, not drawn** (review): the title "Count cash
+  for Cash"; the Coffer and Difference rows hidden for the first count, whose one button
+  reads "Save count"; a zero difference in `text-muted` with no icon; the dialog's
+  caption, which doesn't name the difference's category (Other may have been renamed or
+  deleted, M3.7, and a deleted Other leaves the row uncategorised); a negative count
+  refused. ⌘N in the panel on a bank or cash account opens
+  New transaction (on an asset or liability it adds a valuation).
 
 **Inbox impact preview** — drawn in D6.6 (M3.14, M2.14). Two 1440×900 artboards built from
 the Inbox (`564-0`) with the D6.4 CHECKS panel, Inbox · rule impact (`ABK-0`) and Inbox ·
@@ -2250,6 +2312,31 @@ or AI-suggested.
   counterpart wait for a Transactions filter by rows; "Show rule 2" (within Rules) is
   built. Differences from Paper: the apply preview names each row by its display name
   (the cleaned bank text), as Transactions does, so fixture rows can repeat a name.
+- **Categories (built in M3.7)** (`crates/app/src/rules/`; `ARCHITECTURE.md` → "Decision
+  record: the categories editor (built)"). **Composed from existing specs, not drawn**
+  (user, 2026-11-15):
+  - *Panel*: RULES gains Categories (set-category icon, count). Its filter is KIND:
+    Spending, Income, Transfers and Hidden, with empty icon slots and Hidden dimmed.
+  - *Table* (Merchant names' table): CATEGORY (flex: marker and label, a group's label
+    weight 500, a subcategory indented by marker + 8px) · KIND (140) · RULES (72, mono) ·
+    TRANSACTIONS (96, mono). Zero counts are `text-faint`. A hidden row is `text-muted`
+    with "Hidden" in caption after the label. Toolbar: "Categories", caption "68
+    categories · 4 hidden · what transactions are filed under", outline "+ New
+    category".
+  - *Inspector* (the name inspector's layout): the title, the transactions figure (faint
+    at 0) and a caption with the group; Name (text field, the pattern field's `danger`
+    state for a taken name), Group and Kind as locked values, a caption about the key;
+    Used by: six 24px rows of label and mono count (Transactions, Split lines, Rules,
+    Budgets, Schedules, Inbox suggestions: pending ones naming the category, which keep it
+    from being deleted until the user approves or rejects them in the Inbox; the caption
+    says so when they're all that uses it); In pickers: a caption and outline
+    "Hide category" / "Show category"; footer: "Key" with the key in mono, and the small
+    destructive outline "Delete category…" only when nothing uses it.
+  - *New category*: title "New category", caption "new category, not added yet"; Name;
+    Group select ("New group" with a plus icon, then groups with markers, hidden ones
+    hinted "Hidden"); Kind as a filled segmented control for a new group, otherwise the
+    group's kind locked; a caption with the key it will get; primary "Create category".
+  - *Delete category dialog*: Delete rule's layout, "Delete the category “Coffee”?".
 
 **Budgets: groups, rollover, pace and upcoming** — drawn in D6.10 (M4.8, M4.9). Two
 1440×900 artboards built from the D6.1 Budgets screen (`6OE-0`), plus a states board.
