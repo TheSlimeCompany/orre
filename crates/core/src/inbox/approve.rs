@@ -68,6 +68,7 @@ use crate::id::{
 use crate::link::{self, LinkTarget, NewLink};
 use crate::merchant;
 use crate::money::Money;
+use crate::reporting;
 use crate::rule::{self, ApplyError, StoreError};
 use crate::transfer::{self, TransferStatus};
 
@@ -191,6 +192,11 @@ pub enum ApproveError {
     #[error("linking: {0}")]
     Link(link::Error),
 
+    /// Reading the ledger for the preview of what approving would change
+    /// ([`super::preview`]): a total overflowed.
+    #[error("reading the ledger: {0}")]
+    Reporting(reporting::Error),
+
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
 }
@@ -200,6 +206,15 @@ impl From<Error> for ApproveError {
         match error {
             Error::Invalid(invalid) => ApproveError::Invalid(invalid),
             other => ApproveError::Inbox(other),
+        }
+    }
+}
+
+impl From<reporting::Error> for ApproveError {
+    fn from(error: reporting::Error) -> Self {
+        match error {
+            reporting::Error::Database(error) => ApproveError::Database(error),
+            other => ApproveError::Reporting(other),
         }
     }
 }

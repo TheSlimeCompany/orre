@@ -13,9 +13,9 @@
 //!   the types in [`crate::output`]. It is returned as structured content
 //!   with an output schema.
 //! - [`Call`] is everything a handler may touch: the read-only connection,
-//!   the client's level, constructors for merchant labels, untrusted text
-//!   and amounts, and, for a tool that declares [`Writes::Inbox`], the
-//!   inbox.
+//!   the client's level, constructors for merchant labels (the one place a
+//!   merchant is withheld or pseudonymised), untrusted text and amounts,
+//!   and, for a tool that declares [`Writes::Inbox`], the inbox.
 //!
 //! A client sees and can call only the tools at or below its level
 //! ([`Registry::tools_for`]); the server refuses the rest.
@@ -26,6 +26,7 @@ use std::sync::Arc;
 use coffer_core::db::Reader;
 use coffer_core::envelope;
 use coffer_core::money::Money;
+use coffer_core::reporting::rows;
 use coffer_core::setting::PseudonymKey;
 use rmcp::model::{JsonObject, Tool, ToolAnnotations};
 use schemars::JsonSchema;
@@ -172,8 +173,19 @@ impl<'a> Call<'a> {
             .ok_or(ToolError::Internal("this tool isn't registered as writing"))
     }
 
-    /// How a merchant is shown to this client.
+    /// How a merchant is shown to this client, or `None` (JSON `null`)
+    /// when it mustn't be shown at all. Every merchant a tool returns goes
+    /// through here.
     ///
+    /// - At every level, a name that holds an account identifier (a sort
+    ///   code, an account or card number or an IBAN:
+    ///   [`rows::has_account_identifier`]) is `None`. A display name comes
+    ///   from bank text when the export has no merchant column, so a
+    ///   standing order's can be its whole bank text, the payee's details
+    ///   included. Checked before and after invisible characters are
+    ///   stripped, so one can't split a number. Not counted in the access
+    ///   log's `withheld_count`, which counts only text withheld as
+    ///   instructions (decision record M2, C.6).
     /// - `standard`: the display name, without invisible characters
     ///   ([`envelope::strip_invisible`]). A display name comes from bank
     ///   text too (a row without a merchant takes its description), so one
@@ -187,18 +199,21 @@ impl<'a> Call<'a> {
     ///   does, it gets the token too. Without a key (never the case at
     ///   `pseudonymous`: the server refuses the call) it gets
     ///   [`HIDDEN_MERCHANT`].
-    pub fn merchant(&self, display: &str) -> MerchantLabel {
-        if self.level == AccessLevel::Standard {
-            let visible = envelope::strip_invisible(display);
-            if envelope::reads_like_instructions(&visible).is_some() {
-                return MerchantLabel::new(self.withhold(&visible));
-            }
-            return MerchantLabel::new(visible);
+    pub fn merchant(&self, display: &str) -> Option<MerchantLabel> {
+        let visible = envelope::strip_invisible(display);
+        if rows::has_account_identifier(display) || rows::has_account_identifier(&visible) {
+            return None;
         }
-        MerchantLabel::new(match &self.pseudonym_key {
+        if self.level == AccessLevel::Standard {
+            if envelope::reads_like_instructions(&visible).is_some() {
+                return Some(MerchantLabel::new(self.withhold(&visible)));
+            }
+            return Some(MerchantLabel::new(visible));
+        }
+        Some(MerchantLabel::new(match &self.pseudonym_key {
             Some(key) => envelope::pseudonym(key, display),
             None => HIDDEN_MERCHANT.to_owned(),
-        })
+        }))
     }
 
     /// The withheld marker for `text`, counted for the access log.
@@ -233,7 +248,8 @@ impl<'a> Call<'a> {
         Amount::original(money)
     }
 
-    /// How many descriptions this call withheld so far.
+    /// How many descriptions and merchants this call withheld as
+    /// instructions so far.
     pub(crate) fn withheld(&self) -> u64 {
         self.withheld.get()
     }

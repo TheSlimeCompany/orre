@@ -109,6 +109,53 @@ fn a_refund_nets_against_its_purchases_category_on_its_own_date() {
 }
 
 #[test]
+fn scoped_to_transactions_it_keeps_their_lines_and_the_parts_that_net_against_them() {
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current", Currency::GBP);
+    let shoes = ledger.row(current, "2026-10-28", -6_000, Some("shopping.clothing"));
+    let back = ledger.row(current, "2026-11-04", 6_500, Some("income.gifts"));
+    ledger.refund(back, shoes, 6_000);
+    let coffee = ledger.row(current, "2026-11-05", -350, None);
+
+    let reader = ledger.reader();
+    let scoped = |ids: Vec<TransactionId>| {
+        summarize(&Ledger::new().transactions(ids).lines(&reader).unwrap())
+    };
+    // The refund's part nets against the shoes, so it comes with them; the
+    // refund's own rest doesn't.
+    assert_eq!(
+        scoped(vec![shoes]),
+        [
+            (shoes, None, None, key("shopping.clothing"), -6_000, -6_000),
+            (
+                back,
+                None,
+                Some(LinkKind::Refund),
+                key("shopping.clothing"),
+                6_000,
+                6_000
+            ),
+        ]
+    );
+    assert_eq!(scoped(vec![back]).len(), 2);
+    assert_eq!(
+        scoped(vec![coffee]),
+        [(coffee, None, None, None, -350, -350)]
+    );
+    assert!(scoped(Vec::new()).is_empty());
+    assert!(scoped(vec![TransactionId::new(9_999)]).is_empty());
+    // It goes with the other filters, and on the dry run's connection too.
+    let november = Ledger::new()
+        .transactions([shoes, coffee])
+        .within(DateRange::parse("2026-11-01", "2026-11-30").unwrap());
+    assert_eq!(
+        summarize(&november.lines_in(ledger.db.conn()).unwrap()),
+        summarize(&november.lines(&reader).unwrap())
+    );
+    assert_eq!(november.lines(&reader).unwrap().len(), 2);
+}
+
+#[test]
 fn a_fully_linked_inflow_leaves_no_zero_row() {
     let mut ledger = TestLedger::new();
     let current = ledger.account("Current", Currency::GBP);

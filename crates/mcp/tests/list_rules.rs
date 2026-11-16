@@ -235,6 +235,34 @@ async fn output_has_no_personal_data() {
     client.close().await;
 }
 
+/// A merchant name a rule sets that holds account details (a sort code,
+/// an account number) is null, like every merchant the server returns.
+#[tokio::test]
+async fn a_merchant_name_holding_account_details_is_null() {
+    let fixture = Fixture::new();
+    add_rule(
+        &fixture,
+        &RuleDefinition::new(
+            MatchField::Merchant,
+            Pattern::new(MatchKind::Contains, "HOLLOWAY LETTINGS").unwrap(),
+            AmountBounds::ANY,
+            None,
+            vec![RuleAction::SetMerchant(
+                ActionText::new(&format!("Rent {SORT_CODE} {ACCOUNT_NUMBER}")).unwrap(),
+            )],
+        )
+        .unwrap(),
+    );
+    let client = fixture.connect("claude-code", AccessLevel::Standard).await;
+    // `call_ok` checks the whole response with `assert_no_pii`.
+    let result = client.call_ok(TOOL, json!({})).await;
+    assert_eq!(
+        result["rules"][0]["actions"],
+        json!([{ "kind": "set_merchant", "merchant": null }])
+    );
+    client.close().await;
+}
+
 #[tokio::test]
 async fn a_call_writes_one_access_log_row() {
     let fixture = Fixture::new();

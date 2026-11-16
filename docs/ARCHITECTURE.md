@@ -938,7 +938,15 @@ as built). Everything else follows an earlier decision record or invariant.
    sort code, 8+ digit run or IBAN becomes `null`, a description holding one
    `[withheld: account details]`; dates, amounts and short card references like `*1234`
    aren't caught; `withheld_count` still counts only text withheld as instructions
-   (user).
+   (user). Since 2026-11-16 the check runs inside `Call::merchant`
+   (`crates/mcp/src/registry.rs`), the only maker of a `MerchantLabel`, so it covers
+   every merchant the server returns (transaction rows, `recurring_payments`' series
+   and schedules, `list_rules`' `set_merchant`) at every level, before pseudonymising,
+   on the name as stored and with invisible characters stripped. `Call::merchant`
+   returns `Option<MerchantLabel>`, and every merchant field in a tool's output is
+   nullable. Descriptions are still checked in the row tools. A standing order's
+   display name can be its whole bank text, so before this a recurring series could
+   carry an account number at `standard`.
 7. `list_rules` shows public tags plus a count of private ones, `set_note` as the action
    only, the share action as its percentage only (user).
 8. `list_reports` is newest first, every report `ai_authored: true`, text stripped of
@@ -2084,6 +2092,48 @@ points 3, 4, 7 and 8.
    name used to select the first name, and deleting a category the filter hides used
    to select the first listed category; both now follow the rule. The panel counts names and history with the same
    predicates the tables filter with.
+
+### Decision record: one spending rule over the ledger (2026-11-16)
+
+From an architecture review of `reporting`. Nothing the user sees changes except the
+Inbox's "If you approve" amounts (point 3) and the review queue's "If you merge" (point
+5).
+
+1. **Whether a line counts as income, spending or neither is decided in one place:**
+   `reporting::Side::of(category kind, counted amount)`, applied by
+   `LedgerLine::side(basis)`. The category's kind decides; an uncategorised line goes by
+   the sign of the amount that counts, and zero is neither. Summary, spending by
+   category, budgets, the Inbox preview and the merge preview use it. The copies in
+   `summary`, `inbox::preview` (`is_spending`, `is_income`) and `checks`
+   (`spending_of`) are gone. `register::rank_groups` asks a different question (which
+   groups get colours, decision record "the Transactions view", point 2) and is left
+   alone.
+2. **A preview of a change reads the ledger as reports do.** `Ledger::transactions(ids)`
+   scopes the ledger to those transactions' lines and the confirmed link parts that net
+   against them (a refund's part moves with its purchase); `Ledger::lines_in` runs it on
+   the connection of a `change::dry_run`. `reporting::Tally` sums lines per side,
+   category and currency, and a preview shows the change from before to after. Amounts
+   are the user's share ("Spending is your share by default", M2 C.1 and C.2).
+3. **The Inbox's "If you approve"** (spending changes for a categorisation or a rule,
+   and the income and spending a transfer pair or refund link takes away) comes from
+   one rolled-back approval made as the Inbox makes it (a rule applied to history,
+   decision record "Inbox impact preview", point 1), with the touched rows' ledger read
+   before and after. Before, it summed whole transaction amounts: recategorising a
+   shared £100 purchase showed £100 moving where reports move £50, and a purchase being
+   claimed back moved its full amount where reports move nothing. A refund link lists
+   every category whose spending moves, in the refund's month, as a categorisation
+   does: a split purchase's refund nets against each line's category, and a refund
+   already in another spending category moves out of it.
+4. **When approving would be refused, the preview shows no change:** no spending
+   changes, and no income or spending amounts on a transfer or link effect.
+   `Impact::blocked` or `RuleImpact::history_blocked` says why. A ledger total that
+   overflows is `ApproveError::Reporting`.
+5. **The merge's "If you merge" spending** is the same tally of the pair's ledger before
+   and after the planned merge, so it now also counts a refund of the excluded row
+   leaving reports.
+6. A wide rule's per-merchant `total` stays a gross listing sum; it lists the rows, it
+   doesn't report spending. `inbox::impact`'s own "moves income" test is not changed
+   here.
 
 ## Architecture
 

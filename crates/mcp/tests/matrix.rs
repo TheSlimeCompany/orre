@@ -6,7 +6,9 @@
 //! - it is registered (and listed over the wire) at its level and above,
 //!   and absent below;
 //! - called below its level, it is refused with `refused_level`;
-//! - called at or above it, its whole response passes [`assert_no_pii`],
+//! - called at or above it, its whole response passes [`assert_no_pii`]
+//!   (the fixture includes recurring payments, one a standing order whose
+//!   merchant holds account details),
 //!   and at `pseudonymous` [`assert_no_display_merchants`]; below
 //!   `standard` no account name (at `aggregate`) or person's name in bank
 //!   text appears;
@@ -260,6 +262,10 @@ async fn every_tool_at_every_level() {
     let fixture = Fixture::new();
     let ids = seed(&fixture);
     fixture.add_name_only_row();
+    // Recurring payments, one of them a standing order whose merchant holds
+    // a sort code and an account number, also confirmed as a schedule.
+    let recurring = support::recurring::seed(&fixture);
+    support::recurring::seed_rent_schedule(&mut fixture.open(), recurring.account);
     // Enabling is the user's step, and creates the pseudonym key: compare
     // the database after it.
     fixture.set_client(CLIENT, Aggregate);

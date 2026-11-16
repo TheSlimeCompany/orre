@@ -20,6 +20,10 @@
 //! back and the parts that repay it, the user's part of a shared cost), or
 //! the whole line amount ([`Basis::Gross`]). Both are always on the line.
 //!
+//! [`Side`] is the one rule for whether a line is income, spending or
+//! neither ([`LedgerLine::side`]); every report, and every preview of what a
+//! change would do to them, asks it.
+//!
 //! Filters AND together; several values of one filter match any of them.
 //! Bank text (the raw description and merchant) is read only when asked
 //! for ([`Ledger::with_bank_text`]), and only for row tools to match or to
@@ -49,6 +53,41 @@ pub enum Basis {
     Personal,
     /// The whole line amount (`amount_minor`), of lines in reports.
     Gross,
+}
+
+/// Where a line counts: income, spending or neither.
+///
+/// Decided by the line's category's kind ([`Side::of`]):
+///
+/// - `income`: income;
+/// - `spending`: spending, whatever its sign: money in under a spending
+///   category (a refund's part, which carries its purchase's category on
+///   the refund's date, or an unlinked refund) lowers spending and is never
+///   income;
+/// - `transfer`: neither (money moving between the user's own accounts that
+///   isn't a confirmed pair);
+/// - uncategorised: by the sign of the amount that counts: money out is
+///   spending, money in is income, and an amount of zero is neither.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Side {
+    Income,
+    Spending,
+    Neither,
+}
+
+impl Side {
+    /// The side of a line in a category of `kind` (`None`: uncategorised)
+    /// whose amount that counts is `counted` (type docs).
+    pub fn of(kind: Option<CategoryKind>, counted: Money) -> Side {
+        match kind {
+            Some(CategoryKind::Income) => Side::Income,
+            Some(CategoryKind::Spending) => Side::Spending,
+            Some(CategoryKind::Transfer) => Side::Neither,
+            None if counted.is_negative() => Side::Spending,
+            None if counted.is_positive() => Side::Income,
+            None => Side::Neither,
+        }
+    }
 }
 
 /// A line's category.
@@ -109,6 +148,15 @@ impl LedgerLine {
         }
     }
 
+    /// Where this line counts on `basis` ([`Side::of`] its category's kind
+    /// and [`counted`](LedgerLine::counted) amount).
+    pub fn side(&self, basis: Basis) -> Side {
+        Side::of(
+            self.category.as_ref().map(|category| category.kind),
+            self.counted(basis),
+        )
+    }
+
     /// Whether this row is the part of a confirmed refund (money back that
     /// nets against its purchase's category).
     pub fn is_refund(&self) -> bool {
@@ -121,6 +169,7 @@ impl LedgerLine {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Ledger {
     range: Option<DateRange>,
+    transactions: Option<Vec<TransactionId>>,
     accounts: Vec<AccountId>,
     categories: Vec<CategoryKey>,
     uncategorized: bool,
@@ -142,6 +191,16 @@ impl Ledger {
     /// Lines dated within `range`.
     pub fn within(mut self, range: DateRange) -> Ledger {
         self.range = Some(range);
+        self
+    }
+
+    /// The lines of these transactions, and the parts of other
+    /// transactions' confirmed links that net against them (a refund's part,
+    /// on the money in, against its purchase): every line whose amount or
+    /// category a change to these transactions can move. Unknown IDs match
+    /// nothing; an empty list matches nothing.
+    pub fn transactions(mut self, ids: impl IntoIterator<Item = TransactionId>) -> Ledger {
+        self.transactions.get_or_insert_with(Vec::new).extend(ids);
         self
     }
 
@@ -222,6 +281,13 @@ impl Ledger {
         Ok(Capped::new(lines, limit))
     }
 
+    /// [`lines`](Ledger::lines) on any connection, e.g. inside the DB
+    /// transaction of a [`crate::change::dry_run`], to read the ledger
+    /// before and after a planned change.
+    pub(crate) fn lines_in(&self, conn: &Connection) -> Result<Vec<LedgerLine>, Error> {
+        self.run(conn, None)
+    }
+
     fn run(&self, conn: &Connection, limit: Option<usize>) -> Result<Vec<LedgerLine>, Error> {
         if let (Some(min), Some(max)) = (self.amount_min, self.amount_max)
             && min > max
@@ -249,6 +315,16 @@ impl Ledger {
             sql.push_str(" AND l.date BETWEEN ? AND ?");
             values.push(SqlValue::Text(date_key(range.from())));
             values.push(SqlValue::Text(date_key(range.to())));
+        }
+        if let Some(ids) = &self.transactions {
+            // One JSON array, however many IDs: no limit on SQL variables.
+            let ids: Vec<String> = ids.iter().map(|id| id.get().to_string()).collect();
+            sql.push_str(
+                " AND (l.transaction_id IN (SELECT value FROM json_each(?)) \
+                   OR l.target_id IN (SELECT value FROM json_each(?)))",
+            );
+            let ids = SqlValue::Text(format!("[{}]", ids.join(",")));
+            values.extend([ids.clone(), ids]);
         }
         if !self.accounts.is_empty() {
             for &id in &self.accounts {

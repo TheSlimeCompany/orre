@@ -371,8 +371,9 @@ pub enum RuleActionEntry {
     },
     /// Sets the merchant name the user sees.
     SetMerchant {
-        /// The merchant name the rule sets.
-        merchant: MerchantLabel,
+        /// The merchant name the rule sets; null when it holds account
+        /// details (a sort code, account or card number, or IBAN).
+        merchant: Option<MerchantLabel>,
     },
     /// Adds tags.
     AddTag {

@@ -6,10 +6,10 @@
 //! The queries are in [`coffer_core::reporting::rows`]; this module only
 //! shapes their lines into [`TransactionRow`]s, the same in every tool:
 //!
-//! - merchants go out as [`MerchantLabel`]s ([`Call::merchant`]), and not
-//!   at all when the display name holds an account identifier
-//!   ([`rows::has_account_identifier`]): a name derived from a transfer's
-//!   bank text can be that whole text;
+//! - merchants go out as [`MerchantLabel`]s through [`Call::merchant`],
+//!   which also leaves out (null) a display name holding an account
+//!   identifier ([`rows::has_account_identifier`]): a name derived from a
+//!   transfer's bank text can be that whole text;
 //! - bank text goes out only as `description_untrusted`, only at
 //!   `standard`, only when asked for, through [`Call::untrusted`]. A
 //!   description holding an account identifier is replaced by
@@ -211,7 +211,7 @@ pub struct TransactionRow {
     /// The category key (see list_categories); null when uncategorised.
     pub category: Option<String>,
     /// The merchant, as a display name or (at pseudonymous access) a stable
-    /// token; null when there is none to show.
+    /// token; null when there is none, or its name holds account details.
     pub merchant: Option<MerchantLabel>,
     /// The transaction's tag names, at standard access; null otherwise.
     pub tags: Option<Vec<String>>,
@@ -388,8 +388,8 @@ fn shape(
                 .merchant_display
                 .as_deref()
                 .map(str::trim)
-                .filter(|name| !name.is_empty() && !rows::has_account_identifier(name))
-                .map(|name| call.merchant(name));
+                .filter(|name| !name.is_empty())
+                .and_then(|name| call.merchant(name));
             let description_untrusted = describe.then(|| {
                 let raw = line
                     .bank_text

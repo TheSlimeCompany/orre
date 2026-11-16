@@ -17,8 +17,7 @@ use std::collections::HashMap;
 use crate::category::{Category, CategoryKey, CategoryKind, CategoryTree};
 use crate::db::Reader;
 
-use super::summary::{Side, side};
-use super::{Basis, Error, Ledger, Period, Totals};
+use super::{Basis, Error, Ledger, Period, Side, Totals};
 
 /// One month's spending by category.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,7 +63,7 @@ pub fn spending_by_category(reader: &Reader, period: Period) -> Result<CategoryS
     let mut uncategorized = Totals::new();
     for line in &lines {
         let counted = line.counted(Basis::Personal);
-        if counted.is_zero() || side(line, counted) != Side::Spending {
+        if counted.is_zero() || line.side(Basis::Personal) != Side::Spending {
             continue;
         }
         match &line.category {

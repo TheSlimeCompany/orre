@@ -17,7 +17,16 @@
 //!   [`LedgerLine`] carries its parent's transaction ID. Amounts are the
 //!   user's share by default ([`Basis::Personal`], `personal_minor`:
 //!   "Decision record: refunds, reimbursements and shared costs", point 3);
-//!   [`Basis::Gross`] is the whole line amount.
+//!   [`Basis::Gross`] is the whole line amount. [`Ledger::transactions`]
+//!   scopes it to the lines a change to some transactions can move.
+//! - [`Side`]: the one rule for whether a line counts as income, spending or
+//!   neither ([`LedgerLine::side`]): by its category's kind, or, when
+//!   uncategorised, by the sign of the amount that counts. Every report
+//!   below and every preview of a change to them uses it.
+//! - [`Tally`]: lines summed by side, category and currency, and the change
+//!   between two tallies: what the Inbox's "If you approve" and the review
+//!   queue's "If you merge" show a change would do to spending, read from
+//!   the ledger before and after it in a rolled-back DB transaction.
 //! - [`Totals`]: sums per currency. Amounts in different currencies are
 //!   never added together; conversion waits for M4.6.
 //! - [`Limit`] and [`Capped`]: at most [`MAX_ROWS`] rows per call, with a
@@ -53,13 +62,15 @@ pub mod register;
 pub mod rows;
 pub mod spending;
 pub mod summary;
+pub mod tally;
 pub mod totals;
 
 #[cfg(test)]
 pub(crate) mod test_ledger;
 
-pub use ledger::{Basis, Ledger, LedgerLine, LineCategory};
+pub use ledger::{Basis, Ledger, LedgerLine, LineCategory, Side};
 pub use period::{DateRange, Period};
+pub use tally::Tally;
 pub use totals::{Capped, DEFAULT_ROWS, Limit, MAX_ROWS, Totals};
 
 use crate::category::CategoryKey;

@@ -571,3 +571,317 @@ fn touching_rule_finds_agent_rules_over_its_rows() {
     reject(&mut f.db, over, None).unwrap();
     assert!(touching_rule(&f.db, uber).unwrap().is_empty());
 }
+
+// Spending as reports count it ------------------------------------------------
+
+/// Shares `transaction` with a housemate: the user's part is `mine`.
+fn share(f: &mut Fixture, transaction: TransactionId, mine: i64) {
+    crate::link::set_sharing(
+        &mut f.db,
+        transaction,
+        &crate::link::Sharing::Shared {
+            my_share: gbp(mine),
+            label: crate::link::ShareLabel::new("Test Housemate").unwrap(),
+        },
+    )
+    .unwrap();
+}
+
+/// Marks `transaction` as claimed back as a whole.
+fn claim_back(f: &mut Fixture, transaction: TransactionId) {
+    crate::link::set_sharing(&mut f.db, transaction, &crate::link::Sharing::ClaimBack).unwrap();
+}
+
+/// The preview's spending changes by category key.
+fn changes(p: &Preview) -> Vec<(Option<&str>, i64)> {
+    p.spending
+        .iter()
+        .map(|c| {
+            (
+                c.category.as_ref().map(|c| c.key.as_str()),
+                c.change.minor(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn recategorising_a_shared_purchase_moves_only_your_share() {
+    let mut f = Fixture::new();
+    let dinner = f.row(day(3), -10_000, "Dishoom", Some("food.groceries"));
+    share(&mut f, dinner, -5_000);
+    let id = f.file(
+        SuggestionKind::Categorization,
+        json!({"items": [{"transaction_id": dinner.get(), "category": "food.eating_out"}]}),
+    );
+    let p = checked(&f, id);
+    assert_eq!(
+        changes(&p),
+        vec![
+            (Some("food.groceries"), -5_000),
+            (Some("food.eating_out"), 5_000)
+        ]
+    );
+}
+
+#[test]
+fn recategorising_a_purchase_you_claim_back_moves_no_spending() {
+    let mut f = Fixture::new();
+    let train = f.row(day(3), -12_000, "LNER", Some("transport"));
+    claim_back(&mut f, train);
+    let id = f.file(
+        SuggestionKind::Categorization,
+        json!({"items": [{"transaction_id": train.get(), "category": "bills.energy"}]}),
+    );
+    let p = checked(&f, id);
+    assert_eq!(label(&p.lines[0].after), "Energy");
+    assert!(p.spending.is_empty(), "{:?}", p.spending);
+}
+
+#[test]
+fn recategorising_a_refunded_purchase_moves_what_is_left_of_it() {
+    let mut f = Fixture::new();
+    let coat = f.row(day(2), -8_000, "Coat shop", Some("shopping"));
+    let back = f.row(day(9), 3_000, "Coat shop", None);
+    f.refund(back, coat, 3_000, true);
+    let id = f.file(
+        SuggestionKind::Categorization,
+        json!({"items": [{"transaction_id": coat.get(), "category": "shopping.clothing"}]}),
+    );
+    // The refund's part moves with its purchase.
+    assert_eq!(
+        changes(&checked(&f, id)),
+        vec![
+            (Some("shopping"), -5_000),
+            (Some("shopping.clothing"), 5_000)
+        ]
+    );
+}
+
+#[test]
+fn a_rule_over_shared_and_claimed_rows_moves_your_share() {
+    let mut f = Fixture::new();
+    let shared = f.row(day(1), -10_000, "TESCO STORES", None);
+    share(&mut f, shared, -5_000);
+    let claimed = f.row(day(2), -3_000, "TESCO STORES", None);
+    claim_back(&mut f, claimed);
+    f.row(day(3), -1_000, "TESCO STORES", None);
+    let id = f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "starts_with", "TESCO", "food.groceries"),
+    );
+    let p = checked(&f, id);
+    assert_eq!(p.matches, 3);
+    assert_eq!(
+        changes(&p),
+        vec![(None, -6_000), (Some("food.groceries"), 6_000)]
+    );
+}
+
+#[test]
+fn a_transfer_of_a_shared_outflow_leaves_your_share_of_spending() {
+    let mut f = Fixture::new();
+    let out = f.row_on(f.savings, day(4), -10_000, "To current", None);
+    share(&mut f, out, -5_000);
+    let back = f.row(day(4), 10_000, "From savings", None);
+    let id = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": back.get()}),
+    );
+    let effect = checked(&f, id).transfer.unwrap();
+    assert_eq!(effect.income_less, Some(gbp(10_000)));
+    assert_eq!(effect.spending_less, Some(gbp(5_000)));
+}
+
+#[test]
+fn a_refund_of_a_shared_purchase_lowers_your_share_of_spending() {
+    let mut f = Fixture::new();
+    let tickets = f.row(day(1), -10_000, "Venue", Some("shopping"));
+    share(&mut f, tickets, -5_000);
+    let back = f.row(day(10), 4_000, "Venue", None);
+    let id = f.file(
+        SuggestionKind::RefundLink,
+        json!({"refund_id": back.get(), "purchase_id": tickets.get(), "link_kind": "refund"}),
+    );
+    let effect = checked(&f, id).link.unwrap();
+    assert_eq!(effect.refunded, gbp(4_000));
+    // All of the money in leaves income; half of it is the housemate's.
+    assert_eq!(effect.income_less, Some(gbp(4_000)));
+    let (category, less) = effect.spending_less.unwrap();
+    assert_eq!(category.unwrap().key.as_str(), "shopping");
+    assert_eq!(less, gbp(2_000));
+}
+
+#[test]
+fn a_refund_link_lists_every_category_its_spending_moves() {
+    let mut f = Fixture::new();
+    // A split purchase: the refund nets against each line's category.
+    let basket = f.row(day(1), -10_000, "Market", None);
+    let lines = f.split(basket, &[-6_000, -4_000]);
+    for (line, category) in lines.iter().zip(["food.groceries", "shopping"]) {
+        f.conn()
+            .execute(
+                "UPDATE transaction_split SET category_id = \
+                 (SELECT id FROM category WHERE key = ?1) WHERE id = ?2",
+                params![category, line],
+            )
+            .unwrap();
+    }
+    let back = f.row(day(10), 5_000, "Market", None);
+    let id = f.file(
+        SuggestionKind::RefundLink,
+        json!({"refund_id": back.get(), "purchase_id": basket.get(), "link_kind": "refund"}),
+    );
+    let p = checked(&f, id);
+    assert_eq!(
+        changes(&p),
+        vec![(Some("food.groceries"), -3_000), (Some("shopping"), -2_000)]
+    );
+    let (category, less) = p.link.unwrap().spending_less.unwrap();
+    assert_eq!(category.unwrap().key.as_str(), "food.groceries");
+    assert_eq!(less, gbp(3_000));
+
+    // A refund already in another spending category moves out of it: total
+    // spending doesn't change.
+    let shirt = f.row(day(2), -4_000, "Shop", Some("shopping.clothing"));
+    let credit = f.row(day(11), 1_500, "Shop", Some("shopping"));
+    let id = f.file(
+        SuggestionKind::RefundLink,
+        json!({"refund_id": credit.get(), "purchase_id": shirt.get(), "link_kind": "refund"}),
+    );
+    let p = checked(&f, id);
+    assert_eq!(
+        changes(&p),
+        vec![
+            (Some("shopping.clothing"), -1_500),
+            (Some("shopping"), 1_500)
+        ]
+    );
+    assert_eq!(p.link.unwrap().income_less, None);
+}
+
+#[test]
+fn a_suggestion_approving_would_refuse_changes_no_spending() {
+    let mut f = Fixture::new();
+    let coffee = f.row(day(1), -350, "Pret", None);
+    let gone = f.row(day(2), -900, "Pret", None);
+    let id = f.file(
+        SuggestionKind::Categorization,
+        json!({"items": [
+            {"transaction_id": coffee.get(), "category": "food.eating_out"},
+            {"transaction_id": gone.get(), "category": "food.eating_out"},
+        ]}),
+    );
+    f.conn()
+        .execute("DELETE FROM \"transaction\" WHERE id = ?1", [gone])
+        .unwrap();
+    let p = checked(&f, id);
+    assert!(p.impact.blocked.is_some());
+    assert!(p.spending.is_empty(), "{:?}", p.spending);
+
+    // A transfer approving refuses: a side is linked as a refund.
+    let out = f.row_on(f.savings, day(4), -2_000, "To current", None);
+    let back = f.row(day(4), 2_000, "From savings", None);
+    let pair = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": back.get()}),
+    );
+    let purchase = f.row(day(3), -2_000, "Shop", Some("shopping"));
+    f.refund(back, purchase, 2_000, true);
+    let p = checked(&f, pair);
+    assert!(p.impact.blocked.is_some());
+    let effect = p.transfer.unwrap();
+    assert_eq!((effect.income_less, effect.spending_less), (None, None));
+}
+
+/// What each category counts as spent in October, GBP: the report's own
+/// numbers (`None`: uncategorised).
+fn spent_by_category(f: &Fixture) -> BTreeMap<Option<String>, i64> {
+    let reader = f.db.reader().unwrap();
+    let report =
+        crate::reporting::spending::spending_by_category(&reader, Period::containing(day(1)))
+            .unwrap();
+    let minor = |totals: &crate::reporting::Totals| {
+        totals.get(Currency::GBP).map_or(0, |money| money.minor())
+    };
+    let mut spent = BTreeMap::new();
+    for group in &report.groups {
+        spent.insert(Some(group.key.as_str().to_owned()), minor(&group.own));
+        for child in &group.children {
+            spent.insert(Some(child.key.as_str().to_owned()), minor(&child.spent));
+        }
+    }
+    spent.insert(None, minor(&report.uncategorized));
+    spent.retain(|_, minor| *minor != 0);
+    spent
+}
+
+/// Approves `id` as the Inbox does and checks that the report's spending
+/// moves exactly as the preview said.
+fn assert_preview_agrees_with_the_report(f: &mut Fixture, id: SuggestionId) {
+    let said: BTreeMap<Option<String>, i64> = checked(f, id)
+        .spending
+        .iter()
+        .map(|c| {
+            (
+                c.category.as_ref().map(|c| c.key.as_str().to_owned()),
+                c.change.minor(),
+            )
+        })
+        .collect();
+    let before = spent_by_category(f);
+    approve(&mut f.db, id, INBOX_APPROVAL).unwrap();
+    let after = spent_by_category(f);
+    let mut moved: BTreeMap<Option<String>, i64> = BTreeMap::new();
+    for (key, minor) in &after {
+        *moved.entry(key.clone()).or_default() += minor;
+    }
+    for (key, minor) in &before {
+        *moved.entry(key.clone()).or_default() -= minor;
+    }
+    moved.retain(|_, minor| *minor != 0);
+    assert_eq!(said, moved);
+    assert!(!said.is_empty());
+}
+
+/// Rows of every kind the reports count differently from their amount.
+fn mixed_rows(f: &mut Fixture) -> Vec<TransactionId> {
+    let shared = f.row(day(1), -10_000, "TESCO STORES", Some("shopping"));
+    share(f, shared, -4_000);
+    let claimed = f.row(day(2), -3_000, "TESCO STORES", None);
+    claim_back(f, claimed);
+    let refunded = f.row(day(3), -8_000, "TESCO STORES", None);
+    let back = f.row(day(9), 2_500, "TESCO REFUND", None);
+    f.refund(back, refunded, 2_500, true);
+    let out = f.row(day(4), -6_000, "TESCO STORES", None);
+    let into = f.row_on(f.savings, day(4), 6_000, "From current", None);
+    f.transfer(out, into, true);
+    let income = f.row(day(5), 1_200, "TESCO STORES", None);
+    let split = f.row(day(6), -1_000, "TESCO STORES", None);
+    f.split(split, &[-600, -400]);
+    vec![shared, claimed, refunded, back, out, income, split]
+}
+
+#[test]
+fn a_categorisations_spending_change_is_what_the_report_moves() {
+    let mut f = Fixture::new();
+    let rows = mixed_rows(&mut f);
+    let items: Vec<serde_json::Value> = rows
+        .iter()
+        .filter(|row| **row != rows[6])
+        .map(|row| json!({"transaction_id": row.get(), "category": "food.groceries"}))
+        .collect();
+    let id = f.file(SuggestionKind::Categorization, json!({ "items": items }));
+    assert_preview_agrees_with_the_report(&mut f, id);
+}
+
+#[test]
+fn a_rules_spending_change_is_what_the_report_moves() {
+    let mut f = Fixture::new();
+    mixed_rows(&mut f);
+    let id = f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "starts_with", "TESCO", "food.groceries"),
+    );
+    assert_preview_agrees_with_the_report(&mut f, id);
+}

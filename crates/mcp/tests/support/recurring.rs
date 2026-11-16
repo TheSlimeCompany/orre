@@ -8,9 +8,14 @@
 //! - [`STREAMING`]: a monthly subscription on the 3rd with August's payment
 //!   missing and October's 5 days late, confirmed as a schedule
 //!   ([`seed_schedule`]), so it is a schedule, not a detected series.
+//! - [`RENT`]: a fixed monthly standing order on the 1st from a bank
+//!   export with no merchant column, so its merchant is its bank text,
+//!   sort code and account number included ([`super::SORT_CODE`],
+//!   [`super::ACCOUNT_NUMBER`]): detection finds it, and no tool may return
+//!   that merchant ([`seed_rent_schedule`] confirms it as a schedule too).
 //! - One-off rows around them (noise).
 //!
-//! All merchants, amounts and dates are made up.
+//! All merchants, amounts, account details and dates are made up.
 
 use chrono::NaiveDate;
 use coffer_core::account::{self, AccountKind, NewAccount};
@@ -42,6 +47,12 @@ pub const STREAMING_TOLERANCE: Tolerance = Tolerance {
     amount_minor: 110,
     days: 3,
 };
+
+/// The standing order's merchant: what a bank export without a merchant
+/// column leaves after clean-up, the payee's sort code and account number
+/// included. Never returned by a tool.
+pub const RENT: &str = "SO TO 77-41-29 58316402 HOLLOWAY LETTINGS";
+pub const RENT_MINOR: i64 = -85000;
 
 /// The account the rows go into, and the schedule.
 #[derive(Debug, Clone, Copy)]
@@ -83,6 +94,7 @@ pub fn statement() -> Statement {
             ENERGY,
             "NORTHGRID ENERGY DD",
         ));
+        lines.push(line(month, 1, RENT_MINOR, RENT, RENT));
     }
     for (month, day) in STREAMING_PAID {
         lines.push(line(
@@ -134,6 +146,28 @@ pub fn seed_schedule(db: &mut Database, account: AccountId) -> ScheduleId {
             start_date: date(5, 3),
             amount: gbp(STREAMING_MINOR),
             tolerance: STREAMING_TOLERANCE,
+            series_key: None,
+        },
+    )
+    .unwrap()
+}
+
+/// The standing order ([`RENT`]) confirmed as a schedule, from 1 May. Not
+/// part of [`seed`], so the other tests see one schedule.
+pub fn seed_rent_schedule(db: &mut Database, account: AccountId) -> ScheduleId {
+    schedule::create(
+        db,
+        &NewSchedule {
+            account,
+            merchant_display: RENT.to_owned(),
+            category: None,
+            cadence: Cadence::Monthly,
+            start_date: date(5, 1),
+            amount: gbp(RENT_MINOR),
+            tolerance: Tolerance {
+                amount_minor: 0,
+                days: 3,
+            },
             series_key: None,
         },
     )

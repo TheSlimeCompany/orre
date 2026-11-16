@@ -195,6 +195,41 @@ fn the_effect_is_the_merge_rolled_back() {
 }
 
 #[test]
+fn the_spending_effect_counts_a_refund_of_the_excluded_row() {
+    let (mut fixture, _, typed, candidate) = Fixture::ocado();
+    // £10.00 of the typed copy came back, netting against groceries.
+    let back = fixture.manual(7, 1_000, "OCADO REFUND", None);
+    crate::link::create(
+        &mut fixture.db,
+        &crate::link::NewLink {
+            kind: crate::link::LinkKind::Refund,
+            inflow: back,
+            target: crate::link::LinkTarget::Purchase(typed),
+            amount: gbp(1_000),
+        },
+    )
+    .unwrap();
+    let effect = merge_effect(&fixture.db, MergeRequest::new(candidate)).unwrap();
+    assert_eq!(effect.excluded, typed);
+    // The uncategorised copy leaves spending; groceries keeps the purchase
+    // but loses the refund of the excluded row, as reports would.
+    let spending: Vec<(Option<&str>, Money)> = effect
+        .spending
+        .iter()
+        .map(|change| {
+            (
+                change.category.as_ref().map(|c| c.key.as_str()),
+                change.change,
+            )
+        })
+        .collect();
+    assert_eq!(
+        spending,
+        [(None, gbp(-4_250)), (Some("food.groceries"), gbp(1_000))]
+    );
+}
+
+#[test]
 fn keeping_the_other_row_plans_the_other_way() {
     let (fixture, imported, typed, candidate) = Fixture::ocado();
     let pair = pair(&fixture.db, candidate, Some(typed)).unwrap();

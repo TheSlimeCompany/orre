@@ -25,6 +25,19 @@
 //! - **transfer_pair** and **refund_link**: how income and spending change
 //!   in the month of the money.
 //!
+//! Spending, income and their changes are the reports' own: the ledger lines
+//! of the rows the suggestion touches (and the link parts that net against
+//! them) are read before and after the approval, made as the Inbox makes it
+//! (a rule applied to history, point 1) in the same rolled-back DB
+//! transaction, and the two [`Tally`]s compared. So they are the user's
+//! share ([`Basis::Personal`]: half of a shared cost, nothing of a purchase
+//! being claimed back), sided by [`Side`], and leave out rows out of
+//! reports, exactly as `reporting::spending` would move. When approving
+//! would be refused ([`Impact::blocked`], or a rule's
+//! [`history_blocked`](super::RuleImpact::history_blocked)), nothing would
+//! change: the spending list is empty and the transfer and link effects
+//! name no amounts.
+//!
 //! The lists are capped as the design draws them: up to
 //! [`LIST_ALL`] matches are listed in full, more as the newest
 //! [`LIST_NEWEST`]; [`Preview::matches`] says how many there are.
@@ -52,7 +65,7 @@ use crate::db::Database;
 use crate::id::{AccountId, RuleId, SplitId, TransactionId};
 use crate::merchant::{self, AliasDefinition, AliasSet};
 use crate::money::{Currency, Money};
-use crate::reporting::Period;
+use crate::reporting::{Basis, Ledger, Period, Side, Tally};
 use crate::rule::{self, MatchField, MatchInput, MatchKind, Pattern, RuleDefinition, RuleSet};
 
 #[cfg(test)]
@@ -68,6 +81,12 @@ pub const LIST_NEWEST: usize = 6;
 /// A wide rule's summary names this many merchants; the rest are summed
 /// in one line.
 pub const MERCHANTS_SHOWN: usize = 3;
+
+/// How the Inbox approves: a rule is also applied to past transactions
+/// (decision record "Inbox impact preview", point 1).
+const INBOX_APPROVAL: ApproveOptions = ApproveOptions {
+    apply_to_history: true,
+};
 
 // What a suggestion names ------------------------------------------------------
 
@@ -471,7 +490,9 @@ pub struct ByMerchant {
     pub kept: Option<MerchantLine>,
 }
 
-/// How a transfer pair changes the month's totals.
+/// How a transfer pair changes the month's totals, as reports count them:
+/// the user's share ([`Basis::Personal`]). `None`: no change, also when
+/// approving would be refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransferEffect {
     /// The month of the money out.
@@ -482,7 +503,9 @@ pub struct TransferEffect {
     pub spending_less: Option<Money>,
 }
 
-/// How a refund link changes the refund's month.
+/// How a refund link changes the refund's month. Income and spending are
+/// as reports count them: the user's share ([`Basis::Personal`]). `None`:
+/// no change, also when approving would be refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinkEffect {
     /// The month the money came back.
@@ -492,7 +515,8 @@ pub struct LinkEffect {
     /// The money in counts as income now, and wouldn't.
     pub income_less: Option<Money>,
     /// The purchase's category (`None`: uncategorised) would count this much
-    /// less spent in `month`.
+    /// less spent in `month`. For a split purchase, the line's category
+    /// whose spending falls most.
     pub spending_less: Option<(Option<CategoryRef>, Money)>,
 }
 
@@ -515,7 +539,8 @@ pub struct Preview {
     pub kept: usize,
     /// A wide rule's summary.
     pub by_merchant: Option<ByMerchant>,
-    /// What each category gains or loses in spending, losses first.
+    /// What each category gains or loses in spending, losses first: for a
+    /// categorisation, a rule or a refund link.
     pub spending: Vec<SpendingChange>,
     /// A rule: the pending categorisations approving it settles.
     pub settles: Vec<SuggestionId>,
@@ -555,16 +580,21 @@ pub fn preview(db: &Database, id: SuggestionId) -> Result<Preview, ApproveError>
         link: None,
     };
     match &suggestion.payload {
-        Payload::Categorization(_) => categorization(db.conn(), &mut preview)?,
+        Payload::Categorization(_) => categorization(db, id, &mut preview)?,
         Payload::Rule(definition) => rule_preview(db, id, definition, &mut preview)?,
         Payload::MerchantAlias(alias) => alias_preview(db, id, alias, &mut preview)?,
-        Payload::TransferPair(_) => preview.transfer = transfer_effect(&preview.subject),
-        Payload::RefundLink(_) => preview.link = link_effect(&preview),
+        Payload::TransferPair(_) => preview.transfer = transfer_effect(db, id, &preview.subject)?,
+        Payload::RefundLink(_) => link_effect(db, id, &mut preview)?,
     }
     Ok(preview)
 }
 
-fn categorization(conn: &Connection, preview: &mut Preview) -> Result<(), ApproveError> {
+fn categorization(
+    db: &Database,
+    id: SuggestionId,
+    preview: &mut Preview,
+) -> Result<(), ApproveError> {
+    let conn = db.conn();
     let Subject::Categorization(items) = &preview.subject else {
         return Ok(());
     };
@@ -594,8 +624,14 @@ fn categorization(conn: &Connection, preview: &mut Preview) -> Result<(), Approv
             highlight: None,
         });
     }
+    let touched: Vec<TransactionId> = items
+        .iter()
+        .filter_map(|item| item.transaction.as_ref().map(|row| row.id))
+        .collect();
     preview.lines = lines;
-    preview.spending = spending(&preview.lines);
+    if let Some(approval) = approval(db, id, &touched)? {
+        preview.spending = spending_changes(conn, &approval.change)?;
+    }
     Ok(())
 }
 
@@ -605,7 +641,6 @@ fn rule_preview(
     definition: &RuleDefinition,
     preview: &mut Preview,
 ) -> Result<(), ApproveError> {
-    preview.settles = settled_by(db, id)?;
     let rules = rule::load_all(db.conn()).map_err(ApproveError::from)?;
     preview.before_rule = rules.first().map(|stored| stored.definition().clone());
     let by_id: HashMap<RuleId, RuleDefinition> = rules
@@ -684,7 +719,12 @@ fn rule_preview(
         .iter()
         .filter(|line| line.after == After::Stays)
         .count();
-    preview.spending = spending(&matched);
+    // Applying the rule changes only rows it matches.
+    let touched: Vec<TransactionId> = matched.iter().map(|line| line.transaction.id).collect();
+    if let Some(approval) = approval(db, id, &touched)? {
+        preview.settles = approval.settled;
+        preview.spending = spending_changes(db.conn(), &approval.change)?;
+    }
     if preview.impact.wide() {
         preview.by_merchant = Some(by_merchant(&matched));
     }
@@ -737,20 +777,72 @@ fn after_target(conn: &Connection, target: &rule::Target) -> rusqlite::Result<Af
     })
 }
 
-/// The pending categorisations approving rule `id` (with its apply to
-/// history) would settle.
-fn settled_by(db: &Database, id: SuggestionId) -> Result<Vec<SuggestionId>, ApproveError> {
-    change::dry_run(db, |conn| {
-        Ok(approve_in(
-            conn,
-            id,
-            ApproveOptions {
-                apply_to_history: true,
-            },
-        )
-        .map(|approved| approved.settled)
-        .unwrap_or_default())
+/// What approving a suggestion would do, read in a rolled-back DB
+/// transaction.
+struct Approval {
+    /// The pending categorisations a rule's approval settles (point 4).
+    settled: Vec<SuggestionId>,
+    /// What changes in reports, over the ledger lines of the transactions
+    /// it touches: after less before ([`Tally::change`]).
+    change: Tally,
+}
+
+/// Approves `id` as the Inbox does ([`INBOX_APPROVAL`]) in a DB transaction
+/// that is rolled back, and tallies the ledger lines of `touched` (and the
+/// link parts that net against them) before and after, as reports count
+/// them ([`Basis::Personal`]). `None` when the approval would be refused:
+/// [`impact`] says why.
+fn approval(
+    db: &Database,
+    id: SuggestionId,
+    touched: &[TransactionId],
+) -> Result<Option<Approval>, ApproveError> {
+    let ledger = Ledger::new().transactions(touched.iter().copied());
+    change::dry_run(db, |conn| -> Result<Option<Approval>, ApproveError> {
+        let tally = |conn: &Connection| -> Result<Tally, ApproveError> {
+            let lines = ledger.lines_in(conn).map_err(ApproveError::from)?;
+            Tally::of(&lines, Basis::Personal).map_err(ApproveError::from)
+        };
+        let before = tally(conn)?;
+        let Ok(approved) = approve_in(conn, id, INBOX_APPROVAL) else {
+            return Ok(None);
+        };
+        let after = tally(conn)?;
+        Ok(Some(Approval {
+            settled: approved.settled,
+            change: before.change(&after).map_err(ApproveError::from)?,
+        }))
     })
+}
+
+/// The spending side of `change` ([`Tally::change`]) as the Inbox and the
+/// review queue show it: what each category (`None`: uncategorised) would
+/// count as spent more (positive) or less (negative), losses first, then
+/// gains, each biggest first.
+pub(crate) fn spending_changes(
+    conn: &Connection,
+    change: &Tally,
+) -> rusqlite::Result<Vec<SpendingChange>> {
+    let mut changes = Vec::new();
+    for (side, key, signed) in change.iter() {
+        if side != Side::Spending {
+            continue;
+        }
+        let category = match key {
+            Some(key) => category(conn, key)?,
+            None => None,
+        };
+        // Spending is signed below zero: spent more is a fall.
+        changes.push(SpendingChange {
+            category,
+            change: Money::new(signed.minor().saturating_neg(), signed.currency()),
+        });
+    }
+    changes.sort_by_key(|change| {
+        let minor = change.change.minor();
+        (minor > 0, std::cmp::Reverse(minor.unsigned_abs()))
+    });
+    Ok(changes)
 }
 
 /// Up to [`LIST_ALL`] lines as they are, else the newest [`LIST_NEWEST`]
@@ -760,70 +852,6 @@ fn listed(mut lines: Vec<Line>) -> Vec<Line> {
         lines.truncate(LIST_NEWEST);
     }
     lines
-}
-
-/// Whether a row of `amount` in `category` counts as spending
-/// (`reporting::summary`'s sides).
-fn is_spending(category: Option<&CategoryRef>, amount: Money) -> bool {
-    match category {
-        Some(category) => category.kind == CategoryKind::Spending,
-        None => amount.is_negative(),
-    }
-}
-
-/// Whether a row of `amount` in `category` counts as income.
-fn is_income(category: Option<&CategoryRef>, amount: Money) -> bool {
-    match category {
-        Some(category) => category.kind == CategoryKind::Income,
-        None => amount.is_positive(),
-    }
-}
-
-/// What each category gains or loses in spending when `lines` change
-/// category: losses first, then gains, each biggest first.
-fn spending(lines: &[Line]) -> Vec<SpendingChange> {
-    let mut changes: BTreeMap<(Option<CategoryKey>, Currency), (Option<CategoryRef>, i64)> =
-        BTreeMap::new();
-    let mut add = |category: Option<&CategoryRef>, amount: Money, sign: i64| {
-        if !is_spending(category, amount) {
-            return;
-        }
-        let entry = changes
-            .entry((category.map(|c| c.key.clone()), amount.currency()))
-            .or_insert_with(|| (category.cloned(), 0));
-        entry.1 = entry.1.saturating_add(sign.saturating_mul(-amount.minor()));
-    };
-    for line in lines {
-        let amount = line.transaction.amount;
-        let new: Vec<(&CategoryRef, Money)> = match &line.after {
-            After::Category(new) => vec![(new, amount)],
-            After::Split(split) => split
-                .iter()
-                .map(|(category, minor)| (category, Money::new(*minor, amount.currency())))
-                .collect(),
-            _ => continue,
-        };
-        match &line.transaction.now {
-            Now::Split => continue,
-            now => add(now.category(), amount, -1),
-        }
-        for (category, part) in new {
-            add(Some(category), part, 1);
-        }
-    }
-    let mut changes: Vec<SpendingChange> = changes
-        .into_iter()
-        .filter(|(_, (_, minor))| *minor != 0)
-        .map(|((_, currency), (category, minor))| SpendingChange {
-            category,
-            change: Money::new(minor, currency),
-        })
-        .collect();
-    changes.sort_by_key(|change| {
-        let minor = change.change.minor();
-        (minor > 0, if minor > 0 { -minor } else { minor })
-    });
-    changes
 }
 
 /// A wide rule's matches by merchant (see [`ByMerchant`]).
@@ -927,8 +955,12 @@ fn sum_lines(merchant: String, rows: &[&Line]) -> MerchantLine {
             (sum.currency() == amount.currency())
                 .then(|| Money::new(sum.minor().saturating_add(amount.minor()), sum.currency()))
         });
-        moves_income |=
-            is_income(line.transaction.now.category(), amount) && into_spending(&line.after);
+        let kind = line
+            .transaction
+            .now
+            .category()
+            .map(|category| category.kind);
+        moves_income |= Side::of(kind, amount) == Side::Income && into_spending(&line.after);
     }
     let first = rows.first();
     MerchantLine {
@@ -1019,42 +1051,88 @@ fn alias_preview(
     Ok(())
 }
 
-fn transfer_effect(subject: &Subject) -> Option<TransferEffect> {
+/// How confirming the pair changes income and spending, as reports count
+/// them (module docs).
+fn transfer_effect(
+    db: &Database,
+    id: SuggestionId,
+    subject: &Subject,
+) -> Result<Option<TransferEffect>, ApproveError> {
     let Subject::TransferPair {
         outflow: Some(outflow),
         inflow: Some(inflow),
     } = subject
     else {
-        return None;
+        return Ok(None);
     };
-    Some(TransferEffect {
+    let change = approval(db, id, &[outflow.id, inflow.id])?
+        .map(|approval| approval.change)
+        .unwrap_or_default();
+    let income = change
+        .total(Side::Income, inflow.amount.currency())
+        .map_err(ApproveError::from)?;
+    let spending = change
+        .total(Side::Spending, outflow.amount.currency())
+        .map_err(ApproveError::from)?;
+    Ok(Some(TransferEffect {
         month: Period::containing(outflow.date),
-        income_less: is_income(inflow.now.category(), inflow.amount).then_some(inflow.amount),
-        spending_less: is_spending(outflow.now.category(), outflow.amount)
-            .then(|| Money::new(-outflow.amount.minor(), outflow.amount.currency())),
-    })
+        income_less: fall(income),
+        // Spending is signed below zero: a rise is less spent.
+        spending_less: spending.is_positive().then_some(spending),
+    }))
 }
 
-fn link_effect(preview: &Preview) -> Option<LinkEffect> {
+/// How linking the refund changes its month, as reports count it (module
+/// docs): sets [`Preview::link`] and, as for a categorisation, every
+/// category's spending change in [`Preview::spending`] (a split purchase's
+/// refund nets against each line's category; a refund already in a spending
+/// category moves out of it). [`LinkEffect::spending_less`] is the category
+/// whose spending falls most.
+fn link_effect(db: &Database, id: SuggestionId, preview: &mut Preview) -> Result<(), ApproveError> {
     let Subject::RefundLink {
         refund: Some(refund),
         purchase: Some(purchase),
     } = &preview.subject
     else {
-        return None;
+        return Ok(());
     };
     let Detail::RefundLink(link) = &preview.impact.detail else {
-        return None;
+        return Ok(());
     };
+    let change = approval(db, id, &[refund.id, purchase.id])?
+        .map(|approval| approval.change)
+        .unwrap_or_default();
+    let income = change
+        .total(Side::Income, refund.amount.currency())
+        .map_err(ApproveError::from)?;
+    let spending = spending_changes(db.conn(), &change)?;
+    let spending_less = spending
+        .first()
+        .filter(|change| change.change.is_negative())
+        .map(|change| {
+            let less = Money::new(
+                change.change.minor().saturating_neg(),
+                change.change.currency(),
+            );
+            (change.category.clone(), less)
+        });
     let bought = -purchase.amount.minor();
-    let purchase_category = purchase.now.category();
-    Some(LinkEffect {
+    let effect = LinkEffect {
         month: Period::containing(refund.date),
         refunded: Money::new(bought - link.purchase_left.minor(), link.amount.currency()),
-        income_less: is_income(refund.now.category(), refund.amount).then_some(link.amount),
-        spending_less: is_spending(purchase_category, purchase.amount)
-            .then(|| (purchase_category.cloned(), link.amount)),
-    })
+        income_less: fall(income),
+        spending_less,
+    };
+    preview.link = Some(effect);
+    preview.spending = spending;
+    Ok(())
+}
+
+/// How much a signed change lowers a total, when it does.
+fn fall(change: Money) -> Option<Money> {
+    change
+        .is_negative()
+        .then(|| Money::new(change.minor().saturating_neg(), change.currency()))
 }
 
 /// Where `pattern` matches `row`'s bank text, if it can be found there:

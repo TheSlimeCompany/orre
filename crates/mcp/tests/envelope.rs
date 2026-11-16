@@ -68,7 +68,7 @@ fn echo_rows(call: &Call<'_>, args: RowsIn) -> Result<Reply<RowsOut>, ToolError>
         .rows
         .iter()
         .map(|row| RowOut {
-            merchant: row.merchant.as_deref().map(|name| call.merchant(name)),
+            merchant: row.merchant.as_deref().and_then(|name| call.merchant(name)),
             description_untrusted: call.untrusted(&row.description),
         })
         .collect();
@@ -198,10 +198,24 @@ async fn pseudonymous_rows_carry_tokens_and_no_names() {
     client.close().await;
 }
 
+/// The fixture's display names without the manual row's: it is derived
+/// from bank text that holds account details, so it is null at every level
+/// ([`a_merchant_holding_account_details_is_null_at_every_level`]).
+fn named_merchants(fixture: &Fixture) -> Vec<String> {
+    let names = display_merchants(fixture);
+    let named: Vec<String> = names
+        .iter()
+        .filter(|name| !name.contains(SORT_CODE))
+        .cloned()
+        .collect();
+    assert_eq!(named.len() + 1, names.len(), "{names:?}");
+    named
+}
+
 #[tokio::test]
 async fn tokens_are_stable_across_calls_and_restarts() {
     let fixture = Fixture::new();
-    let names = display_merchants(&fixture);
+    let names = named_merchants(&fixture);
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
 
     let first = label_names(&fixture, AccessLevel::Pseudonymous, &names).await;
@@ -221,15 +235,7 @@ async fn tokens_are_stable_across_calls_and_restarts() {
     );
 
     // Raising and lowering the level keeps the key, so tokens survive.
-    // (Without the manual row's name: it is derived from bank text that
-    // holds account details, which only a pseudonym may carry.)
-    let safe: Vec<&str> = names
-        .iter()
-        .copied()
-        .filter(|name| !name.contains(SORT_CODE))
-        .collect();
-    assert_eq!(safe.len() + 1, names.len());
-    label_names(&fixture, AccessLevel::Standard, &safe).await;
+    label_names(&fixture, AccessLevel::Standard, &names).await;
     assert_eq!(
         label_names(&fixture, AccessLevel::Pseudonymous, &names).await,
         first
@@ -240,8 +246,8 @@ async fn tokens_are_stable_across_calls_and_restarts() {
 async fn tokens_differ_between_databases() {
     let one = Fixture::new();
     let two = Fixture::new();
-    let names = display_merchants(&one);
-    assert_eq!(names, display_merchants(&two));
+    let names = named_merchants(&one);
+    assert_eq!(names, named_merchants(&two));
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
 
     let first = label_names(&one, AccessLevel::Pseudonymous, &names).await;
@@ -385,6 +391,47 @@ async fn pseudonymous_without_a_key_is_refused() {
     assert_eq!(log[0].outcome, Outcome::Error);
     assert_eq!(log[0].row_count, 0);
     client.close().await;
+}
+
+/// A merchant holding account details is null at every level: `Call::merchant`
+/// checks it before naming or pseudonymising, so no tool has to. Not counted
+/// as withheld text (decision record M2, C.6).
+#[tokio::test]
+async fn a_merchant_holding_account_details_is_null_at_every_level() {
+    let fixture = Fixture::new();
+    let details = [
+        format!("SO TO {SORT_CODE} LANDLORD"),
+        format!("SO TO {ACCOUNT_NUMBER} LANDLORD"),
+        format!("TRANSFER {IBAN} SAVINGS"),
+        // A zero-width space can't split the number.
+        "SO TO 5831\u{200B}6402 LANDLORD".to_owned(),
+    ];
+    let mut rows: Vec<Value> = details
+        .iter()
+        .map(|name| json!({ "merchant": name, "description": "" }))
+        .collect();
+    rows.push(json!({ "merchant": "Bean There", "description": "" }));
+    for (level, tool) in [
+        (AccessLevel::Aggregate, "aggregate_rows"),
+        (AccessLevel::Pseudonymous, "echo_rows"),
+        (AccessLevel::Standard, "echo_rows"),
+    ] {
+        fixture.set_client("codex", level);
+        let client = fixture.connect_with("codex", registry()).await;
+        // `call_ok` checks the whole response with `assert_no_pii`.
+        let value = client.call_ok(tool, json!({ "rows": rows.clone() })).await;
+        let labels = labels(&value);
+        assert_eq!(labels.len(), details.len() + 1);
+        assert!(
+            labels[..details.len()].iter().all(Option::is_none),
+            "at {level}: {labels:?}"
+        );
+        assert!(labels[details.len()].is_some(), "at {level}: {labels:?}");
+        client.close().await;
+    }
+    let log = fixture.access_log();
+    assert_eq!(log.len(), 3, "{log:#?}");
+    assert!(log.iter().all(|call| call.withheld_count == 0), "{log:#?}");
 }
 
 #[tokio::test]

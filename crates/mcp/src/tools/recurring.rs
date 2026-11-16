@@ -9,7 +9,8 @@
 //! guess could be checked against, so it stays in the CLI), transaction
 //! IDs, account names or numbers, notes, tags, share labels or bank text.
 //! Merchants go through [`Call::merchant`], so they are tokens at
-//! `pseudonymous`.
+//! `pseudonymous`, and null at every level when the name holds account
+//! details (a standing order's merchant can be its bank text).
 
 use coffer_core::recurring::{self, RecurringSeries};
 use coffer_core::schedule::{self, Occurrence, OccurrenceState, ScheduleStatus, ScheduleView};
@@ -54,8 +55,9 @@ pub struct RecurringPayments {
 /// A recurring series found in the transactions.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct DetectedSeries {
-    /// The merchant, as of its latest payment.
-    pub merchant: MerchantLabel,
+    /// The merchant, as of its latest payment; null when its name holds
+    /// account details (a sort code, account or card number, or IBAN).
+    pub merchant: Option<MerchantLabel>,
     /// The account it is on: an ID, as other tools return it.
     pub account_id: i64,
     pub direction: Direction,
@@ -86,7 +88,9 @@ pub struct DetectedSeries {
 pub struct ScheduleSummary {
     /// The schedule's ID.
     pub id: i64,
-    pub merchant: MerchantLabel,
+    /// The merchant; null when its name holds account details (a sort
+    /// code, account or card number, or IBAN).
+    pub merchant: Option<MerchantLabel>,
     /// The account it is on: an ID, as other tools return it.
     pub account_id: i64,
     pub direction: Direction,

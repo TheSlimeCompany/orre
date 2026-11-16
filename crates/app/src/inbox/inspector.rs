@@ -583,35 +583,15 @@ fn if_you_approve(inbox: &Inbox, entry: &Entry, preview: &Preview, window: &Wind
                         None => vec![Part::text("No change")],
                     },
                 ));
-                rows.push(match &effect.spending_less {
-                    Some((category, amount)) => {
-                        let (mark, label) = match category {
-                            Some(category) => (
-                                marker(palette, category),
-                                plain(&category.label, NAME_SHOWN),
-                            ),
-                            None => (Marker::None, "Uncategorised".to_owned()),
-                        };
-                        FieldRow::new(
-                            "Spending",
-                            marked(
-                                window,
-                                mark,
-                                vec![
-                                    Part::text(format!("{label} ")),
-                                    Part::mono(text::unsigned(*amount)).color(color::TEXT_MUTED),
-                                    muted_parts(format!(" less in {when}")),
-                                ],
-                            ),
-                        )
-                        .into_any_element()
-                    }
-                    None => row("Spending", vec![Part::text("No change")]),
-                });
-                let category = purchase
-                    .now
-                    .category()
-                    .map_or("Uncategorised".to_owned(), |c| plain(&c.label, NAME_SHOWN));
+                rows.extend(spending_rows(window, preview, palette, Some(&when)));
+                // A split purchase is "Split", as the table shows it: its
+                // lines' categories are in the Spending rows above.
+                let category = match &purchase.now {
+                    Now::Split => "Split".to_owned(),
+                    now => now
+                        .category()
+                        .map_or("Uncategorised".to_owned(), |c| plain(&c.label, NAME_SHOWN)),
+                };
                 rows.push(row(
                     "Purchase",
                     vec![Part::text(category), muted_parts(" · refunded")],

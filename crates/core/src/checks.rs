@@ -14,8 +14,11 @@
 //!   merge's own plan ([`crate::duplicate`]) in a DB transaction that is
 //!   rolled back, so it can't drift from what merging does: the row it
 //!   excludes, the values that move to the kept row, the spending each
-//!   category gains or loses, Coffer's count on the date of the next
-//!   balance check, and every balance check whose result would change.
+//!   category gains or loses (the pair's ledger lines, and the link parts
+//!   that net against them, tallied as reports count them before and after
+//!   the merge: [`crate::reporting::Tally`]), Coffer's count on the date of
+//!   the next balance check, and every balance check whose result would
+//!   change.
 //!   A duplicate in a locked period is planned as if unlocked (the lock is
 //!   lifted inside the rolled-back transaction), so the user sees what an
 //!   unlock would let the merge do; [`MergeEffect::locked`] says it's
@@ -34,25 +37,24 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
-
 use chrono::{Days, NaiveDate};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::account::{self, Account, AccountKind, date_key};
-use crate::category::{CategoryKey, CategoryKind};
+use crate::category::CategoryKey;
 use crate::change::{self, Field};
 use crate::db::Database;
 use crate::duplicate::{
     self, Candidate, CandidateReason, DuplicateWindow, LockedRow, MergeRequest,
 };
 use crate::id::{AccountId, DuplicateCandidateId, TransactionId};
-use crate::inbox::preview::{CategoryRef, SpendingChange};
+use crate::inbox::preview::{self, CategoryRef, SpendingChange};
 use crate::manual::Origin;
 use crate::money::{Currency, Money};
 use crate::reconciliation::{
     self, AccountChecks, AssertionCheck, BalanceRef, BalanceSource, Outcome,
 };
+use crate::reporting::{self, Basis, Ledger, Tally};
 
 /// Why reading the checks failed. Messages never contain transaction text.
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +70,9 @@ pub enum Error {
 
     #[error(transparent)]
     Change(#[from] change::Error),
+
+    #[error(transparent)]
+    Reporting(#[from] reporting::Error),
 
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
@@ -281,8 +286,9 @@ fn effect_in(conn: &Connection, request: MergeRequest) -> Result<MergeEffect, Er
         None => None,
     };
     let before_checks = reconciliation::load(conn, &stored)?;
-    let rows = [candidate.transaction_a, candidate.transaction_b];
-    let before_spending = spending_of(conn, &rows)?;
+    // The pair's ledger lines, read as reports read them.
+    let ledger = Ledger::new().transactions([candidate.transaction_a, candidate.transaction_b]);
+    let before_spending = Tally::of(&ledger.lines_in(conn)?, Basis::Personal)?;
 
     // Then what an unlock would let it do: the lock is lifted in this
     // rolled-back transaction only.
@@ -299,7 +305,7 @@ fn effect_in(conn: &Connection, request: MergeRequest) -> Result<MergeEffect, Er
         .cloned()
         .expect("a plan of one request has one merge");
     let after_checks = reconciliation::load(conn, &stored)?;
-    let after_spending = spending_of(conn, &rows)?;
+    let after_spending = Tally::of(&ledger.lines_in(conn)?, Basis::Personal)?;
 
     let excluded_date: NaiveDate = conn.query_row(
         "SELECT date FROM \"transaction\" WHERE id = ?1",
@@ -310,80 +316,11 @@ fn effect_in(conn: &Connection, request: MergeRequest) -> Result<MergeEffect, Er
         kept: merge.kept,
         excluded: merge.duplicate,
         carried: merge.carried,
-        spending: spending_change(before_spending, after_spending, stored.currency),
+        spending: preview::spending_changes(conn, &before_spending.change(&after_spending)?)?,
         count: count_change(&before_checks, &after_checks, excluded_date),
         checks: check_changes(&before_checks, &after_checks),
         locked,
     })
-}
-
-/// Spent per category: the category (`None`: uncategorised money out) and
-/// minor units.
-type Spent = BTreeMap<Option<CategoryKey>, (Option<CategoryRef>, i64)>;
-
-/// What each category counts as spent over `rows`' ledger lines: money out
-/// in a spending category, or uncategorised, in reports, as the user's own.
-fn spending_of(conn: &Connection, rows: &[TransactionId]) -> rusqlite::Result<Spent> {
-    let mut statement = conn.prepare_cached(
-        "SELECT c.key, c.label, c.kind, l.personal_minor, l.amount_minor \
-         FROM ledger_line l LEFT JOIN category c ON c.id = l.category_id \
-         WHERE l.transaction_id = ?1 AND l.in_reports",
-    )?;
-    let mut spent = BTreeMap::new();
-    for row in rows {
-        let lines = statement.query_map([row], |row| {
-            let key: Option<String> = row.get(0)?;
-            let category = match key {
-                Some(key) => Some(CategoryRef {
-                    key: CategoryKey::new(&key).map_err(|_| account::invalid(row, "key"))?,
-                    label: row.get(1)?,
-                    kind: row.get(2)?,
-                }),
-                None => None,
-            };
-            Ok((category, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?))
-        })?;
-        for line in lines {
-            let (category, personal, amount) = line?;
-            let spending = match &category {
-                Some(category) => category.kind == CategoryKind::Spending,
-                None => amount < 0,
-            };
-            if !spending {
-                continue;
-            }
-            let entry = spent
-                .entry(category.as_ref().map(|c| c.key.clone()))
-                .or_insert((category, 0_i64));
-            entry.1 = entry.1.saturating_sub(personal);
-        }
-    }
-    Ok(spent)
-}
-
-fn spending_change(before: Spent, after: Spent, currency: Currency) -> Vec<SpendingChange> {
-    let mut changes: Spent = BTreeMap::new();
-    for (key, (category, spent)) in before {
-        changes.insert(key, (category, spent.saturating_neg()));
-    }
-    for (key, (category, spent)) in after {
-        let entry = changes.entry(key).or_insert((category, 0));
-        entry.1 = entry.1.saturating_add(spent);
-    }
-    let mut changes: Vec<SpendingChange> = changes
-        .into_values()
-        .filter(|(_, change)| *change != 0)
-        .map(|(category, change)| SpendingChange {
-            category,
-            change: Money::new(change, currency),
-        })
-        .collect();
-    // Losses first, then gains, each biggest first.
-    changes.sort_by_key(|change| {
-        let minor = change.change.minor();
-        (minor > 0, std::cmp::Reverse(minor.unsigned_abs()))
-    });
-    changes
 }
 
 /// What Coffer counts on a check's day: the stated balance when it passed,

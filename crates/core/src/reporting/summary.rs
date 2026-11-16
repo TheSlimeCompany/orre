@@ -8,7 +8,7 @@
 //! counts as nothing, and excluded rows and confirmed transfers are left
 //! out.
 //!
-//! Each line is classified by its category's kind:
+//! Each line is classified by [`Side`], the one rule every report uses:
 //!
 //! - `income`: income;
 //! - `spending`: spending, whatever its sign: money in under a spending
@@ -26,11 +26,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::category::CategoryKind;
 use crate::db::Reader;
-use crate::money::Money;
 
-use super::{Basis, Capped, DateRange, Error, Ledger, LedgerLine, Limit, Period, Totals};
+use super::{Basis, Capped, DateRange, Error, Ledger, Limit, Period, Side, Totals};
 
 /// One month's totals.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,26 +40,6 @@ pub struct MonthSummary {
     pub spending: Totals,
     /// Income minus spending, per currency.
     pub net: Totals,
-}
-
-/// Where a line counts in the summary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Side {
-    Income,
-    Spending,
-    Neither,
-}
-
-/// Which side `line` counts on (module docs), for an amount `counted`.
-pub(crate) fn side(line: &LedgerLine, counted: Money) -> Side {
-    match line.category.as_ref().map(|category| category.kind) {
-        Some(CategoryKind::Income) => Side::Income,
-        Some(CategoryKind::Spending) => Side::Spending,
-        Some(CategoryKind::Transfer) => Side::Neither,
-        None if counted.is_negative() => Side::Spending,
-        None if counted.is_positive() => Side::Income,
-        None => Side::Neither,
-    }
 }
 
 /// Income, spending and net for every month from `first` through `last`
@@ -88,7 +66,7 @@ pub fn monthly_summary(
             continue;
         }
         let (income, spending) = months.entry(Period::containing(line.date)).or_default();
-        match side(line, counted) {
+        match line.side(Basis::Personal) {
             Side::Income => income.add(counted)?,
             Side::Spending => spending.add(counted)?,
             Side::Neither => {}

@@ -5,7 +5,9 @@
 //!   float.
 //! - [`MerchantLabel`]: the merchant as this client may see it. Made only
 //!   by [`Call::merchant`](crate::registry::Call::merchant), so a tool
-//!   can't skip pseudonyms.
+//!   can't skip pseudonyms or the account-details check. That returns an
+//!   `Option`: a merchant field is `Option<MerchantLabel>`, null when the
+//!   name holds account details.
 //! - [`UntrustedText`]: bank text, sanitised. Made only by
 //!   [`Call::untrusted`](crate::registry::Call::untrusted). A tool puts it
 //!   in a field named `description_untrusted` and nowhere else.

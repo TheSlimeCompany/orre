@@ -380,3 +380,85 @@ async fn declares_purpose_and_a_read_only_object_result() {
     assert_eq!(annotations.destructive_hint, Some(false));
     client.close().await;
 }
+
+/// The detected series or schedule on `account` with this amount.
+fn by_amount<'a>(items: &'a Value, field: &str, minor: i64, account: i64) -> Option<&'a Value> {
+    items
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item[field] == amount(minor) && item["account_id"] == account)
+}
+
+/// A merchant holding a sort code or an account number (a standing order
+/// from an export with no merchant column) is null at every level, in a
+/// detected series and in a confirmed schedule; nothing else changes, and
+/// it isn't counted as withheld text (decision record M2 C.6).
+#[tokio::test]
+async fn withholds_a_merchant_holding_account_details() {
+    let fixture = Fixture::new();
+    let seeded = seed(&fixture);
+    let account = seeded.account.get();
+    for &level in LEVELS.iter().filter(|&&level| sees_tool(level)) {
+        let client = fixture.connect("claude-code", level).await;
+        // `call_ok` checks the whole response with `assert_no_pii`.
+        let result = client.call_ok(TOOL, json!({})).await;
+        let rent = by_amount(&result["detected"], "typical", RENT_MINOR, account)
+            .expect("the standing order is detected");
+        assert_eq!(rent["merchant"], Value::Null, "at {level}: {rent}");
+        assert_eq!(rent["cadence"], "monthly");
+        assert_eq!(rent["occurrences"], 6);
+        // The other series keep their merchant.
+        assert!(
+            result["detected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item != &rent)
+                .all(|item| item["merchant"].is_string()),
+            "at {level}: {result}"
+        );
+        client.close().await;
+    }
+
+    seed_rent_schedule(&mut fixture.open(), seeded.account);
+    for &level in LEVELS.iter().filter(|&&level| sees_tool(level)) {
+        let client = fixture.connect("claude-code", level).await;
+        let result = client.call_ok(TOOL, json!({})).await;
+        let rent = by_amount(&result["schedules"], "amount", RENT_MINOR, account)
+            .expect("the standing order's schedule is listed");
+        assert_eq!(rent["merchant"], Value::Null, "at {level}: {rent}");
+        assert_eq!(rent["status"], "active");
+        let streaming = by_amount(&result["schedules"], "amount", STREAMING_MINOR, account)
+            .expect("the streaming schedule is listed");
+        assert!(streaming["merchant"].is_string(), "at {level}: {streaming}");
+        client.close().await;
+    }
+
+    let log = fixture.access_log();
+    assert!(!log.is_empty());
+    assert!(log.iter().all(|call| call.withheld_count == 0), "{log:#?}");
+}
+
+#[tokio::test]
+async fn the_output_schema_allows_a_null_merchant() {
+    let fixture = Fixture::new();
+    let client = fixture.connect("claude-code", AccessLevel::Standard).await;
+    let tool = client
+        .tools()
+        .await
+        .into_iter()
+        .find(|tool| tool.name == TOOL)
+        .unwrap();
+    let output = Value::Object((*tool.output_schema.unwrap()).clone());
+    for definition in ["DetectedSeries", "ScheduleSummary"] {
+        let merchant = &output["$defs"][definition]["properties"]["merchant"];
+        assert!(merchant.is_object(), "{definition}: {output:#}");
+        // `Option<MerchantLabel>`: a string or null.
+        assert!(
+            merchant.to_string().contains("\"null\""),
+            "{definition}'s merchant isn't nullable: {merchant}"
+        );
+    }
+    client.close().await;
+}

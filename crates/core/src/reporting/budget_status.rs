@@ -19,8 +19,7 @@ use crate::category::{CategoryKey, CategoryTree};
 use crate::db::Reader;
 use crate::money::Money;
 
-use super::summary::{Side, side};
-use super::{Basis, Error, Ledger, Period, Totals};
+use super::{Basis, Error, Ledger, Period, Side, Totals};
 
 /// Every budget's status in one month.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,7 +76,7 @@ pub fn budget_status(reader: &Reader, month: Period) -> Result<BudgetStatus, Err
     let mut by_category: HashMap<i64, Totals> = HashMap::new();
     for line in Ledger::new().within(month.range()).lines(reader)? {
         let counted = line.counted(Basis::Personal);
-        if counted.is_zero() || side(&line, counted) != Side::Spending {
+        if counted.is_zero() || line.side(Basis::Personal) != Side::Spending {
             continue;
         }
         if let Some(category) = &line.category {
