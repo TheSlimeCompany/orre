@@ -2038,6 +2038,53 @@ were asked.
    "half each" default, which side of a link is the money in, and why a transfer was
    suggested move later (user, scope).
 
+### Decision record: the Rules view's edit pipeline and section state (2026-11-16)
+
+From an architecture review of the Rules view. Nothing the user sees changes except
+points 3, 4, 7 and 8.
+
+1. **The Rules view writes through one edit pipeline** (`rules/write.rs`,
+   `Rules::write`/`query`), as Transactions does (decision record "one gate for opening
+   the database, and the Transactions edit pipeline", point 3). A write is a policy and
+   one call to core on the database the pipeline opens. The policy says where an error
+   is said (`Said::Toolbar`, `Dialog` or `UndoBar`) and whether the shell is told
+   `RulesEvent::Changed`; the pipeline owns the rest: the refusal without a database
+   ("There is no database to change.", said in one place), clearing the bar, reading
+   everything again through `Rules::reload` (the one way the view reads again) and the
+   event. Choosing what is selected afterwards stays with the caller. Reads that open
+   the database (a preview, the suggestions over a rule, a change's items, what undoing
+   would do) go through `query`.
+2. **`RulesStore` keeps only `open` and `load`** (the read model, `RulesData`). Its 16
+   methods that opened the database and forwarded to one core function are gone; each
+   call site names core's function itself. Supersedes point 4 of the decision record
+   named in point 1, for Rules.
+3. **Deleting a rule tells the shell.** `rule::delete` clears `transaction.rule_id`,
+   which Transactions' Rule section reads ("Open rule"), and nothing told Transactions
+   to read again. Editing and moving a rule change no transaction and tell nothing; an
+   apply tells only when it changed a transaction.
+4. **Errors are said once.** The undo dialog gets its error back and says it; it no
+   longer also shows under the toolbar behind the dialog. When the bar's Undo fails, the
+   bar offers Undo again with "Couldn't undo: <reason>", as Transactions' does.
+5. **Each section's state is one value** (`rules/state.rs`): its filter and its
+   selection with the form that selection edits, `RuleEdit::Stored { id, form,
+   touching, apply }` or `RuleEdit::New { form, position, origin, apply }`, and the
+   same Stored/New shape for names and categories. A form exists exactly when a row is
+   selected or being made, a preview belongs to the rule it previews (`Apply::target`
+   and `Target` are gone), and the suggestions over a rule belong to the rule selected.
+   Each section keeps its selection while another is open, as before.
+6. **Leaving Rules drops a new rule and closes a preview**, whatever the way out
+   (`show`, a filter, selecting a row elsewhere). Before, leaving by `show` left the new
+   rule's fields behind with nothing selected.
+7. **The filter toggles switch section as `show` does**: an actual switch clears the
+   bar, closes the preview when leaving Rules and, when the section has nothing
+   selected, selects the first row the filter keeps. Before, they switched the section
+   and nothing else.
+8. **One rule for what is selected after a delete**, for rules, names and categories:
+   the row after it in the filtered list, else the row before, else nothing. Deleting a
+   name used to select the first name, and deleting a category the filter hides used
+   to select the first listed category; both now follow the rule. The panel counts names and history with the same
+   predicates the tables filter with.
+
 ## Architecture
 
 ```

@@ -1,41 +1,31 @@
-//! Reading rules, merchant names and the change history, and changing them,
-//! the way [`crate::inbox::store`] does suggestions: no connection is held
-//! between calls. Each call opens the database at its path through
-//! [`gate::open`], which checks the restore lock, so a restore can swap the
-//! file.
+//! Reading what the Rules view shows, the way [`crate::inbox::store`] does
+//! suggestions: no connection is held between calls. Each call opens the
+//! database at its path through [`gate::open`], which checks the restore
+//! lock, so a restore can swap the file.
 //!
-//! Everything is core's: the Rules table is [`rule::overview`], a rule is
-//! edited with [`rule::update`], moved with [`rule::move_to`] and deleted
-//! with [`rule::delete`]; a new rule is previewed with
-//! [`rule::preview_draft`] and saved (and applied) with [`rule::save_draft`];
-//! a stored rule is applied with [`rule::preview_apply`] then
-//! [`rule::commit_apply`], one undoable change batch; names are
-//! [`merchant::overview`], [`merchant::add`], [`merchant::edit`] and
-//! [`merchant::delete`], which apply at once with no batch; the history is
-//! [`change::history`], undone with [`change::undo`]; categories are
-//! [`category::overview`], changed with [`category::add`],
-//! [`category::rename`], [`category::set_hidden`] and [`category::delete`],
-//! which apply at once with no batch (no transaction changes).
+//! Only the read model is here: [`RulesStore::load`] builds [`RulesData`]
+//! from core's overviews ([`rule::overview`], [`merchant::overview`],
+//! [`change::history`], [`category::overview`]). Every change and every
+//! other read is a call to core's own function through
+//! [`Rules::write`](super::Rules) and its `query`, which open the database
+//! with `RulesStore::open` (`ARCHITECTURE.md` → "Decision record: one gate
+//! for opening the database, and the Transactions edit pipeline").
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use chrono::{NaiveDate, NaiveDateTime};
 use coffer_core::account;
 use coffer_core::backup::gate;
-use coffer_core::category::{self, Category, CategoryKey, GroupOverview, NewCategory};
-use coffer_core::change::{self, HistoryEntry, HistoryItem, UndoSummary};
+use coffer_core::category::{self, CategoryKey, GroupOverview};
+use coffer_core::change::{self, HistoryEntry};
 use coffer_core::clock;
 use coffer_core::db::Database;
-use coffer_core::id::{AccountId, ChangeBatchId, MerchantAliasId, RuleId, TransactionId};
-use coffer_core::inbox::{Suggestion, preview as inbox_preview};
-use coffer_core::merchant::{self, AliasDefinition, AliasSummary};
+use coffer_core::id::{AccountId, ChangeBatchId, MerchantAliasId, RuleId};
+use coffer_core::merchant::{self, AliasSummary};
 use coffer_core::money::Currency;
 use coffer_core::reporting::palette::{Palette, category_palette};
-use coffer_core::rule::{
-    self, Applied, ApplyPreview, Draft, DraftPreview, PreviewRow, RuleDefinition, RuleSummary,
-    Saved,
-};
+use coffer_core::rule::{self, RuleSummary};
 use coffer_core::schedule;
 use coffer_core::tag;
 
@@ -162,123 +152,13 @@ impl RulesStore {
         Self { database }
     }
 
-    fn open(&self) -> Result<Database, StoreError> {
+    /// Opens the database through the gate, which checks the restore lock.
+    pub(super) fn open(&self) -> Result<Database, StoreError> {
         Ok(gate::open(&self.database, Database::open)?)
     }
 
     pub fn load(&self) -> Result<RulesData, StoreError> {
         load(&self.open()?)
-    }
-
-    /// Pending agent rule suggestions that would take over rows `rule`
-    /// filed (the inspector's sparkle line).
-    pub fn touching(&self, rule: RuleId) -> Result<Vec<Suggestion>, StoreError> {
-        Ok(inbox_preview::touching_rule(&self.open()?, rule)?)
-    }
-
-    /// Saves an edit to `rule`. Edits don't re-run on history.
-    pub fn update(&self, rule: RuleId, definition: &RuleDefinition) -> Result<(), StoreError> {
-        Ok(rule::update(&mut self.open()?, rule, definition)?)
-    }
-
-    pub fn move_to(&self, rule: RuleId, position: usize) -> Result<(), StoreError> {
-        Ok(rule::move_to(&mut self.open()?, rule, position)?)
-    }
-
-    pub fn delete(&self, rule: RuleId) -> Result<(), StoreError> {
-        Ok(rule::delete(&mut self.open()?, rule)?)
-    }
-
-    /// Applying stored rule `rule` to past transactions, with its rows.
-    pub fn preview_rule(
-        &self,
-        rule: RuleId,
-    ) -> Result<(ApplyPreview, Vec<PreviewRow>), StoreError> {
-        let db = self.open()?;
-        let preview = rule::preview_apply(&db, rule)?;
-        let rows = rule::preview_rows(&db, &preview)?;
-        Ok((preview, rows))
-    }
-
-    /// Saving and applying `draft`, with its rows.
-    pub fn preview_draft(
-        &self,
-        draft: &Draft,
-    ) -> Result<(DraftPreview, Vec<PreviewRow>), StoreError> {
-        let db = self.open()?;
-        let preview = rule::preview_draft(&db, draft)?;
-        let rows = rule::preview_rows(&db, &preview.preview)?;
-        Ok((preview, rows))
-    }
-
-    /// Applies `preview` of a stored rule as one change batch.
-    pub fn apply(
-        &self,
-        preview: &ApplyPreview,
-        included: &BTreeSet<TransactionId>,
-    ) -> Result<Applied, StoreError> {
-        Ok(rule::commit_apply(&mut self.open()?, preview, included)?)
-    }
-
-    /// Saves `draft`, and applies `apply`'s preview with it when given.
-    pub fn save_draft(
-        &self,
-        draft: &Draft,
-        apply: Option<(&ApplyPreview, &BTreeSet<TransactionId>)>,
-    ) -> Result<Saved, StoreError> {
-        Ok(rule::save_draft(&mut self.open()?, draft, apply)?)
-    }
-
-    pub fn add_name(&self, alias: &AliasDefinition) -> Result<MerchantAliasId, StoreError> {
-        Ok(merchant::add(&mut self.open()?, alias)?.0)
-    }
-
-    pub fn edit_name(
-        &self,
-        id: MerchantAliasId,
-        alias: &AliasDefinition,
-    ) -> Result<(), StoreError> {
-        merchant::edit(&mut self.open()?, id, alias)?;
-        Ok(())
-    }
-
-    pub fn delete_name(&self, id: MerchantAliasId) -> Result<(), StoreError> {
-        merchant::delete(&mut self.open()?, id)?;
-        Ok(())
-    }
-
-    /// Adds a category; it's returned as stored.
-    pub fn add_category(&self, new: &NewCategory) -> Result<Category, StoreError> {
-        Ok(category::add(&mut self.open()?, new)?)
-    }
-
-    /// Renames a category: its label only.
-    pub fn rename_category(&self, key: &CategoryKey, label: &str) -> Result<(), StoreError> {
-        Ok(category::rename(&mut self.open()?, key, label)?)
-    }
-
-    /// Hides a category from pickers, or shows it again.
-    pub fn set_category_hidden(&self, key: &CategoryKey, hidden: bool) -> Result<(), StoreError> {
-        Ok(category::set_hidden(&mut self.open()?, key, hidden)?)
-    }
-
-    /// Deletes a category nothing uses.
-    pub fn delete_category(&self, key: &CategoryKey) -> Result<(), StoreError> {
-        Ok(category::delete(&mut self.open()?, key)?)
-    }
-
-    /// The items of `batch`, as "before → after".
-    pub fn history_items(&self, batch: ChangeBatchId) -> Result<Vec<HistoryItem>, StoreError> {
-        Ok(change::history_items(&self.open()?, batch)?)
-    }
-
-    /// What undoing `batch` would restore, and what stays.
-    pub fn undo_preview(&self, batch: ChangeBatchId) -> Result<UndoSummary, StoreError> {
-        Ok(change::undo_preview(&self.open()?, batch)?)
-    }
-
-    pub fn undo(&self, batch: ChangeBatchId) -> Result<UndoSummary, StoreError> {
-        Ok(change::undo(&mut self.open()?, batch)?)
     }
 }
 

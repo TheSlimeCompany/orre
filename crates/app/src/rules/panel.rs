@@ -93,17 +93,12 @@ pub fn render(rules: &Entity<Rules>, cx: &App) -> impl IntoElement {
         })),
         Section::Names => section(false, "Match").children(text::ALIAS_KINDS.map(|kind| {
             let handle = rules.clone();
-            let count = data
-                .names
-                .iter()
-                .filter(|name| name.alias.definition().kind() == kind)
-                .count();
             ListRow::new(
                 SharedString::from(format!("rules-match-{}", kind.as_str())),
                 text::alias_kind(kind),
             )
             .icon(text::alias_glyph(kind))
-            .trailing(count.to_string())
+            .trailing(state.count_names(kind).to_string())
             .trailing_tone(TrailingTone::Faint)
             .selected(state.match_filter() == Some(kind))
             .on_click(move |_, _, cx| {
@@ -112,17 +107,12 @@ pub fn render(rules: &Entity<Rules>, cx: &App) -> impl IntoElement {
         })),
         Section::History => section(false, "Kind").children(text::CHANGE_KINDS.map(|kind| {
             let handle = rules.clone();
-            let count = data
-                .history
-                .iter()
-                .filter(|entry| entry.batch.kind == kind)
-                .count();
             ListRow::new(
                 SharedString::from(format!("rules-kind-{}", kind.as_str())),
                 text::change_kind(kind),
             )
             .icon(text::change_glyph(kind))
-            .trailing(count.to_string())
+            .trailing(state.count_history(kind).to_string())
             .trailing_tone(TrailingTone::Faint)
             .selected(state.kind_filter() == Some(kind))
             .on_click(move |_, _, cx| {

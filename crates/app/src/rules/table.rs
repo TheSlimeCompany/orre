@@ -48,7 +48,7 @@ use crate::ui::tracked::Tracked;
 use super::store::RulesData;
 use super::text::{self, Part, ThenLead, rich};
 use super::view::RulesView;
-use super::{Rules, Section, Target};
+use super::{Rules, Section};
 
 /// The LAST SEEN and history WHEN lanes: 72px (`spacing-6` × 3).
 const LAST_SEEN_LANE: gpui_kit::Pixels = gpui_kit::px(72.);
@@ -163,12 +163,12 @@ pub fn toolbar(entity: &Entity<Rules>, window: &Window, cx: &mut Context<RulesVi
     };
     let (back, title, caption, trailing): (bool, &str, AnyElement, Option<AnyElement>) =
         match (rules.section(), rules.apply()) {
-            (Section::Rules, Some(apply)) => {
+            (Section::Rules, Some(_)) => {
                 let caption = match rules.form() {
                     Some(form) => {
-                        let lead = match apply.target {
-                            Target::New => "New rule: ".to_owned(),
-                            Target::Stored(id) => {
+                        let lead = match rules.selected_rule_id() {
+                            None => "New rule: ".to_owned(),
+                            Some(id) => {
                                 format!("Rule {}: ", data.position(id).map_or(0, |at| at + 1))
                             }
                         };
@@ -855,12 +855,12 @@ fn apply_body(entity: &Entity<Rules>, rules: &Rules) -> AnyElement {
         );
     }
     let changing = apply.changing();
-    let (primary, secondary) = match apply.target {
-        Target::New => (
+    let (primary, secondary) = match rules.is_new() {
+        true => (
             format!("Create rule and change {changing}"),
             Some("Create rule only"),
         ),
-        Target::Stored(_) => (
+        false => (
             format!(
                 "Apply to {}",
                 text::count(changing, "transaction", "transactions")

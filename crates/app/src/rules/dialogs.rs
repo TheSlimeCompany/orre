@@ -437,14 +437,15 @@ impl UndoChangeDialog {
 
     pub fn submit(&mut self, cx: &mut Context<Self>) {
         let batch = self.batch;
-        self.rules
-            .update(cx, |rules, cx| rules.undo_batch(batch, cx));
-        match self.rules.read(cx).outcome() {
-            Some(super::Outcome::Refused(error)) => {
-                self.error = Some(error.clone());
+        match self
+            .rules
+            .update(cx, |rules, cx| rules.undo_batch(batch, cx))
+        {
+            Ok(()) => cx.emit(DialogClosed),
+            Err(error) => {
+                self.error = Some(error);
                 cx.notify();
             }
-            _ => cx.emit(DialogClosed),
         }
     }
 

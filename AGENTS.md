@@ -171,9 +171,11 @@ Inbox panel's CHECKS rows open them, the status bar counts failing checks and th
 accounts panel's flagged dot opens them. Their read model is core's `checks` (a pair's
 merge planned by `duplicate`'s own code and rolled back; each check's base, window and
 the pair that explains it; lockable dates). The Rules view (M3.13) is
-`crates/app/src/rules/`: `Rules` (sections, filters, selection, the rule or name being
-edited, the apply preview, every change through `store::RulesStore`, which opens the
-database per call), `form` (the editor's model: `RuleForm`, `NameForm`, amounts typed
+`crates/app/src/rules/`: `Rules` (the open section and each section's pane in `state`:
+its filter and its selection with the form it edits, `RuleEdit::Stored`/`New` holding
+the apply preview; every change through the edit pipeline, `rules/write.rs`:
+`Rules::write`/`query`, a policy plus one core call; `store::RulesStore` keeps only
+`open` and `load`, the read model), `form` (the editor's model: `RuleForm`, `NameForm`, amounts typed
 unsigned with Out/In, percentages), `panel`, `table` (the toolbar, Rules, the apply
 preview, Merchant names, Change history; rows dragged to reorder), `inspector`,
 `dialogs` (delete rule, delete name, undo a change), `text` and `fixture` (D6.7's rules,

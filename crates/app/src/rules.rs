@@ -20,35 +20,42 @@
 //!   at once, with no batch, since no transaction changes.
 //!
 //! [`Rules`] holds what the view shows (from [`store::RulesStore`], which
-//! opens the database per call), the open section, its filter, the
-//! selection, the rule or name being edited ([`form`]) and the last
-//! outcome. Every change is core's; this only picks IDs and fields. Rule
-//! patterns, names and bank text are untrusted and shown plain ([`text`]).
+//! opens the database per call), the open section, one pane per section
+//! (`state`: its filter and its selection with the form that selection
+//! edits, as one value, kept while another section is open) and the last
+//! outcome. Leaving Rules drops a new rule not yet created and closes a
+//! stored rule's preview. Every change is core's; this only picks IDs and
+//! fields. Rule patterns, names and bank text are untrusted and shown plain
+//! ([`text`]).
 
 pub mod dialogs;
 pub mod fixture;
 pub mod form;
 pub mod inspector;
 pub mod panel;
+mod state;
 pub mod store;
 pub mod table;
 pub mod text;
 pub mod view;
+mod write;
 
 use std::collections::BTreeSet;
 
-use coffer_core::category::{CategoryKind, CategorySummary, GroupOverview};
-use coffer_core::change::{ChangeKind, HistoryItem};
+use coffer_core::category::{self, CategoryKind, CategorySummary, GroupOverview};
+use coffer_core::change::{self, ChangeKind, HistoryEntry, HistoryItem};
 use coffer_core::id::{ChangeBatchId, MerchantAliasId, RuleId, TransactionId};
-use coffer_core::inbox::{Suggestion, SuggestionId};
-use coffer_core::merchant::AliasKind;
+use coffer_core::inbox::{Suggestion, SuggestionId, preview as inbox_preview};
+use coffer_core::merchant::{self, AliasKind, AliasSummary};
 use coffer_core::rule::{
-    ActionKind, ApplyPreview, Draft, PreviewRow, RuleDefinition, RuleOrigin, RuleSummary,
+    self, ActionKind, ApplyPreview, Draft, PreviewRow, RuleDefinition, RuleOrigin, RuleSummary,
 };
 use gpui_kit::{Context, EventEmitter, SharedString};
 
 use form::{CategoryError, CategoryForm, FormError, NameForm, RuleForm};
+use state::{CategoriesPane, CategoryEdit, HistoryPane, NameEdit, NamesPane, RuleEdit, RulesPane};
 use store::{RulesData, RulesStore};
+use write::{Policy, Said};
 
 /// Binds the view's keys: ↑↓ move the selection, Escape clears it or goes
 /// back from the preview. Call once, before the first [`view::RulesView`].
@@ -111,24 +118,17 @@ pub enum RulesEvent {
     UndoRequested(ChangeBatchId),
     /// "Review in the Inbox": open the Inbox on the suggestion.
     ReviewSuggestion(SuggestionId),
-    /// Transactions changed (an apply, an undo, a name): what reads them
-    /// should read again.
+    /// A change that Transactions, the accounts panel or the checks show
+    /// (an apply, an undo, a deleted rule, a merchant name, a category):
+    /// what reads them should read again. Editing or moving a rule changes
+    /// no transaction and doesn't send it.
     Changed,
 }
 
-/// Which rule the preview applies.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Target {
-    /// A stored rule.
-    Stored(RuleId),
-    /// The rule being made, not stored yet.
-    New,
-}
-
-/// The apply-to-past-transactions preview on the canvas.
-#[derive(Clone, Debug, PartialEq)]
+/// The apply-to-past-transactions preview on the canvas: of the stored
+/// rule selected, or of the rule being made.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Apply {
-    pub target: Target,
     /// Core's plan; `None` while the new rule's fields aren't valid.
     pub preview: Option<ApplyPreview>,
     /// Its rows, newest first.
@@ -141,17 +141,6 @@ pub struct Apply {
 }
 
 impl Apply {
-    fn new(target: Target) -> Apply {
-        Apply {
-            target,
-            preview: None,
-            rows: Vec::new(),
-            matches: 0,
-            overlaps: Vec::new(),
-            include: false,
-        }
-    }
-
     /// The rows that change without being included.
     pub fn will_change(&self) -> impl Iterator<Item = &PreviewRow> {
         self.rows.iter().filter(|row| !row.user_set)
@@ -221,25 +210,10 @@ pub struct Rules {
     source: Source,
     data: RulesData,
     section: Section,
-    action_filter: Option<ActionKind>,
-    match_filter: Option<AliasKind>,
-    kind_filter: Option<ChangeKind>,
-    rule: Option<RuleId>,
-    /// The selected rule's fields, or the new rule's.
-    form: Option<RuleForm>,
-    /// The new rule's place and origin.
-    new_position: usize,
-    new_origin: RuleOrigin,
-    apply: Option<Apply>,
-    /// Pending agent rules over the selected rule's rows.
-    touching: Vec<Suggestion>,
-    name: Option<NameSelection>,
-    name_form: Option<NameForm>,
-    batch: Option<ChangeBatchId>,
-    batch_items: Vec<HistoryItem>,
-    category_filter: Option<CategoryFilter>,
-    category: Option<CategorySelection>,
-    category_form: Option<CategoryForm>,
+    rules: RulesPane,
+    names: NamesPane,
+    history: HistoryPane,
+    categories: CategoriesPane,
     outcome: Option<Outcome>,
     load_error: Option<SharedString>,
 }
@@ -277,22 +251,10 @@ impl Rules {
             source,
             data: RulesData::default(),
             section: Section::Rules,
-            action_filter: None,
-            match_filter: None,
-            kind_filter: None,
-            rule: None,
-            form: None,
-            new_position: 0,
-            new_origin: RuleOrigin::New,
-            apply: None,
-            touching: Vec::new(),
-            name: None,
-            name_form: None,
-            batch: None,
-            batch_items: Vec::new(),
-            category_filter: None,
-            category: None,
-            category_form: None,
+            rules: RulesPane::default(),
+            names: NamesPane::default(),
+            history: HistoryPane::default(),
+            categories: CategoriesPane::default(),
             outcome: None,
             load_error: None,
         }
@@ -321,75 +283,107 @@ impl Rules {
     }
 
     pub fn action_filter(&self) -> Option<ActionKind> {
-        self.action_filter
+        self.rules.filter
     }
 
     pub fn match_filter(&self) -> Option<AliasKind> {
-        self.match_filter
+        self.names.filter
     }
 
     pub fn kind_filter(&self) -> Option<ChangeKind> {
-        self.kind_filter
+        self.history.filter
     }
 
+    pub fn category_filter(&self) -> Option<CategoryFilter> {
+        self.categories.filter
+    }
+
+    /// The preview on the canvas, of the selected rule or the new one.
     pub fn apply(&self) -> Option<&Apply> {
-        self.apply.as_ref()
+        self.rules.editing.as_ref()?.apply()
     }
 
+    /// Pending agent rules over the selected rule's rows.
     pub fn touching(&self) -> &[Suggestion] {
-        &self.touching
+        match &self.rules.editing {
+            Some(RuleEdit::Stored { touching, .. }) => touching,
+            _ => &[],
+        }
     }
 
     // Reading ------------------------------------------------------------------
 
-    /// Reads everything again, keeping the selection where it still is.
+    /// Reads everything again, keeping the selection where it still is: the
+    /// one way the view reads again, after every save and when the shell
+    /// asks.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         self.load();
-        if let Some(id) = self.rule {
-            match self.data.rule(id) {
-                // An edit in progress isn't overwritten.
-                Some(_) if self.apply.as_ref().is_some_and(|a| a.target == Target::New) => {}
-                Some(summary) => {
-                    if self.form_error().is_none() {
-                        self.form = Some(RuleForm::of(summary.rule.definition()));
-                    }
-                }
-                None => {
-                    self.rule = None;
-                    self.form = None;
-                }
-            }
-        }
-        if let Some(NameSelection::Stored(id)) = self.name
-            && self.data.name(id).is_none()
-        {
-            self.name = None;
-            self.name_form = None;
-        }
-        if let Some(batch) = self.batch {
-            if self.data.entry(batch).is_some() {
-                self.load_items(batch);
-            } else {
-                self.batch = None;
-                self.batch_items.clear();
-            }
-        }
-        if let Some(CategorySelection::Stored(id)) = self.category {
-            match self.data.category_entry(id) {
-                // A rename that isn't valid yet isn't overwritten.
-                Some((summary, _)) if self.category_error().is_none() => {
-                    self.category_form = Some(CategoryForm::of(&summary.category));
-                }
-                Some(_) => {}
-                None => {
-                    self.category = None;
-                    self.category_form = None;
-                }
-            }
-        }
+        self.reload_rule();
+        self.reload_name();
+        self.reload_batch();
+        self.reload_category();
         cx.notify();
     }
 
+    /// The selected rule after a read: gone with the rule, and filled again
+    /// from the stored rule unless what was typed is invalid or already the
+    /// stored one (so an edit in progress isn't overwritten).
+    fn reload_rule(&mut self) {
+        let Some(RuleEdit::Stored { id, form, .. }) = &self.rules.editing else {
+            return;
+        };
+        let Some(summary) = self.data.rule(*id) else {
+            self.rules.editing = None;
+            return;
+        };
+        let typed = form.definition(self.data.currency(form.account));
+        if matches!(&typed, Ok(definition) if definition != summary.rule.definition()) {
+            let fresh = RuleForm::of(summary.rule.definition());
+            if let Some(RuleEdit::Stored { form, .. }) = &mut self.rules.editing {
+                *form = fresh;
+            }
+        }
+    }
+
+    fn reload_name(&mut self) {
+        if let Some(NameEdit::Stored { id, .. }) = &self.names.editing
+            && self.data.name(*id).is_none()
+        {
+            self.names.editing = None;
+        }
+    }
+
+    fn reload_batch(&mut self) {
+        let Some(batch) = self.history.selected_id() else {
+            return;
+        };
+        self.history.selected = self
+            .data
+            .entry(batch)
+            .is_some()
+            .then(|| (batch, self.load_items(batch)));
+    }
+
+    /// The selected category after a read: gone with the category, and
+    /// filled again unless a rename that isn't valid yet is in the field.
+    fn reload_category(&mut self) {
+        let Some(CategoryEdit::Stored { id, .. }) = &self.categories.editing else {
+            return;
+        };
+        let id = *id;
+        match self.data.category_entry(id) {
+            Some((summary, _)) if self.category_error().is_none() => {
+                self.categories.editing = Some(CategoryEdit::Stored {
+                    id,
+                    form: CategoryForm::of(&summary.category),
+                });
+            }
+            Some(_) => {}
+            None => self.categories.editing = None,
+        }
+    }
+
+    /// Reads the data into `self.data`: [`Rules::reload`] and the first read.
     fn load(&mut self) {
         let Source::Database(store) = &self.source else {
             return;
@@ -406,39 +400,27 @@ impl Rules {
         }
     }
 
-    fn store(&self) -> Result<&RulesStore, SharedString> {
-        match &self.source {
-            Source::Database(store) => Ok(store),
-            Source::None => Err("There is no database to change.".into()),
-        }
-    }
-
     /// Selects the first row of the open section when nothing is.
     fn select_default(&mut self) {
         match self.section {
-            Section::Rules if self.rule.is_none() && self.apply.is_none() => {
-                if let Some(first) = self.rules().first().map(|summary| summary.rule.id()) {
-                    self.set_rule(Some(first));
-                }
+            Section::Rules if self.rules.editing.is_none() => {
+                let first = self.rules().first().map(|summary| summary.rule.id());
+                self.open_rule(first);
             }
-            Section::Names if self.name.is_none() => {
-                if let Some(first) = self.names().first().map(|name| name.alias.id()) {
-                    self.set_name(Some(NameSelection::Stored(first)));
-                }
+            Section::Names if self.names.editing.is_none() => {
+                let first = self.names().first().map(|name| name.alias.id());
+                self.open_name(first.map(NameSelection::Stored));
             }
-            Section::History if self.batch.is_none() => {
-                if let Some(first) = self.history().first().map(|entry| entry.batch.id) {
-                    self.set_batch(Some(first));
-                }
+            Section::History if self.history.selected.is_none() => {
+                let first = self.history().first().map(|entry| entry.batch.id);
+                self.open_batch(first);
             }
-            Section::Categories if self.category.is_none() => {
+            Section::Categories if self.categories.editing.is_none() => {
                 let first = self
                     .category_rows()
                     .first()
                     .map(|row| row.summary.category.id());
-                if let Some(first) = first {
-                    self.set_category(Some(CategorySelection::Stored(first)));
-                }
+                self.open_category(first.map(CategorySelection::Stored));
             }
             _ => {}
         }
@@ -446,44 +428,52 @@ impl Rules {
 
     // Sections and filters -----------------------------------------------------
 
+    /// Opens `section`: the one way sections change. Leaving Rules drops a
+    /// new rule and closes a preview (`RulesPane::leave`); an actual switch
+    /// clears the outcome and selects the section's first row if it has none.
     pub fn show(&mut self, section: Section, cx: &mut Context<Self>) {
         if self.section != section {
-            self.section = section;
+            self.enter(section);
             self.outcome = None;
-            if section != Section::Rules {
-                self.apply = None;
-            }
             self.select_default();
         }
         cx.notify();
     }
 
+    /// Makes `section` the open one, leaving Rules as `RulesPane::leave`
+    /// says. Selecting or making a row in another section goes through it too.
+    fn enter(&mut self, section: Section) {
+        if self.section == Section::Rules && section != Section::Rules {
+            self.rules.leave();
+        }
+        self.section = section;
+    }
+
+    /// Toggles the ACTION filter and opens Rules as [`Rules::show`] does,
+    /// after filtering: a section with nothing selected selects the first
+    /// row the filter keeps.
     pub fn toggle_action_filter(&mut self, kind: ActionKind, cx: &mut Context<Self>) {
-        self.section = Section::Rules;
-        self.action_filter = (self.action_filter != Some(kind)).then_some(kind);
-        cx.notify();
+        let filter = &mut self.rules.filter;
+        *filter = (*filter != Some(kind)).then_some(kind);
+        self.show(Section::Rules, cx);
     }
 
     pub fn toggle_match_filter(&mut self, kind: AliasKind, cx: &mut Context<Self>) {
-        self.section = Section::Names;
-        self.match_filter = (self.match_filter != Some(kind)).then_some(kind);
-        cx.notify();
+        let filter = &mut self.names.filter;
+        *filter = (*filter != Some(kind)).then_some(kind);
+        self.show(Section::Names, cx);
     }
 
     pub fn toggle_kind_filter(&mut self, kind: ChangeKind, cx: &mut Context<Self>) {
-        self.section = Section::History;
-        self.kind_filter = (self.kind_filter != Some(kind)).then_some(kind);
-        cx.notify();
+        let filter = &mut self.history.filter;
+        *filter = (*filter != Some(kind)).then_some(kind);
+        self.show(Section::History, cx);
     }
 
     pub fn toggle_category_filter(&mut self, filter: CategoryFilter, cx: &mut Context<Self>) {
-        self.section = Section::Categories;
-        self.category_filter = (self.category_filter != Some(filter)).then_some(filter);
-        cx.notify();
-    }
-
-    pub fn category_filter(&self) -> Option<CategoryFilter> {
-        self.category_filter
+        let open = &mut self.categories.filter;
+        *open = (*open != Some(filter)).then_some(filter);
+        self.show(Section::Categories, cx);
     }
 
     /// Every category as the table lists it, each group followed by its
@@ -515,7 +505,7 @@ impl Rules {
 
     /// The categories the table lists, filtered by KIND or Hidden.
     pub fn category_rows(&self) -> Vec<CategoryRow<'_>> {
-        let filter = self.category_filter;
+        let filter = self.categories.filter;
         self.all_category_rows()
             .into_iter()
             .filter(|row| filter.is_none_or(|filter| Self::keeps(filter, row)))
@@ -536,30 +526,28 @@ impl Rules {
             .rules
             .iter()
             .filter(|summary| {
-                self.action_filter
-                    .is_none_or(|kind| summary.rule.definition().action(kind).is_some())
+                self.rules
+                    .filter
+                    .is_none_or(|kind| has_action(summary, kind))
             })
             .collect()
     }
 
     /// The names the table lists, filtered by MATCH.
-    pub fn names(&self) -> Vec<&coffer_core::merchant::AliasSummary> {
+    pub fn names(&self) -> Vec<&AliasSummary> {
         self.data
             .names
             .iter()
-            .filter(|name| {
-                self.match_filter
-                    .is_none_or(|kind| name.alias.definition().kind() == kind)
-            })
+            .filter(|name| self.names.filter.is_none_or(|kind| is_match(name, kind)))
             .collect()
     }
 
     /// The changes the table lists, filtered by KIND.
-    pub fn history(&self) -> Vec<&coffer_core::change::HistoryEntry> {
+    pub fn history(&self) -> Vec<&HistoryEntry> {
         self.data
             .history
             .iter()
-            .filter(|entry| self.kind_filter.is_none_or(|kind| entry.batch.kind == kind))
+            .filter(|entry| self.history.filter.is_none_or(|kind| is_kind(entry, kind)))
             .collect()
     }
 
@@ -568,28 +556,47 @@ impl Rules {
         self.data
             .rules
             .iter()
-            .filter(|summary| summary.rule.definition().action(kind).is_some())
+            .filter(|summary| has_action(summary, kind))
+            .count()
+    }
+
+    /// Names that match as `kind` (the MATCH counts).
+    pub fn count_names(&self, kind: AliasKind) -> usize {
+        self.data
+            .names
+            .iter()
+            .filter(|name| is_match(name, kind))
+            .count()
+    }
+
+    /// Changes of `kind` (the KIND counts).
+    pub fn count_history(&self, kind: ChangeKind) -> usize {
+        self.data
+            .history
+            .iter()
+            .filter(|entry| is_kind(entry, kind))
             .count()
     }
 
     // Rules ----------------------------------------------------------------------
 
     pub fn selected_rule(&self) -> Option<&RuleSummary> {
-        self.data.rule(self.rule?)
+        self.data.rule(self.selected_rule_id()?)
     }
 
+    /// The selected stored rule; `None` for the new rule.
     pub fn selected_rule_id(&self) -> Option<RuleId> {
-        self.rule
+        self.rules.editing.as_ref()?.stored_id()
     }
 
     /// The fields in the inspector: the selected rule's or the new rule's.
     pub fn form(&self) -> Option<&RuleForm> {
-        self.form.as_ref()
+        self.rules.editing.as_ref().map(RuleEdit::form)
     }
 
     /// Why the inspector's rule can't be saved yet, if it can't.
     pub fn form_error(&self) -> Option<FormError> {
-        let form = self.form.as_ref()?;
+        let form = self.form()?;
         form.definition(self.data.currency(form.account)).err()
     }
 
@@ -597,77 +604,103 @@ impl Rules {
     /// it changes, and ignores a late event from the fields of another.
     pub fn form_key(&self) -> FormKey {
         match self.section {
-            Section::Rules if self.is_new() => FormKey::NewRule,
-            Section::Rules => self.rule.map_or(FormKey::None, FormKey::Rule),
-            Section::Names => self.name.map_or(FormKey::None, FormKey::Name),
+            Section::Rules => match &self.rules.editing {
+                Some(RuleEdit::Stored { id, .. }) => FormKey::Rule(*id),
+                Some(RuleEdit::New { .. }) => FormKey::NewRule,
+                None => FormKey::None,
+            },
+            Section::Names => self.names.selection().map_or(FormKey::None, FormKey::Name),
             Section::History => FormKey::None,
-            Section::Categories => self.category.map_or(FormKey::None, FormKey::Category),
+            Section::Categories => self
+                .categories
+                .selection()
+                .map_or(FormKey::None, FormKey::Category),
         }
     }
 
     /// Whether the inspector shows the new rule.
     pub fn is_new(&self) -> bool {
-        self.apply
-            .as_ref()
-            .is_some_and(|apply| apply.target == Target::New)
+        self.rules.editing.as_ref().is_some_and(RuleEdit::is_new)
     }
 
+    /// The new rule's place in the list; 0 when no new rule is being made.
     pub fn new_position(&self) -> usize {
-        self.new_position
+        match &self.rules.editing {
+            Some(RuleEdit::New { position, .. }) => *position,
+            _ => 0,
+        }
     }
 
     pub fn new_origin(&self) -> RuleOrigin {
-        self.new_origin
+        match &self.rules.editing {
+            Some(RuleEdit::New { origin, .. }) => *origin,
+            _ => RuleOrigin::New,
+        }
     }
 
-    fn set_rule(&mut self, id: Option<RuleId>) {
-        self.rule = id;
-        self.form = id
-            .and_then(|id| self.data.rule(id))
-            .map(|summary| RuleForm::of(summary.rule.definition()));
-        self.touching = match (id, self.store()) {
-            (Some(id), Ok(store)) => store.touching(id).unwrap_or_else(|error| {
+    /// Opens rule `id` for editing, or nothing.
+    fn open_rule(&mut self, id: Option<RuleId>) {
+        self.rules.editing = id.and_then(|id| {
+            let summary = self.data.rule(id)?;
+            Some(RuleEdit::Stored {
+                id,
+                form: RuleForm::of(summary.rule.definition()),
+                touching: self.touching_rule(id),
+                apply: None,
+            })
+        });
+    }
+
+    /// Pending agent rule suggestions that would take over the rows `rule`
+    /// filed (the inspector's sparkle line).
+    fn touching_rule(&self, rule: RuleId) -> Vec<Suggestion> {
+        if matches!(self.source, Source::None) {
+            return Vec::new();
+        }
+        self.query(|db| inbox_preview::touching_rule(db, rule))
+            .unwrap_or_else(|error| {
                 tracing::warn!(%error, "couldn't read the suggestions over a rule");
                 Vec::new()
-            }),
-            _ => Vec::new(),
-        };
+            })
     }
 
     /// Selects rule `id` in the table (from the preview too: back to it).
     pub fn select_rule(&mut self, id: Option<RuleId>, cx: &mut Context<Self>) {
         // What was typed for the rule being left is kept, as leaving its
         // field would: the field's blur arrives after the selection moved.
-        if self.rule != id && self.section == Section::Rules {
+        if self.selected_rule_id() != id && self.section == Section::Rules {
             self.save_rule(cx);
         }
-        self.section = Section::Rules;
-        self.apply = None;
-        if self.rule != id || self.form.is_none() {
-            self.set_rule(id);
+        self.enter(Section::Rules);
+        match &mut self.rules.editing {
+            Some(RuleEdit::Stored {
+                id: open, apply, ..
+            }) if Some(*open) == id => *apply = None,
+            _ => self.open_rule(id),
         }
         cx.notify();
     }
 
     /// Selects `id`, or nothing if it's selected.
     pub fn toggle_rule(&mut self, id: RuleId, cx: &mut Context<Self>) {
-        let next = (self.rule != Some(id)).then_some(id);
+        let next = (self.selected_rule_id() != Some(id)).then_some(id);
         self.select_rule(next, cx);
     }
 
     /// Moves the selection `step` rows in the open section (↑↓).
     pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
         match self.section {
-            Section::Rules if self.apply.is_none() => {
+            Section::Rules if self.apply().is_none() => {
                 let order: Vec<RuleId> = self.rules().iter().map(|s| s.rule.id()).collect();
-                if let Some(next) = step_in(&order, self.rule, step) {
+                if let Some(next) = step_in(&order, self.selected_rule_id(), step) {
                     self.select_rule(Some(next), cx);
                 }
             }
+            Section::Rules => {}
             Section::Names => {
                 let order: Vec<MerchantAliasId> =
                     self.names().iter().map(|n| n.alias.id()).collect();
-                let current = match self.name {
+                let current = match self.names.selection() {
                     Some(NameSelection::Stored(id)) => Some(id),
                     _ => None,
                 };
@@ -677,7 +710,7 @@ impl Rules {
             }
             Section::History => {
                 let order: Vec<ChangeBatchId> = self.history().iter().map(|e| e.batch.id).collect();
-                if let Some(next) = step_in(&order, self.batch, step) {
+                if let Some(next) = step_in(&order, self.history.selected_id(), step) {
                     self.select_batch(Some(next), cx);
                 }
             }
@@ -687,7 +720,7 @@ impl Rules {
                     .iter()
                     .map(|row| row.summary.category.id())
                     .collect();
-                let current = match self.category {
+                let current = match self.categories.selection() {
                     Some(CategorySelection::Stored(id)) => Some(id),
                     _ => None,
                 };
@@ -695,13 +728,12 @@ impl Rules {
                     self.select_category(Some(CategorySelection::Stored(next)), cx);
                 }
             }
-            Section::Rules => {}
         }
     }
 
     /// Escape: back from the preview, else clears the selection.
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
-        if self.apply.is_some() {
+        if self.apply().is_some() {
             self.back(cx);
             return;
         }
@@ -717,11 +749,11 @@ impl Rules {
     /// once; a stored rule is saved when `save` and the fields are valid
     /// (text fields save on blur and Enter, selects at once).
     pub fn edit(&mut self, save: bool, change: impl FnOnce(&mut RuleForm), cx: &mut Context<Self>) {
-        let Some(form) = self.form.as_mut() else {
+        let Some(edit) = self.rules.editing.as_mut() else {
             return;
         };
-        change(form);
-        if self.is_new() {
+        change(edit.form_mut());
+        if edit.is_new() {
             self.refresh_preview();
         } else if save {
             self.save_rule(cx);
@@ -731,12 +763,10 @@ impl Rules {
 
     /// Saves the selected rule's fields when they're valid and changed.
     pub fn save_rule(&mut self, cx: &mut Context<Self>) {
-        let (Some(id), Some(form)) = (self.rule, self.form.as_ref()) else {
+        let Some(RuleEdit::Stored { id, form, .. }) = &self.rules.editing else {
             return;
         };
-        if self.is_new() {
-            return;
-        }
+        let id = *id;
         let Ok(definition) = form.definition(self.data.currency(form.account)) else {
             return;
         };
@@ -747,29 +777,21 @@ impl Rules {
         {
             return;
         }
-        let result = self
-            .store()
-            .and_then(|store| store.update(id, &definition).map_err(message));
-        match result {
-            Ok(()) => {
-                self.outcome = None;
-                self.load();
-                if self
-                    .apply
-                    .as_ref()
-                    .is_some_and(|a| a.target == Target::Stored(id))
-                {
-                    self.refresh_preview();
-                }
-                self.touching = self
-                    .store()
-                    .ok()
-                    .and_then(|store| store.touching(id).ok())
-                    .unwrap_or_default();
+        let policy = Policy::new(Said::Toolbar);
+        if self
+            .write(policy, cx, |db| rule::update(db, id, &definition))
+            .is_ok()
+        {
+            self.refresh_preview();
+            let fresh = self.touching_rule(id);
+            if let Some(RuleEdit::Stored {
+                id: open, touching, ..
+            }) = &mut self.rules.editing
+                && *open == id
+            {
+                *touching = fresh;
             }
-            Err(message) => self.outcome = Some(Outcome::Refused(message)),
         }
-        cx.notify();
     }
 
     /// Moves rule `id` to `position` (dragging a row, Position, "Move
@@ -778,22 +800,19 @@ impl Rules {
         if self.data.position(id) == Some(position) {
             return;
         }
-        let result = self
-            .store()
-            .and_then(|store| store.move_to(id, position).map_err(message));
-        match result {
-            Ok(()) => {
-                self.outcome = None;
-                self.load();
-            }
-            Err(message) => self.outcome = Some(Outcome::Refused(message)),
-        }
-        cx.notify();
+        // What was typed for the selected rule is saved first, as leaving
+        // its field would: reading again after the move would replace it.
+        self.save_rule(cx);
+        let policy = Policy::new(Said::Toolbar);
+        let _ = self.write(policy, cx, |db| rule::move_to(db, id, position));
     }
 
     /// The new rule's Position.
     pub fn set_new_position(&mut self, position: usize, cx: &mut Context<Self>) {
-        self.new_position = position.min(self.data.rules.len());
+        let last = self.data.rules.len();
+        if let Some(RuleEdit::New { position: open, .. }) = &mut self.rules.editing {
+            *open = position.min(last);
+        }
         self.refresh_preview();
         cx.notify();
     }
@@ -811,99 +830,108 @@ impl Rules {
         origin: RuleOrigin,
         cx: &mut Context<Self>,
     ) {
-        self.load();
+        self.reload(cx);
         self.start_new(RuleForm::of(rule), origin, cx);
     }
 
     fn start_new(&mut self, form: RuleForm, origin: RuleOrigin, cx: &mut Context<Self>) {
-        self.section = Section::Rules;
+        self.enter(Section::Rules);
         self.outcome = None;
-        self.rule = None;
-        self.touching.clear();
-        self.form = Some(form);
-        self.new_position = 0;
-        self.new_origin = origin;
-        self.apply = Some(Apply::new(Target::New));
+        self.rules.editing = Some(RuleEdit::New {
+            form,
+            position: 0,
+            origin,
+            apply: Apply::default(),
+        });
         self.refresh_preview();
         cx.notify();
     }
 
     /// "Apply to past transactions…": the selected rule's preview.
     pub fn apply_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self.rule else {
+        let Some(RuleEdit::Stored { apply, .. }) = &mut self.rules.editing else {
             return;
         };
+        *apply = Some(Apply::default());
         self.outcome = None;
-        self.apply = Some(Apply::new(Target::Stored(id)));
         self.refresh_preview();
         cx.notify();
     }
 
-    /// The back button: from the preview to the table.
+    /// The back button: from the preview to the table. A new rule is
+    /// dropped and the first row selected.
     pub fn back(&mut self, cx: &mut Context<Self>) {
-        if let Some(apply) = self.apply.take()
-            && apply.target == Target::New
-        {
-            self.form = None;
-            self.select_default();
+        match &mut self.rules.editing {
+            Some(RuleEdit::New { .. }) => {
+                self.rules.editing = None;
+                self.select_default();
+            }
+            Some(RuleEdit::Stored { apply, .. }) => *apply = None,
+            None => {}
         }
         cx.notify();
     }
 
     /// "Change these too".
     pub fn set_include(&mut self, include: bool, cx: &mut Context<Self>) {
-        if let Some(apply) = self.apply.as_mut() {
+        if let Some(apply) = self.rules.editing.as_mut().and_then(RuleEdit::apply_mut) {
             apply.include = include;
         }
         cx.notify();
     }
 
-    /// Plans the preview again for the current fields.
+    /// Plans the open preview again for the current fields.
     fn refresh_preview(&mut self) {
-        let Some(apply) = self.apply.as_ref() else {
+        let Some(edit) = &self.rules.editing else {
             return;
         };
-        let target = apply.target;
-        let include = apply.include;
-        let store = match &self.source {
-            Source::Database(store) => store.clone(),
-            Source::None => return,
+        let Some(include) = edit.apply().map(|apply| apply.include) else {
+            return;
         };
+        // With no database there is nothing to preview, and nothing to say.
+        if matches!(self.source, Source::None) {
+            return;
+        }
         let mut next = Apply {
             include,
-            ..Apply::new(target)
+            ..Apply::default()
         };
-        let result = match target {
-            Target::Stored(id) => store.preview_rule(id).map(|(preview, rows)| {
-                next.preview = Some(preview);
-                next.rows = rows;
-            }),
-            Target::New => match self.draft() {
-                Some(draft) => store.preview_draft(&draft).map(|(preview, rows)| {
-                    next.matches = preview.matches;
-                    next.overlaps = preview.overlaps;
-                    next.preview = Some(preview.preview);
+        let result = match edit {
+            RuleEdit::Stored { id, .. } => {
+                let id = *id;
+                self.query(|db| {
+                    let preview = rule::preview_apply(db, id)?;
+                    let rows = rule::preview_rows(db, &preview)?;
+                    Ok::<_, rule::ApplyError>((preview, rows))
+                })
+                .map(|(preview, rows)| {
+                    next.preview = Some(preview);
                     next.rows = rows;
-                }),
+                })
+            }
+            RuleEdit::New { .. } => match edit.draft(&self.data) {
+                Some(draft) => self
+                    .query(|db| {
+                        let preview = rule::preview_draft(db, &draft)?;
+                        let rows = rule::preview_rows(db, &preview.preview)?;
+                        Ok::<_, rule::ApplyError>((preview, rows))
+                    })
+                    .map(|(preview, rows)| {
+                        next.matches = preview.matches;
+                        next.overlaps = preview.overlaps;
+                        next.preview = Some(preview.preview);
+                        next.rows = rows;
+                    }),
                 // Not valid yet: nothing to preview.
                 None => Ok(()),
             },
         };
         if let Err(error) = result {
-            self.outcome = Some(Outcome::Refused(message(error)));
+            self.outcome = Some(Outcome::Refused(error));
         }
-        self.apply = Some(next);
-    }
-
-    /// The new rule as core takes it, once its fields are valid.
-    fn draft(&self) -> Option<Draft> {
-        let form = self.form.as_ref()?;
-        let definition = form.definition(self.data.currency(form.account)).ok()?;
-        Some(Draft {
-            definition,
-            position: self.new_position,
-            origin: self.new_origin,
-        })
+        if let Some(apply) = self.rules.editing.as_mut().and_then(RuleEdit::apply_mut) {
+            *apply = next;
+        }
     }
 
     /// "Create rule and change 4" or "Apply to 4 transactions": applies the
@@ -918,8 +946,25 @@ impl Rules {
     }
 
     fn finish(&mut self, apply_it: bool, cx: &mut Context<Self>) {
-        let Some(apply) = self.apply.clone() else {
+        /// What the preview applies.
+        enum Target {
+            Stored(RuleId),
+            New(Draft),
+        }
+        let Some(edit) = &self.rules.editing else {
             return;
+        };
+        let Some(apply) = edit.apply().cloned() else {
+            return;
+        };
+        let target = match edit {
+            RuleEdit::Stored { id, .. } => Target::Stored(*id),
+            RuleEdit::New { .. } => {
+                let Some(draft) = edit.draft(&self.data) else {
+                    return;
+                };
+                Target::New(draft)
+            }
         };
         let changed_message = |count: usize, category: Option<String>| -> SharedString {
             let rows = text::count(count, "transaction", "transactions");
@@ -929,65 +974,51 @@ impl Rules {
             }
             .into()
         };
-        let category = self
-            .form
-            .as_ref()
-            .and_then(|form| form.action(ActionKind::SetCategory))
-            .and_then(|action| match action {
-                form::ActionForm::Category(Some(key)) => {
-                    self.data.category(key).map(|option| option.label.clone())
-                }
-                _ => None,
-            });
-        let included = apply.included();
-        let result: Result<(Option<RuleId>, Option<coffer_core::rule::Applied>), SharedString> =
-            match apply.target {
-                Target::Stored(id) => {
-                    let Some(preview) = apply.preview.as_ref() else {
-                        return;
-                    };
-                    self.store().and_then(|store| {
-                        store
-                            .apply(preview, &included)
-                            .map(|applied| (Some(id), Some(applied)))
-                            .map_err(message)
-                    })
-                }
-                Target::New => {
-                    let Some(draft) = self.draft() else {
-                        return;
-                    };
-                    let preview = apply.preview.as_ref().filter(|_| apply_it);
-                    self.store().and_then(|store| {
-                        store
-                            .save_draft(&draft, preview.map(|preview| (preview, &included)))
-                            .map(|saved| (Some(saved.rule), saved.applied))
-                            .map_err(message)
-                    })
-                }
-            };
-        match result {
-            Ok((rule, applied)) => {
-                self.apply = None;
-                self.load();
-                self.set_rule(rule);
-                self.outcome = match applied {
-                    Some(applied) if applied.transactions > 0 => Some(Outcome::Done {
-                        message: changed_message(applied.transactions, category),
-                        undo: applied.batch,
-                    }),
+        let category =
+            edit.form()
+                .action(ActionKind::SetCategory)
+                .and_then(|action| match action {
+                    form::ActionForm::Category(Some(key)) => {
+                        self.data.category(key).map(|option| option.label.clone())
+                    }
                     _ => None,
+                });
+        let included = apply.included();
+        let result = match target {
+            Target::Stored(id) => {
+                let Some(preview) = apply.preview.as_ref() else {
+                    return;
                 };
-                if applied.is_some_and(|applied| applied.transactions > 0) {
-                    cx.emit(RulesEvent::Changed);
-                }
+                let policy = Policy::new(Said::Toolbar).tells_shell_when(changed_transactions);
+                self.write(policy, cx, |db| {
+                    rule::commit_apply(db, preview, &included)
+                        .map(|applied| (Some(id), Some(applied)))
+                })
             }
-            Err(message) => self.outcome = Some(Outcome::Refused(message)),
+            Target::New(draft) => {
+                let preview = apply.preview.as_ref().filter(|_| apply_it);
+                let policy = Policy::new(Said::Toolbar).tells_shell_when(changed_transactions);
+                self.write(policy, cx, |db| {
+                    rule::save_draft(db, &draft, preview.map(|preview| (preview, &included)))
+                        .map(|saved| (Some(saved.rule), saved.applied))
+                })
+            }
+        };
+        if let Ok((rule, applied)) = result {
+            self.open_rule(rule);
+            self.outcome = match applied {
+                Some(applied) if applied.transactions > 0 => Some(Outcome::Done {
+                    message: changed_message(applied.transactions, category),
+                    undo: applied.batch,
+                }),
+                _ => None,
+            };
+            cx.notify();
         }
-        cx.notify();
     }
 
-    /// The bar's Undo: undoes the last apply.
+    /// The bar's Undo: undoes the last apply. When it fails, the bar offers
+    /// Undo again with the reason.
     pub fn undo(&mut self, cx: &mut Context<Self>) {
         let Some(Outcome::Done {
             undo: Some(batch), ..
@@ -995,23 +1026,20 @@ impl Rules {
         else {
             return;
         };
-        self.undo_batch(batch, cx);
+        let policy = Policy::new(Said::UndoBar(batch)).tells_shell();
+        let _ = self.write(policy, cx, |db| change::undo(db, batch));
     }
 
-    /// Undoes `batch` (the bar, the undo dialog).
-    pub fn undo_batch(&mut self, batch: ChangeBatchId, cx: &mut Context<Self>) {
-        let result = self
-            .store()
-            .and_then(|store| store.undo(batch).map_err(message));
-        match result {
-            Ok(_) => {
-                self.outcome = None;
-                self.reload(cx);
-                cx.emit(RulesEvent::Changed);
-            }
-            Err(message) => self.outcome = Some(Outcome::Refused(message)),
-        }
-        cx.notify();
+    /// Undoes `batch` for the undo dialog: the error is only returned, for
+    /// the dialog to say.
+    pub fn undo_batch(
+        &mut self,
+        batch: ChangeBatchId,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let policy = Policy::new(Said::Dialog).tells_shell();
+        self.write(policy, cx, |db| change::undo(db, batch))
+            .map(|_| ())
     }
 
     /// What undoing `batch` would do, for the dialog.
@@ -1019,7 +1047,7 @@ impl Rules {
         &self,
         batch: ChangeBatchId,
     ) -> Result<coffer_core::change::UndoSummary, SharedString> {
-        self.store()?.undo_preview(batch).map_err(message)
+        self.query(|db| change::undo_preview(db, batch))
     }
 
     pub fn dismiss_outcome(&mut self, cx: &mut Context<Self>) {
@@ -1029,29 +1057,21 @@ impl Rules {
     }
 
     pub fn request_delete_rule(&mut self, cx: &mut Context<Self>) {
-        if let Some(id) = self.rule {
+        if let Some(id) = self.selected_rule_id() {
             cx.emit(RulesEvent::DeleteRuleRequested(id));
         }
     }
 
-    /// Deletes rule `id` (the dialog). Its transactions keep their values.
+    /// Deletes rule `id` (the dialog) and selects the row after it. Its
+    /// transactions keep their values.
     pub fn delete_rule(&mut self, id: RuleId, cx: &mut Context<Self>) -> Result<(), SharedString> {
-        self.store()?.delete(id).map_err(message)?;
-        let next = self.next_rule_after(id);
-        self.load();
-        self.set_rule(next);
-        self.outcome = None;
+        let order: Vec<RuleId> = self.rules().iter().map(|s| s.rule.id()).collect();
+        let next = row_after(&order, id);
+        let policy = Policy::new(Said::Dialog).tells_shell();
+        self.write(policy, cx, |db| rule::delete(db, id))?;
+        self.open_rule(next);
         cx.notify();
         Ok(())
-    }
-
-    fn next_rule_after(&self, id: RuleId) -> Option<RuleId> {
-        let order: Vec<RuleId> = self.rules().iter().map(|s| s.rule.id()).collect();
-        let at = order.iter().position(|row| *row == id)?;
-        order
-            .get(at + 1)
-            .or_else(|| at.checked_sub(1).and_then(|before| order.get(before)))
-            .copied()
     }
 
     /// "Review in the Inbox".
@@ -1062,43 +1082,45 @@ impl Rules {
     // Merchant names -------------------------------------------------------------
 
     pub fn selected_name(&self) -> Option<NameSelection> {
-        self.name
+        self.names.selection()
     }
 
     pub fn name_form(&self) -> Option<&NameForm> {
-        self.name_form.as_ref()
+        self.names.editing.as_ref().map(NameEdit::form)
     }
 
     pub fn name_error(&self) -> Option<form::NameError> {
-        self.name_form.as_ref()?.definition().err()
+        self.name_form()?.definition().err()
     }
 
-    fn set_name(&mut self, name: Option<NameSelection>) {
-        self.name = name;
-        self.name_form = match name {
-            Some(NameSelection::Stored(id)) => self
-                .data
-                .name(id)
-                .map(|summary| NameForm::of(summary.alias.definition())),
-            Some(NameSelection::New) => Some(NameForm::default()),
+    /// Opens `selection` for editing, or nothing.
+    fn open_name(&mut self, selection: Option<NameSelection>) {
+        self.names.editing = match selection {
+            Some(NameSelection::Stored(id)) => self.data.name(id).map(|summary| NameEdit::Stored {
+                id,
+                form: NameForm::of(summary.alias.definition()),
+            }),
+            Some(NameSelection::New) => Some(NameEdit::New {
+                form: NameForm::default(),
+            }),
             None => None,
         };
     }
 
     pub fn select_name(&mut self, name: Option<NameSelection>, cx: &mut Context<Self>) {
-        if self.name != name && self.section == Section::Names {
+        if self.names.selection() != name && self.section == Section::Names {
             self.save_name(cx);
         }
-        self.section = Section::Names;
-        if self.name != name {
-            self.set_name(name);
+        self.enter(Section::Names);
+        if self.names.selection() != name {
+            self.open_name(name);
         }
         cx.notify();
     }
 
     pub fn toggle_name(&mut self, id: MerchantAliasId, cx: &mut Context<Self>) {
-        let next =
-            (self.name != Some(NameSelection::Stored(id))).then_some(NameSelection::Stored(id));
+        let stored = NameSelection::Stored(id);
+        let next = (self.names.selection() != Some(stored)).then_some(stored);
         self.select_name(next, cx);
     }
 
@@ -1116,10 +1138,10 @@ impl Rules {
         change: impl FnOnce(&mut NameForm),
         cx: &mut Context<Self>,
     ) {
-        let Some(form) = self.name_form.as_mut() else {
+        let Some(edit) = self.names.editing.as_mut() else {
             return;
         };
-        change(form);
+        change(edit.form_mut());
         if save {
             self.save_name(cx);
         }
@@ -1127,14 +1149,16 @@ impl Rules {
     }
 
     fn save_name(&mut self, cx: &mut Context<Self>) {
-        let (Some(selection), Some(form)) = (self.name, self.name_form.as_ref()) else {
+        let Some(edit) = &self.names.editing else {
             return;
         };
-        let Ok(definition) = form.definition() else {
+        let Ok(definition) = edit.form().definition() else {
             return;
         };
-        let result = match selection {
-            NameSelection::Stored(id) => {
+        let policy = Policy::new(Said::Toolbar).tells_shell();
+        let saved = match edit {
+            NameEdit::Stored { id, .. } => {
+                let id = *id;
                 if self
                     .data
                     .name(id)
@@ -1142,91 +1166,90 @@ impl Rules {
                 {
                     return;
                 }
-                self.store()
-                    .and_then(|store| store.edit_name(id, &definition).map_err(message))
-                    .map(|()| id)
+                self.write(policy, cx, |db| {
+                    merchant::edit(db, id, &definition).map(|_| id)
+                })
             }
-            NameSelection::New => self
-                .store()
-                .and_then(|store| store.add_name(&definition).map_err(message)),
+            NameEdit::New { .. } => self.write(policy, cx, |db| {
+                merchant::add(db, &definition).map(|(id, _)| id)
+            }),
         };
-        match result {
-            Ok(id) => {
-                self.outcome = None;
-                self.load();
-                self.name = Some(NameSelection::Stored(id));
-                cx.emit(RulesEvent::Changed);
-            }
-            Err(message) => self.outcome = Some(Outcome::Refused(message)),
+        // A name just created stays open, with the fields as typed.
+        if let Ok(id) = saved {
+            self.names.editing = match self.names.editing.take() {
+                Some(NameEdit::New { form }) => Some(NameEdit::Stored { id, form }),
+                other => other,
+            };
+            cx.notify();
         }
-        cx.notify();
     }
 
     pub fn request_delete_name(&mut self, cx: &mut Context<Self>) {
-        if let Some(NameSelection::Stored(id)) = self.name {
+        if let Some(NameSelection::Stored(id)) = self.names.selection() {
             cx.emit(RulesEvent::DeleteNameRequested(id));
         }
     }
 
-    /// Deletes name `id` (the dialog): its rows show their cleaned text
-    /// again, or another name.
+    /// Deletes name `id` (the dialog) and selects the row after it: its
+    /// rows show their cleaned text again, or another name.
     pub fn delete_name(
         &mut self,
         id: MerchantAliasId,
         cx: &mut Context<Self>,
     ) -> Result<(), SharedString> {
-        self.store()?.delete_name(id).map_err(message)?;
-        self.load();
-        self.set_name(None);
-        self.select_default();
-        cx.emit(RulesEvent::Changed);
+        let order: Vec<MerchantAliasId> = self.names().iter().map(|n| n.alias.id()).collect();
+        let next = row_after(&order, id);
+        let policy = Policy::new(Said::Dialog).tells_shell();
+        self.write(policy, cx, |db| merchant::delete(db, id))?;
+        self.open_name(next.map(NameSelection::Stored));
         cx.notify();
         Ok(())
     }
 
     // Change history ---------------------------------------------------------------
 
-    pub fn selected_batch(&self) -> Option<&coffer_core::change::HistoryEntry> {
-        self.data.entry(self.batch?)
+    pub fn selected_batch(&self) -> Option<&HistoryEntry> {
+        self.data.entry(self.history.selected_id()?)
     }
 
     pub fn batch_items(&self) -> &[HistoryItem] {
-        &self.batch_items
+        self.history
+            .selected
+            .as_ref()
+            .map_or(&[], |(_, items)| items)
     }
 
-    fn load_items(&mut self, batch: ChangeBatchId) {
-        self.batch_items = match self.store() {
-            Ok(store) => store.history_items(batch).unwrap_or_else(|error| {
+    fn load_items(&self, batch: ChangeBatchId) -> Vec<HistoryItem> {
+        if matches!(self.source, Source::None) {
+            return Vec::new();
+        }
+        self.query(|db| change::history_items(db, batch))
+            .unwrap_or_else(|error| {
                 tracing::warn!(%error, "couldn't read a change's items");
                 Vec::new()
-            }),
-            Err(_) => Vec::new(),
-        };
+            })
     }
 
-    fn set_batch(&mut self, batch: Option<ChangeBatchId>) {
-        self.batch = batch;
-        match batch {
-            Some(batch) => self.load_items(batch),
-            None => self.batch_items.clear(),
-        }
+    /// Opens `batch` with its items, or nothing.
+    fn open_batch(&mut self, batch: Option<ChangeBatchId>) {
+        self.history.selected = batch.map(|batch| (batch, self.load_items(batch)));
     }
 
     pub fn select_batch(&mut self, batch: Option<ChangeBatchId>, cx: &mut Context<Self>) {
-        self.section = Section::History;
-        if self.batch != batch {
-            self.set_batch(batch);
+        self.enter(Section::History);
+        if self.history.selected_id() != batch {
+            self.open_batch(batch);
         }
         cx.notify();
     }
 
     pub fn toggle_batch(&mut self, batch: ChangeBatchId, cx: &mut Context<Self>) {
-        let next = (self.batch != Some(batch)).then_some(batch);
+        let next = (self.history.selected_id() != Some(batch)).then_some(batch);
         self.select_batch(next, cx);
     }
 
     pub fn request_undo(&mut self, cx: &mut Context<Self>) {
-        if let Some(batch) = self.batch {
+        if let Some(batch) = self.history.selected_id() {
             cx.emit(RulesEvent::UndoRequested(batch));
         }
     }
@@ -1234,36 +1257,33 @@ impl Rules {
     // Categories -------------------------------------------------------------------
 
     pub fn selected_category(&self) -> Option<CategorySelection> {
-        self.category
+        self.categories.selection()
     }
 
     /// The selected stored category and its group (its own, for a group).
     pub fn selected_category_entry(&self) -> Option<(&CategorySummary, &GroupOverview)> {
-        match self.category? {
+        match self.categories.selection()? {
             CategorySelection::Stored(id) => self.data.category_entry(id),
             CategorySelection::New => None,
         }
     }
 
     pub fn category_form(&self) -> Option<&CategoryForm> {
-        self.category_form.as_ref()
+        self.categories.editing.as_ref().map(CategoryEdit::form)
     }
 
     /// The categories beside the selected one, or beside where the new one
     /// goes: row ID and label.
     fn category_siblings(&self) -> Vec<(i64, &str)> {
-        let parent = match self.category {
-            Some(CategorySelection::Stored(id)) => match self.data.category_entry(id) {
+        let parent = match &self.categories.editing {
+            Some(CategoryEdit::Stored { id, .. }) => match self.data.category_entry(*id) {
                 Some((summary, group)) if !summary.category.is_group() => {
                     Some(group.group.category.key().clone())
                 }
                 Some(_) => None,
                 None => return Vec::new(),
             },
-            Some(CategorySelection::New) => self
-                .category_form
-                .as_ref()
-                .and_then(|form| form.group.clone()),
+            Some(CategoryEdit::New { form }) => form.group.clone(),
             None => return Vec::new(),
         };
         let summaries: Vec<&CategorySummary> = match parent {
@@ -1287,22 +1307,28 @@ impl Rules {
 
     /// Why the category's name can't be saved, if it can't.
     pub fn category_error(&self) -> Option<CategoryError> {
-        let form = self.category_form.as_ref()?;
-        let except = match self.category? {
-            CategorySelection::Stored(id) => Some(id),
-            CategorySelection::New => None,
+        let edit = self.categories.editing.as_ref()?;
+        let except = match edit {
+            CategoryEdit::Stored { id, .. } => Some(*id),
+            CategoryEdit::New { .. } => None,
         };
-        form.label(self.category_siblings(), except).err()
+        edit.form().label(self.category_siblings(), except).err()
     }
 
-    fn set_category(&mut self, selection: Option<CategorySelection>) {
-        self.category = selection;
-        self.category_form = match selection {
-            Some(CategorySelection::Stored(id)) => self
-                .data
-                .category_entry(id)
-                .map(|(summary, _)| CategoryForm::of(&summary.category)),
-            Some(CategorySelection::New) => Some(CategoryForm::default()),
+    /// Opens `selection` for editing, or nothing.
+    fn open_category(&mut self, selection: Option<CategorySelection>) {
+        self.categories.editing = match selection {
+            Some(CategorySelection::Stored(id)) => {
+                self.data
+                    .category_entry(id)
+                    .map(|(summary, _)| CategoryEdit::Stored {
+                        id,
+                        form: CategoryForm::of(&summary.category),
+                    })
+            }
+            Some(CategorySelection::New) => Some(CategoryEdit::New {
+                form: CategoryForm::default(),
+            }),
             None => None,
         };
     }
@@ -1314,19 +1340,19 @@ impl Rules {
     ) {
         // A rename typed before another row is chosen is kept, as leaving
         // the field would: the field's blur arrives after the selection.
-        if self.category != selection && self.section == Section::Categories {
+        if self.categories.selection() != selection && self.section == Section::Categories {
             self.save_category_name(cx);
         }
-        self.section = Section::Categories;
-        if self.category != selection {
-            self.set_category(selection);
+        self.enter(Section::Categories);
+        if self.categories.selection() != selection {
+            self.open_category(selection);
         }
         cx.notify();
     }
 
     pub fn toggle_category(&mut self, id: i64, cx: &mut Context<Self>) {
         let stored = CategorySelection::Stored(id);
-        let next = (self.category != Some(stored)).then_some(stored);
+        let next = (self.categories.selection() != Some(stored)).then_some(stored);
         self.select_category(next, cx);
     }
 
@@ -1345,10 +1371,10 @@ impl Rules {
         change: impl FnOnce(&mut CategoryForm),
         cx: &mut Context<Self>,
     ) {
-        let Some(form) = self.category_form.as_mut() else {
+        let Some(edit) = self.categories.editing.as_mut() else {
             return;
         };
-        change(form);
+        change(edit.form_mut());
         if save {
             self.save_category_name(cx);
         }
@@ -1363,7 +1389,7 @@ impl Rules {
         };
         let (id, key) = (summary.category.id(), summary.category.key().clone());
         let stored = summary.category.label().to_owned();
-        let Some(form) = self.category_form.as_ref() else {
+        let Some(form) = self.category_form() else {
             return;
         };
         let Ok(label) = form.label(self.category_siblings(), Some(id)) else {
@@ -1372,34 +1398,25 @@ impl Rules {
         if label == stored {
             return;
         }
-        let result = self
-            .store()
-            .and_then(|store| store.rename_category(&key, &label).map_err(message));
-        self.after_category_change(result, cx);
+        let policy = Policy::new(Said::Toolbar).tells_shell();
+        let _ = self.write(policy, cx, |db| category::rename(db, &key, &label));
     }
 
     /// "Create category": adds the new category and selects it.
     pub fn create_category(&mut self, cx: &mut Context<Self>) {
-        let Some(form) = self.category_form.clone() else {
+        let Some(CategoryEdit::New { form }) = &self.categories.editing else {
             return;
         };
-        if self.category != Some(CategorySelection::New) || self.category_error().is_some() {
+        if self.category_error().is_some() {
             return;
         }
-        let result = self
-            .store()
-            .and_then(|store| store.add_category(&form.new_category()).map_err(message));
-        match result {
-            Ok(category) => {
-                self.outcome = None;
-                self.load();
-                self.category_filter = None;
-                self.set_category(Some(CategorySelection::Stored(category.id())));
-                cx.emit(RulesEvent::Changed);
-            }
-            Err(message) => self.outcome = Some(Outcome::Refused(message)),
+        let new = form.new_category();
+        let policy = Policy::new(Said::Toolbar).tells_shell();
+        if let Ok(category) = self.write(policy, cx, |db| category::add(db, &new)) {
+            self.categories.filter = None;
+            self.open_category(Some(CategorySelection::Stored(category.id())));
+            cx.notify();
         }
-        cx.notify();
     }
 
     /// Hides the selected category from pickers, or shows it again.
@@ -1408,24 +1425,8 @@ impl Rules {
             return;
         };
         let key = summary.category.key().clone();
-        let result = self
-            .store()
-            .and_then(|store| store.set_category_hidden(&key, hidden).map_err(message));
-        self.after_category_change(result, cx);
-    }
-
-    fn after_category_change(&mut self, result: Result<(), SharedString>, cx: &mut Context<Self>) {
-        match result {
-            Ok(()) => {
-                self.outcome = None;
-                self.load();
-                let selection = self.category;
-                self.set_category(selection);
-                cx.emit(RulesEvent::Changed);
-            }
-            Err(message) => self.outcome = Some(Outcome::Refused(message)),
-        }
-        cx.notify();
+        let policy = Policy::new(Said::Toolbar).tells_shell();
+        let _ = self.write(policy, cx, |db| category::set_hidden(db, &key, hidden));
     }
 
     /// Deletes category `id` (the dialog) and selects the row after it.
@@ -1435,22 +1436,50 @@ impl Rules {
             .category_entry(id)
             .map(|(summary, _)| summary.category.key().clone())
             .ok_or_else(|| SharedString::from("The category is gone."))?;
-        self.store()?.delete_category(&key).map_err(message)?;
         let order: Vec<i64> = self
             .category_rows()
             .iter()
             .map(|row| row.summary.category.id())
             .collect();
-        let next = step_in(&order, Some(id), 1)
-            .filter(|next| *next != id)
-            .or_else(|| step_in(&order, Some(id), -1).filter(|before| *before != id));
-        self.load();
-        self.set_category(next.map(CategorySelection::Stored));
-        self.outcome = None;
-        cx.emit(RulesEvent::Changed);
+        let next = row_after(&order, id);
+        let policy = Policy::new(Said::Dialog).tells_shell();
+        self.write(policy, cx, |db| category::delete(db, &key))?;
+        self.open_category(next.map(CategorySelection::Stored));
         cx.notify();
         Ok(())
     }
+}
+
+/// Whether `summary`'s rule has an action of `kind`.
+fn has_action(summary: &RuleSummary, kind: ActionKind) -> bool {
+    summary.rule.definition().action(kind).is_some()
+}
+
+/// Whether `name` matches as `kind`.
+fn is_match(name: &AliasSummary, kind: AliasKind) -> bool {
+    name.alias.definition().kind() == kind
+}
+
+/// Whether `entry` is a change of `kind`.
+fn is_kind(entry: &HistoryEntry, kind: ChangeKind) -> bool {
+    entry.batch.kind == kind
+}
+
+/// Whether an apply or a save with an apply changed any transaction.
+fn changed_transactions(done: &(Option<RuleId>, Option<rule::Applied>)) -> bool {
+    done.1
+        .as_ref()
+        .is_some_and(|applied| applied.transactions > 0)
+}
+
+/// The row after `id` in `order`, else the row before it, else nothing: what
+/// is selected once `id` is deleted, in every section.
+fn row_after<T: Copy + PartialEq>(order: &[T], id: T) -> Option<T> {
+    let at = order.iter().position(|row| *row == id)?;
+    order
+        .get(at + 1)
+        .or_else(|| at.checked_sub(1).and_then(|before| order.get(before)))
+        .copied()
 }
 
 /// The item `step` rows from `current` in `order`, stopping at the ends;
@@ -1468,4 +1497,8 @@ fn step_in<T: Copy + PartialEq>(order: &[T], current: Option<T>, step: isize) ->
 }
 
 #[cfg(test)]
+mod state_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_tests;

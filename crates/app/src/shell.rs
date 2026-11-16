@@ -708,7 +708,8 @@ impl ShellView {
                     inbox.select(Some(id), cx);
                 });
             }
-            // An apply, an undo or a name changed what the other views read.
+            // An apply, an undo, a deleted rule, a name or a category changed
+            // what the other views read.
             RulesEvent::Changed => {
                 self.transactions
                     .update(cx, |transactions, cx| transactions.reload(cx));

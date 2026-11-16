@@ -17,14 +17,14 @@ use crate::inbox::Inbox;
 use crate::shell::{ShellView, View};
 use crate::transactions::{self, store::TransactionStore};
 
-struct Scratch {
+pub(super) struct Scratch {
     _dir: TempDir,
-    path: std::path::PathBuf,
-    seeded: fixture::Seeded,
+    pub(super) path: std::path::PathBuf,
+    pub(super) seeded: fixture::Seeded,
 }
 
 impl Scratch {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("coffer.db");
         let mut db = Database::open(&path).unwrap();
@@ -36,7 +36,7 @@ impl Scratch {
         }
     }
 
-    fn db(&self) -> Database {
+    pub(super) fn db(&self) -> Database {
         Database::open(&self.path).unwrap()
     }
 
@@ -64,7 +64,7 @@ impl Scratch {
     }
 }
 
-fn open<'a>(
+pub(super) fn open<'a>(
     cx: &'a mut TestAppContext,
     scratch: &Scratch,
 ) -> (Entity<ShellView>, Entity<Rules>, &'a mut VisualTestContext) {
@@ -97,7 +97,7 @@ fn open<'a>(
     (shell, rules, cx)
 }
 
-fn redraw(cx: &mut VisualTestContext) {
+pub(super) fn redraw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
 }
