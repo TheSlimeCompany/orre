@@ -9,8 +9,11 @@
 //!   `category_source = 'ai_approved'`, even over a category the user set
 //!   (approving an explicit item is the user's choice; the impact preview
 //!   counts those rows). A target already in that category is left as it
-//!   is, whoever set it. A split line's category is set by writing its
-//!   transaction's lines back with that line changed (one write per
+//!   is, whoever set it. A transaction that takes no category of its own
+//!   now (a leg of a confirmed transfer, a linked refund's money in;
+//!   [`crate::category::assign`]) is skipped, and the rest are set; the
+//!   impact preview counts them. A split line's category is set by writing
+//!   its transaction's lines back with that line changed (one write per
 //!   transaction), which gives the lines new IDs.
 //! - `rule`: the rule store, first in the list (decision record "rules",
 //!   point 2), plus `rule::commit_apply` to history only when asked
@@ -56,6 +59,7 @@ use super::{
     Error, Invalid, MAX_REASON_CHARS, Payload, SuggestionId, SuggestionKind, SuggestionStatus,
     get_in,
 };
+use crate::category::assign::{self, NoOwnCategory};
 use crate::change::{self, CategorySource, CategoryValue, ChangeKind, Field, Recorder, Value};
 use crate::db::Database;
 use crate::id::{
@@ -65,7 +69,6 @@ use crate::link::{self, LinkTarget, NewLink};
 use crate::merchant;
 use crate::money::Money;
 use crate::rule::{self, ApplyError, StoreError};
-use crate::split;
 use crate::transfer::{self, TransferStatus};
 
 #[cfg(test)]
@@ -428,6 +431,10 @@ pub(super) struct CategorizationPlan {
     /// Targets gone since (deleted, undone, a line split again), a
     /// transaction split since, or a category gone.
     pub missing: usize,
+    /// Transactions that take no category of their own now: a leg of a
+    /// confirmed transfer or a linked refund's money in
+    /// ([`crate::category::assign`]). Left as they are.
+    pub skipped: usize,
 }
 
 /// Plans `items` against today's data. Reads only.
@@ -467,9 +474,19 @@ pub(super) fn plan_categorization(
                     }
                     Err(error) => return Err(error.into()),
                 };
-                if split::is_split(conn, transaction)? {
-                    plan.missing += 1;
-                    continue;
+                // The user's edit refuses these rows; an approval leaves
+                // them out and sets the rest. A split row counts as gone,
+                // as it always has (`Payload::check` refuses it first).
+                match assign::no_own_category_in(conn, transaction)? {
+                    Some(NoOwnCategory::Split) => {
+                        plan.missing += 1;
+                        continue;
+                    }
+                    Some(NoOwnCategory::Transfer | NoOwnCategory::Refund) => {
+                        plan.skipped += 1;
+                        continue;
+                    }
+                    None => {}
                 }
                 if now.category_id == Some(category) {
                     // Already there: it keeps who set it.

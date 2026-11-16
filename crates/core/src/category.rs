@@ -17,7 +17,12 @@
 //! [`set_hidden`] and [`delete`], and reads [`overview`]: each category with
 //! what uses it. A hidden category (`V18__category_hidden.sql`) stays in the tree
 //! and in reports; [`CategoryTree::visible`] leaves it out for pickers.
+//!
+//! [`assign`] says whether a transaction takes a category of its own: not
+//! when it is split, a leg of a confirmed transfer or a linked refund's
+//! money in.
 
+pub mod assign;
 mod defaults;
 mod edit;
 

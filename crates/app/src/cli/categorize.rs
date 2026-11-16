@@ -10,8 +10,9 @@
 //!
 //! Every ID and the category key are checked before anything is written:
 //! an unknown transaction or category, an ID named twice, or a row that
-//! can't take a category (a split row) writes nothing. Output is IDs and
-//! category keys only: no transaction text.
+//! takes no category of its own (split, a leg of a confirmed transfer, a
+//! linked refund's money in: core's `category::assign`) writes nothing.
+//! Output is IDs and category keys only: no transaction text.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;

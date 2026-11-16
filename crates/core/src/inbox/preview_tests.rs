@@ -320,6 +320,45 @@ fn a_categorisation_lists_its_items_and_the_rule_that_covers_it() {
 }
 
 #[test]
+fn a_categorisation_lists_what_approving_skips_as_unchanged() {
+    let mut f = Fixture::new();
+    let coffee = f.row(day(1), -350, "Coffee", None);
+    let out = f.row(day(2), -5000, "To savings", None);
+    let into = f.row_on(f.savings, day(2), 5000, "From current", None);
+    f.transfer(out, into, true);
+    let purchase = f.row(day(3), -6800, "Shop", Some("shopping"));
+    let refund = f.row(day(4), 3400, "Shop", None);
+    f.refund(refund, purchase, 3400, true);
+    let id = f.file(
+        SuggestionKind::Categorization,
+        json!({"items": [
+            {"transaction_id": coffee.get(), "category": "food.eating_out"},
+            {"transaction_id": out.get(), "category": "food.eating_out"},
+            {"transaction_id": refund.get(), "category": "food.eating_out"},
+        ]}),
+    );
+
+    let p = checked(&f, id);
+    assert_eq!(p.matches, 3);
+    let afters: Vec<String> = p.lines.iter().map(|line| label(&line.after)).collect();
+    assert_eq!(afters, ["Eating out", "Unchanged", "Unchanged"]);
+    // Only the row that changes moves spending: out of uncategorised, into
+    // Eating out.
+    let spending: Vec<i64> = p.spending.iter().map(|c| c.change.minor()).collect();
+    assert_eq!(spending, vec![-350, 350]);
+    let Detail::Categorization(impact) = &p.impact.detail else {
+        panic!("expected a categorisation");
+    };
+    assert_eq!((impact.changes, impact.skipped, impact.missing), (1, 2, 0));
+    assert_eq!(p.impact.blocked, None);
+    assert_eq!(
+        p.impact.to_string(),
+        "sets the category of 1 target; 2 are skipped, as a confirmed transfer or a linked \
+         refund takes no category of its own"
+    );
+}
+
+#[test]
 fn a_transfer_leaves_income_and_spending() {
     let mut f = Fixture::new();
     let out = f.row_on(f.savings, day(4), -25_000, "To current", None);

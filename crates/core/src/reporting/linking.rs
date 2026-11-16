@@ -82,22 +82,18 @@ pub fn counts_as(register: &Register, row: &RegisterRow) -> Counts {
         }
         return Counts::Plain;
     }
+    if row.category_follows_purchase() {
+        let category = register
+            .refund_purchase(row)
+            .and_then(|purchase| match purchase.category {
+                RowCategory::Category(category) => Some(category),
+                _ => None,
+            });
+        return Counts::Refund { category };
+    }
     let links: Vec<&RowLink> = confirmed(row)
         .filter(|link| link.side == LinkSide::Inflow)
         .collect();
-    if let Some(refund) = links.iter().find(|link| link.kind == LinkKind::Refund) {
-        let category =
-            match &refund.other {
-                LinkOther::Transaction(id) => register.row(*id).and_then(|purchase| match purchase
-                    .category
-                {
-                    RowCategory::Category(category) => Some(category),
-                    _ => None,
-                }),
-                LinkOther::Person(_) => None,
-            };
-        return Counts::Refund { category };
-    }
     let claims = links
         .iter()
         .filter(|link| link.kind == LinkKind::Reimbursement)

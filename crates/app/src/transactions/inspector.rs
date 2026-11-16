@@ -499,10 +499,10 @@ fn single(
     let split = matches!(row.category, RowCategory::Split(_));
     // A split row's categories are its lines', in the split editor.
     // A linked refund's category is its purchase's (M3.11, Paper `FGQ-0`).
-    let following = super::linking::category_follows_purchase(register, row);
+    let following = row.category_follows_purchase();
     let category: Option<AnyElement> = if following {
         None
-    } else if present::can_recategorise(row) {
+    } else if row.takes_category() {
         let value = register
             .row_categories(row)
             .first()
@@ -587,10 +587,10 @@ fn single(
     sections.extend(super::transfer::transfer_section(view, row, cx));
     // Share on money out, Links on everything outside a transfer, between
     // Details and Split (D6.5).
-    if super::links::has_share(row) {
+    if row.takes_share() {
         sections.push(super::links::share_section(view, row, window, cx));
     }
-    if super::links::has_links(row) {
+    if row.takes_links() {
         sections.push(super::links::links_section(view, row, window, cx));
     }
     // Every row that can be split has the section (`DESIGN.md`: "Every
@@ -675,7 +675,7 @@ fn multiple(
         .and_then(|key| key.parse::<i64>().ok())
         .and_then(|id| view.register.category(id))
         .map(|category| (category.label.clone(), present::marker(category.colour)));
-    let editable = selected.iter().any(|row| present::can_recategorise(row));
+    let editable = selected.iter().any(|row| row.takes_category());
     vec![
         header(
             format!("{} transactions", selected.len()),

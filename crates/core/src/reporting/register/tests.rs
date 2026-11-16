@@ -676,3 +676,33 @@ fn rows_say_where_they_came_from_and_why_they_are_excluded() {
     assert_eq!((row.excluded, row.excluded_on), (None, None));
     assert_eq!(row.excluded_note, None);
 }
+
+#[test]
+fn shares_and_links_are_for_rows_outside_a_transfer() {
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current account", Currency::GBP);
+    let savings = ledger.account("Savings", Currency::GBP);
+    let spent = ledger.row(current, "2026-11-02", -1200, Some("shopping"));
+    let earned = ledger.row(current, "2026-11-02", 5000, Some("income"));
+    let nothing = ledger.row(current, "2026-11-02", 0, None);
+    let out = ledger.row(current, "2026-11-03", -25_000, None);
+    let into = ledger.row(savings, "2026-11-03", 25_000, None);
+    ledger.transfer(out, into);
+    let maybe_out = ledger.row(current, "2026-11-04", -700, None);
+    let maybe_in = ledger.row(savings, "2026-11-04", 700, None);
+    ledger.suggested_transfer(maybe_out, maybe_in);
+
+    let register = load(&ledger);
+    let takes = |id| {
+        let row = register.row(id).unwrap();
+        (row.takes_share(), row.takes_links())
+    };
+    // Money out: both; money in: links; nothing moved: neither.
+    assert_eq!(takes(spent), (true, true));
+    assert_eq!(takes(earned), (false, true));
+    assert_eq!(takes(nothing), (false, false));
+    // A pair, confirmed or only suggested: neither.
+    for id in [out, into, maybe_out, maybe_in] {
+        assert_eq!(takes(id), (false, false), "{id}");
+    }
+}

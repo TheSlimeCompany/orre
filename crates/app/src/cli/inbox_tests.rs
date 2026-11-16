@@ -440,6 +440,60 @@ fn show_says_when_approving_would_be_refused() {
 }
 
 #[test]
+fn approving_skips_a_row_that_takes_no_category_of_its_own() {
+    let scratch = Scratch::new();
+    let tesco = scratch.row(-2000, "Tesco");
+    // A confirmed transfer to savings.
+    let savings = account::create(
+        &mut scratch.db(),
+        &NewAccount::new("Savings", AccountKind::Savings, Currency::GBP),
+    )
+    .unwrap();
+    let out = scratch.row(-5000, "To savings");
+    let into = manual::create(
+        &mut scratch.db(),
+        &ManualTransaction::new(savings, day(1), Money::new(5000, Currency::GBP), "In"),
+    )
+    .unwrap();
+    let pair = scratch.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": into.get()}),
+    );
+    scratch.ok(&["inbox", "approve", &pair.to_string()]);
+    let id = scratch.file(
+        SuggestionKind::Categorization,
+        json!({"items": [
+            {"transaction_id": tesco.get(), "category": "food.groceries"},
+            {"transaction_id": out.get(), "category": "food.groceries"},
+        ]}),
+    );
+
+    let out_text = scratch.ok(&["inbox", "show", &id.to_string()]);
+    assert!(
+        out_text.contains(
+            "Approving it now: sets the category of 1 target; 1 is skipped, as a confirmed \
+             transfer or a linked refund takes no category of its own.\n"
+        ),
+        "{out_text}"
+    );
+
+    let approved = scratch.ok(&["inbox", "approve", &id.to_string()]);
+    assert!(
+        approved.starts_with(&format!(
+            "Approved suggestion {id} (categorization): set the category of 1 transaction \
+             (change batch "
+        )),
+        "{approved}"
+    );
+    assert_eq!(
+        scratch.category(tesco),
+        Some(CategoryKey::new("food.groceries").unwrap())
+    );
+    assert_eq!(scratch.category(out), None);
+    assert_eq!(scratch.status(id), SuggestionStatus::Approved);
+}
+
+#[test]
 fn show_prints_a_decision() {
     let scratch = Scratch::new();
     let tesco = scratch.row(-2000, "Tesco");

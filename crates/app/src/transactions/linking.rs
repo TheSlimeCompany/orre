@@ -37,7 +37,7 @@ pub fn cell(register: &Register, row: &RegisterRow) -> CategoryCell {
     match linking::counts_as(register, row) {
         Counts::Plain => base,
         Counts::Refund { .. } => {
-            let purchase = refund_purchase(register, row);
+            let purchase = register.refund_purchase(row);
             purchase
                 .map_or(base, |purchase| present::cell(register, purchase))
                 .suffix("refund")
@@ -51,24 +51,6 @@ pub fn cell(register: &Register, row: &RegisterRow) -> CategoryCell {
         Counts::RepaysPerson(person) => CategoryCell::repays(format!("Repays {}", name(&person))),
         Counts::RepaysPeople(count) => CategoryCell::repays(format!("Repays {count} people")),
     }
-}
-
-/// The purchase a refund's first confirmed refund link pays back.
-pub fn refund_purchase<'a>(register: &'a Register, row: &RegisterRow) -> Option<&'a RegisterRow> {
-    row.links
-        .iter()
-        .filter(|link| link.side == LinkSide::Inflow && link.kind == LinkKind::Refund)
-        .filter(|link| link.status == coffer_core::link::LinkStatus::Confirmed)
-        .find_map(|link| match link.other {
-            LinkOther::Transaction(id) => register.row(id),
-            LinkOther::Person(_) => None,
-        })
-}
-
-/// Whether the row's category is set by a linked purchase (Paper
-/// `FGQ-0`): read-only until it's unlinked.
-pub fn category_follows_purchase(register: &Register, row: &RegisterRow) -> bool {
-    matches!(linking::counts_as(register, row), Counts::Refund { .. })
 }
 
 /// One row of the Links section: what the link is, its date, its amount.

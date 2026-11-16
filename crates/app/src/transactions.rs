@@ -73,7 +73,9 @@ use coffer_core::import::{self, UndoPreview};
 use coffer_core::inbox::own;
 use coffer_core::manual::{self, ManualTransaction};
 use coffer_core::note::UserNote;
-use coffer_core::reporting::register::{DatePreset, Filter, Listing, Register, Sort, SortColumn};
+use coffer_core::reporting::register::{
+    DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
+};
 use coffer_core::transfer as core_transfer;
 use gpui_kit::base::actions::{Cancel, SelectDown, SelectFirst, SelectLast, SelectUp};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -519,7 +521,7 @@ impl TransactionsView {
     }
 
     /// The selected rows, in display order.
-    pub fn selected(&self) -> Vec<&coffer_core::reporting::register::RegisterRow> {
+    pub fn selected(&self) -> Vec<&RegisterRow> {
         self.selection
             .in_order(&self.order)
             .filter_map(|id| self.register.row(id))
@@ -1151,7 +1153,7 @@ impl TransactionsView {
             .filter(|id| {
                 self.register
                     .row(*id)
-                    .is_some_and(present::can_recategorise)
+                    .is_some_and(RegisterRow::takes_category)
             })
             .map(|id| (id, key.clone()))
             .collect();
@@ -1346,7 +1348,7 @@ impl TransactionsView {
         if self
             .register
             .row(id)
-            .is_some_and(|row| present::can_recategorise(row) && row.excluded.is_none())
+            .is_some_and(|row| row.takes_category() && row.excluded.is_none())
         {
             self.open(Menu::Row(id), window, cx);
         }
@@ -1417,7 +1419,7 @@ impl TransactionsView {
             && window.last_input_was_keyboard();
         // An excluded row's category cell says why; its category is set
         // in the inspector.
-        let editable = present::can_recategorise(row) && row.excluded.is_none();
+        let editable = row.takes_category() && row.excluded.is_none();
         let cell = match row.excluded {
             Some(reason) => CategoryCell::excluded(source::reason_label(reason)),
             None => linking::cell(&self.register, row),

@@ -47,6 +47,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{COFFER_SOURCE, Error, Payload, SuggestionKind, file_in};
 use crate::category::CategoryKey;
+use crate::category::assign::{self, NoOwnCategory};
 use crate::change::{self, CategorySource, CategoryValue, Change, ChangeKind, Recorder, Value};
 use crate::db::Database;
 use crate::id::{ChangeBatchId, TransactionId};
@@ -67,6 +68,13 @@ pub enum RecategorizeError {
     #[error("there is no category {0}")]
     UnknownCategory(CategoryKey),
 
+    /// The row takes no category of its own ([`crate::category::assign`]).
+    #[error("transaction {transaction} can't take a category: {why}")]
+    NoOwnCategory {
+        transaction: TransactionId,
+        why: NoOwnCategory,
+    },
+
     #[error(transparent)]
     Change(#[from] change::Error),
 
@@ -80,8 +88,11 @@ pub enum RecategorizeError {
 /// may file a `rule` suggestion in the same transaction (module docs).
 ///
 /// A row that already has the category from a rule or a preset takes it as
-/// the user's. Refuses an unknown category, and any change the row can't
-/// take (a split row: categorise its lines); then nothing is written.
+/// the user's. Refuses an unknown category, a row that takes no category of
+/// its own ([`RecategorizeError::NoOwnCategory`]: split, a leg of a
+/// confirmed transfer, a linked refund's money in; [`assign`]), even when
+/// it already has that category, and any other change the row can't take;
+/// then nothing is written.
 pub fn recategorize(
     db: &mut Database,
     items: &[(TransactionId, CategoryKey)],
@@ -99,6 +110,12 @@ pub fn recategorize(
             )
             .optional()?
             .ok_or_else(|| RecategorizeError::UnknownCategory(key.clone()))?;
+        if let Some(why) = assign::no_own_category_in(&tx, *transaction)? {
+            return Err(RecategorizeError::NoOwnCategory {
+                transaction: *transaction,
+                why,
+            });
+        }
         recorder.set(
             &tx,
             *transaction,

@@ -30,6 +30,11 @@
 //!   added it) and, when excluded, the user's details and the day. Days
 //!   are local, read from the stored UTC times through SQLite's
 //!   `localtime`, as [`crate::schedule::local_today`] reads today.
+//! - **What a row takes**: a category of its own
+//!   ([`RegisterRow::takes_category`], core's one rule,
+//!   [`crate::category::assign`], read from the row), a share
+//!   ([`RegisterRow::takes_share`]) and links ([`RegisterRow::takes_links`]),
+//!   so the app offers an edit only where core takes it.
 //!
 //! Text search matches the display merchant, the bank's merchant and the
 //! raw description, ignoring case. That text is the user's own data and
@@ -43,6 +48,7 @@ use chrono::{Datelike as _, Months, NaiveDate, NaiveTime};
 use rusqlite::Connection;
 
 use crate::account::{self, AccountKind};
+use crate::category::assign::{CategoryFacts, NoOwnCategory};
 use crate::category::{CategoryKey, CategoryKind, CategoryTree};
 use crate::db::Reader;
 use crate::exclusion::ExclusionReason;
@@ -318,6 +324,62 @@ impl RegisterRow {
     /// Whether it counts in the day's net: not a transfer, not excluded.
     pub fn counts_in_net(&self) -> bool {
         !self.is_transfer() && self.excluded.is_none()
+    }
+
+    /// The confirmed refund this row is the money in of (the oldest, if
+    /// there were ever more than one): its purchase sets how it counts.
+    pub fn confirmed_refund(&self) -> Option<&RowLink> {
+        self.links.iter().find(|link| {
+            link.side == LinkSide::Inflow
+                && link.kind == LinkKind::Refund
+                && link.status == LinkStatus::Confirmed
+        })
+    }
+
+    /// Whether its category is its linked purchase's (M3.11): the money in
+    /// of a confirmed refund, read-only until it's unlinked.
+    pub fn category_follows_purchase(&self) -> bool {
+        self.confirmed_refund().is_some()
+    }
+
+    /// What decides whether it takes a category of its own, read from the
+    /// row as the database's rule reads it from the tables
+    /// ([`crate::category::assign`]).
+    pub fn category_facts(&self) -> CategoryFacts {
+        CategoryFacts {
+            split: matches!(self.category, RowCategory::Split(_)),
+            confirmed_transfer: self.is_transfer(),
+            confirmed_refund_in: self.category_follows_purchase(),
+        }
+    }
+
+    /// Why it takes no category of its own, if it doesn't: split, a leg of
+    /// a confirmed transfer, or a linked refund's money in. Core's writes
+    /// refuse (`inbox::own::recategorize`) or skip (an approved
+    /// categorisation) the same rows.
+    pub fn no_own_category(&self) -> Option<NoOwnCategory> {
+        self.category_facts().no_own_category()
+    }
+
+    /// Whether its category can be set as a whole (module docs of
+    /// [`crate::category::assign`]).
+    pub fn takes_category(&self) -> bool {
+        self.no_own_category().is_none()
+    }
+
+    /// Whether it can be shared or claimed back (the inspector's Share
+    /// section, M3.11): money out outside a suggested or confirmed
+    /// transfer.
+    pub fn takes_share(&self) -> bool {
+        self.amount.is_negative() && !self.in_transfer
+    }
+
+    /// Whether it can take links (the inspector's Links section, M3.11):
+    /// money in or out, outside a suggested or confirmed transfer. Wider
+    /// than what the link dialog offers ([`super::linking::kinds_from`]):
+    /// the section also lists the links a row already has.
+    pub fn takes_links(&self) -> bool {
+        !self.in_transfer && !self.amount.is_zero()
     }
 }
 
@@ -613,6 +675,15 @@ impl Register {
                 .iter()
                 .filter_map(|part| part.category.and_then(|id| self.category(id)))
                 .collect(),
+        }
+    }
+
+    /// The purchase `row`'s category follows: the other side of its
+    /// [`RegisterRow::confirmed_refund`], when the register has it.
+    pub fn refund_purchase(&self, row: &RegisterRow) -> Option<&RegisterRow> {
+        match row.confirmed_refund()?.other {
+            LinkOther::Transaction(id) => self.row(id),
+            LinkOther::Person(_) => None,
         }
     }
 

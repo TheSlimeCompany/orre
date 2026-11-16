@@ -556,7 +556,7 @@ fn write_approved(out: &mut dyn Write, approved: &Approved) -> std::io::Result<(
         )?,
         Applied::Categorized { batch: None, .. } => writeln!(
             out,
-            "nothing needed changing: every target already had that category."
+            "nothing needed changing: every target already had that category or takes none of its own."
         )?,
         Applied::Rule { rule, history } => {
             write!(out, "stored as rule {rule}, first in the rule list")?;

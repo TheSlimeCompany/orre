@@ -110,6 +110,10 @@ pub struct CategorizationImpact {
     /// Targets gone since (deleted, undone, split again) or a category
     /// gone: approving is refused while there are any.
     pub missing: usize,
+    /// Transactions that take no category of their own now (a leg of a
+    /// confirmed transfer, a linked refund's money in;
+    /// [`crate::category::assign`]): approving skips them.
+    pub skipped: usize,
 }
 
 /// What a rule would do.
@@ -225,6 +229,7 @@ fn categorization(
         user_set: plan.user_set,
         unchanged: plan.unchanged,
         missing: plan.missing,
+        skipped: plan.skipped,
     })
 }
 
@@ -414,6 +419,15 @@ impl fmt::Display for Impact {
                         "; {} {} gone",
                         c.missing,
                         if c.missing == 1 { "is" } else { "are" }
+                    )?;
+                }
+                if c.skipped > 0 {
+                    write!(
+                        f,
+                        "; {} {} skipped, as a confirmed transfer or a linked refund \
+                         takes no category of its own",
+                        c.skipped,
+                        if c.skipped == 1 { "is" } else { "are" }
                     )?;
                 }
             }

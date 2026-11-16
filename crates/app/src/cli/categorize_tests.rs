@@ -10,8 +10,12 @@ use coffer_core::change;
 use coffer_core::db::Database;
 use coffer_core::id::{AccountId, TransactionId};
 use coffer_core::inbox::own::RULE_SUGGESTION_THRESHOLD;
-use coffer_core::inbox::{self, COFFER_SOURCE, Filter, SuggestionKind, SuggestionStatus};
+use coffer_core::inbox::{
+    self, ApproveOptions, COFFER_SOURCE, Filter, NewSuggestion, SuggestionKind, SuggestionStatus,
+};
+use coffer_core::link::{self, LinkKind, LinkTarget, NewLink};
 use coffer_core::manual::{self, ManualTransaction};
+use coffer_core::mcp_client::ClientName;
 use coffer_core::money::{Currency, Money};
 use coffer_core::split::{self, SplitLine};
 use tempfile::TempDir;
@@ -227,6 +231,13 @@ fn refuses_unknown_ids_and_keys_and_writes_nothing() {
     let split = scratch.err(&["categorize", &tesco_id, &split_id, "food.groceries"]);
     assert!(split.ends_with("; nothing was changed"), "{split}");
     assert!(split.contains(&split_id), "{split}");
+    assert_eq!(
+        split,
+        format!(
+            "transaction {split_row} can't take a category: it is split, so its lines take \
+             categories; nothing was changed"
+        )
+    );
 
     assert_eq!(scratch.category(tesco), None);
     assert_eq!(scratch.batches(), 0);
@@ -238,6 +249,103 @@ fn refuses_unknown_ids_and_keys_and_writes_nothing() {
     let error = super::run(cli.command.unwrap(), &path, &mut Vec::new()).unwrap_err();
     assert!(error.to_string().contains("there is no Coffer database"));
     assert!(!path.exists());
+}
+
+/// Pairs `out` and `into` as a confirmed transfer, the way an approved
+/// suggestion does.
+fn confirm_transfer(scratch: &Scratch, out: TransactionId, into: TransactionId) {
+    let mut db = scratch.db();
+    let filed = inbox::file_suggestion(
+        &mut db,
+        &ClientName::new("claude-code").unwrap(),
+        &NewSuggestion {
+            kind: SuggestionKind::TransferPair,
+            payload: serde_json::json!({"outflow_id": out.get(), "inflow_id": into.get()}),
+            rationale: None,
+        },
+    )
+    .unwrap();
+    inbox::approve(&mut db, filed.id, ApproveOptions::default()).unwrap();
+}
+
+#[test]
+fn refuses_a_transfer_leg_or_a_linked_refund_and_writes_nothing() {
+    let scratch = Scratch::new();
+    let tesco = scratch.row(1, -2000, "Tesco");
+    // A confirmed transfer to savings.
+    let savings = account::create(
+        &mut scratch.db(),
+        &NewAccount::new("Savings", AccountKind::Savings, Currency::GBP),
+    )
+    .unwrap();
+    let out = scratch.row(2, -5000, "To savings");
+    let mut entry = ManualTransaction::new(
+        savings,
+        chrono::NaiveDate::from_ymd_opt(2026, 11, 2).unwrap(),
+        Money::new(5000, Currency::GBP),
+        "From current",
+    );
+    entry.merchant = Some("From current".to_owned());
+    let into = manual::create(&mut scratch.db(), &entry).unwrap();
+    confirm_transfer(&scratch, out, into);
+    // A confirmed refund of part of a purchase.
+    let purchase = scratch.row(3, -3000, "Shop");
+    let refund = scratch.row(4, 1000, "Shop");
+    link::create(
+        &mut scratch.db(),
+        &NewLink {
+            kind: LinkKind::Refund,
+            inflow: refund,
+            target: LinkTarget::Purchase(purchase),
+            amount: Money::new(1000, Currency::GBP),
+        },
+    )
+    .unwrap();
+    let (tesco_id, out_id, into_id, refund_id) = (
+        tesco.to_string(),
+        out.to_string(),
+        into.to_string(),
+        refund.to_string(),
+    );
+
+    for (args, message) in [
+        (
+            vec!["categorize", &tesco_id, &out_id, "food.groceries"],
+            format!(
+                "transaction {out} can't take a category: it is in a confirmed transfer, \
+                 which takes no category; nothing was changed"
+            ),
+        ),
+        (
+            vec!["categorize", &into_id, "income"],
+            format!(
+                "transaction {into} can't take a category: it is in a confirmed transfer, \
+                 which takes no category; nothing was changed"
+            ),
+        ),
+        (
+            vec!["categorize", &tesco_id, &refund_id, "shopping"],
+            format!(
+                "transaction {refund} can't take a category: it is a linked refund, which \
+                 counts in its purchase's category; nothing was changed"
+            ),
+        ),
+    ] {
+        assert_eq!(scratch.err(&args), message, "{args:?}");
+    }
+    assert_eq!(scratch.category(tesco), None);
+    assert_eq!(scratch.category(out), None);
+    assert_eq!(scratch.category(refund), None);
+    assert_eq!(scratch.batches(), 0);
+
+    // The purchase side takes one.
+    let out = scratch.ok(&["categorize", &purchase.to_string(), "shopping"]);
+    assert!(
+        out.contains(&format!("transaction {purchase}: none -> shopping")),
+        "{out}"
+    );
+    // No transaction text in the output.
+    assert!(!out.contains("Shop"), "{out}");
 }
 
 #[test]

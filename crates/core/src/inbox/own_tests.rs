@@ -453,3 +453,88 @@ fn recategorize_refuses_an_unknown_category_and_writes_nothing() {
     assert_eq!(set(&mut f, &coffee, "food.eating_out"), None);
     assert_eq!(f.count("change_batch"), 1);
 }
+
+#[test]
+fn recategorize_refuses_a_row_that_takes_no_category_of_its_own() {
+    use crate::category::assign::NoOwnCategory;
+
+    let mut f = Fixture::new();
+    let coffee = f.row(day(1), -350, "Coffee", None);
+    let out = f.row(day(2), -5000, "To savings", None);
+    let into = f.row_on(f.savings, day(2), 5000, "From current", None);
+    f.transfer(out, into, true);
+    let purchase = f.row(day(3), -6800, "Shop", Some("shopping"));
+    let refund = f.row(day(4), 3400, "Shop", None);
+    f.refund(refund, purchase, 3400, true);
+    let split = f.row(day(5), -1000, "Market", None);
+    f.split(split, &[-600, -400]);
+
+    for (row, why) in [
+        (out, NoOwnCategory::Transfer),
+        (into, NoOwnCategory::Transfer),
+        (refund, NoOwnCategory::Refund),
+        (split, NoOwnCategory::Split),
+    ] {
+        // With a row that could take it first: nothing is written.
+        let err = recategorize(
+            &mut f.db,
+            &[(coffee, key("food.eating_out")), (row, key("shopping"))],
+        )
+        .unwrap_err();
+        let RecategorizeError::NoOwnCategory {
+            transaction,
+            why: said,
+        } = err
+        else {
+            panic!("{row}: expected NoOwnCategory, got {err:?}");
+        };
+        assert_eq!((transaction, said), (row, why));
+        assert_eq!(
+            RecategorizeError::NoOwnCategory {
+                transaction,
+                why: said
+            }
+            .to_string(),
+            format!("transaction {row} can't take a category: {why}")
+        );
+        assert_eq!(f.category_of(coffee), None);
+        assert_eq!(f.category_of(row), None);
+        assert_eq!(f.count("change_batch"), 0);
+    }
+
+    // Refused even when the row already has the category.
+    f.conn()
+        .execute(
+            "UPDATE \"transaction\" SET category_id = (SELECT id FROM category WHERE key = \
+             'shopping'), category_source = 'user' WHERE id = ?1",
+            [out],
+        )
+        .unwrap();
+    assert!(matches!(
+        recategorize(&mut f.db, &[(out, key("shopping"))]),
+        Err(RecategorizeError::NoOwnCategory { .. })
+    ));
+    assert_eq!(f.count("change_batch"), 0);
+}
+
+#[test]
+fn recategorize_takes_a_suggested_pair_a_suggested_refund_and_a_purchase() {
+    let mut f = Fixture::new();
+    let out = f.row(day(2), -5000, "To savings", None);
+    let into = f.row_on(f.savings, day(2), 5000, "From current", None);
+    f.transfer(out, into, false);
+    let purchase = f.row(day(3), -6800, "Shop", None);
+    let maybe = f.row(day(4), 3400, "Shop", None);
+    f.refund(maybe, purchase, 3400, false);
+    let refunded = f.row(day(5), -2000, "Shop", None);
+    let refund = f.row(day(6), 2000, "Shop", None);
+    f.refund(refund, refunded, 2000, true);
+
+    let items = [out, into, purchase, maybe, refunded]
+        .map(|row| (row, key("shopping")))
+        .to_vec();
+    assert!(recategorize(&mut f.db, &items).unwrap().is_some());
+    for (row, _) in &items {
+        assert_eq!(f.category_of(*row).as_deref(), Some("shopping"));
+    }
+}

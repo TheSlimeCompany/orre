@@ -39,7 +39,8 @@ money types (`money`: `Currency`, `Money`, exact decimal parsing; M1.5) and the
 normalized import output (`statement`: `Statement`, `StatementLine`, flagged rows; M1.6)
 and categories (`category`: `CategoryKey`, M1.8; `CategoryKind`, `DEFAULT_CATEGORIES`
 and `CategoryTree` via `Database::categories`, seeded by `V2__default_categories.sql`,
-M1.14) and rules (`rule`: validated `RuleDefinition`, `Pattern`, `RuleAction`; the
+M1.14; `assign`, whether a transaction takes a category of its own, refused by
+`inbox::own::recategorize` and skipped at approval, read by `RegisterRow::takes_category`) and rules (`rule`: validated `RuleDefinition`, `Pattern`, `RuleAction`; the
 store and the `RuleSet` engine; M1.15, every action kind since M1.24) and transfer-pair detection
 (`transfer`, M1.16) and sub-accounts (`sub_account`: pots found by key,
 auto-created, rows mirrored and paired as confirmed transfers; M1.17, migration

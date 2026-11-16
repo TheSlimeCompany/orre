@@ -1004,7 +1004,8 @@ as built). Everything else follows an earlier decision record or invariant.
    `add_tag`; `exclude`, `set_note` and `my_share` are refused (user).
 5. Each approval is one `BEGIN IMMEDIATE` transaction that re-checks the payload, applies
    it and marks it approved. A categorisation is one `bulk_edit` batch with source
-   `ai_approved` and overwrites user-set categories (the user approved those rows
+   `ai_approved`, skips targets that take no category of its own (decision record "what
+   a transaction can take"), and overwrites user-set categories (the user approved those rows
    explicitly, and the preview counts them); setting a split line's category rewrites
    that transaction's lines. A transfer pair confirms detection's own group or creates a
    confirmed one, refused if either side is linked. A link is confirmed at the payload's
@@ -1088,7 +1089,8 @@ as built). Everything else follows an earlier decision record or invariant.
 6. **`coffer categorize <transaction-id>... <category-key>`** sets categories as the user
    through `inbox::own::recategorize`, so Coffer's own rule suggestions fire from the CLI
    until the GUI's inline edit (M3). It refuses a repeated ID, an unknown category or
-   a split row, and prints the change batch and any rule suggestion it filed (user).
+   a row that takes no category of its own (split, a confirmed transfer leg, a linked
+   refund's money in; decision record "what a transaction can take"), and prints the change batch and any rule suggestion it filed (user).
 7. The tool × level matrix (`crates/mcp/tests/matrix.rs`) lists every tool with its level
    and arguments; a new tool fails it until added.
 8. **Calls refused while the database can't be opened are logged too** (exit criterion:
@@ -1267,8 +1269,9 @@ and "Data table (Transactions)", or an earlier record.
    one DB transaction, one undoable `bulk_edit` change batch, category source `user`
    (so repeated identical edits can still file Coffer's own `rule` suggestion). The
    table's in-place select (Enter, or a double-click on the category), the inspector's
-   Category select and the bulk-action bar's Categorise all take that path; a split row
-   or a confirmed transfer isn't offered one (split lines are set in the split editor,
+   Category select and the bulk-action bar's Categorise all take that path; a split row,
+   a confirmed transfer or a linked refund's money in isn't offered one, and since
+   2026-11-16 core refuses it too (decision record "what a transaction can take") (split lines are set in the split editor,
    M3.9; transfers are M3.8). After a change to several rows the undo bar (`53O-0`)
    offers `change::undo`; a single edit is undone from the change history (M3.13). The
    fixture can't change: an edit there says so under the Category select.
@@ -1993,6 +1996,47 @@ sees, except point 1's extra refusal.
 5. **Supersedes** "checks the restore lock first" in decision records "the app shell and
    window state", point 3, "accounts management", point 6, "Inbox", point 8, and "the
    import flow" (its stores).
+
+### Decision record: what a transaction can take, decided in core (2026-11-16)
+
+From the same architecture review. **(user)** marks the user's choices, made when they
+were asked.
+
+1. **A transaction takes a category of its own unless it is split, a leg of a confirmed
+   transfer pair, or the money in of a confirmed refund** (whose category follows its
+   purchase). This was the table's rule (decision record "the Transactions view", point
+   3, and "refunds, reimbursements and settlements (built)", point 5). It is now core's
+   `category::assign`: one function over three facts. The database and the
+   Transactions register each read the facts, and a test runs the same rows through
+   both. A suggested pair or a suggested refund doesn't count.
+2. **Core refuses (user).** `inbox::own::recategorize` (the table, the inspector, the
+   bulk-action bar and `coffer categorize`) refuses such a row with
+   `RecategorizeError::NoOwnCategory`, naming the transaction ID and why, never its
+   text, and writes nothing. It refuses even when the row already has that category.
+   The rejected option was core only reporting the rule, which would have left the CLI
+   and approved AI suggestions able to categorise a transfer leg or a linked refund.
+3. **Approving a categorisation skips such rows.** The other targets are still set. The
+   impact counts them separately (`CategorizationImpact::skipped`), not as missing,
+   because missing blocks approval. The preview lists each one as "No change". A
+   suggestion whose targets are all skipped is approved with no change batch. Split
+   targets are still refused whole by the payload check. The Inbox's "If you approve"
+   panel doesn't say why a row was skipped yet; that needs a design in Paper first.
+4. **Other writers don't ask.** Rules at import and applied to history, duplicate
+   merges, removing a split and undo write what is theirs to decide; `change::unwritable`
+   still refuses only split rows. A rule applied to history can still set a category on
+   a confirmed transfer leg or a linked refund's money in. Transfers don't count in the
+   ledger, and a linked refund counts in its purchase's category, so what is reported
+   doesn't change. Whether rules should skip those rows, as they skip split rows, is
+   left open.
+5. **Which inspector sections a row gets is core's too** (`RegisterRow::takes_share`:
+   money out outside a transfer; `takes_links`: any non-zero amount outside a transfer).
+   The meaning is unchanged. Neither is unified with `reporting::linking`'s
+   `can_be_purchase` or `kinds_from`, which are narrower: a duplicate-excluded or
+   over-the-cap row shows the Links section, but the dialog offers no kinds (user,
+   scope).
+6. **Left in the app:** an excluded row isn't categorised in place. The share sign and
+   "half each" default, which side of a link is the money in, and why a transfer was
+   suggested move later (user, scope).
 
 ## Architecture
 

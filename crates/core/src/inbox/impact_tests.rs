@@ -128,6 +128,7 @@ fn a_categorization_counts_changes_categories_you_set_and_missing_targets() {
             user_set: 1,
             unchanged: 1,
             missing: 0,
+            skipped: 0,
         })
     );
     assert_eq!(impact.blocked, None);

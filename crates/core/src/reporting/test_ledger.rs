@@ -197,6 +197,35 @@ impl TestLedger {
         transfer::record_confirmed_pair(self.db.conn(), a, b).unwrap();
     }
 
+    /// Pairs `a` and `b` as a transfer Coffer only suggested, as detection
+    /// writes it.
+    pub fn suggested_transfer(&mut self, a: TransactionId, b: TransactionId) {
+        let conn = self.db.conn();
+        conn.execute(
+            "INSERT INTO transfer_group (status) VALUES ('suggested')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE \"transaction\" SET transfer_group_id = ?1 WHERE id IN (?2, ?3)",
+            rusqlite::params![conn.last_insert_rowid(), a, b],
+        )
+        .unwrap();
+    }
+
+    /// A refund of `minor` from `inflow` to `purchase` that Coffer only
+    /// suggested, as its link suggestions write it.
+    pub fn suggested_refund(&mut self, inflow: TransactionId, purchase: TransactionId, minor: i64) {
+        self.db
+            .conn()
+            .execute(
+                "INSERT INTO transaction_link (kind, inflow_id, target_id, amount_minor, status) \
+                 VALUES ('refund', ?1, ?2, ?3, 'suggested')",
+                rusqlite::params![inflow, purchase, minor],
+            )
+            .unwrap();
+    }
+
     /// An entered (manual) balance at the end of `day`.
     pub fn balance(&mut self, account: AccountId, day: &str, minor: i64) {
         let currency = self.currency(account);

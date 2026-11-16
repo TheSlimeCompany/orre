@@ -109,6 +109,50 @@ impl Fixture {
         split::set(&mut self.db, transaction, &lines).unwrap()
     }
 
+    /// Pairs `a` and `b` as a transfer: `confirmed`, or one Coffer only
+    /// suggested.
+    pub fn transfer(&self, a: TransactionId, b: TransactionId, confirmed: bool) {
+        if confirmed {
+            crate::transfer::record_confirmed_pair(self.conn(), a, b).unwrap();
+            return;
+        }
+        self.conn()
+            .execute(
+                "INSERT INTO transfer_group (status) VALUES ('suggested')",
+                [],
+            )
+            .unwrap();
+        self.conn()
+            .execute(
+                "UPDATE \"transaction\" SET transfer_group_id = ?1 WHERE id IN (?2, ?3)",
+                params![self.conn().last_insert_rowid(), a, b],
+            )
+            .unwrap();
+    }
+
+    /// Links `inflow` to `purchase` as a refund of `minor`: `confirmed`, or
+    /// one Coffer only suggested.
+    pub fn refund(
+        &self,
+        inflow: TransactionId,
+        purchase: TransactionId,
+        minor: i64,
+        confirmed: bool,
+    ) {
+        self.conn()
+            .execute(
+                "INSERT INTO transaction_link (kind, inflow_id, target_id, amount_minor, status) \
+                 VALUES ('refund', ?1, ?2, ?3, ?4)",
+                params![
+                    inflow,
+                    purchase,
+                    minor,
+                    if confirmed { "confirmed" } else { "suggested" }
+                ],
+            )
+            .unwrap();
+    }
+
     /// The category key `transaction` has, if any.
     pub fn category_of(&self, transaction: TransactionId) -> Option<String> {
         self.conn()

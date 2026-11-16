@@ -3,14 +3,16 @@
 //! `EB0-0`; `ARCHITECTURE.md` → "Decision record: refunds, reimbursements
 //! and settlements (built)").
 //!
-//! - **Share** (money out, outside a transfer), between Details and Links:
+//! - **Share** (money out, outside a transfer: core's
+//!   `RegisterRow::takes_share`), between Details and Links:
 //!   Just me / Shared / Claim back. Shared shows Yours (the user's part, a
 //!   `£` field "of £31.80") and Owed by (the person: a local label, with the
 //!   lock); it's saved once a person is chosen, and again when Yours is
 //!   left or Enter is pressed. Claim back shows what is still owed. A split
 //!   purchase is shared line by line, which isn't drawn yet, so its Shared
 //!   segment is disabled.
-//! - **Links** (every transaction outside a transfer): "Link…" opens the
+//! - **Links** (every transaction outside a transfer: core's
+//!   `RegisterRow::takes_links`): "Link…" opens the
 //!   link dialog (the shell owns it); each confirmed link is a row with ✕,
 //!   which unlinks it with the undo bar; Coffer's suggestion is a card
 //!   ("Is this a refund?") with Link and Not a refund.
@@ -72,16 +74,6 @@ fn offer_batch(message: impl Into<SharedString>) -> impl FnOnce(&Option<ChangeBa
         Some(batch) => Offer::Show(UndoAction::Batch(*batch), message.into()),
         None => Offer::Keep,
     }
-}
-
-/// Whether `row` has the Share section: money out outside a transfer.
-pub fn has_share(row: &RegisterRow) -> bool {
-    row.amount.is_negative() && !row.in_transfer
-}
-
-/// Whether `row` has the Links section: outside a transfer.
-pub fn has_links(row: &RegisterRow) -> bool {
-    !row.in_transfer && !row.amount.is_zero()
 }
 
 /// The person's key in the Owed by menu.
@@ -400,7 +392,7 @@ fn rich_caption(window: &Window, parts: Vec<Part>) -> AnyElement {
 /// The refund's Category row while its purchase sets it (Paper `FGU-0`):
 /// marker and name in `text-secondary`, the 10px link in `icon-faint`.
 pub(super) fn following_category(view: &TransactionsView, row: &RegisterRow) -> AnyElement {
-    let purchase = linking::refund_purchase(&view.register, row);
+    let purchase = view.register.refund_purchase(row);
     let (label, marker) = purchase
         .map(|purchase| {
             (

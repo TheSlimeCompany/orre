@@ -219,6 +219,82 @@ fn a_categorization_that_changes_nothing_records_no_batch() {
     assert_eq!(f.count("change_batch"), 0);
 }
 
+#[test]
+fn approving_skips_a_transfer_leg_and_a_linked_refunds_money_in() {
+    let mut f = Fixture::new();
+    let coffee = f.row(day(1), -350, "Coffee", None);
+    let out = f.row(day(2), -5000, "To savings", None);
+    let into = f.row_on(f.savings, day(2), 5000, "From current", None);
+    f.transfer(out, into, true);
+    let purchase = f.row(day(3), -6800, "Shop", None);
+    let refund = f.row(day(4), 3400, "Shop", None);
+    f.refund(refund, purchase, 3400, true);
+    // A pair and a refund Coffer only suggested take one.
+    let maybe_out = f.row(day(5), -700, "To savings", None);
+    let maybe_in = f.row_on(f.savings, day(5), 700, "From current", None);
+    f.transfer(maybe_out, maybe_in, false);
+    let other = f.row(day(6), -2000, "Shop", None);
+    let maybe_refund = f.row(day(7), 2000, "Shop", None);
+    f.refund(maybe_refund, other, 2000, false);
+    let items: Vec<_> = [coffee, out, into, purchase, refund, maybe_out, maybe_refund]
+        .iter()
+        .map(|row| json!({"transaction_id": row.get(), "category": "shopping"}))
+        .collect();
+    let id = f.file(
+        SuggestionKind::Categorization,
+        categorization(serde_json::Value::Array(items)),
+    );
+
+    let approved = approve(&mut f.db, id, ApproveOptions::default()).unwrap();
+    let Applied::Categorized {
+        batch: Some(batch),
+        transactions: 4,
+    } = approved.applied
+    else {
+        panic!(
+            "expected a batch over four rows, got {:?}",
+            approved.applied
+        );
+    };
+    for row in [coffee, purchase, maybe_out, maybe_refund] {
+        assert_eq!(f.category_of(row).as_deref(), Some("shopping"), "{row}");
+    }
+    for row in [out, into, refund] {
+        assert_eq!(f.category_of(row), None, "{row}");
+    }
+    let stored = get(&f.db, id).unwrap();
+    assert_eq!(stored.status, SuggestionStatus::Approved);
+    assert_eq!(
+        stored.applied,
+        Some(json!({"change_batch_id": batch.get(),
+                    "transactions": [coffee.get(), purchase.get(), maybe_out.get(),
+                                     maybe_refund.get()]}))
+    );
+}
+
+#[test]
+fn approving_only_rows_it_skips_records_no_batch() {
+    let mut f = Fixture::new();
+    let out = f.row(day(2), -5000, "To savings", None);
+    let into = f.row_on(f.savings, day(2), 5000, "From current", None);
+    f.transfer(out, into, true);
+    let id = f.file(
+        SuggestionKind::Categorization,
+        categorization(json!([{"transaction_id": out.get(), "category": "shopping"}])),
+    );
+    let approved = approve(&mut f.db, id, ApproveOptions::default()).unwrap();
+    assert_eq!(
+        approved.applied,
+        Applied::Categorized {
+            batch: None,
+            transactions: 0
+        }
+    );
+    assert_eq!(get(&f.db, id).unwrap().status, SuggestionStatus::Approved);
+    assert_eq!(f.category_of(out), None);
+    assert_eq!(f.count("change_batch"), 0);
+}
+
 // Rules ---------------------------------------------------------------------------
 
 #[test]

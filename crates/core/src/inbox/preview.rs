@@ -19,6 +19,9 @@
 //!   it shows now and after, or "stays" for a name the user set. Names
 //!   don't change spending or which rules match (point 5).
 //! - **categorization**: each item, now and after, and the spending change.
+//!   A transaction the approval skips, as it takes no category of its own
+//!   (a leg of a confirmed transfer, a linked refund's money in;
+//!   [`crate::category::assign`]), is listed as [`After::Unchanged`].
 //! - **transfer_pair** and **refund_link**: how income and spending change
 //!   in the month of the money.
 //!
@@ -42,6 +45,7 @@ use super::approve::{Applied, ApproveError, ApproveOptions, approve_in};
 use super::impact::{Detail, Impact, impact};
 use super::payload::{CategorizationItem, Target};
 use super::{Error, Payload, Suggestion, SuggestionId, SuggestionKind, SuggestionStatus, get_in};
+use crate::category::assign::{self, NoOwnCategory};
 use crate::category::{CategoryKey, CategoryKind};
 use crate::change;
 use crate::db::Database;
@@ -551,7 +555,7 @@ pub fn preview(db: &Database, id: SuggestionId) -> Result<Preview, ApproveError>
         link: None,
     };
     match &suggestion.payload {
-        Payload::Categorization(_) => categorization(&mut preview),
+        Payload::Categorization(_) => categorization(db.conn(), &mut preview)?,
         Payload::Rule(definition) => rule_preview(db, id, definition, &mut preview)?,
         Payload::MerchantAlias(alias) => alias_preview(db, id, alias, &mut preview)?,
         Payload::TransferPair(_) => preview.transfer = transfer_effect(&preview.subject),
@@ -560,29 +564,39 @@ pub fn preview(db: &Database, id: SuggestionId) -> Result<Preview, ApproveError>
     Ok(preview)
 }
 
-fn categorization(preview: &mut Preview) {
+fn categorization(conn: &Connection, preview: &mut Preview) -> Result<(), ApproveError> {
     let Subject::Categorization(items) = &preview.subject else {
-        return;
+        return Ok(());
     };
     preview.matches = items.len();
-    preview.lines = items
-        .iter()
-        .filter_map(|item| {
-            let transaction = item.transaction.clone()?;
-            let category = item.category.clone()?;
-            let after = if transaction.now.category() == Some(&category) {
-                After::Unchanged
-            } else {
-                After::Category(category)
-            };
-            Some(Line {
-                transaction,
-                after,
-                highlight: None,
-            })
-        })
-        .collect();
+    let mut lines = Vec::with_capacity(items.len());
+    for item in items {
+        let (Some(transaction), Some(category)) = (item.transaction.clone(), item.category.clone())
+        else {
+            continue;
+        };
+        // What the approval skips, as `plan_categorization` does.
+        let skipped = match item.target {
+            Target::Transaction(id) => matches!(
+                assign::no_own_category_in(conn, id)?,
+                Some(NoOwnCategory::Transfer | NoOwnCategory::Refund)
+            ),
+            Target::SplitLine(_) => false,
+        };
+        let after = if skipped || transaction.now.category() == Some(&category) {
+            After::Unchanged
+        } else {
+            After::Category(category)
+        };
+        lines.push(Line {
+            transaction,
+            after,
+            highlight: None,
+        });
+    }
+    preview.lines = lines;
     preview.spending = spending(&preview.lines);
+    Ok(())
 }
 
 fn rule_preview(
