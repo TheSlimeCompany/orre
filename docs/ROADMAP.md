@@ -922,6 +922,67 @@ Every tool call appears in the access log.
   `ARCHITECTURE.md` → "Decision record: asset and liability accounts, closing and
   deleting (built)"
 
+**Punch list from the user's exit check** (found 2026-11-17; to do later, user):
+
+- ⬜ M3.P1 Import: say why Review is disabled. `ImportDialog::review_blocker`
+  (`crates/app/src/import/dialog.rs`) already words the reason ("Choose the account to
+  import into.", a currency mismatch, no rows, a mapping problem) but only greys out the
+  button; show it in the footer in place of "Nothing is saved until you import…"
+- ⬜ M3.P2 Import: the Account menu with no accounts says "No matches", the filter's wording;
+  it should say there are no accounts yet
+- ⬜ M3.P3 Import: "New account…" in the Account menu, so a fresh database isn't a dead end
+  (today: close the dialog, add the account in the panel, import again). New UI: decide
+  whether to draw it in Paper first or reuse the New account dialog, with the file's
+  currency filled in and the new account chosen on return
+- ⬜ M3.P4 Import: dropping several files on the window imports only the first and drops the
+  rest without a word (`shell.rs` and `import/dialog.rs` take `paths().first()`); import
+  them in turn, or say that only one was taken
+- ⬜ M3.P5 Date fields hide the first digit of a two-digit day: `ui::field::date_input` is 96px
+  (`--container-column-amount`) in Geist Mono, too narrow for `17 Nov 2026`, so the text
+  scrolls and reads `7 Nov 2026` while 17 Nov is what gets saved. Used by New account, Add
+  balance and valuations, Close, New transaction and the manual row's Date in the
+  inspector. Design the width (or size) in Paper first, then check every caller
+- ⬜ M3.P6 Add balance: the date starts on today, so on an account created today with an opening
+  balance the default is always refused (one entered balance per account and day); start
+  on a free day, or say so before the first click
+- ⬜ M3.P7 Add balance: the error stays after the fields change; clear it on edit as the other
+  dialogs do (`crates/app/src/accounts/add_balance.rs`)
+- ⬜ M3.P8 Add balance: `account::Error::BalanceExists` shows its date as `2026-11-17`, not the
+  field's `17 Nov 2026`
+- ⬜ M3.P9 Entered balances can't be edited or removed: core has `account::add_balance` only, so
+  a wrong opening balance can't be corrected, yet `BalanceExists` says "edit that one
+  instead". Needs core functions (with the lock-date guard) and inspector UI, designed in
+  Paper first
+- ⬜ M3.P10 Accounts panel: right-click menus on its rows (user). The app has no context menu yet
+  and DESIGN.md has none, so draw it in Paper first (likely `ui::menu` opened at the
+  pointer). Proposed actions, each one the app already has elsewhere:
+  - Account: Show transactions, Add balance…, Import into this account…, New
+    transaction…, Edit in the inspector, Close…, Delete… (only when empty)
+  - Pot: Show transactions, Add balance…
+  - Asset or liability: Add value…, Edit in the inspector, Close…, Delete… (only when
+    empty)
+  - Category: Show transactions, Rename…, New subcategory…, Hide, Delete… (only when
+    unused), Open in Rules
+  - Uncategorised: Show transactions
+- ⬜ M3.P11 Transfer or refund (user: "poor UX"): money in that matches a purchase in another
+  account (same amount, days apart) is always suggested as a transfer, and while a row is
+  in a suggested transfer the Links section is hidden (`RegisterRow::takes_links`), so the
+  only way to link it as a refund is "Not a transfer" first, which nothing hints at. Found
+  with a manual +£12.40 in a cash account against an imported −£12.40 purchase. Offer the
+  refund in the suggestion itself (e.g. "Is this a transfer?" with Confirm transfer, Link
+  as refund, Neither), or let detection prefer a refund when the money out is a purchase
+  rather than a transfer out; decide the wording and layout in Paper first
+- ⬜ M3.P12 Transactions: "This week" and "Last week" in the Date chip's menu (user). Today
+  `reporting::register::DatePreset` has This month, Last month, Last 3 months, This year and
+  All time. Decide which day a week starts on (Monday, or a setting)
+- ⬜ M3.P13 Transactions: sorting by a column looks like it does nothing (user, test 5.2). By
+  design it sorts only within each day (`docs/ARCHITECTURE.md`, Transactions decision 5;
+  `Register::select`), and with one or two rows a day, as in the fixtures and much real
+  data, nothing visibly moves. Revisit the decision: e.g. a column sort that drops the day
+  grouping (one flat list, date as a column) until it's cleared, keeping today's within-day
+  sort only if it still earns its place. Changing it is a new decision record and a Paper
+  pass on the flat table
+
 **Exit criteria:** day-to-day use (import, categorize, split, link refunds, review the inbox
 and duplicates) without the CLI.
 
