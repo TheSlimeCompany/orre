@@ -249,26 +249,6 @@ fn command_n_in_the_accounts_panel_opens_new_transaction(cx: &mut TestAppContext
     assert!(shows("new-transaction-add", cx));
 }
 
-#[test]
-fn the_status_bar_counts_excluded_rows_when_there_are_some() {
-    let counts = |transactions, excluded, sample| crate::transactions::Counts {
-        transactions,
-        excluded,
-        sample,
-    };
-    assert_eq!(transactions_count(counts(12, 0, false)), "12 transactions");
-    assert_eq!(transactions_count(counts(1, 0, false)), "1 transaction");
-    assert_eq!(
-        transactions_count(counts(12, 2, false)),
-        "12 transactions · 2 excluded"
-    );
-    // The sample data keeps the artboard's figure (D6.3, `3FE-0`).
-    assert_eq!(
-        transactions_count(counts(23, 2, true)),
-        "328 transactions · 2 excluded"
-    );
-}
-
 #[gpui_kit::test]
 fn the_transactions_selection_survives_a_switch(cx: &mut TestAppContext) {
     let (shell, cx) = open_shell(cx, View::Transactions);

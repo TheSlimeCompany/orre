@@ -1432,7 +1432,8 @@ the build. Everything else follows `DESIGN.md` → "Settings" or the records abo
    the system's save dialog says; the app writes no export anywhere else.
 8. **The status bar follows the kill switch (user).** "AI access off" with the
    `refused` icon while it's off, else the fixture's "1 agent connected"; either opens
-   Settings → AI clients. The rest of the status bar is still fixture data.
+   Settings → AI clients. The rest of the status bar is still fixture data (it reads the
+   database since 2026-11-17: "the status bar reads the database").
 
 ### Decision record: splits, tags and notes in the inspector (2026-11-14)
 
@@ -2184,6 +2185,32 @@ From an architecture review of `crates/core`. Nothing the user sees changes exce
    ledger lines, not transactions, and is unchanged: a fully refunded money in's own
    line nets to zero and isn't listed; a partly refunded one's uncategorised remainder
    is.
+
+### Decision record: the status bar reads the database (2026-11-17)
+
+On an empty database the status bar still showed Paper's sample ("1 agent connected",
+"Reconciled", "Imported 2 min ago from monzo-november.csv", "3 new", "GBP"). Supersedes
+"AI access settings", point 8's "the rest of the status bar is still fixture data".
+Decided by the user on 2026-11-17 (the recommended option for each). The model is
+`shell::status::Status`, read from what the views already hold, so it follows their
+reloads and adds no database reads.
+
+1. **An item with nothing true to say is left out**, rather than given wording not
+   drawn in Paper.
+2. **"N agents connected" counts the enabled clients** (`AiData::enabled`) while AI
+   access is on, and is left out when none is enabled. Coffer can't see a live
+   connection (each client starts `coffer mcp` itself), so enabled is what "connected"
+   means here. "AI access off" is unchanged.
+3. **"Reconciled" needs at least one balance check** (`checks::Review::has_checks`);
+   a failing check still replaces it.
+4. **The import line is the newest committed import in an open account**, from the
+   accounts panel's data: "Imported just now", "2 min ago", "3 hours ago", else "on
+   4 Nov", then "from <file>". An undone import doesn't count. The shell reads the time
+   every 30 seconds (`ShellView::keep_time`, only in the app) and after each import.
+5. **"3 new" is left out** until something defines what it counts (the Inbox tab's
+   badge already counts pending suggestions). **The currency shows when every open
+   account shares one**, until a home currency exists (M4.6).
+6. The sample data (`Counts::sample`) keeps Paper's artboard (`1CU-0`) for snapshots.
 
 ## Architecture
 

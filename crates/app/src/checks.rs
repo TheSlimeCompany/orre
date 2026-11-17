@@ -208,6 +208,12 @@ impl Checks {
         self.data.review.failing()
     }
 
+    /// Whether any account has a balance check yet: the status bar's
+    /// "Reconciled" needs one.
+    pub fn has_checks(&self) -> bool {
+        self.data.review.has_checks()
+    }
+
     // Opening a queue ----------------------------------------------------------
 
     /// Opens `queue` (CHECKS in the panel), selecting its first pair or

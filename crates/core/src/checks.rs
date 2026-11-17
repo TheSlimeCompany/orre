@@ -604,6 +604,12 @@ impl Review {
         self.accounts.iter().map(AccountReview::failures).sum()
     }
 
+    /// Whether any account has a balance check yet: the status bar says
+    /// "Reconciled" only then.
+    pub fn has_checks(&self) -> bool {
+        self.accounts.iter().any(AccountReview::has_checks)
+    }
+
     pub fn pair(&self, candidate: DuplicateCandidateId) -> Option<&Pair> {
         self.pairs.iter().find(|pair| pair.candidate == candidate)
     }

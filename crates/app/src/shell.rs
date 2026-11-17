@@ -42,13 +42,15 @@
 //! ([`SettingsView`], M3.15, M3.16), whose dialogs it opens the same way,
 //! and whose kill switch the status bar shows.
 
+mod status;
 pub mod window_state;
 
 use std::rc::Rc;
 use std::time::Duration;
 
-use coffer_core::paths;
+use chrono::{DateTime, Utc};
 use coffer_core::setting::WindowState;
+use coffer_core::{clock, paths};
 use gpui_kit::AnyView;
 use gpui_kit::component::window_border;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -101,6 +103,7 @@ use crate::ui::status_bar::{StatusBar, StatusItem};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::title_bar::{self, CommandBar, TitleBar, ViewTab};
 
+use status::{Ai, ChecksStatus, Status};
 use window_state::WindowStore;
 
 /// The key context of the whole window, where the view shortcuts work.
@@ -109,6 +112,9 @@ const SHELL_CONTEXT: &str = "CofferShell";
 /// How long the window must stay put before its state is saved, so a drag
 /// or a resize writes once, after it ends.
 const SAVE_DELAY: Duration = Duration::from_millis(500);
+
+/// How often the status bar's clock is read.
+const CLOCK_TICK: Duration = Duration::from_secs(30);
 
 gpui_kit::actions!(
     coffer_shell,
@@ -362,6 +368,7 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
             if let Some(store) = store {
                 shell.keep_window_state(store, window, cx);
             }
+            shell.keep_time(cx);
             shell
         })
     })?;
@@ -417,6 +424,10 @@ pub struct ShellView {
     panel_focus: FocusHandle,
     focus: FocusHandle,
     persistence: Option<Persistence>,
+    /// The time the status bar's "Imported 2 min ago" counts from, and
+    /// the task that keeps it current ([`Self::keep_time`]).
+    now: DateTime<Utc>,
+    clock: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -508,6 +519,8 @@ impl ShellView {
             }),
             cx.observe(&accounts, |_, _, cx| cx.notify()),
             cx.observe(&inbox, |_, _, cx| cx.notify()),
+            // The status bar counts the enabled AI clients.
+            cx.observe(&settings, |_, _, cx| cx.notify()),
             cx.subscribe_in(&settings, window, |this, _, event, window, cx| {
                 this.on_settings_event(event.clone(), window, cx)
             }),
@@ -559,6 +572,8 @@ impl ShellView {
             panel_focus: cx.focus_handle(),
             focus,
             persistence: None,
+            now: clock::now().unwrap_or_default(),
+            clock: None,
             _subscriptions: subscriptions,
         }
     }
@@ -581,7 +596,52 @@ impl ShellView {
             // An import or its undo adds or clears possible duplicates and
             // changes the balance checks.
             this.checks.update(cx, |checks, cx| checks.reload(cx));
+            // "Imported just now", not the time last read.
+            if let Ok(now) = clock::now() {
+                this.now = now;
+            }
             cx.notify();
+        })
+    }
+
+    /// Reads the time every half minute from now on, so the status bar's
+    /// "Imported 2 min ago" keeps up (tests and snapshots keep the time
+    /// the shell opened at).
+    pub fn keep_time(&mut self, cx: &mut Context<Self>) {
+        self.clock = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(CLOCK_TICK).await;
+                let Ok(now) = clock::now() else { continue };
+                if this.update(cx, |this, cx| this.set_now(now, cx)).is_err() {
+                    return;
+                }
+            }
+        }));
+    }
+
+    /// Sets the time, redrawing only when the status bar could change: on
+    /// a new minute.
+    fn set_now(&mut self, now: DateTime<Utc>, cx: &mut Context<Self>) {
+        let minute = |time: DateTime<Utc>| time.timestamp().div_euclid(60);
+        let changed = minute(now) != minute(self.now);
+        self.now = now;
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// What the status bar says now.
+    fn status(&self, cx: &App) -> Status {
+        let settings = self.settings.read(cx);
+        let checks = self.checks.read(cx);
+        Status::read(&status::Inputs {
+            ai_on: settings.ai_on(),
+            enabled_clients: settings.ai().enabled(),
+            failing: checks.failing(),
+            has_checks: checks.has_checks(),
+            accounts: self.accounts.read(cx).data(),
+            counts: self.transactions.read(cx).counts(),
+            now: self.now,
         })
     }
 
@@ -1215,74 +1275,58 @@ impl ShellView {
     }
 }
 
-/// The status bar, with the Transactions fixture's values on every view
-/// until each reads the database. The first item follows the kill switch
-/// (M3.15): "AI access off" with the `refused` icon while it's off
-/// (Paper `GW6-0`); either opens Settings → AI clients. The transactions
-/// count is the database's (M3.10), "· 2 excluded" after it when some are
-/// (D6.3, `3FE-0`); the sample data keeps the artboard's 328.
-fn status_bar(
-    ai_on: bool,
-    failing: usize,
-    counts: Counts,
-    cx: &mut Context<ShellView>,
-) -> StatusBar {
-    let shell = cx.entity().downgrade();
-    let open = move |window: &mut Window, cx: &mut gpui_kit::App| {
-        let _ = shell.update(cx, |shell, cx| shell.show_ai_clients(window, cx));
+/// The status bar (`status`): from the database, items with nothing to
+/// say left out; the sample data keeps Paper's. The AI item ("N agents
+/// connected" or "AI access off") opens Settings → AI clients, and failing
+/// balance checks open Balance checks.
+fn status_bar(status: &Status, cx: &mut Context<ShellView>) -> StatusBar {
+    let mut bar = StatusBar::new();
+    let ai = match status.ai {
+        Ai::Off => Some(StatusItem::text("AI access off").muted_icon(Glyph::Refused)),
+        Ai::Connected(count) => Some(StatusItem::text(status::agents_text(count)).agent_dot()),
+        Ai::None => None,
     };
-    let ai = if ai_on {
-        StatusItem::text("1 agent connected").agent_dot()
-    } else {
-        StatusItem::text("AI access off").muted_icon(Glyph::Refused)
-    };
+    if let Some(ai) = ai {
+        let shell = cx.entity().downgrade();
+        bar = bar.start(ai.on_click(
+            "status-ai-access",
+            move |window: &mut Window, cx: &mut gpui_kit::App| {
+                let _ = shell.update(cx, |shell, cx| shell.show_ai_clients(window, cx));
+            },
+        ));
+    }
     // A failing balance check replaces "Reconciled" (`DESIGN.md` → "Review
     // queues"), and opens Balance checks.
-    let checks = if failing > 0 {
-        let shell = cx.entity().downgrade();
-        StatusItem::text(format!(
-            "{failing} balance {} failing",
-            if failing == 1 { "check" } else { "checks" }
-        ))
-        .danger_dot()
-        .on_click("status-balance-checks", move |window, cx| {
-            let _ = shell.update(cx, |shell, cx| shell.show_balance_checks(None, window, cx));
-        })
-    } else {
-        StatusItem::text("Reconciled").icon(Glyph::Check)
-    };
-    StatusBar::new()
-        .start(ai.on_click("status-ai-access", open))
-        .start(checks)
-        .start(StatusItem::text(
-            "Imported 2 min ago from monzo-november.csv",
-        ))
-        .start(StatusItem::mono(SharedString::from(transactions_count(
-            counts,
-        ))))
-        .end(StatusItem::text("3 new").new_dot())
-        .end(StatusItem::mono("GBP"))
-}
-
-/// "328 transactions", or "328 transactions · 2 excluded".
-fn transactions_count(counts: Counts) -> String {
-    // The fixture holds a page of the month; the status bar counts the
-    // whole import, as Paper does.
-    const IMPORTED: usize = 328;
-    let transactions = if counts.sample {
-        IMPORTED
-    } else {
-        counts.transactions
-    };
-    let noun = if transactions == 1 {
-        "transaction"
-    } else {
-        "transactions"
-    };
-    match counts.excluded {
-        0 => format!("{transactions} {noun}"),
-        excluded => format!("{transactions} {noun} · {excluded} excluded"),
+    match status.checks {
+        ChecksStatus::Failing(failing) => {
+            let shell = cx.entity().downgrade();
+            bar = bar.start(
+                StatusItem::text(status::failing_text(failing))
+                    .danger_dot()
+                    .on_click("status-balance-checks", move |window, cx| {
+                        let _ = shell
+                            .update(cx, |shell, cx| shell.show_balance_checks(None, window, cx));
+                    }),
+            );
+        }
+        ChecksStatus::Reconciled => {
+            bar = bar.start(StatusItem::text("Reconciled").icon(Glyph::Check));
+        }
+        ChecksStatus::None => {}
     }
+    if let Some(import) = &status.import {
+        bar = bar.start(StatusItem::text(SharedString::from(import.clone())));
+    }
+    bar = bar.start(StatusItem::mono(SharedString::from(
+        status.transactions.clone(),
+    )));
+    if let Some(new) = &status.new {
+        bar = bar.end(StatusItem::text(SharedString::from(new.clone())).new_dot());
+    }
+    if let Some(currency) = &status.currency {
+        bar = bar.end(StatusItem::mono(SharedString::from(currency.clone())));
+    }
+    bar
 }
 
 impl Render for ShellView {
@@ -1381,12 +1425,7 @@ impl Render for ShellView {
                 .text_color(color::TEXT)
                 .child(self.render_title_bar(cx))
                 .child(body)
-                .child(status_bar(
-                    self.settings.read(cx).ai_on(),
-                    self.checks.read(cx).failing(),
-                    self.transactions.read(cx).counts(),
-                    cx,
-                ))
+                .child(status_bar(&self.status(cx), cx))
                 .when_some(
                     self.dialog.as_ref().map(|(view, _)| view.clone()),
                     |this, dialog| this.child(dialog),

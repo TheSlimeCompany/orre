@@ -244,11 +244,22 @@ fn keeping_the_other_row_plans_the_other_way() {
     assert_eq!(effect.spending[0].change, gbp(-4_250));
 }
 
+/// An account without balances has nothing to check, so the status bar
+/// says nothing about reconciling.
+#[test]
+fn an_account_without_balances_has_no_checks() {
+    let fixture = Fixture::new();
+    let review = review(&fixture.db).unwrap();
+    assert_eq!(review.failing(), 0);
+    assert!(!review.has_checks());
+}
+
 #[test]
 fn a_failing_check_names_its_base_window_and_the_pair_that_explains_it() {
     let (fixture, _, _, candidate) = Fixture::ocado();
     let review = review(&fixture.db).unwrap();
     assert_eq!(review.failing(), 1);
+    assert!(review.has_checks());
     assert_eq!(failing(&fixture.db).unwrap(), 1);
     let account = review.account(fixture.account).unwrap();
     assert_eq!(account.name, "Joint account");
