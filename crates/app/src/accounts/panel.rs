@@ -23,8 +23,14 @@
 //! liability's negative balance isn't `danger`. ⌘N here adds a valuation
 //! to a selected asset or liability.
 //!
-//! The categories are still the Transactions fixture's, with its counts,
-//! until the table reads the database and filters by them (M3.3).
+//! CATEGORIES lists each top-level group that holds transactions with how
+//! many it holds, all time and in every account (core's
+//! `Register::category_counts`, read with the Transactions register), most
+//! first and Other last, then Uncategorised. Clicking a row shows
+//! Transactions filtered to it (a group includes its subcategories) and
+//! marks the row selected; clicking the selected row there clears it. The
+//! `+` opens Rules on a new category. The arrow keys move through the
+//! accounts only. Composed, not drawn (user, 2026-11-17).
 
 use coffer_core::account::AccountKind;
 use coffer_core::id::AccountId;
@@ -39,7 +45,6 @@ use gpui_kit::{
 use crate::format::{Sign, money};
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, font, size, spacing, typography};
-use crate::transactions::fixture::{self, Category};
 use crate::ui::button::IconButton;
 use crate::ui::icon::Glyph;
 use crate::ui::list_row::{ListRow, TrailingTone};
@@ -48,7 +53,40 @@ use crate::ui::section_label::SectionLabelRow;
 use crate::ui::text::TextRoleExt as _;
 
 use super::data::AccountsData;
-use super::{Accounts, AddValuation};
+use super::{Accounts, AddValuation, CategoryPick};
+
+/// What CATEGORIES shows, from the Transactions register.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PanelCategories {
+    /// The groups that hold transactions, in the panel's order.
+    pub groups: Vec<PanelCategory>,
+    /// Transactions that need a category.
+    pub uncategorised: usize,
+    /// The row Transactions is filtered to, if any.
+    pub picked: Option<CategoryPick>,
+}
+
+/// A group under CATEGORIES.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelCategory {
+    /// Its category ID, as the Category filter takes it.
+    pub id: i64,
+    pub label: SharedString,
+    pub marker: Marker,
+    /// How many transactions it holds, its subcategories' included.
+    pub rows: usize,
+}
+
+/// The element id of the Categories section's `+`.
+pub const ADD_CATEGORY: &str = "add-category";
+
+/// The element id of a group's row under CATEGORIES.
+pub fn category_row_id(id: i64) -> SharedString {
+    format!("category-{id}").into()
+}
+
+/// The element id of the Uncategorised row.
+pub const UNCATEGORISED_ROW: &str = "uncategorised";
 
 /// The panel's key context, where the arrow keys move the selection.
 pub const CONTEXT: &str = "CofferAccountsPanel";
@@ -163,6 +201,7 @@ fn account_row(
 /// `focus` is the panel's own handle, kept by its owner.
 pub fn render(
     accounts: &Entity<Accounts>,
+    categories: &PanelCategories,
     focus: &FocusHandle,
     window: &Window,
     cx: &App,
@@ -278,24 +317,37 @@ pub fn render(
         )
     }));
 
-    let categories = list_section(SectionLabelRow::new("Categories").action(IconButton::new(
-        "add-category",
-        Glyph::Plus,
-        "Add category",
-    )))
-    .children(Category::ALL.into_iter().map(|category| {
-        ListRow::new(category.name(), category.name())
-            .marker(category.marker())
-            .trailing(category.count().to_string())
-            .trailing_tone(TrailingTone::Faint)
-    }))
-    .child(
-        ListRow::new("uncategorised", "Uncategorised")
-            .marker(Marker::None)
-            .dimmed(true)
-            .trailing(fixture::UNCATEGORISED_COUNT.to_string())
-            .trailing_tone(TrailingTone::Faint),
-    );
+    let add_category = {
+        let accounts = accounts.clone();
+        IconButton::new(ADD_CATEGORY, Glyph::Plus, "Add category").on_click(move |_, _, cx| {
+            accounts.update(cx, |accounts, cx| accounts.request_new_category(cx))
+        })
+    };
+    let pick = |pick: CategoryPick| {
+        let accounts = accounts.clone();
+        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
+            accounts.update(cx, |accounts, cx| accounts.request_category(pick, cx))
+        }
+    };
+    let categories_section = list_section(SectionLabelRow::new("Categories").action(add_category))
+        .children(categories.groups.iter().map(|group| {
+            let picked = CategoryPick::Category(group.id);
+            ListRow::new(category_row_id(group.id), group.label.clone())
+                .marker(group.marker)
+                .selected(categories.picked == Some(picked))
+                .trailing(group.rows.to_string())
+                .trailing_tone(TrailingTone::Faint)
+                .on_click(pick(picked))
+        }))
+        .child(
+            ListRow::new(UNCATEGORISED_ROW, "Uncategorised")
+                .marker(Marker::None)
+                .dimmed(true)
+                .selected(categories.picked == Some(CategoryPick::Uncategorised))
+                .trailing(categories.uncategorised.to_string())
+                .trailing_tone(TrailingTone::Faint)
+                .on_click(pick(CategoryPick::Uncategorised)),
+        );
 
     let (up, down, clear, add_value) = (
         accounts.clone(),
@@ -334,5 +386,5 @@ pub fn render(
         .child(net_worth)
         .child(accounts_section)
         .child(valued_section)
-        .child(categories)
+        .child(categories_section)
 }

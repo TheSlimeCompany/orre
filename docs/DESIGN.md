@@ -1047,6 +1047,10 @@ replace it with their own lists.
 - Net worth figure at the top (mono 13/16 600), then ACCOUNTS (section label row with a `+`
   that opens "New account"), one list row per account with its mono balance; pots nested
   20px under their parent with the pot icon. CATEGORIES below, used as a filter.
+  Built (2026-11-17): the groups that hold transactions with their all-time counts, most
+  first and Other last, then Uncategorised; a picked row takes the selected look;
+  `+` opens Rules → Categories on a new category (`ARCHITECTURE.md` → "Decision record:
+  the Transactions view", point 8).
 - Row states: selected (`molten-soft`, white label), hover, **flagged** (a 6px `danger`
   dot before the balance: a balance assertion failed; the tooltip names the window), **no
   balance** (the value reads "No balance" in UI type, `text-muted`; the account is left out

@@ -73,25 +73,7 @@ impl Category {
             Self::Other => Marker::Other,
         }
     }
-
-    /// How many transactions the category holds this month (the left
-    /// panel's counts; fixed in the fixture).
-    pub fn count(self) -> u32 {
-        match self {
-            Self::Groceries => 42,
-            Self::EatingOut => 31,
-            Self::Transport => 27,
-            Self::Shopping => 18,
-            Self::Bills => 9,
-            Self::Entertainment => 6,
-            Self::Other => 11,
-        }
-    }
 }
-
-/// Uncategorised transactions this month: the left panel's and the filter
-/// chip's count.
-pub const UNCATEGORISED_COUNT: u32 = 14;
 
 /// A transaction's category, as far as it's decided.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

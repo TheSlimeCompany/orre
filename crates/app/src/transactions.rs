@@ -737,15 +737,20 @@ impl TransactionsView {
                 })
             })
             .collect();
-        let picked = if self.filter.uncategorised {
-            Some(CategoryPick::Uncategorised)
-        } else {
-            self.filter.category.map(CategoryPick::Category)
-        };
         PanelCategories {
             groups,
             uncategorised: self.category_counts.uncategorised,
-            picked,
+            picked: self.picked_category(),
+        }
+    }
+
+    /// The panel row the table is filtered to: Uncategorised wins, as it
+    /// narrows any category further.
+    fn picked_category(&self) -> Option<CategoryPick> {
+        if self.filter.uncategorised {
+            Some(CategoryPick::Uncategorised)
+        } else {
+            self.filter.category.map(CategoryPick::Category)
         }
     }
 
@@ -754,8 +759,7 @@ impl TransactionsView {
     /// replace each other. With `toggle`, picking the row the table is
     /// already filtered to clears it, as clicking a selected account does.
     pub fn pick_category(&mut self, pick: CategoryPick, toggle: bool, cx: &mut Context<Self>) {
-        let current = self.panel_categories().picked;
-        if toggle && current == Some(pick) {
+        if toggle && self.picked_category() == Some(pick) {
             self.filter.category = None;
             self.filter.uncategorised = false;
         } else {

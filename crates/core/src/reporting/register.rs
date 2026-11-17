@@ -842,7 +842,10 @@ impl Register {
             .collect();
         // Stable: ties keep menu order.
         groups.sort_by_key(|&(category, rows)| {
-            (category.key.as_str() == OTHER_GROUP, std::cmp::Reverse(rows))
+            (
+                category.key.as_str() == OTHER_GROUP,
+                std::cmp::Reverse(rows),
+            )
         });
         CategoryCounts {
             groups: groups

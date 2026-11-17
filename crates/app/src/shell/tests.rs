@@ -355,3 +355,106 @@ fn closing_the_window_saves_at_once(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(store.load().unwrap().view.as_deref(), Some("inbox"));
 }
+
+/// The panel's CATEGORIES, as the shell last read them from Transactions.
+fn panel_categories(
+    shell: &Entity<ShellView>,
+    cx: &mut VisualTestContext,
+) -> accounts::panel::PanelCategories {
+    cx.update(|_, cx| shell.read(cx).panel_categories.clone())
+}
+
+#[gpui_kit::test]
+fn the_panel_lists_the_registers_categories(cx: &mut TestAppContext) {
+    let (shell, cx) = open_shell(cx, View::Overview);
+    let categories = panel_categories(&shell, cx);
+    let counts = cx.update(|_, cx| {
+        let transactions = shell.read(cx).transactions().read(cx);
+        transactions.register().category_counts()
+    });
+    assert!(
+        !counts.groups.is_empty(),
+        "the fixture has categorised rows"
+    );
+    let listed: Vec<(i64, usize)> = categories
+        .groups
+        .iter()
+        .map(|group| (group.id, group.rows))
+        .collect();
+    let counted: Vec<(i64, usize)> = counts
+        .groups
+        .iter()
+        .map(|count| (count.category, count.rows))
+        .collect();
+    assert_eq!(listed, counted);
+    assert_eq!(categories.uncategorised, counts.uncategorised);
+    assert_eq!(categories.picked, None);
+    for group in &categories.groups {
+        assert!(shows(&accounts::panel::category_row_id(group.id), cx));
+    }
+    assert!(shows(accounts::panel::UNCATEGORISED_ROW, cx));
+}
+
+#[gpui_kit::test]
+fn clicking_a_category_shows_its_transactions(cx: &mut TestAppContext) {
+    use accounts::CategoryPick;
+    let (shell, cx) = open_shell(cx, View::Overview);
+    let group = panel_categories(&shell, cx).groups[0].clone();
+    let row = accounts::panel::category_row_id(group.id);
+    let filtered = |shell: &Entity<ShellView>, cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            let transactions = shell.read(cx).transactions().read(cx);
+            (
+                transactions.filter().category,
+                transactions.filter().uncategorised,
+                transactions.listing().len(),
+            )
+        })
+    };
+
+    cx.update(|window, cx| window.click(row.clone(), cx));
+    redraw(cx);
+    assert_eq!(view(&shell, cx), View::Transactions);
+    assert_eq!(filtered(&shell, cx), (Some(group.id), false, group.rows));
+    assert_eq!(
+        panel_categories(&shell, cx).picked,
+        Some(CategoryPick::Category(group.id))
+    );
+
+    // Uncategorised replaces the category.
+    let uncategorised = panel_categories(&shell, cx).uncategorised;
+    cx.update(|window, cx| window.click(accounts::panel::UNCATEGORISED_ROW, cx));
+    redraw(cx);
+    assert_eq!(filtered(&shell, cx), (None, true, uncategorised));
+
+    // On Transactions, the picked row again clears it.
+    cx.update(|window, cx| window.click(accounts::panel::UNCATEGORISED_ROW, cx));
+    redraw(cx);
+    assert_eq!(filtered(&shell, cx).0, None);
+    assert!(!filtered(&shell, cx).1);
+    assert_eq!(panel_categories(&shell, cx).picked, None);
+
+    // From another view the same row shows it rather than clearing it.
+    cx.update(|window, cx| window.click(row.clone(), cx));
+    redraw(cx);
+    cx.update(|window, cx| window.click("view-budgets", cx));
+    redraw(cx);
+    cx.update(|window, cx| window.click(row, cx));
+    redraw(cx);
+    assert_eq!(view(&shell, cx), View::Transactions);
+    assert_eq!(filtered(&shell, cx).0, Some(group.id));
+}
+
+#[gpui_kit::test]
+fn the_categories_plus_opens_a_new_category_in_rules(cx: &mut TestAppContext) {
+    let (shell, cx) = open_shell(cx, View::Transactions);
+    cx.update(|window, cx| window.click(accounts::panel::ADD_CATEGORY, cx));
+    redraw(cx);
+    assert_eq!(view(&shell, cx), View::Rules);
+    let (section, selection) = cx.update(|_, cx| {
+        let rules = shell.read(cx).rules().read(cx);
+        (rules.section(), rules.selected_category())
+    });
+    assert_eq!(section, crate::rules::Section::Categories);
+    assert_eq!(selection, Some(crate::rules::CategorySelection::New));
+}

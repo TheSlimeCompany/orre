@@ -1307,7 +1307,16 @@ and "Data table (Transactions)", or an earlier record.
    the Inbox's (M3.6, M3.14): approving one is a whole-suggestion change. No row is
    flagged yet: nothing records a per-transaction problem. Mark as transfer, Create
    rule and Import stay inert until M3.8, M3.13 and M3.4. The left panel's CATEGORIES
-   list and the status bar still show the fixture.
+   list and the status bar still show the fixture (both read the database since: the
+   status bar with M3.10 and M3.12, CATEGORIES on 2026-11-17, point 8).
+8. **The panel's CATEGORIES (user, 2026-11-17).** Each top-level group that holds
+   transactions, with how many, all time and in every account (core's
+   `Register::category_counts`, counted as the Category filter keeps rows, so a count
+   is what picking it shows; excluded rows left out), most first, Other last, then
+   Uncategorised. Clicking a row opens Transactions filtered to it (a group includes its
+   subcategories; Uncategorised and a category replace each other); on Transactions the
+   picked row clears it. `+` opens Rules → Categories on a new category. Composed from
+   existing specs, not drawn.
 
 ### Decision record: Inbox (2026-11-14)
 

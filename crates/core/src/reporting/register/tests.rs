@@ -386,7 +386,10 @@ fn category_counts_match_what_the_category_filter_keeps() {
             ("other".to_owned(), 3),
         ]
     );
-    assert_eq!(counts.uncategorised, 1, "excluded rows and transfers left out");
+    assert_eq!(
+        counts.uncategorised, 1,
+        "excluded rows and transfers left out"
+    );
 
     // Each count is exactly what picking the group shows.
     for count in &counts.groups {

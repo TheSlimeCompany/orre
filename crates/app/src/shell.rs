@@ -63,6 +63,7 @@ use crate::accounts::add_balance::AddBalanceDialog;
 use crate::accounts::close::CloseAccountDialog;
 use crate::accounts::delete::DeleteAccountDialog;
 use crate::accounts::new_account::NewAccountDialog;
+use crate::accounts::panel::PanelCategories;
 use crate::accounts::store::AccountStore;
 use crate::accounts::{self, Accounts, AccountsEvent, DialogClosed};
 use crate::checks::lock::{LockDialog, UnlockDialog};
@@ -403,6 +404,9 @@ pub struct ShellView {
     dialog: Option<(AnyView, Subscription)>,
     /// What the status bar counts, as Transactions last said.
     counts: Counts,
+    /// What the accounts panel's CATEGORIES shows, as Transactions last
+    /// said.
+    panel_categories: PanelCategories,
     /// Where imports go, and the notification after one (M3.4).
     imports: Entity<Imports>,
     /// The Import dialog while it's the one open, for a file dropped on
@@ -497,6 +501,7 @@ impl ShellView {
             transactions.show_accounts(accounts.clone(), window, cx);
             transactions
         });
+        let panel_categories = transactions.read(cx).panel_categories();
         let subscriptions = vec![
             cx.subscribe_in(&accounts, window, |this, _, event, window, cx| {
                 this.on_accounts_event(*event, window, cx)
@@ -509,11 +514,14 @@ impl ShellView {
             cx.subscribe_in(&transactions, window, |this, _, event, window, cx| {
                 this.on_transactions_event(event.clone(), window, cx)
             }),
-            // The status bar's counts follow the register.
+            // The status bar's counts and the panel's categories follow
+            // the register and the table's filter.
             cx.observe(&transactions, |this, transactions, cx| {
                 let counts = transactions.read(cx).counts();
-                if counts != this.counts {
+                let categories = transactions.read(cx).panel_categories();
+                if counts != this.counts || categories != this.panel_categories {
                     this.counts = counts;
+                    this.panel_categories = categories;
                     cx.notify();
                 }
             }),
@@ -545,6 +553,7 @@ impl ShellView {
             settings,
             dialog: None,
             counts: Counts::default(),
+            panel_categories,
             imports,
             import_dialog: None,
             panel_focus: cx.focus_handle(),
@@ -942,6 +951,19 @@ impl ShellView {
             AccountsEvent::ChecksRequested(account) => {
                 self.show_balance_checks(Some(account), window, cx)
             }
+            // From another view a row shows its transactions; on
+            // Transactions, the picked row again clears the filter.
+            AccountsEvent::CategoryPicked(pick) => {
+                let toggle = self.view == View::Transactions;
+                self.show(View::Transactions, window, cx);
+                self.transactions.update(cx, |transactions, cx| {
+                    transactions.pick_category(pick, toggle, cx)
+                });
+            }
+            AccountsEvent::NewCategoryRequested => {
+                self.show(View::Rules, window, cx);
+                self.rules.update(cx, |rules, cx| rules.new_category(cx));
+            }
         }
     }
 
@@ -1280,6 +1302,7 @@ impl Render for ShellView {
             .when(view.has_accounts_panel(), |this| {
                 this.child(accounts::panel::render(
                     &self.accounts,
+                    &self.panel_categories,
                     &self.panel_focus,
                     window,
                     cx,
