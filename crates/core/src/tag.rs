@@ -43,7 +43,7 @@ use std::fmt;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::db::Database;
-use crate::id::{BatchId, TagId, TransactionId};
+use crate::id::{TagId, TransactionId};
 use crate::rule::fold;
 
 /// The longest tag name, in characters (Unicode scalar values). The schema
@@ -369,28 +369,6 @@ fn require_transaction(conn: &Connection, id: TransactionId) -> Result<(), Error
     })
     .optional()?
     .ok_or(Error::TransactionNotFound(id))
-}
-
-/// Deletes `transaction`'s tag links, if any, and returns how many there
-/// were. The tags stay. For whoever deletes a transaction (a manual row):
-/// its links go first, or the foreign key refuses the delete. Opens no
-/// transaction of its own.
-pub fn clear(conn: &Connection, transaction: TransactionId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM transaction_tag WHERE transaction_id = ?1",
-        [transaction],
-    )
-}
-
-/// Deletes the tag links of every transaction of import `batch` (mirrored
-/// rows included) and returns how many there were. For undo, before it
-/// deletes the batch's transactions. Opens no transaction of its own.
-pub fn clear_batch(conn: &Connection, batch: BatchId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM transaction_tag WHERE transaction_id IN \
-         (SELECT id FROM \"transaction\" WHERE batch_id = ?1)",
-        [batch],
-    )
 }
 
 /// The ID of the tag named `name` ignoring case, creating it (not private)

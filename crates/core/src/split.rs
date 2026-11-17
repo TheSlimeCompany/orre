@@ -52,7 +52,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::category::CategoryKey;
 use crate::db::Database;
-use crate::id::{BatchId, SplitId, TransactionId};
+use crate::id::{SplitId, TransactionId};
 use crate::money::{Currency, Money};
 
 /// Why a split couldn't be set, removed or read. Lines are numbered from
@@ -394,24 +394,12 @@ pub fn is_split(conn: &Connection, transaction: TransactionId) -> rusqlite::Resu
 }
 
 /// Deletes `transaction`'s split lines, if any, and returns how many there
-/// were. Leaves the transaction itself alone. For whoever deletes a
-/// transaction (a manual row): its lines go first, or the foreign key
-/// refuses the delete. Opens no transaction of its own.
-pub fn clear(conn: &Connection, transaction: TransactionId) -> rusqlite::Result<usize> {
+/// were. Leaves the transaction itself alone. For setting, removing and
+/// undoing a split. Opens no transaction of its own.
+pub(crate) fn clear(conn: &Connection, transaction: TransactionId) -> rusqlite::Result<usize> {
     conn.execute(
         "DELETE FROM transaction_split WHERE transaction_id = ?1",
         [transaction],
-    )
-}
-
-/// Deletes the split lines of every transaction of import `batch` (mirrored
-/// rows included) and returns how many there were. For undo, before it
-/// deletes the batch's transactions. Opens no transaction of its own.
-pub fn clear_batch(conn: &Connection, batch: BatchId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM transaction_split WHERE transaction_id IN \
-         (SELECT id FROM \"transaction\" WHERE batch_id = ?1)",
-        [batch],
     )
 }
 

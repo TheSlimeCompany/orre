@@ -52,7 +52,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use crate::account::{self, Account, date_key};
 use crate::backup;
 use crate::balance::{Assertion, DailyMovements};
-use crate::category::CategoryKey;
+use crate::category::{self, CategoryKey};
 use crate::change;
 use crate::db::Database;
 use crate::duplicate::{self, DuplicateWindow};
@@ -60,14 +60,13 @@ use crate::id::{AccountId, BalanceId, BatchId, TransactionId};
 use crate::link;
 use crate::merchant;
 use crate::money::{Currency, Money};
+use crate::removal::{self, Scope};
 use crate::rule;
 use crate::schedule;
-use crate::split;
 use crate::statement::{
     RowProblem, SourceFormat, SourceLocation, Statement, StatementLine, SubAccountRef,
 };
 use crate::sub_account::{self, MirrorPlan};
-use crate::tag;
 use crate::transfer::{self, TransferWindow};
 
 pub use dedupe::{FINGERPRINT_VERSION, fingerprint};
@@ -443,8 +442,8 @@ pub struct CommitSummary {
     pub categorized_by_preset: usize,
     /// New rows a rule categorised (`category_source = 'rule'`).
     pub categorized_by_rules: usize,
-    /// New rows still needing a category after every step: no category
-    /// and not in a confirmed transfer, or a split line without one.
+    /// New rows still needing a category after every step
+    /// ([`CategoryFacts::needs_category`](crate::category::assign::CategoryFacts::needs_category)).
     pub uncategorized: usize,
     /// Pot-side rows mirrored from the new rows' sub-account transfers
     /// (`origin = 'mirrored'`), each paired with its row as a `confirmed`
@@ -800,21 +799,10 @@ fn write_batch(
 }
 
 /// The batch's imported rows that still need a category once every step
-/// has run: no category and not in a confirmed transfer, or a split line
-/// without one (`RegisterRow::is_uncategorised`).
+/// has run (`CategoryFacts::needs_category`, the rule the Transactions
+/// table's Uncategorised chip uses).
 fn uncategorized(conn: &Connection, batch: BatchId) -> Result<usize, Error> {
-    let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM \"transaction\" t \
-         LEFT JOIN transfer_group g ON g.id = t.transfer_group_id \
-         WHERE t.batch_id = ?1 AND t.origin = 'imported' AND ( \
-           (NOT EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id) \
-            AND t.category_id IS NULL AND (g.status IS NULL OR g.status <> 'confirmed')) \
-           OR EXISTS (SELECT 1 FROM transaction_split s \
-                      WHERE s.transaction_id = t.id AND s.category_id IS NULL))",
-        [batch],
-        |row| row.get(0),
-    )?;
-    Ok(usize::try_from(n).unwrap_or(0))
+    Ok(category::assign::needs_category_in_batch(conn, batch)?)
 }
 
 /// Every category's ID, by key.
@@ -1276,44 +1264,15 @@ pub fn undo_preview(db: &Database, batch: BatchId) -> Result<UndoPreview, Error>
     plan_undo(&tx, batch)
 }
 
-/// Undoes an import in one DB transaction: deletes its transactions
-/// (mirrored pot rows included) with their split lines and tag links, its
-/// balances and its flags, dissolves transfer pairs that include its rows,
-/// and marks it `undone`. The batch
-/// row stays, so the account's import history still lists it.
+/// Undoes an import in one DB transaction: removes its transactions
+/// (mirrored pot rows included) with everything that refers
+/// to them, deletes its balances and its flags, and marks it `undone`. The
+/// batch row stays, so the account's import history still lists it.
 pub fn undo(db: &mut Database, batch: BatchId) -> Result<UndoPreview, Error> {
     let tx = db.conn_mut().transaction()?;
     let undone = plan_undo(&tx, batch)?;
 
-    let groups: Vec<i64> = {
-        let mut statement = tx.prepare(
-            "SELECT DISTINCT transfer_group_id FROM \"transaction\" \
-             WHERE batch_id = ?1 AND transfer_group_id IS NOT NULL",
-        )?;
-        statement
-            .query_map([batch], |row| row.get(0))?
-            .collect::<Result<_, _>>()?
-    };
-    for group in groups {
-        tx.execute(
-            "UPDATE \"transaction\" SET transfer_group_id = NULL WHERE transfer_group_id = ?1",
-            [group],
-        )?;
-        tx.execute("DELETE FROM transfer_group WHERE id = ?1", [group])?;
-    }
-    // Rows that reference a transaction go first (no `ON DELETE`): split
-    // lines, tag links, change items, refund/reimbursement/settlement links
-    // (either side, so money in from another batch is unlinked again) and
-    // duplicate candidates, and schedule matches (the occurrence is open
-    // again). A table that references a transaction and isn't cleared here
-    // makes the delete fail, and the whole undo with it.
-    split::clear_batch(&tx, batch)?;
-    tag::clear_batch(&tx, batch)?;
-    change::clear_batch(&tx, batch)?;
-    link::clear_batch(&tx, batch)?;
-    duplicate::clear_batch(&tx, batch)?;
-    schedule::clear_batch(&tx, batch)?;
-    tx.execute("DELETE FROM \"transaction\" WHERE batch_id = ?1", [batch])?;
+    removal::remove(&tx, Scope::Import(batch))?;
     tx.execute("DELETE FROM balance_snapshot WHERE batch_id = ?1", [batch])?;
     tx.execute("DELETE FROM import_flag WHERE batch_id = ?1", [batch])?;
     tx.execute(

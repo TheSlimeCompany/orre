@@ -74,7 +74,7 @@ use coffer_core::inbox::own;
 use coffer_core::manual::{self, ManualTransaction};
 use coffer_core::note::UserNote;
 use coffer_core::reporting::register::{
-    DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
+    CategoryCounts, DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
 };
 use coffer_core::transfer as core_transfer;
 use gpui_kit::base::actions::{Cancel, SelectDown, SelectFirst, SelectLast, SelectUp};
@@ -87,7 +87,9 @@ use gpui_kit::{
     Window, div, list,
 };
 
+use crate::accounts::CategoryPick;
 use crate::accounts::inspector::AccountInspector;
+use crate::accounts::panel::{PanelCategories, PanelCategory};
 use crate::accounts::store::StoreError;
 use crate::accounts::{Accounts, AccountsEvent};
 use crate::format::{self, Sign};
@@ -309,6 +311,9 @@ pub struct Counts {
 pub struct TransactionsView {
     source: Source,
     register: Register,
+    /// What each category group holds, counted when the register is read:
+    /// the accounts panel's CATEGORIES.
+    category_counts: CategoryCounts,
     /// Whether the register has been read once: until then the table is
     /// blank rather than "No transactions yet".
     loaded: bool,
@@ -396,6 +401,7 @@ impl TransactionsView {
         let mut view = Self {
             source,
             register: Register::default(),
+            category_counts: CategoryCounts::default(),
             loaded: false,
             load_error: None,
             loading: None,
@@ -554,6 +560,7 @@ impl TransactionsView {
         self.generation += 1;
         match result {
             Ok(register) => {
+                self.category_counts = register.category_counts();
                 self.register = register;
                 self.load_error = None;
             }
@@ -711,6 +718,59 @@ impl TransactionsView {
             excluded,
             sample: matches!(self.source, Source::Fixture),
         }
+    }
+
+    /// What the accounts panel lists under CATEGORIES, and which row the
+    /// table is filtered to.
+    pub fn panel_categories(&self) -> PanelCategories {
+        let groups = self
+            .category_counts
+            .groups
+            .iter()
+            .filter_map(|count| {
+                let category = self.register.category(count.category)?;
+                Some(PanelCategory {
+                    id: category.id,
+                    label: category.label.clone().into(),
+                    marker: present::marker(category.colour),
+                    rows: count.rows,
+                })
+            })
+            .collect();
+        let picked = if self.filter.uncategorised {
+            Some(CategoryPick::Uncategorised)
+        } else {
+            self.filter.category.map(CategoryPick::Category)
+        };
+        PanelCategories {
+            groups,
+            uncategorised: self.category_counts.uncategorised,
+            picked,
+        }
+    }
+
+    /// Filters by a row of the panel's CATEGORIES: a group, its
+    /// subcategories included, or the rows that need a category; the two
+    /// replace each other. With `toggle`, picking the row the table is
+    /// already filtered to clears it, as clicking a selected account does.
+    pub fn pick_category(&mut self, pick: CategoryPick, toggle: bool, cx: &mut Context<Self>) {
+        let current = self.panel_categories().picked;
+        if toggle && current == Some(pick) {
+            self.filter.category = None;
+            self.filter.uncategorised = false;
+        } else {
+            match pick {
+                CategoryPick::Category(id) => {
+                    self.filter.category = Some(id);
+                    self.filter.uncategorised = false;
+                }
+                CategoryPick::Uncategorised => {
+                    self.filter.category = None;
+                    self.filter.uncategorised = true;
+                }
+            }
+        }
+        self.refilter(cx);
     }
 
     /// The account the accounts panel filters by, if any.

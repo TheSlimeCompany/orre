@@ -2135,6 +2135,47 @@ Inbox's "If you approve" amounts (point 3) and the review queue's "If you merge"
    doesn't report spending. `inbox::impact`'s own "moves income" test is not changed
    here.
 
+### Decision record: removing transactions, and which rows need a category (2026-11-16)
+
+From an architecture review of `crates/core`. Nothing the user sees changes except point
+3's count.
+
+1. **One module removes transactions** (`core::removal`, crate-private).
+   `removal::remove(conn, Scope::Row(id) | Scope::Import(batch))` dissolves the rows'
+   transfer groups (their partners stay as ordinary transactions), deletes every row
+   that refers to them, then deletes the transactions, all inside the caller's DB
+   transaction. `manual::delete` and `import::undo` call it and keep only their own
+   checks and steps (manual-only and lock date; balances, flags and the batch's
+   status). `removal::dissolve_transfer_group` is also `manual::update`'s.
+2. **The list of what refers to a transaction is checked against the schema.**
+   `removal::REFERENCES` names every `(table, column)` with a foreign key to
+   `"transaction"` (split lines, tag links, change items, both sides of a link, both
+   sides of a duplicate candidate, schedule matches), and a test compares it with the
+   live schema's `pragma_foreign_key_list`. A new table that points at a transaction
+   fails that test until it is listed, instead of failing a delete at run time. The
+   per-module `clear`/`clear_batch` functions are gone, except `split::clear`
+   (crate-private), which setting, removing and undoing a split use. Supersedes the
+   per-table clears of "splits, tags and notes, manual rows, merchant names", points 7
+   and 13.
+3. **Whether a transaction still needs a category is decided by
+   `category::assign`**, from the same facts as whether it takes one
+   (`CategoryFacts::needs_category`): it takes a category of its own and has none, or
+   it is split and a line has none. A confirmed transfer leg or a confirmed refund's
+   money in never needs one. The Transactions table's Uncategorised chip and its count
+   (`RegisterRow::is_uncategorised`) and the import summary's count
+   (`needs_category_in_batch`, from the same facts SQL as `facts_in`) use it, and the
+   parity test runs both readers. Before, a confirmed refund's money in with no
+   category of its own was counted as uncategorised, though its purchase's category
+   counts for it and the table offers no category for it. Supersedes the rule spelled
+   out in "the import flow", point 5, for `CommitSummary::uncategorized`. A partly
+   refunded money in is the same: its uncategorised remainder still shows in reports
+   and `uncategorized_transactions` (point 4), but not under the Uncategorised chip,
+   where it couldn't be categorised before either.
+4. `Ledger::uncategorized` (MCP's `uncategorized_transactions`) is a filter over
+   ledger lines, not transactions, and is unchanged: a fully refunded money in's own
+   line nets to zero and isn't listed; a partly refunded one's uncategorised remainder
+   is.
+
 ## Architecture
 
 ```

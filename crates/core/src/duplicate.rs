@@ -93,9 +93,9 @@
 //!
 //! # Deleting transactions
 //!
-//! Deleting a transaction deletes the candidates that name it ([`clear`],
-//! [`clear_batch`]), whatever their status. Nothing here logs transaction
-//! text, and errors never quote it.
+//! Deleting a transaction deletes the candidates that name it (see
+//! `removal`), whatever their status. Nothing here logs transaction text,
+//! and errors never quote it.
 
 #[cfg(test)]
 mod tests;
@@ -1189,28 +1189,6 @@ pub(crate) fn after_undo(conn: &Connection, batch: ChangeBatchId) -> rusqlite::R
     conn.execute(
         "UPDATE duplicate_candidate SET status = 'pending', kept = NULL, \
          change_batch_id = NULL WHERE change_batch_id = ?1",
-        [batch],
-    )
-}
-
-/// Deletes the candidates naming `transaction`, whatever their status, for
-/// whoever deletes the row (a manual row): the foreign keys have no
-/// `ON DELETE`. Opens no transaction of its own.
-pub fn clear(conn: &Connection, transaction: TransactionId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM duplicate_candidate WHERE transaction_a = ?1 OR transaction_b = ?1",
-        [transaction],
-    )
-}
-
-/// Deletes the candidates naming any transaction of import `batch`
-/// (mirrored rows included), for undoing the import. Opens no transaction
-/// of its own.
-pub fn clear_batch(conn: &Connection, batch: BatchId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM duplicate_candidate WHERE \
-         transaction_a IN (SELECT id FROM \"transaction\" WHERE batch_id = ?1) \
-         OR transaction_b IN (SELECT id FROM \"transaction\" WHERE batch_id = ?1)",
         [batch],
     )
 }

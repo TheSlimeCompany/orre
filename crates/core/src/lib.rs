@@ -32,6 +32,7 @@ pub mod note;
 pub mod paths;
 pub mod reconciliation;
 pub mod recurring;
+mod removal;
 pub mod reporting;
 pub mod rule;
 pub mod schedule;

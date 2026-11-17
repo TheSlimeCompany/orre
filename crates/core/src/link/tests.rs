@@ -1169,12 +1169,11 @@ fn suggest_for_batch_looks_at_the_batchs_money_in_only() {
     assert_eq!(links_of(&fixture.db, imported).unwrap()[0].amount, gbp(500));
     assert!(links_of(&fixture.db, manual_refund).unwrap().is_empty());
 
-    // Undo clears the batch's links, then its rows can go.
+    // Undo removes the batch's rows, and their links with them.
     let delete = "DELETE FROM \"transaction\" WHERE batch_id = ?1";
     assert!(fixture.conn().execute(delete, [batch]).is_err());
-    assert_eq!(clear_batch(fixture.conn(), batch).unwrap(), 1);
-    assert_eq!(fixture.conn().execute(delete, [batch]).unwrap(), 1);
-    let _ = purchase;
+    crate::removal::remove(fixture.conn(), crate::removal::Scope::Import(batch)).unwrap();
+    assert!(links_of(&fixture.db, purchase).unwrap().is_empty());
 }
 
 // Clearing --------------------------------------------------------------------

@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::account::{self, AccountKind, NewAccount};
-use crate::id::AccountId;
+use crate::id::{AccountId, BatchId};
 use crate::transfer::{self, TransferWindow};
 
 fn gbp(minor: i64) -> Money {
@@ -617,7 +617,7 @@ fn the_ledger_sums_to_the_transactions() {
 }
 
 #[test]
-fn clear_batch_lets_an_import_be_deleted() {
+fn removing_an_import_takes_its_split_lines() {
     let mut fixture = Fixture::new();
     fixture
         .conn()
@@ -645,8 +645,8 @@ fn clear_batch_lets_an_import_be_deleted() {
 
     let delete = "DELETE FROM \"transaction\" WHERE batch_id = ?1";
     assert!(fixture.conn().execute(delete, [batch]).is_err());
-    assert_eq!(clear_batch(fixture.conn(), batch).unwrap(), 2);
-    assert_eq!(fixture.conn().execute(delete, [batch]).unwrap(), 1);
+    crate::removal::remove(fixture.conn(), crate::removal::Scope::Import(batch)).unwrap();
+    assert_eq!(fixture.conn().execute(delete, [batch]).unwrap(), 0);
     // Another transaction's split stays.
     assert_eq!(lines(&fixture.db, manual).unwrap().len(), 2);
 

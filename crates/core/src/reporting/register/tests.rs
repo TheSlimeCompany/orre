@@ -337,6 +337,80 @@ fn uncategorised_rows_are_counted_and_filtered() {
 }
 
 #[test]
+fn category_counts_match_what_the_category_filter_keeps() {
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current account", Currency::GBP);
+    let savings = ledger.account("Savings", Currency::GBP);
+    ledger.row(current, "2026-11-09", -420, Some("food.eating_out"));
+    ledger.row(current, "2026-11-09", -645, Some("food.groceries"));
+    ledger.row(savings, "2023-01-02", -900, Some("food"));
+    // One split row in food twice and shopping once: once in each group.
+    let split = ledger.row(current, "2026-11-08", -3000, None);
+    ledger.split(
+        split,
+        &[
+            (-1000, Some("food.groceries")),
+            (-1000, Some("food.eating_out")),
+            (-1000, Some("shopping.clothing")),
+        ],
+    );
+    ledger.row(current, "2026-11-08", -500, Some("other"));
+    ledger.row(current, "2026-11-07", -100, Some("other"));
+    ledger.row(current, "2026-11-07", -100, Some("other"));
+    ledger.row(current, "2026-11-07", -250, Some("transport.taxi"));
+    let twice = ledger.row(current, "2026-11-07", -250, Some("transport.taxi"));
+    ledger.exclude(twice, ExclusionReason::Duplicate);
+    let skipped = ledger.row(current, "2026-11-06", -75, None);
+    ledger.exclude(skipped, ExclusionReason::Duplicate);
+    ledger.row(current, "2026-11-06", -75, None);
+    let out = ledger.row(current, "2026-11-06", -5000, None);
+    let into = ledger.row(savings, "2026-11-06", 5000, None);
+    ledger.transfer(out, into);
+
+    let register = load(&ledger);
+    let counts = register.category_counts();
+    let key = |id: i64| register.category(id).unwrap().key.as_str().to_owned();
+    let listed: Vec<(String, usize)> = counts
+        .groups
+        .iter()
+        .map(|count| (key(count.category), count.rows))
+        .collect();
+    // Most first, ties in menu order (transport before shopping), `other`
+    // last whatever it holds; empty groups left out.
+    assert_eq!(
+        listed,
+        [
+            ("food".to_owned(), 4),
+            ("transport".to_owned(), 1),
+            ("shopping".to_owned(), 1),
+            ("other".to_owned(), 3),
+        ]
+    );
+    assert_eq!(counts.uncategorised, 1, "excluded rows and transfers left out");
+
+    // Each count is exactly what picking the group shows.
+    for count in &counts.groups {
+        let filter = Filter {
+            category: Some(count.category),
+            ..Filter::default()
+        };
+        assert_eq!(register.select(&filter, Sort::Default).len(), count.rows);
+    }
+    let filter = Filter {
+        uncategorised: true,
+        ..Filter::default()
+    };
+    assert_eq!(
+        register.select(&filter, Sort::Default).len(),
+        counts.uncategorised
+    );
+
+    // Nothing imported: no groups, nothing uncategorised.
+    let empty = load(&TestLedger::new()).category_counts();
+    assert_eq!(empty, CategoryCounts::default());
+}
+
+#[test]
 fn sorting_orders_rows_within_each_day() {
     let mut ledger = TestLedger::new();
     let current = ledger.account("Current account", Currency::GBP);

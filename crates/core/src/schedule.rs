@@ -47,7 +47,7 @@
 //! taken oldest first, then by ID. The import commit matches its new rows
 //! for every active schedule on the account, in its own DB transaction
 //! (`match_batch`); undoing the import deletes those matches
-//! (`clear_batch`).
+//! (`removal`).
 //!
 //! - **The amount** compared is the transaction's whole `amount_minor`,
 //!   not the user's share or a split line.
@@ -683,26 +683,6 @@ pub(crate) fn match_batch(conn: &Connection, batch: BatchId) -> Result<usize, Er
     }
     tracing::debug!(batch = %batch, matches = matched, "matched scheduled payments");
     Ok(matched)
-}
-
-/// The undo hook: deletes the matches that name batch `batch`'s
-/// transactions. Returns how many. Only database errors, so callers need
-/// no new error variant.
-pub(crate) fn clear_batch(conn: &Connection, batch: BatchId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM schedule_match WHERE transaction_id IN \
-         (SELECT id FROM \"transaction\" WHERE batch_id = ?1)",
-        [batch],
-    )
-}
-
-/// The manual-delete hook: deletes the match naming `transaction`, if any.
-/// Only database errors, like [`clear_batch`].
-pub(crate) fn clear(conn: &Connection, transaction: TransactionId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM schedule_match WHERE transaction_id = ?1",
-        [transaction],
-    )
 }
 
 // Storage -------------------------------------------------------------------

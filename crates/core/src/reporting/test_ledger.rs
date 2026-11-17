@@ -10,13 +10,14 @@
 #![allow(dead_code)]
 
 use chrono::NaiveDate;
+use rusqlite::OptionalExtension;
 use tempfile::TempDir;
 
 use crate::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
 use crate::category::CategoryKey;
 use crate::db::{Database, Reader};
 use crate::exclusion::{self, ExclusionReason};
-use crate::id::{AccountId, LinkId, SplitId, TransactionId};
+use crate::id::{AccountId, BatchId, LinkId, SplitId, TransactionId};
 use crate::link::{self, LinkKind, LinkTarget, NewLink, ShareLabel, Sharing};
 use crate::manual::{self, ManualTransaction};
 use crate::money::{Currency, Money};
@@ -36,13 +37,19 @@ pub(crate) const SHARE_LABEL: &str = "Test Housemate";
 pub(crate) struct TestLedger {
     _dir: TempDir,
     pub db: Database,
+    /// While set, `row_at` writes imported rows.
+    importing: bool,
 }
 
 impl TestLedger {
     pub fn new() -> TestLedger {
         let dir = TempDir::new().unwrap();
         let db = Database::open(&dir.path().join("coffer.db")).unwrap();
-        TestLedger { _dir: dir, db }
+        TestLedger {
+            _dir: dir,
+            db,
+            importing: false,
+        }
     }
 
     /// A read-only connection, as the MCP server's.
@@ -81,7 +88,8 @@ impl TestLedger {
         account::get(&self.db, account).unwrap().currency
     }
 
-    /// A manual row, optionally categorised (category source `user`).
+    /// A manual row, optionally categorised (category source `user`); an
+    /// imported one while [`TestLedger::start_importing`] is in effect.
     pub fn row(
         &mut self,
         account: AccountId,
@@ -92,8 +100,70 @@ impl TestLedger {
         self.row_at(account, day, minor, category, None, "TEST ROW")
     }
 
+    /// Makes the rows written from now on imported rows, each in its
+    /// account's batch ([`TestLedger::batch_of`]), until
+    /// [`TestLedger::stop_importing`]. They are as an import leaves them: a
+    /// fingerprint, and the category's source `rule`.
+    pub fn start_importing(&mut self) {
+        self.importing = true;
+    }
+
+    /// Goes back to writing manual rows.
+    pub fn stop_importing(&mut self) {
+        self.importing = false;
+    }
+
+    /// The import batch `account`'s imported rows go in, made on first use.
+    pub fn batch_of(&mut self, account: AccountId) -> BatchId {
+        let conn = self.db.conn();
+        let existing = conn
+            .query_row(
+                "SELECT id FROM import_batch WHERE account_id = ?1",
+                [account],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        if let Some(batch) = existing {
+            return batch;
+        }
+        conn.execute(
+            "INSERT INTO import_batch (account_id, source_file, format) \
+             VALUES (?1, 'statement.csv', 'csv')",
+            [account],
+        )
+        .unwrap();
+        BatchId::new(conn.last_insert_rowid())
+    }
+
+    fn imported_row(
+        &mut self,
+        account: AccountId,
+        day: &str,
+        minor: i64,
+        category: Option<&str>,
+        description: &str,
+    ) -> TransactionId {
+        let currency = self.currency(account);
+        let batch = self.batch_of(account);
+        let conn = self.db.conn();
+        conn.execute(
+            "INSERT INTO \"transaction\" (account_id, batch_id, date, amount_minor, currency, \
+             description_raw, description_normalized, fingerprint, origin, \
+             category_id, category_source) \
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, upper(?6), 'fp-' || ?3 || '-' || ?4 || '-' || ?6 \
+                    || '-' || (SELECT count(*) FROM \"transaction\"), \
+                    'imported', c.id, CASE WHEN c.id IS NULL THEN NULL ELSE 'rule' END \
+               FROM (SELECT ?7 AS key) k LEFT JOIN category c ON c.key = k.key",
+            rusqlite::params![account, batch, day, minor, currency, description, category],
+        )
+        .unwrap();
+        TransactionId::new(conn.last_insert_rowid())
+    }
+
     /// A manual row with a merchant (its display name is derived from it)
-    /// and bank text.
+    /// and bank text. While [`TestLedger::start_importing`] is in effect, an
+    /// imported row with no merchant: `merchant` is ignored.
     pub fn row_at(
         &mut self,
         account: AccountId,
@@ -103,6 +173,9 @@ impl TestLedger {
         merchant: Option<&str>,
         description: &str,
     ) -> TransactionId {
+        if self.importing {
+            return self.imported_row(account, day, minor, category, description);
+        }
         let currency = self.currency(account);
         let mut entry =
             ManualTransaction::new(account, date(day), Money::new(minor, currency), description);

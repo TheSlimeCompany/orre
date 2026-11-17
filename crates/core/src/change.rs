@@ -27,8 +27,8 @@
 //!   2026-11-12), a duplicate merge, and the undo of either. The user
 //!   unlocks first.
 //! - **Deleting a transaction deletes its items.** Undoing an import or
-//!   deleting a manual row removes the row's items first ([`clear`],
-//!   [`clear_batch`]): the batch stays in the history with what is left.
+//!   deleting a manual row removes the row's items first (`removal`): the
+//!   batch stays in the history with what is left.
 //!
 //! Values can hold user text (a note, a merchant name): nothing here logs
 //! them, and errors never quote them.
@@ -51,7 +51,7 @@ use crate::account;
 use crate::db::Database;
 use crate::duplicate;
 use crate::exclusion::ExclusionReason;
-use crate::id::{BatchId, ChangeBatchId, RuleId, TagId, TransactionId};
+use crate::id::{ChangeBatchId, RuleId, TagId, TransactionId};
 use crate::link::{LinkKind, LinkStatus};
 use crate::merchant;
 use crate::money::{Currency, Money};
@@ -1463,27 +1463,4 @@ fn after_undo(conn: &Connection, info: &BatchInfo) -> Result<(), Error> {
         }
         ChangeKind::RuleApply | ChangeKind::BulkEdit => Ok(()),
     }
-}
-
-// Deleting transactions -------------------------------------------------------
-
-/// Deletes the change items of `transaction`, for whoever deletes the row (a
-/// manual row): the foreign key has no `ON DELETE`. The batches stay.
-/// Opens no transaction of its own.
-pub fn clear(conn: &Connection, transaction: TransactionId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM change_item WHERE transaction_id = ?1",
-        [transaction],
-    )
-}
-
-/// Deletes the change items of every transaction of import `batch`
-/// (mirrored rows included), for undoing the import. Opens no transaction
-/// of its own.
-pub fn clear_batch(conn: &Connection, batch: BatchId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM change_item WHERE transaction_id IN \
-         (SELECT id FROM \"transaction\" WHERE batch_id = ?1)",
-        [batch],
-    )
 }

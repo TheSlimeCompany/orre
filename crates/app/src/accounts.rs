@@ -119,6 +119,19 @@ pub enum AccountsEvent {
     /// The flagged dot in the panel: open the account's failing balance
     /// check in the Inbox's Balance checks (`DESIGN.md` → "Review queues").
     ChecksRequested(AccountId),
+    /// A row under CATEGORIES: show Transactions filtered to it.
+    CategoryPicked(CategoryPick),
+    /// The `+` on the Categories section: open Rules on a new category.
+    NewCategoryRequested,
+}
+
+/// A row under the panel's CATEGORIES.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CategoryPick {
+    /// A top-level group, by category ID: its subcategories included.
+    Category(i64),
+    /// The rows that need a category.
+    Uncategorised,
 }
 
 /// A dialog is done: the change was saved, or the user cancelled. The
@@ -299,6 +312,17 @@ impl Accounts {
     /// The flagged dot: ask the shell to open the account's balance checks.
     pub fn request_checks(&mut self, account: AccountId, cx: &mut Context<Self>) {
         cx.emit(AccountsEvent::ChecksRequested(account));
+    }
+
+    /// A row under CATEGORIES: ask the shell to filter Transactions by it.
+    pub fn request_category(&mut self, pick: CategoryPick, cx: &mut Context<Self>) {
+        cx.emit(AccountsEvent::CategoryPicked(pick));
+    }
+
+    /// The Categories section's `+`: ask the shell to open a new category
+    /// in Rules.
+    pub fn request_new_category(&mut self, cx: &mut Context<Self>) {
+        cx.emit(AccountsEvent::NewCategoryRequested);
     }
 
     /// Reads the accounts again. A selected account that has gone (closed

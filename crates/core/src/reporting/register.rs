@@ -16,6 +16,9 @@
 //!   days with each day's net, and sorts within each day ([`Sort`]). Day
 //!   headers hold in every order: sorting by merchant, category, account or
 //!   amount reorders a day's rows, never the days.
+//! - [`Register::category_counts`] counts what each top-level group holds,
+//!   all time, as the Category filter keeps rows: the accounts panel's
+//!   CATEGORIES.
 //! - **Category colours** ([`Colour`]) are ranked when the register is read
 //!   (user, 2026-11-14): the six top-level groups with the most spending
 //!   over the 12 months to `today` take `chart-1` … `chart-6`, their
@@ -311,14 +314,12 @@ impl RegisterRow {
         self.transfer.is_some()
     }
 
-    /// Whether it needs a category: no category and not a transfer, or a
-    /// split line without one.
+    /// Whether it needs a category: it takes one of its own and has none,
+    /// or it is split and a line has none; never a confirmed transfer leg
+    /// or a confirmed refund's money in
+    /// ([`CategoryFacts::needs_category`]).
     pub fn is_uncategorised(&self) -> bool {
-        match &self.category {
-            RowCategory::Uncategorised => !self.is_transfer(),
-            RowCategory::Category(_) => false,
-            RowCategory::Split(parts) => parts.iter().any(|part| part.category.is_none()),
-        }
+        self.category_facts().needs_category()
     }
 
     /// Whether it counts in the day's net: not a transfer, not excluded.
@@ -350,6 +351,11 @@ impl RegisterRow {
             split: matches!(self.category, RowCategory::Split(_)),
             confirmed_transfer: self.is_transfer(),
             confirmed_refund_in: self.category_follows_purchase(),
+            has_category: matches!(self.category, RowCategory::Category(_)),
+            split_line_uncategorised: matches!(
+                &self.category,
+                RowCategory::Split(parts) if parts.iter().any(|part| part.category.is_none())
+            ),
         }
     }
 
@@ -518,6 +524,25 @@ impl Listing {
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
+}
+
+/// A top-level group and how many rows it holds
+/// ([`Register::category_counts`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CategoryCount {
+    /// The group's category ID, as [`Filter::category`] takes it.
+    pub category: i64,
+    pub rows: usize,
+}
+
+/// What the accounts panel's CATEGORIES lists ([`Register::category_counts`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CategoryCounts {
+    /// The groups that hold rows: most first, the `other` group last.
+    pub groups: Vec<CategoryCount>,
+    /// Rows that need a category, excluded ones left out: what the
+    /// Uncategorised filter keeps with nothing else set.
+    pub uncategorised: usize,
 }
 
 /// Every transaction, with the accounts and categories it names.
@@ -766,6 +791,69 @@ impl Register {
             shown.text.clear();
         }
         Some(shown)
+    }
+
+    /// How many rows each top-level group holds, all time and in every
+    /// account: the accounts panel's CATEGORIES. A group's count is what
+    /// the Category filter keeps for it with nothing else set
+    /// ([`Register::select`]), so it always matches what picking it shows:
+    /// its subcategories' rows included, a split row once however many of
+    /// its lines are in the group, excluded rows left out as the table
+    /// hides them. Groups that hold nothing are left out; a hidden group
+    /// that holds something stays, as the Category filter keeps it. Most
+    /// rows first, ties in menu order, the `other` group last.
+    pub fn category_counts(&self) -> CategoryCounts {
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        let mut uncategorised = 0;
+        let mut groups: Vec<i64> = Vec::new();
+        for row in self.rows.iter().filter(|row| row.excluded.is_none()) {
+            if row.is_uncategorised() {
+                uncategorised += 1;
+            }
+            let ids: Vec<i64> = match &row.category {
+                RowCategory::Uncategorised => Vec::new(),
+                RowCategory::Category(id) => vec![*id],
+                RowCategory::Split(parts) => {
+                    parts.iter().filter_map(|part| part.category).collect()
+                }
+            };
+            groups.clear();
+            for id in ids {
+                let Some(category) = self.category(id) else {
+                    continue;
+                };
+                let group = category.group.unwrap_or(category.id);
+                if !groups.contains(&group) {
+                    groups.push(group);
+                }
+            }
+            for group in &groups {
+                *counts.entry(*group).or_default() += 1;
+            }
+        }
+        let mut groups: Vec<(&RegisterCategory, usize)> = self
+            .categories
+            .iter()
+            .filter(|category| category.group.is_none())
+            .filter_map(|category| {
+                let rows = counts.get(&category.id).copied().unwrap_or(0);
+                (rows > 0).then_some((category, rows))
+            })
+            .collect();
+        // Stable: ties keep menu order.
+        groups.sort_by_key(|&(category, rows)| {
+            (category.key.as_str() == OTHER_GROUP, std::cmp::Reverse(rows))
+        });
+        CategoryCounts {
+            groups: groups
+                .into_iter()
+                .map(|(category, rows)| CategoryCount {
+                    category: category.id,
+                    rows,
+                })
+                .collect(),
+            uncategorised,
+        }
     }
 
     /// Whether `row`, or a line of it when it's split, is in category

@@ -40,7 +40,9 @@ normalized import output (`statement`: `Statement`, `StatementLine`, flagged row
 and categories (`category`: `CategoryKey`, M1.8; `CategoryKind`, `DEFAULT_CATEGORIES`
 and `CategoryTree` via `Database::categories`, seeded by `V2__default_categories.sql`,
 M1.14; `assign`, whether a transaction takes a category of its own, refused by
-`inbox::own::recategorize` and skipped at approval, read by `RegisterRow::takes_category`) and rules (`rule`: validated `RuleDefinition`, `Pattern`, `RuleAction`; the
+`inbox::own::recategorize` and skipped at approval, read by `RegisterRow::takes_category`,
+and whether it still needs one, `needs_category`, read by `RegisterRow::is_uncategorised`
+and the import summary's count) and rules (`rule`: validated `RuleDefinition`, `Pattern`, `RuleAction`; the
 store and the `RuleSet` engine; M1.15, every action kind since M1.24) and transfer-pair detection
 (`transfer`, M1.16) and sub-accounts (`sub_account`: pots found by key,
 auto-created, rows mirrored and paired as confirmed transfers; M1.17, migration
@@ -67,8 +69,9 @@ M1.24) and refunds, reimbursements and shared costs (`link`; `V9__transaction_li
 which redefines `ledger_line`; M1.25) and the possible-duplicates queue (`duplicate`;
 `V10__duplicate_candidate.sql`; M1.26) and balance checks and lock dates
 (`reconciliation`; M1.27) and export (`export`; M1.29). The import commit also detects
-possible duplicates and suggests links. Undo and manual deletes clear split lines, tag
-links, change items, links and duplicate candidates. M1.20–M1.27 have no CLI commands
+possible duplicates and suggests links. Undo and manual deletes go through `removal`
+(crate-private: dissolves transfer groups, clears every row that refers to a transaction,
+checked against the schema's foreign keys by a test, then deletes). M1.20–M1.27 have no CLI commands
 yet. `crates/import/tests/m1_exit.rs` walks the M1 exit criteria end to end.
 `crates/import` has the `Importer` trait, `SourceFile` and detection (M1.6) and the CSV
 importer (`csv`: `CsvImporter` over a `CsvMapping`; M1.7) and the preset loader

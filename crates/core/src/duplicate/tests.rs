@@ -94,7 +94,15 @@ impl Fixture {
         };
         // The commit detects duplicates itself (`CommitSummary::duplicates`);
         // these tests run detection by hand, so they start from none.
-        clear_batch(self.db.conn(), summary.batch).unwrap();
+        self.db
+            .conn()
+            .execute(
+                "DELETE FROM duplicate_candidate WHERE transaction_a IN \
+                 (SELECT id FROM \"transaction\" WHERE batch_id = ?1) \
+                 OR transaction_b IN (SELECT id FROM \"transaction\" WHERE batch_id = ?1)",
+                [summary.batch],
+            )
+            .unwrap();
         let rows = ids(
             self.db.conn(),
             "SELECT id FROM \"transaction\" WHERE batch_id = ?1 AND origin = 'imported' \
@@ -1121,7 +1129,7 @@ fn deleting_a_manual_row_clears_its_candidates() {
 }
 
 #[test]
-fn clear_batch_clears_the_candidates_of_an_imports_rows() {
+fn removing_an_import_clears_the_candidates_of_its_rows() {
     let mut f = Fixture::new();
     f.import(SourceFormat::Csv, &[line(5, -500, "SHOP A")]);
     let (batch, _) = f.import(
@@ -1134,7 +1142,7 @@ fn clear_batch_clears_the_candidates_of_an_imports_rows() {
     f.manual(9, -1, "y");
     assert_eq!(f.scan().len(), 2);
     let tx = f.db.conn_mut().transaction().unwrap();
-    assert_eq!(clear_batch(&tx, batch).unwrap(), 2);
+    crate::removal::remove(&tx, crate::removal::Scope::Import(batch)).unwrap();
     tx.commit().unwrap();
     assert!(f.pairs().is_empty());
 }

@@ -60,18 +60,15 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::account::{self, Account, date_key};
 use crate::category::CategoryKey;
-use crate::change;
 use crate::db::Database;
-use crate::duplicate;
 use crate::id::{AccountId, TransactionId, TransferGroupId};
 use crate::link;
 use crate::merchant;
 use crate::money::{Currency, Money};
 use crate::note::UserNote;
-use crate::schedule;
+use crate::removal::{self, Scope};
 use crate::split;
 use crate::statement::normalize_description;
-use crate::tag;
 use crate::transfer::TransferStatus;
 
 /// A manual transaction to create, or what to store in place of one.
@@ -380,7 +377,7 @@ pub fn update(
             ) {
                 return Err(Error::Transfer(id));
             }
-            dissolve_transfer_group(&tx, group)?;
+            removal::dissolve_transfer_group(&tx, group)?;
             Some(group)
         }
         _ => None,
@@ -425,41 +422,12 @@ pub fn delete(db: &mut Database, id: TransactionId) -> Result<Deleted, Error> {
         account::find(&tx, stored.account)?.ok_or(Error::AccountNotFound(stored.account))?;
     check_lock(&account, stored.date)?;
 
-    let dissolved_transfer = release_references(&tx, id)?;
-    tx.execute("DELETE FROM \"transaction\" WHERE id = ?1", [id])?;
+    let removed = removal::remove(&tx, Scope::Row(id))?;
     tx.commit()?;
     tracing::info!(transaction = %id, account = %stored.account, "deleted a manual transaction");
-    Ok(Deleted { dissolved_transfer })
-}
-
-/// Clears everything that refers to transaction `id` before it is deleted,
-/// and returns the transfer group it dissolved.
-///
-/// The one place a manual row's references go: split lines, tag links,
-/// change items, links (refunds, reimbursements, settlements, on either
-/// side), duplicate candidates and schedule matches; tables that point at a
-/// transaction later are cleared here as they arrive. Until one is, a row it
-/// references can't be deleted: the foreign key fails the delete, and
-/// nothing changes.
-fn release_references(
-    tx: &Transaction<'_>,
-    id: TransactionId,
-) -> Result<Option<TransferGroupId>, Error> {
-    let group: Option<TransferGroupId> = tx.query_row(
-        "SELECT transfer_group_id FROM \"transaction\" WHERE id = ?1",
-        [id],
-        |row| row.get(0),
-    )?;
-    if let Some(group) = group {
-        dissolve_transfer_group(tx, group)?;
-    }
-    split::clear(tx, id)?;
-    tag::clear(tx, id)?;
-    change::clear(tx, id)?;
-    link::clear(tx, id)?;
-    duplicate::clear(tx, id)?;
-    schedule::clear(tx, id)?;
-    Ok(group)
+    Ok(Deleted {
+        dissolved_transfer: removed.dissolved_groups.first().copied(),
+    })
 }
 
 /// Transfer group `group`'s status; `None` for one the database doesn't
@@ -476,16 +444,6 @@ fn transfer_status(
         )
         .optional()?;
     Ok(status.as_deref().and_then(TransferStatus::from_key))
-}
-
-/// Deletes a transfer group, leaving its rows as ordinary transactions.
-fn dissolve_transfer_group(conn: &Connection, group: TransferGroupId) -> Result<(), Error> {
-    conn.execute(
-        "UPDATE \"transaction\" SET transfer_group_id = NULL WHERE transfer_group_id = ?1",
-        [group],
-    )?;
-    conn.execute("DELETE FROM transfer_group WHERE id = ?1", [group])?;
-    Ok(())
 }
 
 /// Checks `entry` against its account and returns the account.

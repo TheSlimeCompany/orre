@@ -21,6 +21,13 @@
 //! the edit only where core takes it. A test runs the same rows through
 //! both.
 //!
+//! Whether a transaction still *needs* a category is decided from the same
+//! facts ([`CategoryFacts::needs_category`]): it takes one of its own and has
+//! none, or it is split and a line has none. A confirmed transfer leg or a
+//! confirmed refund's money in never does. `needs_category_in_batch` counts
+//! a batch's rows for the import summary; the register's Uncategorised chip
+//! reads the same rule from its rows (`RegisterRow::is_uncategorised`).
+//!
 //! Other writers of a category (rules at import and applied to history,
 //! duplicate merges, removing a split, undo) don't ask: what they write is
 //! theirs to decide.
@@ -29,7 +36,7 @@ use std::fmt;
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::id::TransactionId;
+use crate::id::{BatchId, TransactionId};
 
 /// Why a transaction takes no category of its own. Its words name no
 /// transaction text.
@@ -64,6 +71,10 @@ pub struct CategoryFacts {
     pub confirmed_transfer: bool,
     /// It is the money in of a `confirmed` refund link.
     pub confirmed_refund_in: bool,
+    /// It has a category of its own (not through split lines).
+    pub has_category: bool,
+    /// Some split line has no category.
+    pub split_line_uncategorised: bool,
 }
 
 impl CategoryFacts {
@@ -81,6 +92,48 @@ impl CategoryFacts {
             None
         }
     }
+
+    /// Whether a transaction with these facts still needs a category: it
+    /// takes one of its own and has none; or it is split and some line has
+    /// none. A confirmed transfer leg or a confirmed refund's money in never
+    /// does.
+    pub fn needs_category(self) -> bool {
+        match self.no_own_category() {
+            None => !self.has_category,
+            Some(NoOwnCategory::Split) => self.split_line_uncategorised,
+            Some(NoOwnCategory::Transfer | NoOwnCategory::Refund) => false,
+        }
+    }
+}
+
+/// The columns of the facts, in the order [`facts_from_row`] reads them,
+/// over `"transaction" t` joined to its transfer group `g`
+/// ([`FACTS_FROM`]). The one SQL for the facts, shared by [`facts_in`] and
+/// [`needs_category_in_batch`].
+const FACTS_COLUMNS: &str = "\
+    EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id), \
+    coalesce(g.status = 'confirmed', 0), \
+    EXISTS (SELECT 1 FROM transaction_link k \
+             WHERE k.inflow_id = t.id AND k.kind = 'refund' \
+               AND k.status = 'confirmed'), \
+    (t.category_id IS NOT NULL \
+       AND NOT EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id)), \
+    EXISTS (SELECT 1 FROM transaction_split s \
+             WHERE s.transaction_id = t.id AND s.category_id IS NULL)";
+
+/// What [`FACTS_COLUMNS`] reads from.
+const FACTS_FROM: &str =
+    "\"transaction\" t LEFT JOIN transfer_group g ON g.id = t.transfer_group_id";
+
+/// Reads the facts from a row selected with [`FACTS_COLUMNS`] first.
+fn facts_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CategoryFacts> {
+    Ok(CategoryFacts {
+        split: row.get(0)?,
+        confirmed_transfer: row.get(1)?,
+        confirmed_refund_in: row.get(2)?,
+        has_category: row.get(3)?,
+        split_line_uncategorised: row.get(4)?,
+    })
 }
 
 /// The facts of stored `transaction`; `None` when there is no such
@@ -89,22 +142,10 @@ pub fn facts_in(
     conn: &Connection,
     transaction: TransactionId,
 ) -> rusqlite::Result<Option<CategoryFacts>> {
-    conn.prepare_cached(
-        "SELECT EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id), \
-                coalesce(g.status = 'confirmed', 0), \
-                EXISTS (SELECT 1 FROM transaction_link k \
-                         WHERE k.inflow_id = t.id AND k.kind = 'refund' \
-                           AND k.status = 'confirmed') \
-           FROM \"transaction\" t LEFT JOIN transfer_group g ON g.id = t.transfer_group_id \
-          WHERE t.id = ?1",
-    )?
-    .query_row([transaction], |row| {
-        Ok(CategoryFacts {
-            split: row.get(0)?,
-            confirmed_transfer: row.get(1)?,
-            confirmed_refund_in: row.get(2)?,
-        })
-    })
+    conn.prepare_cached(&format!(
+        "SELECT {FACTS_COLUMNS} FROM {FACTS_FROM} WHERE t.id = ?1"
+    ))?
+    .query_row([transaction], facts_from_row)
     .optional()
 }
 
@@ -116,6 +157,25 @@ pub fn no_own_category_in(
     transaction: TransactionId,
 ) -> rusqlite::Result<Option<NoOwnCategory>> {
     Ok(facts_in(conn, transaction)?.and_then(CategoryFacts::no_own_category))
+}
+
+/// How many of the imported rows of `batch` still need a category
+/// ([`CategoryFacts::needs_category`]), for the import summary. Reads only.
+pub(crate) fn needs_category_in_batch(
+    conn: &Connection,
+    batch: BatchId,
+) -> rusqlite::Result<usize> {
+    let mut statement = conn.prepare_cached(&format!(
+        "SELECT {FACTS_COLUMNS} FROM {FACTS_FROM} \
+          WHERE t.batch_id = ?1 AND t.origin = 'imported'"
+    ))?;
+    let mut count = 0;
+    for facts in statement.query_map([batch], facts_from_row)? {
+        if facts?.needs_category() {
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 #[cfg(test)]

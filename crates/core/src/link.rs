@@ -1166,31 +1166,6 @@ fn insert_suggestion(
 
 // Clearing --------------------------------------------------------------------
 
-/// Deletes every link with `transaction` on either side, whatever its
-/// status, and returns how many there were. For whoever deletes a
-/// transaction (a manual row): its links go first, or the foreign keys
-/// refuse the delete. Opens no transaction of its own.
-pub fn clear(conn: &Connection, transaction: TransactionId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM transaction_link WHERE inflow_id = ?1 OR target_id = ?1",
-        [transaction],
-    )
-}
-
-/// Deletes every link with a transaction of import `batch` (mirrored rows
-/// included) on either side, and returns how many there were. For undo,
-/// before it deletes the batch's transactions. A link from another batch's
-/// money in to one of these purchases goes too: that money in is unlinked
-/// again. Opens no transaction of its own.
-pub fn clear_batch(conn: &Connection, batch: BatchId) -> rusqlite::Result<usize> {
-    conn.execute(
-        "DELETE FROM transaction_link \
-         WHERE inflow_id IN (SELECT id FROM \"transaction\" WHERE batch_id = ?1) \
-            OR target_id IN (SELECT id FROM \"transaction\" WHERE batch_id = ?1)",
-        [batch],
-    )
-}
-
 /// Deletes the suggestions with `transaction` on either side and returns
 /// how many there were: before its amount changes (a manual edit) or it is
 /// split, which the schema refuses while a suggestion stands. Opens no
