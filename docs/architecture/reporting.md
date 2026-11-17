@@ -1,0 +1,97 @@
+# Coffer — Architecture: Reporting
+
+Budgets, the forecast, and how spending is counted over the ledger.
+
+Part of [`ARCHITECTURE.md`](../ARCHITECTURE.md), which lists every topic and
+decision record. A section or record named here that isn't in this file is in
+that list.
+
+## Decision records
+
+Oldest first.
+
+### Decision record: budgets and the forecast (2026-11-10)
+
+The open questions from the D6.10 designs (`DESIGN.md` → "Budgets: groups, rollover,
+pace and upcoming"), decided by the user on the designer's recommendation:
+
+1. **Flex spending leaves accounts in proportion to history.** The forecast spreads each
+   Flex budget's remainder evenly over the rest of the month. It splits that remainder
+   across accounts by where the category was spent over the last 3 months. An account
+   with no Flex spending in that window (savings, pots, Joint in the fixture) gets none.
+   Later months spend their full Flex budget the same way. Every step is integer minor
+   units, with remainders spread so each day's amounts sum exactly. Fixed and
+   non-monthly budgets add nothing to the forecast beyond their schedules, which avoids
+   counting them twice.
+2. **A payment is missed only once imports cover its date.** A schedule occurrence is
+   *missed* when its date plus `tolerance_days` has passed, nothing matched it, and the
+   account's latest imported transaction is on or after that date. Until then it is only
+   *not imported yet*, and nothing is flagged. A missed occurrence stays in the forecast,
+   counted from tomorrow, until the user matches it to a transaction or skips it.
+   Missed is derived, not stored. A skip is stored (`schedule_skip(schedule_id,
+   occurrence_date, skipped_at)`), and so is a user's match (`schedule_match(schedule_id,
+   occurrence_date, transaction_id)`). A series the user marks "Not recurring" is not suggested again.
+3. **Rollover carries both ways, derived from history.** With rollover on, a month's
+   carry-in is the previous month's LEFT, positive or negative, so it accumulates.
+   Nothing about it is stored: it's recomputed from `ledger_line` and the budgets, so
+   editing or recategorising a past transaction flows into later months. Turning
+   rollover off starts the budget fresh from the next month; turning it on starts
+   carrying from the current month. Fixed budgets don't offer rollover, and non-monthly
+   budgets always roll over.
+4. **Pace is linear by day of the month in v1.** On day *d* of an *n*-day month, pace is
+   *d*/*n* of the month's amount (budget plus rollover). Pace weighted by past months'
+   daily pattern can come later; it's a reporting choice, not a schema one.
+5. **A non-monthly amount is seeded once, then belongs to the user.** A new non-monthly
+   budget's yearly amount starts as the total of the category's active yearly
+   schedules. After that it's the user's number and doesn't follow schedule changes.
+   A new yearly schedule in that category asks before adding its amount (the schedule
+   dialog's "Set aside" toggle). The set-aside amount accrues from the month the budget
+   is created. It starts at £0 unless the user enters what's already saved, which is
+   stored as an opening set-aside. The 1/12 accrual stays a default (decision record of
+   2026-11-09, point 4).
+6. **Without scheduled income, the horizon is 30 days.** "Lowest before payday" uses the
+   account's next scheduled income as the horizon. An account with none shows "Lowest in
+   the next 30 days", and the Payday figure is left out. `cash_flow_forecast` (M4.8)
+   reports the same horizon and says which one it used.
+
+### Decision record: one spending rule over the ledger (2026-11-16)
+
+From an architecture review of `reporting`. Nothing the user sees changes except the
+Inbox's "If you approve" amounts (point 3) and the review queue's "If you merge" (point
+5).
+
+1. **Whether a line counts as income, spending or neither is decided in one place:**
+   `reporting::Side::of(category kind, counted amount)`, applied by
+   `LedgerLine::side(basis)`. The category's kind decides; an uncategorised line goes by
+   the sign of the amount that counts, and zero is neither. Summary, spending by
+   category, budgets, the Inbox preview and the merge preview use it. The copies in
+   `summary`, `inbox::preview` (`is_spending`, `is_income`) and `checks`
+   (`spending_of`) are gone. `register::rank_groups` asks a different question (which
+   groups get colours, decision record "the Transactions view", point 2) and is left
+   alone.
+2. **A preview of a change reads the ledger as reports do.** `Ledger::transactions(ids)`
+   scopes the ledger to those transactions' lines and the confirmed link parts that net
+   against them (a refund's part moves with its purchase); `Ledger::lines_in` runs it on
+   the connection of a `change::dry_run`. `reporting::Tally` sums lines per side,
+   category and currency, and a preview shows the change from before to after. Amounts
+   are the user's share ("Spending is your share by default", M2 C.1 and C.2).
+3. **The Inbox's "If you approve"** (spending changes for a categorisation or a rule,
+   and the income and spending a transfer pair or refund link takes away) comes from
+   one rolled-back approval made as the Inbox makes it (a rule applied to history,
+   decision record "Inbox impact preview", point 1), with the touched rows' ledger read
+   before and after. Before, it summed whole transaction amounts: recategorising a
+   shared £100 purchase showed £100 moving where reports move £50, and a purchase being
+   claimed back moved its full amount where reports move nothing. A refund link lists
+   every category whose spending moves, in the refund's month, as a categorisation
+   does: a split purchase's refund nets against each line's category, and a refund
+   already in another spending category moves out of it.
+4. **When approving would be refused, the preview shows no change:** no spending
+   changes, and no income or spending amounts on a transfer or link effect.
+   `Impact::blocked` or `RuleImpact::history_blocked` says why. A ledger total that
+   overflows is `ApproveError::Reporting`.
+5. **The merge's "If you merge" spending** is the same tally of the pair's ledger before
+   and after the planned merge, so it now also counts a refund of the excluded row
+   leaving reports.
+6. A wide rule's per-merchant `total` stays a gross listing sum; it lists the rows, it
+   doesn't report spending. `inbox::impact`'s own "moves income" test is not changed
+   here.

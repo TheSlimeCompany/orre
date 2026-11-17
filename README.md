@@ -51,8 +51,9 @@ or databases outside `fixtures/`. Run it by hand with `lefthook run pre-push --f
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design, data model, import pipeline,
-  MCP surface
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design overview and decisions; the
+  data model, import pipeline, MCP surface and each topic's decision records are in
+  [`docs/architecture/`](docs/architecture/)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md): milestones and status
 - [`docs/DESIGN.md`](docs/DESIGN.md): visual design system and tokens
 - [`AGENTS.md`](AGENTS.md): guidelines for AI coding agents

@@ -6,8 +6,12 @@ Coffer is a local-first personal finance dashboard: a Rust + GPUI desktop app th
 imports bank exports (CSV, OFX/QFX) into a local SQLite database, shows them as tables and
 charts, and exposes the data to AI clients through an MCP server.
 
-- **Design and rationale:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — read before changing
-  architecture, schema, import behaviour, or the MCP surface.
+- **Design and rationale:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the overview
+  and the list of every section and decision record; the detail is in
+  `docs/architecture/<topic>.md` (reference sections, then that topic's decision records).
+  Read the overview and the topic's file before changing architecture, schema, import
+  behaviour, or the MCP surface. A reference written `ARCHITECTURE.md` → "…" names a
+  section or record in that list.
 - **What to build next:** [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestones and status.
 - **Visual design system:** [`docs/DESIGN.md`](docs/DESIGN.md) (sourced from the Paper
   file) — read before any UI work. Use its tokens and component specs; never invent
@@ -293,7 +297,8 @@ CLI commands.
 
 ## Invariants
 
-Changing any of these needs an explicit decision recorded in `docs/ARCHITECTURE.md`.
+Changing any of these needs an explicit decision recorded in the topic's file under
+`docs/architecture/` and listed in `docs/ARCHITECTURE.md`.
 
 - **Money is integer minor units + ISO 4217 currency.** Never `f32`/`f64` for amounts.
   Exchange-rate conversion happens only at reporting time.
@@ -344,7 +349,7 @@ Changing any of these needs an explicit decision recorded in `docs/ARCHITECTURE.
 
 - One file per bank/account type: `presets/<region>/<bank>.toml` (regions: `uk`, `us`,
   `eu` for now). The field reference is `presets/README.md`, the decisions are in
-  `docs/ARCHITECTURE.md` → "Presets"; `presets/uk/monzo.toml` (M1.9) is the
+  `docs/architecture/import.md` → "Presets"; `presets/uk/monzo.toml` (M1.9) is the
   reference example. Every `.toml` there is compiled in (`crates/import/build.rs`).
 - Every preset needs a matching redacted fixture at `fixtures/presets/<region>/<bank>.*`
   (a test checks it's there and imports) and a test that checks its rows.
@@ -361,5 +366,7 @@ Changing any of these needs an explicit decision recorded in `docs/ARCHITECTURE.
 - Add or update tests with every behaviour change. Importer quirks found in real files
   (e.g. Monzo refunds appearing as positive "Money Out") become fixture rows plus tests.
 - When a roadmap item is finished, tick it in `docs/ROADMAP.md`. When a design decision
-  changes, update `docs/ARCHITECTURE.md` in the same change.
+  changes, update its topic file in `docs/architecture/` in the same change: a new
+  decision record goes at the end of that file and into the list in
+  `docs/ARCHITECTURE.md` → "Contents".
 - Don't commit, push, or tag unless the user asks.
