@@ -18,223 +18,43 @@ charts, and exposes the data to AI clients through an MCP server.
   colours, sizes, or radii, and never ship stock `gpui-component` styling. Missing values
   get designed in Paper first.
 
-## Current state
+## Status and code map
 
-M0 and the design track (D1–D6) are done and signed off; every M1 item is done,
-M1.9 checked against a real Monzo export. Every M2 item is done, tested on synthetic
-data and checked with Claude Code against a real Monzo export (2026-11-13). M3 has
-started: M3.1 (the app shell and window state), M3.2 (accounts management), M3.3 (the
-Transactions view on the database), M3.4 with M3.5 (the import flow and saving a
-mapping as a preset), M3.6 with M3.14 (the Inbox and its impact preview),
-M3.9 (the split editor, tags and notes in the inspector), M3.11 (links and shares in
-the inspector, the link dialog and Owed to you), M3.12 (the review queues:
-possible duplicates and balance checks, under CHECKS in the Inbox), M3.13 (the Rules
-view, with M3.7's rules editor), M3.15 (AI
-access settings), M3.16 (backups and the export dialog), M3.17 (asset and liability
-accounts with valuations; closing, reopening and deleting accounts), M3.7's categories
-editor, M3.8 (transfer-pair confirmation) and M3.10 (excluding rows, the Source
-section, manual transactions and cash counts) are done: every M3 item is built, and
-M3's exit check on real data is the user's.
-The Cargo
-workspace below exists (M1.1). `crates/core` has the database setup (`db`, `paths`: data
-dir, WAL, permissions, migrations; M1.3), the initial schema
-(`crates/core/migrations/V1__initial_schema.sql`, M1.4) and the
-money types (`money`: `Currency`, `Money`, exact decimal parsing; M1.5) and the
-normalized import output (`statement`: `Statement`, `StatementLine`, flagged rows; M1.6)
-and categories (`category`: `CategoryKey`, M1.8; `CategoryKind`, `DEFAULT_CATEGORIES`
-and `CategoryTree` via `Database::categories`, seeded by `V2__default_categories.sql`,
-M1.14; `assign`, whether a transaction takes a category of its own, refused by
-`inbox::own::recategorize` and skipped at approval, read by `RegisterRow::takes_category`,
-and whether it still needs one, `needs_category`, read by `RegisterRow::is_uncategorised`
-and the import summary's count) and rules (`rule`: validated `RuleDefinition`, `Pattern`, `RuleAction`; the
-store and the `RuleSet` engine; M1.15, every action kind since M1.24) and transfer-pair detection
-(`transfer`, M1.16) and sub-accounts (`sub_account`: pots found by key,
-auto-created, rows mirrored and paired as confirmed transfers; M1.17, migration
-`V4__sub_account_key.sql`) and the import commit (`import`: preview → backup → commit →
-undo with dedupe and reconciliation, then preset categories, the pot mirror, merchant
-names, rules and transfer pairing in the same DB transaction; `balance`: balance checks; `account`:
-accounts and entered balances, and since M3.2 editing (`update`, `usage`),
-`create_with_balance`, `entered_balances` and the preset (`V15__account_preset.sql`);
-since M3.17 valuations as entered balances (`EnteredSource::Valuation`) and
-`account::close` (closing with the lock-date guard, reopening, deleting); `id`: row IDs; M1.11–M1.13, migration
-`V3__import_flags.sql`) and local backups (`backup`: `VACUUM INTO` snapshots in
-`<data dir>/backups`, rotation, checked restore; taken before import commits and
-migrations; M1.28) and splits (`split`: lines summing exactly to the parent, the
-`ledger_line` view; M1.20, `V5__transaction_split.sql`; `split::draft::SplitDraft`, the
-split editor's model, M3.9) and tags and user notes (`tag`,
-`note`; private tags; M1.21, `V6__tags.sql`) and manual rows and exclusions (`manual`,
-`exclusion`; M1.22, no migration) and merchant names (`merchant`: deterministic
-clean-up, aliases, `merchant_display_source`; run in the import commit before rules;
-M1.23, `V7__merchant_alias.sql`) and change batches (`change`: recorded, undoable
-changes to user-facing fields, `dry_run` previews; `V8__change_batch.sql`; `edit`, the
-inspector's split, tag, note and merchant-name edits as one change batch each, M3.9) and every rule
-action at import plus applying a rule to history (`rule::preview_apply`/`commit_apply`;
-M1.24) and refunds, reimbursements and shared costs (`link`; `V9__transaction_link.sql`,
-which redefines `ledger_line`; M1.25) and the possible-duplicates queue (`duplicate`;
-`V10__duplicate_candidate.sql`; M1.26) and balance checks and lock dates
-(`reconciliation`; M1.27) and export (`export`; M1.29). The import commit also detects
-possible duplicates and suggests links. Undo and manual deletes go through `removal`
-(crate-private: dissolves transfer groups, clears every row that refers to a transaction,
-checked against the schema's foreign keys by a test, then deletes). M1.20–M1.27 have no CLI commands
-yet. `crates/import/tests/m1_exit.rs` walks the M1 exit criteria end to end.
-`crates/import` has the `Importer` trait, `SourceFile` and detection (M1.6) and the CSV
-importer (`csv`: `CsvImporter` over a `CsvMapping`; M1.7) and the preset loader
-(`preset`: `Preset`, `Presets::bundled`; M1.8) and the first preset, `presets/uk/monzo.toml`
-(M1.9, with `[sub_account_transfer]` for pots since M1.17) and the OFX/QFX importer
-(`ofx`: `OfxImporter`, own SGML/XML reader; M1.10); synthetic fixtures are in
-`fixtures/csv/` (test-only mappings in `fixtures/csv/mappings/`), `fixtures/presets/` and
-`fixtures/ofx/`, with end-to-end importer-path tests in `crates/import/tests/` and
-`crates/app/tests/` (M1.19).
+- **Status:** M0, the design track (D1–D6), M1 and M2 are done; every M3 item is built,
+  and M3's exit check on real data is the user's. Detail per item: `docs/ROADMAP.md`.
+- **Where things are:** [`docs/CODEMAP.md`](docs/CODEMAP.md), by crate and area. It
+  lags the code: check the tree before assuming a module exists, and update the map
+  when you add or move a module.
 
-M2 added to `crates/core`: settings and AI clients (`setting`: the kill switch and the
-pseudonym key, and since M3.1 the window state; `mcp_client`: enable, level, revoke, ignore, `requested`,
-and since M3.15 `enable_at`, `turn_off`/`turn_on` (keeping the level) and `remove`; `access_log`:
-append, list, 12-month retention, and `access_log::activity` (pages, counts, per-client
-activity, argument lines; M3.15); `access_log::pending`: calls refused while the
-database can't be opened, moved into the log later; `V11__mcp.sql`,
-`V14__access_log_pending.sql`), the untrusted-text envelope
-(`envelope`: `sanitize`, `strip_invisible`, `reads_like_instructions`, merchant
-pseudonyms; M2.13), reporting (`reporting`: the `Ledger` over `ledger_line`, `Period`,
-per-currency `Totals`, `Limit`; `summary`, `spending`, `budget_status`, `net_worth`,
-`balance`, `rows`, `catalog`; M2.2; `account_tree`, the accounts panel's read model, M3.2;
-`register`, the Transactions table's read model: every transaction, filtered, grouped by
-day and sorted in memory, category colours ranked at read time, M3.3) and budgets (`budget`), recurring detection
-(`recurring`, M2.6) and schedules (`schedule`: confirm, match at import, skips, missed and
-late; M2.10; `V12__schedule.sql`), the inbox (`inbox`: typed payloads, filing with dedupe
-and caps, `approve`/`approve_all`/`reject`, `impact`, and `own`, Coffer's own rule
-suggestions; M2.3, M2.14; `V13__inbox.sql`), and the restore lock (`backup::restoring`; `backup::gate`, the one way every
-per-call open checks it, before and after opening).
-`crates/mcp` is the server: `server` (gate → call → log per call, the database opened per
-call, `tools/list_changed`), `access` (the gate, argument redaction, result hash),
-`registry` (`ToolSpec`, `Call`), `store` (the only writer), `tools/` (catalog, aggregate,
-rows, recurring, inbox: 18 tools), `prompts` (`monthly_review`); its tests use the
-harness in `crates/mcp/tests/support/`, with `matrix.rs` (every tool × level) and
-`m2_exit.rs`. Setup for clients: `docs/mcp-setup.md`. The GUI is in `crates/app` (package `coffer-app`, lib
-`coffer_app`, binary `coffer`). `coffer` opens the app shell (`crates/app/src/shell.rs`,
-M3.1): the title bar's eight view tabs and Settings button (⌘1–⌘8, ⌘,), the view's left
-panel (the accounts panel on the five money views), the status bar, and the window
-state (bounds, mode, open view) saved in the `setting` table (`setting::WindowState`)
-and restored on launch (`shell::window_state`). Accounts management (M3.2) is
-`crates/app/src/accounts/`: `Accounts` (the accounts and the selection; every change goes
-through `store::AccountStore`, which opens the database per call), `panel` (from the
-database: pots nested, balances, flagged and "No balance" rows, arrow keys), `inspector`
-(the account inspector on Transactions while an account and no transaction is selected:
-details, balances, pots, imports; since M3.17 the footer with Close and Delete), the
-`new_account` and `add_balance` dialogs (also for assets and liabilities), and `fixture`
-(sample accounts for snapshots and tests; `valued` is D6.9's). M3.17 added `valuations`
-(the canvas Transactions shows for an asset or liability: step-line chart and table,
-⌘N), the `close` and `delete` dialogs, and the undo bar after closing
-(`accounts::notice_layer`). Settings (M3.15, M3.16) is
-`crates/app/src/settings/`: `SettingsView` (every change through `store::SettingsStore`,
-which opens the database per call), the panel, `clients` (kill switch, clients,
-requests, the client inspector), `log` (the access log and call inspector; never the
-result hash), `backups` (list, Back up now, the backup inspector), the `enable`,
-`remove`, `restore` (checks shown one by one, then `backup::restore` on a background
-thread) and `export` dialogs, and `fixture`. Core for it: `clock` (now and local time via
-SQLite), `backup::detail` (what a backup holds, read `immutable`; reasons; "since";
-`assess`; `save_copy`), `export::count`, `date_span`, `Options::include_excluded`;
-`docs/EXPORT.md` documents the export's columns. New components: `ui::toggle`,
-`ui::segmented`, `ui::notification`. Coffer's dialog and select are
-`ui::dialog` and `ui::menu` (since M3.3 also `MenuList`, the menu opened from a chip, a
-row or the bulk-action bar, with a filter field), on the unstyled `gpui-base` roots;
-`format` writes and reads money and dates. Transactions (`crates/app/src/transactions.rs`,
-M3.3) opens the database through `transactions::store::TransactionStore` (the register
-on a background thread); every change goes through the edit pipeline
-(`transactions/write.rs`: `TransactionsView::write`/`query`, a policy plus one core call,
-e.g. `inbox::own::recategorize`, `change::undo`), is filtered by the accounts panel and its chips, sorts within
-each day, and sets categories in place; `present` turns rows into cells and menu
-options, `fixture` keeps the Paper rows as a `Register` for snapshots and tests, and
-`ui::undo_bar` is the undo notification. Since M3.9 the inspector edits the selected
-row (`transactions/editor.rs`: Merchant, Tags with `ui::tag` pills and the tag menu,
-Note, the bank's note read-only, and the split editor), each change through
-the edit pipeline to core's `edit`; the register carries tags, the bank's note, the
-user-set name and whether a row can be split. Importing (M3.4, M3.5) is `crates/app/src/import/`: `Imports` (the notification after an import, with Undo; tells
-the shell to reload the panel and Transactions), `dialog` (`ImportDialog`: File → Map →
-Review, Save as preset… and Save a copy…), `session` (one file in memory: preset,
-account, mapping, statement, preview rows), `store` (`ImportStore`, the database and
-disk on a background thread), `text` and `fixture` (a synthetic Monzo-style export).
-The shell opens it on ⌘I (`shell::ImportStatement`), the Transactions toolbar's Import
-or a file dropped on the window. Core for it: `import::rehearse`,
-`CommitSummary::uncategorized`, `paths::presets_dir`; the import crate's
-`csv::MappingDraft`, `FileLayout`, `CsvFile::read`, `date_formats`,
-`CsvImporter::problem_text`, `Preset::to_toml`/`Preset::new`, `preset::slug`,
-`load_user_presets` and `save_user_preset` (saved presets in `<data dir>/presets/`, also
-used by the CLI and the account inspector). New components: the panel-size
-`ui::segmented`, the wide `ui::dialog`. The Inbox (M3.6, M3.14) is
-`crates/app/src/inbox/`: `Inbox` (status, filters, groups, selection, decisions through
-`store::InboxStore`, which opens the database per call), `panel`, `view` (the grouped
-table, the selected suggestion open in place, A / R / ↑↓) and `inspector` ("If you
-approve"), `text` (labels, untrusted text made plain with `envelope::shown`) and
-`fixture` (D6.6's sample suggestions, seeded through core into a scratch database). Its
-read model is core's `inbox::preview` (`describe`, `preview`, `covered_by`), plus
-`inbox::counts`, `inbox::reject_all` and `reporting::palette` (category colours ranked
-at read time). The review queues (M3.12) are `crates/app/src/checks/`: `Checks` (the
-open queue, selections, merges, dismissals, undo and locks through
-`store::ChecksStore`, which opens the database per call), `duplicates` (the pair open
-side by side and "If you merge"), `balances` (checks per account, the failing window,
-the lock prompt), `lock` (the lock and unlock dialogs), `view` (M / N / ←→ / ↑↓, the
-undo bar), `text` and `fixture` (D6.4's sample accounts, seeded through core); the
-Inbox panel's CHECKS rows open them, the status bar counts failing checks and the
-accounts panel's flagged dot opens them. Their read model is core's `checks` (a pair's
-merge planned by `duplicate`'s own code and rolled back; each check's base, window and
-the pair that explains it; lockable dates). The Rules view (M3.13) is
-`crates/app/src/rules/`: `Rules` (the open section and each section's pane in `state`:
-its filter and its selection with the form it edits, `RuleEdit::Stored`/`New` holding
-the apply preview; every change through the edit pipeline, `rules/write.rs`:
-`Rules::write`/`query`, a policy plus one core call; `store::RulesStore` keeps only
-`open` and `load`, the read model), `form` (the editor's model: `RuleForm`, `NameForm`, amounts typed
-unsigned with Out/In, percentages), `panel`, `table` (the toolbar, Rules, the apply
-preview, Merchant names, Change history; rows dragged to reorder), `inspector`,
-`dialogs` (delete rule, delete name, undo a change), `text` and `fixture` (D6.7's rules,
-seeded through core). Its read models are core's `rule::overview`, `rule::preview_rows`,
-`merchant::overview` and `change::history`; a new rule is `rule::preview_draft` then
-`save_draft`; `rule::update` edits without touching history. Transactions'
-`transactions/rule_prompt.rs` is "Create a rule from this edit?" (`rule::propose`) and
-the Rule section; it emits `TransactionsEvent::CreateRule`/`OpenRule` for the shell. Migration
-`V16__rules_editor.sql` (`rule.origin`, `change_batch.rule_id`, `rule_prompt_dismissed`).
-The categories editor (M3.7) is the Rules view's Categories section (`rules/` panel,
-table, inspector, new-category form, `rules::dialogs::DeleteCategoryDialog`, every change
-through `RulesStore`) over core's `category::{add, rename, set_hidden, delete, usage,
-overview, derive_key}` (`category/edit.rs`); migration `V18__category_hidden.sql`; pickers
-use `CategoryTree::visible`/`is_visible` and `RegisterCategory::hidden`; MCP's
-`list_categories` marks hidden ones.
-Links and shares (M3.11):
-`crates/app/src/transactions/links.rs` (the inspector's Share and Links sections),
-`link_dialog.rs` (the link dialog, opened by the shell on `TransactionsEvent::LinkRequested`),
-`linking.rs` (wording) and `link_fixture.rs` (D6.5's sample data, seeded through core);
-Owed to you is the third CHECKS queue, `checks/owed.rs`.
-M3.10 in Transactions: the Excluded chip and excluded rows, the exclusion card and the
-Source section (`transactions/source.rs`), the Exclude, undo-import, delete and
-New-transaction dialogs (`exclude_dialog.rs`, `confirm.rs`, `new_transaction.rs`), ⌘N
-(`shell::NewTransaction`, also from the accounts panel) and a manual row's Date, Amount
-and Account (`manual_edit.rs`); the register carries `RowSource` and the exclusion's
-details. Cash counts (M3.10): `account::count` (the count and an optional "Cash count
-difference" row in one DB transaction, via `manual::create_in`), the cash inspector's
-Counts and the Count cash dialog (`accounts/add_balance.rs`). Transfer pairs (M3.8):
-`transfer::{confirm, reject, unpair, undo, pair_of, availability}`
-(`transfer/decision.rs`), `inbox::decide_transfer` (settles an agent's pending
-suggestion for the pair), `reporting::pairing` over `RegisterRow::pair`, and the
-inspector's Transfer section (`transactions/transfer.rs`). Each link, unlink, share and
-rename is one undoable change batch through core's `edit` (`link`, `confirm_links`,
-`reject_links`, `set_sharing`, `rename_person`; `Recorder::track`), recorded on the
-money in's new `links` field (`V17__change_item_links.sql`). Core read models:
-`reporting::linking` (how a row counts, the dialog's candidates, why a refund was
-suggested, over the register, whose rows now carry their links and share) and
-`link::owed` (claims, matched payments, people with their outstanding costs). New
-components: `ui::button::ButtonVariant::Ghost`, `Segmented::fill`,
-`SelectField::private`/`amount`, `CategoryCell::suffix`/`repays`, `Glyph::Owed`. The other views show the shell and `ui::empty_state`. And
-`coffer --showcase` opens the component showcase. The CLI (`coffer_app::cli`, M1.18) has
-`import` (bundled and saved presets), `accounts` (`list`, `add`, `--preset` since M3.2,
-`close` and `reopen` since M3.17), `undo-import`, `backup` (`--list`) and
-`restore <file> [--yes]` (M1.28) and `export --format csv|json` (M1.29), and since M2
-`mcp --client <name>`, `ai-access` (`list`, `enable`, `level`, `revoke`, `ignore`, `off`,
-`on`, `log`), `budgets` (`list`, `set`, `remove`), `schedules` (`detect`, `list`, `show`,
-`confirm`, …), `inbox` (`list`, `show`, `approve`, `reject`, and saved reports:
-`reports`, `report`, `delete-report`, the user's way under the 500-report cap) and
-`categorize <transaction-id>... <category-key>`.
-`cargo run --example snapshot -- <dir>` renders both headlessly to PNG for comparison with
-Paper. Shared files stay at the root: `assets/` (fonts, brand) and `design/` (tokens).
-Check the tree before assuming a module exists.
+## Build and verify
+
+Run everything inside the dev shell (see "Environment").
+
+```sh
+cargo build
+cargo test -p <package> <name>                    # one package / test, e.g. -p coffer-core
+cargo test                                        # all tests (whole workspace)
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo run --example snapshot -- <dir>             # render views to PNG, compare with Paper
+devenv test                                       # environment check (cargo check)
+lefthook run pre-push --force < /dev/null         # everything the pre-push hook runs
+```
+
+1. Run the narrowest test for what you changed first, then the whole workspace.
+2. Before reporting work as done: `cargo fmt --all`, clippy with `-D warnings`, and
+   `cargo test` pass. Run `lefthook run pre-push --force < /dev/null` before a push; without
+   `< /dev/null` its data-guard job waits on stdin forever.
+3. UI changes: views are tested headlessly with `#[gpui_kit::test]` on their fixtures,
+   and the snapshot example renders them for comparison with Paper. Clicking through the
+   real window can't be done headlessly; say so when a change is verified only by tests,
+   snapshots or the build.
+
+Git hooks are managed by lefthook (`lefthook.yml`, installed on devenv shell entry).
+Only `pre-push` is used: data guard (no statements/databases outside `fixtures/`),
+`--locked` lockfile check, fmt, clippy `-D warnings`, tests, and docs with
+`RUSTDOCFLAGS=-D warnings`. There is no CI yet, so this hook is the gate; don't bypass
+it with `--no-verify`.
 
 ## Environment
 
@@ -251,28 +71,6 @@ Check the tree before assuming a module exists.
   ask the user before using them. Most tools require `fileId` even where the description
   says it's optional; Coffer's is in `docs/DESIGN.md` → "Source of truth". If the tools
   fail, ask the user to check that Paper Desktop is running, rather than working around it.
-
-## Commands
-
-```sh
-cargo build
-cargo test                                        # all tests (whole workspace)
-cargo test -p <package> <name>                    # one package / test, e.g. -p coffer-core
-cargo fmt --all
-cargo clippy --all-targets --all-features -- -D warnings
-devenv test                                       # environment check (cargo check)
-lefthook run pre-push --force                      # everything the pre-push hook runs
-```
-
-Before reporting work as done: `cargo fmt --all`, clippy with `-D warnings`, and
-`cargo test` pass. The GUI can't be exercised headlessly; say so when a change is only
-build-verified.
-
-Git hooks are managed by lefthook (`lefthook.yml`, installed on devenv shell entry).
-Only `pre-push` is used: data guard (no statements/databases outside `fixtures/`),
-`--locked` lockfile check, fmt, clippy `-D warnings`, tests, and docs with
-`RUSTDOCFLAGS=-D warnings`. There is no CI yet, so this hook is the gate; don't bypass
-it with `--no-verify`.
 
 ## Architecture
 
