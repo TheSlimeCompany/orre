@@ -64,6 +64,8 @@
 //! - `inbox-empty`: no suggestions;
 //! - `import-file`: the Import dialog's File step (Paper `6J4-0`);
 //! - `import-map`: the sample Monzo export on the Map step (`5ZQ-0`);
+//! - `import-map-menu`: the same with the Merchant menu open, drawn over
+//!   the dialog (composed);
 //! - `import-map-own`: a CSV no preset recognises, mapped by hand (composed
 //!   for M3.4, no Paper drawing);
 //! - `import-save-preset`: "Save as preset…" (composed for M3.5);
@@ -532,6 +534,7 @@ fn inbox_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
 enum ImportShot {
     File,
     Map,
+    MapMenu,
     MapOwn,
     SavePreset,
     Review,
@@ -601,6 +604,7 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
     let shots = [
         ("import-file", ImportShot::File),
         ("import-map", ImportShot::Map),
+        ("import-map-menu", ImportShot::MapMenu),
         ("import-map-own", ImportShot::MapOwn),
         ("import-save-preset", ImportShot::SavePreset),
         ("import-review", ImportShot::Review),
@@ -640,6 +644,7 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 }
                 dialog.set_account(coffer_core::id::AccountId::new(1), cx);
                 match shot {
+                    ImportShot::MapMenu => dialog.open_merchant_menu(window, cx),
                     ImportShot::SavePreset => {
                         dialog.open_save_form(window, cx);
                         dialog.set_preset_name("Example Bank", window, cx);

@@ -622,10 +622,20 @@ impl RenderOnce for MenuList {
     }
 }
 
+/// Drawn at `gpui-base`'s popup priority: GPUI paints every deferred layer in
+/// one pass by priority, nested or not, so a menu opened inside a dialog
+/// (priority `10 + layer`) must outrank it or it's painted underneath.
+const MENU_PRIORITY: usize = gpui_kit::base::POPUP_PRIORITY;
+
+// The dialog host's priority is `10 + layer`, and Coffer's dialogs keep
+// layer 0: a menu inside one has to be drawn after it.
+const _: () = assert!(MENU_PRIORITY > 10);
+
 /// Draws `menu` below its anchor (the element it's a child of), after
-/// everything else so no scrolling inspector or table clips it, and moved
-/// back inside the window when it would run off. `offset` is the anchor's
-/// height plus the gap: the menu's top edge from the anchor's top.
+/// everything else, dialogs included, so no scrolling inspector or table
+/// clips it and no dialog covers it, and moved back inside the window when
+/// it would run off. `offset` is the anchor's height plus the gap: the
+/// menu's top edge from the anchor's top.
 pub fn below(offset: Pixels, menu: impl IntoElement) -> gpui_kit::Div {
     div().absolute().top(offset).left_0().child(
         deferred(
@@ -633,7 +643,7 @@ pub fn below(offset: Pixels, menu: impl IntoElement) -> gpui_kit::Div {
                 .snap_to_window_with_margin(spacing::S2)
                 .child(menu),
         )
-        .with_priority(2),
+        .with_priority(MENU_PRIORITY),
     )
 }
 
@@ -647,7 +657,7 @@ pub fn above(gap: Pixels, menu: impl IntoElement) -> gpui_kit::Div {
                 .snap_to_window_with_margin(spacing::S2)
                 .child(menu),
         )
-        .with_priority(2),
+        .with_priority(MENU_PRIORITY),
     )
 }
 

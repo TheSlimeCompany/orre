@@ -284,6 +284,13 @@ impl ImportDialog {
         self.choose(Pick::Account, &SharedString::from(account.to_string()), cx);
     }
 
+    /// Opens the Merchant column's menu (snapshots: a menu inside the dialog
+    /// is drawn over it, and runs past its footer).
+    pub fn open_merchant_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.selects[Pick::Merchant.index()].set_open(true, None, window, cx);
+        cx.notify();
+    }
+
     /// Types `name` into the save form's Name field.
     pub fn set_preset_name(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.preset_name
