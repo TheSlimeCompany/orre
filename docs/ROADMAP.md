@@ -1104,7 +1104,7 @@ stays as it is.
 
 ---
 
-## UI review — agent-readable views and keyboard paths ⬜
+## UI review — agent-readable views and keyboard paths ✅ (U.5 deferred)
 
 From reviewing Vercel's UI SDK against Coffer on 2026-11-17 (UI SDK itself is web-only
 and isn't used). Three ideas apply: views that state their contents and actions as data
@@ -1113,17 +1113,19 @@ drag. Not a milestone. Order: U.1 with U.4, then U.6. New UI is drawn in Paper f
 
 **Views that describe themselves**
 
-- ⬜ U.1 A test-only `describe()` on the Inbox: its rows (label, category, amount), the
+- ✅ U.1 A test-only `describe()` on the Inbox: its rows (label, category, amount), the
   selection, the open dialog and the actions available (Approve, Reject, ↑↓), as plain
   data, compiled for tests only. Untrusted text goes through `envelope::shown` as the view
   shows it. Move a few `crates/app/src/inbox/tests.rs` tests onto it, so they assert on
   what the view shows instead of its internals. The pilot: it decides whether U.2–U.3
-  follow
-- ⬜ U.2 Transactions' `describe()`, replacing the hand-written read-backs
+  follow. Built (`inbox/describe.rs`, shared types in `ui::describe`); verdict: the tests
+  read as what the user sees and caught unchecked states, so U.2–U.3 followed. Cost: the
+  view renders from `…Text` structs describe shares, which roughly doubles its diff
+- ✅ U.2 Transactions' `describe()`, replacing the hand-written read-backs
   (`transactions/write_tests.rs`: `said()`, `Shown`) and their copies in other tests
-- ⬜ U.3 `describe()` on Checks, Rules, Settings and Accounts, in that order, each with its
+- ✅ U.3 `describe()` on Checks, Rules, Settings and Accounts, in that order, each with its
   tests moved onto it
-- ⬜ U.4 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`) and a
+- ✅ U.4 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`) and a
   line under `AGENTS.md` → Invariants, before U.1 lands: `describe()` and any path that
   runs a view's actions exist only in tests or a dev feature, never in the release binary
   and never reachable from `coffer mcp`. A tool that could press Approve would get round
@@ -1132,27 +1134,32 @@ drag. Not a milestone. Order: U.1 with U.4, then U.6. New UI is drawn in Paper f
 - ⬜ U.5 Later, only if U.1–U.3 earn it: a dev-feature-only local socket so an agent can
   drive a dev build through `describe()` and its actions, against a scratch
   `COFFER_DATA_DIR`, to check a UI change in the running app instead of reporting it as
-  build-verified. Never against the real database
+  build-verified. Never against the real database. Deferred (2026-11-18): U.1–U.3 earned
+  `describe()` for tests, not yet a driver. Before one is worth building: actions need to
+  be named commands a driver can run (they're labels now), dialogs live in the shell's
+  windows outside each view's `describe()`, and focus and hover aren't described. It
+  would also take `describe()` out of `cfg(test)` into a dev feature (decision record
+  2026-11-18, point 1)
 
 **Behaviours apart from looks**
 
-- ⬜ U.6 One shared list behaviour in `ui::`. ↑↓ is bound separately in nine places
+- ✅ U.6 One shared list behaviour in `ui::`. ↑↓ is bound separately in nine places
   (`transactions.rs`, `accounts.rs`, `inbox.rs`, `checks.rs`, `rules.rs`, `settings.rs`
   twice, `ui/menu.rs`, `showcase.rs`), each with its own selection code. The behaviour
   owns the bindings, the selection and scrolling it into view (Home/End and page keys if
   wanted); each view keeps its look. No visual change. It's also where `describe()` reads
   the selection and actions from
-- ⬜ U.7 Decision keys as data: A / R in the Inbox and M / N / ←→ in Checks declared as
+- ✅ U.7 Decision keys as data: A / R in the Inbox and M / N / ←→ in Checks declared as
   (key, action, label) once, so `describe()` lists them and the `ui::kbd` hints come from
   the same place and can't drift. Paper first if the hints change
 
 **A keyboard path for every drag**
 
-- ⬜ U.8 Reorder rules from the keyboard: the Rules table is drag-only
+- ✅ U.8 Reorder rules from the keyboard: the Rules table is drag-only
   (`rules/table.rs`, `on_drag`/`on_drop`). ⌥↑ / ⌥↓ on the selected rule through the same
   `Rules::write` pipeline (undoable), and a line saying where it went ("Moved 'Tesco →
   Groceries' to position 3 of 12"). Keys, wording and placement in Paper first
-- ⬜ U.9 Audit for other pointer-only actions (drag-only or hover-only) across the views:
+- ✅ U.9 Audit for other pointer-only actions (drag-only or hover-only) across the views:
   a list first, then a keyboard path for each, designed in Paper where it shows. Dropping
   a file already has ⌘I
 

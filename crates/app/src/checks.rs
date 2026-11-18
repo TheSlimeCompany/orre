@@ -24,6 +24,8 @@
 //! bank text are untrusted and shown plain ([`text`]).
 
 pub mod balances;
+#[cfg(test)]
+mod describe;
 pub mod duplicates;
 pub mod fixture;
 pub mod lock;
@@ -41,23 +43,14 @@ use coffer_core::reconciliation::BalanceRef;
 use gpui_kit::{Context, EventEmitter, SharedString};
 
 use crate::accounts::store::StoreError;
+use crate::ui::list::{self, Move};
 use store::{ChecksData, ChecksStore};
 
-/// Binds the queues' keys: M merge, N not duplicates, ←→ keep the other
-/// row, ↑↓ move, Escape clears the selection. Call once, before the first
-/// [`view::ChecksView`].
+/// Binds the queues' keys ([`view::KEYS`]): M merge, N not duplicates,
+/// ←→ keep the other row, ↑↓ select, Escape clears the selection. Call
+/// once, before the first [`view::ChecksView`].
 pub fn init(cx: &mut gpui_kit::App) {
-    use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
-    cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(view::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(view::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
-        KeyBinding::new("m", view::MergeSelected, Some(view::CONTEXT)),
-        KeyBinding::new("n", view::DismissSelected, Some(view::CONTEXT)),
-        KeyBinding::new("left", view::KeepOther, Some(view::CONTEXT)),
-        KeyBinding::new("right", view::KeepOther, Some(view::CONTEXT)),
-    ]);
+    view::KEYS.bind(cx);
 }
 
 /// The queues under CHECKS.
@@ -67,6 +60,20 @@ pub enum Queue {
     Balances,
     /// Owed to you (M3.11).
     Owed,
+}
+
+impl Queue {
+    /// Every queue, in the panel's order.
+    pub const ALL: [Queue; 3] = [Queue::Duplicates, Queue::Balances, Queue::Owed];
+
+    /// What the queue is called: its toolbar's title.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Queue::Duplicates => "Possible duplicates",
+            Queue::Balances => "Balance checks",
+            Queue::Owed => "Owed to you",
+        }
+    }
 }
 
 /// What the queues ask their owner (the shell) to do.
@@ -206,6 +213,21 @@ impl Checks {
     /// Failing balance checks: the panel's count and the status bar's.
     pub fn failing(&self) -> usize {
         self.data.review.failing()
+    }
+
+    /// `queue`'s count on its row in the Inbox panel's CHECKS.
+    pub fn queue_count(&self, queue: Queue) -> usize {
+        match queue {
+            Queue::Duplicates => self.pending_pairs(),
+            Queue::Balances => self.failing(),
+            Queue::Owed => self.owed_open(),
+        }
+    }
+
+    /// Whether `queue`'s row in the panel is flagged: Balance checks, while
+    /// a check fails.
+    pub fn queue_flagged(&self, queue: Queue) -> bool {
+        queue == Queue::Balances && self.failing() > 0
     }
 
     /// Whether any account has a balance check yet: the status bar's
@@ -365,11 +387,11 @@ impl Checks {
         }
     }
 
-    /// Moves the selected pair `step` rows (↑↓), stopping at the ends.
-    pub fn select_next_pair(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selected pair (↑↓, [`list::step`]).
+    pub fn select_next_pair(&mut self, to: Move, cx: &mut Context<Self>) {
         let order: Vec<DuplicateCandidateId> =
             self.pairs().iter().map(|pair| pair.candidate).collect();
-        let next = step_in(&order, self.pair, step);
+        let next = list::step(&order, self.pair.as_ref(), to);
         if next.is_some() {
             self.select_pair(next, cx);
         }
@@ -411,8 +433,7 @@ impl Checks {
     /// Whether Merge can go ahead for the selected pair: it has a plan and
     /// the row it excludes isn't locked.
     pub fn can_merge(&self) -> bool {
-        self.selected_pair()
-            .is_some_and(|pair| pair.effect.as_ref().is_ok_and(|e| e.locked.is_none()))
+        self.selected_pair().is_some_and(duplicates::can_merge)
     }
 
     /// Merges the selected pair (Merge, M), keeping the row shown as kept.
@@ -592,10 +613,10 @@ impl Checks {
             .collect()
     }
 
-    /// Moves the selected balance `step` rows (↑↓), stopping at the ends.
-    pub fn select_next_check(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selected balance (↑↓, [`list::step`]).
+    pub fn select_next_check(&mut self, to: Move, cx: &mut Context<Self>) {
         let order = self.check_order();
-        if let Some(next) = step_in(&order, self.check, step) {
+        if let Some(next) = list::step(&order, self.check.as_ref(), to) {
             self.check = Some(next);
             cx.notify();
         }
@@ -651,8 +672,8 @@ impl Checks {
         cx.notify();
     }
 
-    /// Moves the selected person `step` rows (↑↓), stopping at the ends.
-    pub fn select_next_person(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selected person (↑↓, [`list::step`]).
+    pub fn select_next_person(&mut self, to: Move, cx: &mut Context<Self>) {
         let order: Vec<(ShareLabel, Currency)> = self
             .data
             .owed
@@ -660,7 +681,7 @@ impl Checks {
             .iter()
             .map(|person| (person.label.clone(), person.owed.currency()))
             .collect();
-        if let Some(next) = step_in(&order, self.person.clone(), step) {
+        if let Some(next) = list::step(&order, self.person.as_ref(), to) {
             self.person = Some(next);
             cx.notify();
         }
@@ -772,20 +793,6 @@ impl Checks {
     pub fn account(&self, account: AccountId) -> Option<&AccountReview> {
         self.data.review.account(account)
     }
-}
-
-/// The item `step` rows from `current` in `order`, stopping at the ends;
-/// with nothing selected, down gives the first and up the last.
-fn step_in<T: Clone + PartialEq>(order: &[T], current: Option<T>, step: isize) -> Option<T> {
-    if order.is_empty() {
-        return None;
-    }
-    let next = match current.and_then(|id| order.iter().position(|row| *row == id)) {
-        Some(at) => at.saturating_add_signed(step).min(order.len() - 1),
-        None if step < 0 => order.len() - 1,
-        None => 0,
-    };
-    Some(order[next].clone())
 }
 
 #[cfg(test)]

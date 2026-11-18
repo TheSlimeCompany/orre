@@ -18,9 +18,8 @@ use coffer_core::reporting::register::{LinkOther, LinkSide, Register, RegisterRo
 use crate::format::{self, Sign};
 use crate::inbox::text::{NAME_SHOWN, Part, plain, unsigned};
 use crate::theme::tokens::color;
-use crate::ui::transaction_row::CategoryCell;
 
-use super::present;
+use super::present::{self, CellText};
 
 /// A name as it's shown (untrusted text made plain).
 pub fn name(raw: &str) -> String {
@@ -29,7 +28,7 @@ pub fn name(raw: &str) -> String {
 
 /// The row's category cell, with how it counts (Paper `FOD-0`): "Shopping
 /// · refund", "Entertainment · shared", "Repays 2 claims".
-pub fn cell(register: &Register, row: &RegisterRow) -> CategoryCell {
+pub fn cell(register: &Register, row: &RegisterRow) -> CellText {
     let base = present::cell(register, row);
     if row.transfer.is_some() {
         return base;
@@ -46,10 +45,10 @@ pub fn cell(register: &Register, row: &RegisterRow) -> CategoryCell {
         Counts::Shared => base.suffix("shared"),
         Counts::ToClaim => base.suffix("to claim"),
         Counts::Claimed => base.suffix("claimed"),
-        Counts::RepaysClaims(1) => CategoryCell::repays("Repays 1 claim"),
-        Counts::RepaysClaims(count) => CategoryCell::repays(format!("Repays {count} claims")),
-        Counts::RepaysPerson(person) => CategoryCell::repays(format!("Repays {}", name(&person))),
-        Counts::RepaysPeople(count) => CategoryCell::repays(format!("Repays {count} people")),
+        Counts::RepaysClaims(1) => CellText::repays("Repays 1 claim".to_owned()),
+        Counts::RepaysClaims(count) => CellText::repays(format!("Repays {count} claims")),
+        Counts::RepaysPerson(person) => CellText::repays(format!("Repays {}", name(&person))),
+        Counts::RepaysPeople(count) => CellText::repays(format!("Repays {count} people")),
     }
 }
 

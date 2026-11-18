@@ -36,6 +36,14 @@ use crate::ui::text::TextRoleExt as _;
 use super::Rules;
 use super::text;
 
+/// Every dialog's way out.
+pub const CANCEL: &str = "Cancel";
+/// Each dialog's confirming button.
+pub const DELETE_RULE: &str = "Delete rule";
+pub const DELETE_NAME: &str = "Delete name";
+pub const DELETE_CATEGORY: &str = "Delete category";
+pub const UNDO_CHANGE: &str = "Undo change";
+
 fn title(words: String) -> impl IntoElement {
     div()
         .whitespace_nowrap()
@@ -145,13 +153,13 @@ impl Render for DeleteRuleDialog {
                 this.body(error_caption(error))
             })
             .action(
-                Button::new("delete-rule-cancel", "Cancel")
+                Button::new("delete-rule-cancel", CANCEL)
                     .with_variant(ButtonVariant::Secondary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
             )
             .action(
-                Button::new("delete-rule-confirm", "Delete rule")
+                Button::new("delete-rule-confirm", DELETE_RULE)
                     .with_variant(ButtonVariant::DestructiveSolid)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
@@ -237,13 +245,13 @@ impl Render for DeleteNameDialog {
                 this.body(error_caption(error))
             })
             .action(
-                Button::new("delete-name-cancel", "Cancel")
+                Button::new("delete-name-cancel", CANCEL)
                     .with_variant(ButtonVariant::Secondary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
             )
             .action(
-                Button::new("delete-name-confirm", "Delete name")
+                Button::new("delete-name-confirm", DELETE_NAME)
                     .with_variant(ButtonVariant::DestructiveSolid)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
@@ -334,13 +342,13 @@ impl Render for DeleteCategoryDialog {
                 this.body(error_caption(error))
             })
             .action(
-                Button::new("delete-category-cancel", "Cancel")
+                Button::new("delete-category-cancel", CANCEL)
                     .with_variant(ButtonVariant::Secondary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
             )
             .action(
-                Button::new("delete-category-confirm", "Delete category")
+                Button::new("delete-category-confirm", DELETE_CATEGORY)
                     .with_variant(ButtonVariant::DestructiveSolid)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
@@ -463,13 +471,13 @@ impl Render for UndoChangeDialog {
                 this.body(error_caption(error))
             })
             .action(
-                Button::new("undo-change-cancel", "Cancel")
+                Button::new("undo-change-cancel", CANCEL)
                     .with_variant(ButtonVariant::Secondary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
             )
             .action(
-                Button::new("undo-change-confirm", "Undo change")
+                Button::new("undo-change-confirm", UNDO_CHANGE)
                     .with_variant(ButtonVariant::Primary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
@@ -477,6 +485,52 @@ impl Render for UndoChangeDialog {
             .on_cancel(move |_, cx| {
                 let _ = on_cancel.update(cx, |this, cx| this.cancel(cx));
             })
+    }
+}
+
+/// What each dialog shows, for the test-only `describe()`
+/// ([`super::describe`]): its title, body, refusal and buttons, as drawn.
+#[cfg(test)]
+mod described {
+    use super::super::describe::DialogDescription;
+    use super::*;
+
+    fn described(
+        title: &str,
+        body: &str,
+        error: Option<&SharedString>,
+        confirm: &str,
+    ) -> DialogDescription {
+        DialogDescription::new(title, body, error, confirm)
+    }
+
+    impl DeleteRuleDialog {
+        pub fn describe(&self) -> DialogDescription {
+            described(&self.title, &self.body, self.error.as_ref(), DELETE_RULE)
+        }
+    }
+
+    impl DeleteNameDialog {
+        pub fn describe(&self) -> DialogDescription {
+            described(&self.title, &self.body, self.error.as_ref(), DELETE_NAME)
+        }
+    }
+
+    impl DeleteCategoryDialog {
+        pub fn describe(&self) -> DialogDescription {
+            described(
+                &self.title,
+                &self.body,
+                self.error.as_ref(),
+                DELETE_CATEGORY,
+            )
+        }
+    }
+
+    impl UndoChangeDialog {
+        pub fn describe(&self) -> DialogDescription {
+            described(&self.title, &self.body, self.error.as_ref(), UNDO_CHANGE)
+        }
     }
 }
 

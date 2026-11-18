@@ -108,21 +108,90 @@ pub fn category_label(register: &Register, row: &RegisterRow) -> String {
     }
 }
 
-/// The row's category cell.
-pub fn cell(register: &Register, row: &RegisterRow) -> CategoryCell {
-    if row.transfer.is_some() {
-        return CategoryCell::transfer(category_label(register, row));
+/// What a row's category cell shows, before it's drawn as a
+/// [`CategoryCell`] (the table) or described (the tests' `describe()`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellText {
+    pub kind: CellKind,
+    /// How the row counts, after the name: "refund", "shared".
+    pub suffix: Option<String>,
+}
+
+/// The kinds of [`CategoryCell`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum CellKind {
+    /// A category (or a split's), with its marker.
+    Category {
+        name: String,
+        marker: Marker,
+    },
+    /// Money in that repays someone: "Repays 2 claims".
+    Repays(String),
+    Uncategorised,
+    /// "Transfer · Rainy day pot".
+    Transfer(String),
+    /// Left out of totals, for this reason ("Bank error").
+    Excluded(&'static str),
+}
+
+impl CellText {
+    fn of(kind: CellKind) -> Self {
+        Self { kind, suffix: None }
     }
-    match &row.category {
-        RowCategory::Uncategorised => CategoryCell::uncategorised(),
-        RowCategory::Category(id) => match register.category(*id) {
-            Some(category) => CategoryCell::marked(category.label.clone(), marker(category.colour)),
-            None => CategoryCell::uncategorised(),
-        },
-        RowCategory::Split(parts) => {
-            CategoryCell::marked(category_label(register, row), split_marker(register, parts))
+
+    /// Follows the name with how the row counts.
+    pub fn suffix(mut self, words: &str) -> Self {
+        self.suffix = Some(words.to_owned());
+        self
+    }
+
+    pub fn repays(words: String) -> Self {
+        Self::of(CellKind::Repays(words))
+    }
+
+    pub fn excluded(reason: &'static str) -> Self {
+        Self::of(CellKind::Excluded(reason))
+    }
+
+    pub fn is_transfer(&self) -> bool {
+        matches!(self.kind, CellKind::Transfer(_))
+    }
+
+    /// The cell the table draws.
+    pub fn cell(self) -> CategoryCell {
+        let cell = match self.kind {
+            CellKind::Category { name, marker } => CategoryCell::marked(name, marker),
+            CellKind::Repays(words) => CategoryCell::repays(words),
+            CellKind::Uncategorised => CategoryCell::uncategorised(),
+            CellKind::Transfer(label) => CategoryCell::transfer(label),
+            CellKind::Excluded(reason) => CategoryCell::excluded(reason),
+        };
+        match self.suffix {
+            Some(suffix) => cell.suffix(suffix),
+            None => cell,
         }
     }
+}
+
+/// The row's category cell.
+pub fn cell(register: &Register, row: &RegisterRow) -> CellText {
+    if row.transfer.is_some() {
+        return CellText::of(CellKind::Transfer(category_label(register, row)));
+    }
+    CellText::of(match &row.category {
+        RowCategory::Uncategorised => CellKind::Uncategorised,
+        RowCategory::Category(id) => match register.category(*id) {
+            Some(category) => CellKind::Category {
+                name: category.label.clone(),
+                marker: marker(category.colour),
+            },
+            None => CellKind::Uncategorised,
+        },
+        RowCategory::Split(parts) => CellKind::Category {
+            name: category_label(register, row),
+            marker: split_marker(register, parts),
+        },
+    })
 }
 
 /// The marker a row's category shows in a select: as in the table.

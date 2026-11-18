@@ -28,7 +28,7 @@ use crate::theme::tokens::{color, font};
 use crate::ui::icon::Glyph;
 use crate::ui::marker::Marker;
 
-use super::store::InboxData;
+use super::store::{Entry, InboxData};
 
 /// The longest rationale shown, in characters.
 pub const RATIONALE_SHOWN: usize = 500;
@@ -255,6 +255,18 @@ pub fn unsigned(amount: Money) -> String {
 /// A list date: "4 Nov", "2 Oct 25" for another year.
 pub fn date(date: NaiveDate, today: NaiveDate) -> String {
     format::list_date(date, today)
+}
+
+/// When a decided suggestion was decided, as a list date ("" if it
+/// wasn't, or the time can't be read).
+pub fn decided_on(entry: &Entry, today: NaiveDate) -> String {
+    entry
+        .suggestion
+        .decided_at
+        .as_deref()
+        .and_then(timestamp)
+        .map(|at| date(at.date_naive(), today))
+        .unwrap_or_default()
 }
 
 /// The day of a stored UTC timestamp (`2026-11-14T10:20:30.000Z`).

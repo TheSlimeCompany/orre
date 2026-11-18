@@ -118,6 +118,86 @@ pub fn rows(balances: &[StoredBalance]) -> Vec<ValuationRow> {
         .collect()
 }
 
+/// A row of the table as drawn, lane by lane.
+pub(super) struct RowText {
+    /// "12 Oct 2026".
+    pub date: String,
+    /// The note, or "Valuation" (`text-muted`) without one.
+    pub note: String,
+    /// "· first value", after the oldest row's note.
+    pub first: Option<String>,
+    /// Since the value before it, or "—".
+    pub change: String,
+    /// Whether there is a change ("—" is `text-muted`).
+    pub changed: bool,
+    pub value: String,
+}
+
+impl RowText {
+    /// `row` as drawn; `first` for the oldest.
+    pub(super) fn of(row: &ValuationRow, words: Words, first: bool) -> RowText {
+        let change = row.change.filter(|_| !first);
+        RowText {
+            date: row.date.format("%-d %b %Y").to_string(),
+            note: row.note.clone().unwrap_or_else(|| words.unnamed.to_owned()),
+            first: first.then(|| format!("· first {}", words.noun)),
+            change: change.map_or_else(|| "—".to_owned(), |change| money(change, Sign::Always)),
+            changed: change.is_some(),
+            value: money(row.value, Sign::Negative),
+        }
+    }
+}
+
+/// The toolbar's caption: how many values, and how net worth uses them.
+pub(super) fn toolbar_caption(words: Words, count: usize) -> String {
+    if count == 0 {
+        format!(
+            "No {} yet · net worth uses the latest one on or before each date",
+            words.nouns
+        )
+    } else {
+        format!(
+            "{count} {} you entered · net worth uses the latest one on or before each date",
+            if count == 1 { words.noun } else { words.nouns }
+        )
+    }
+}
+
+/// The caption under the table: from when the account counts.
+pub(super) fn table_note(node: &AccountNode, rows: &[ValuationRow]) -> String {
+    let first = rows
+        .last()
+        .map(|row| row.date.format("%-d %b %Y").to_string());
+    let name = super::name(&node.account.name);
+    match (node.account.kind, first) {
+        (AccountKind::Liability, Some(first)) => format!(
+            "A balance here sets what you owe on its date, so it isn't checked against transactions. {name} counts toward net worth from its first balance, {first}. Payments toward it stay spending on the account they leave."
+        ),
+        (_, Some(first)) => format!(
+            "A valuation sets the balance on its date, so it isn't checked against transactions. {name} counts toward net worth from its first value, {first}. Payments toward it, like a deposit, stay on the account they left."
+        ),
+        (_, None) => String::new(),
+    }
+}
+
+/// The empty state's title, with no values.
+pub(super) fn empty_title(words: Words) -> String {
+    format!("No {} yet", words.nouns)
+}
+
+/// The empty state's body.
+pub(super) fn empty_body(node: &AccountNode) -> String {
+    format!(
+        "Add what {} is {}, and Coffer holds it until the next one.",
+        super::name(&node.account.name),
+        if node.account.kind == AccountKind::Liability {
+            "owed"
+        } else {
+            "worth"
+        }
+    )
+}
+
 /// The chart's scale: dates across, values up, as fractions of the plot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Chart {
@@ -336,17 +416,7 @@ impl ValuationsView {
     }
 
     fn render_toolbar(&self, words: Words, count: usize, cx: &mut Context<Self>) -> AnyElement {
-        let caption = if count == 0 {
-            format!(
-                "No {} yet · net worth uses the latest one on or before each date",
-                words.nouns
-            )
-        } else {
-            format!(
-                "{count} {} you entered · net worth uses the latest one on or before each date",
-                if count == 1 { words.noun } else { words.nouns }
-            )
-        };
+        let caption = toolbar_caption(words, count);
         div()
             .flex()
             .flex_none()
@@ -629,6 +699,7 @@ impl ValuationsView {
         let last = rows.len().saturating_sub(1);
         let body_rows = rows.iter().enumerate().map(|(at, row)| {
             let first = at == last;
+            let text = RowText::of(row, words, first);
             let note = div()
                 .flex()
                 .flex_1()
@@ -637,21 +708,25 @@ impl ValuationsView {
                 .whitespace_nowrap()
                 .overflow_hidden()
                 .text_role(typography::BODY)
-                .map(|this| match &row.note {
-                    Some(note) => this.child(div().text_color(color::TEXT).child(note.clone())),
-                    None => this.child(div().text_color(color::TEXT_MUTED).child(words.unnamed)),
-                })
-                .when(first, |this| {
-                    this.child(
-                        div()
-                            .text_color(color::TEXT_MUTED)
-                            .child(format!("· first {}", words.noun)),
-                    )
+                // A value without a note reads "Valuation", quieter.
+                .child(
+                    div()
+                        .text_color(if row.note.is_some() {
+                            color::TEXT
+                        } else {
+                            color::TEXT_MUTED
+                        })
+                        .child(text.note),
+                )
+                .when_some(text.first, |this, first| {
+                    this.child(div().text_color(color::TEXT_MUTED).child(first))
                 });
-            let (change, change_color) = match row.change {
-                Some(change) if !first => (money(change, Sign::Always), color::TEXT_SECONDARY),
-                _ => ("—".to_owned(), color::TEXT_MUTED),
+            let change_color = if text.changed {
+                color::TEXT_SECONDARY
+            } else {
+                color::TEXT_MUTED
             };
+            let change = text.change;
             div()
                 .id(SharedString::from(format!("valuation-{}", row.date)))
                 .flex()
@@ -668,7 +743,7 @@ impl ValuationsView {
                         .whitespace_nowrap()
                         .text_role(typography::MONO_VALUE)
                         .text_color(color::TEXT_MUTED)
-                        .child(row.date.format("%-d %b %Y").to_string()),
+                        .child(text.date),
                 )
                 .child(note)
                 .child(
@@ -691,22 +766,10 @@ impl ValuationsView {
                         .whitespace_nowrap()
                         .text_role(typography::MONO_AMOUNT)
                         .text_color(color::TEXT)
-                        .child(money(row.value, Sign::Negative)),
+                        .child(text.value),
                 )
         });
-        let first = rows
-            .last()
-            .map(|row| row.date.format("%-d %b %Y").to_string());
-        let name = &node.account.name;
-        let note = match (node.account.kind, first) {
-            (AccountKind::Liability, Some(first)) => format!(
-                "A balance here sets what you owe on its date, so it isn't checked against transactions. {name} counts toward net worth from its first balance, {first}. Payments toward it stay spending on the account they leave."
-            ),
-            (_, Some(first)) => format!(
-                "A valuation sets the balance on its date, so it isn't checked against transactions. {name} counts toward net worth from its first value, {first}. Payments toward it, like a deposit, stay on the account they left."
-            ),
-            (_, None) => String::new(),
-        };
+        let note = table_note(node, rows);
         div()
             .flex()
             .flex_col()
@@ -782,16 +845,8 @@ impl Render for ValuationsView {
                 .child(self.render_table(&node, words, &rows)),
             None => root.child(
                 div().flex().flex_1().items_center().justify_center().child(
-                    EmptyState::new(format!("No {} yet", words.nouns))
-                        .body(format!(
-                            "Add what {} is {}, and Coffer holds it until the next one.",
-                            node.account.name,
-                            if node.account.kind == AccountKind::Liability {
-                                "owed"
-                            } else {
-                                "worth"
-                            }
-                        ))
+                    EmptyState::new(empty_title(words))
+                        .body(empty_body(&node))
                         .shortcut("⌘N", words.add),
                 ),
             ),

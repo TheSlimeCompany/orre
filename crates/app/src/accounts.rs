@@ -28,12 +28,24 @@ pub mod add_balance;
 pub mod close;
 pub mod data;
 pub mod delete;
+#[cfg(test)]
+mod describe;
 pub mod fixture;
 pub mod inspector;
 pub mod new_account;
 pub mod panel;
 pub mod store;
 pub mod valuations;
+
+/// An account's or pot's name as it's shown: rows, titles, captions,
+/// dialogs and `describe()` (untrusted text made plain, as every view shows
+/// names: [`crate::inbox::text::plain`]). A name can come from an import or
+/// a preset, so its control, bidi and other invisible characters are
+/// stripped and it's cut to [`NAME_SHOWN`](crate::inbox::text::NAME_SHOWN).
+/// The Name field holds the stored name as typed, so an edit round-trips.
+pub fn name(raw: &str) -> String {
+    crate::inbox::text::plain(raw, crate::inbox::text::NAME_SHOWN)
+}
 
 gpui_kit::actions!(
     coffer_accounts,
@@ -50,12 +62,18 @@ gpui_kit::actions!(
 pub fn init(cx: &mut gpui_kit::App) {
     use std::rc::Rc;
 
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+    use gpui_kit::base::actions::{Cancel, Confirm};
     use gpui_kit::{KeyBinding, KeyBindingContextPredicate};
+    panel::KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(panel::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(panel::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(panel::CONTEXT)),
+        KeyBinding::new(panel::CLEAR_KEY, Cancel, Some(panel::CONTEXT)),
+        // Enter on a flagged account opens its failing check, as its dot
+        // does (`DESIGN.md` → "Keyboard paths").
+        KeyBinding::new(
+            panel::CHECK_KEY,
+            Confirm { secondary: false },
+            Some(panel::CONTEXT),
+        ),
     ]);
     // ⌘N (Ctrl elsewhere): `KeyBinding::new` can't resolve `secondary-`,
     // so `load` asks the platform, as the shell's shortcuts do.
@@ -63,7 +81,7 @@ pub fn init(cx: &mut gpui_kit::App) {
         let context =
             Rc::new(KeyBindingContextPredicate::parse(context).expect("the key context parses"));
         KeyBinding::load(
-            "secondary-n",
+            panel::ADD_VALUE_KEY,
             Box::new(AddValuation),
             Some(context),
             false,
@@ -83,6 +101,7 @@ use coffer_core::money::Money;
 use coffer_core::reporting::account_tree::AccountNode;
 use gpui_kit::{Context, EventEmitter, SharedString};
 
+use crate::ui::list;
 use data::AccountsData;
 use store::AccountStore;
 
@@ -158,6 +177,10 @@ pub struct Accounts {
     closed: Option<Closed>,
     /// Why Undo couldn't reopen it, said in the bar.
     closed_error: Option<SharedString>,
+    /// Whether the panel last drew its focus ring, for `describe()`
+    /// (test-only).
+    #[cfg(test)]
+    panel_ring: std::cell::Cell<bool>,
 }
 
 impl EventEmitter<AccountsEvent> for Accounts {}
@@ -172,6 +195,8 @@ impl Accounts {
             load_error: None,
             closed: None,
             closed_error: None,
+            #[cfg(test)]
+            panel_ring: Default::default(),
         };
         accounts.load();
         accounts
@@ -187,6 +212,8 @@ impl Accounts {
             load_error: Some(reason.into()),
             closed: None,
             closed_error: None,
+            #[cfg(test)]
+            panel_ring: Default::default(),
         }
     }
 
@@ -199,6 +226,8 @@ impl Accounts {
             load_error: None,
             closed: None,
             closed_error: None,
+            #[cfg(test)]
+            panel_ring: Default::default(),
         }
     }
 
@@ -252,23 +281,14 @@ impl Accounts {
         self.select(next, cx);
     }
 
-    /// Moves the selection `step` rows down the panel (up when negative),
-    /// stopping at the ends; with nothing selected, down selects the first
-    /// row and up the last. The arrow keys in the panel.
-    pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selection through the panel's accounts in panel order
+    /// ([`list::step`]: stopping at the ends; with nothing selected, down
+    /// selects the first row and up the last). The arrow keys in the panel.
+    pub fn select_next(&mut self, to: list::Move, cx: &mut Context<Self>) {
         let rows: Vec<AccountId> = panel::order(&self.data);
-        if rows.is_empty() {
-            return;
+        if let Some(next) = list::step(&rows, self.selected.as_ref(), to) {
+            self.select(Some(next), cx);
         }
-        let next = match self
-            .selected
-            .and_then(|id| rows.iter().position(|row| *row == id))
-        {
-            Some(at) => at.saturating_add_signed(step).min(rows.len() - 1),
-            None if step < 0 => rows.len() - 1,
-            None => 0,
-        };
-        self.select(Some(rows[next]), cx);
     }
 
     /// Asks the shell to open New account.
@@ -312,6 +332,19 @@ impl Accounts {
     /// The flagged dot: ask the shell to open the account's balance checks.
     pub fn request_checks(&mut self, account: AccountId, cx: &mut Context<Self>) {
         cx.emit(AccountsEvent::ChecksRequested(account));
+    }
+
+    /// Enter in the panel: what the selected account's flagged dot does,
+    /// if it has one. Returns whether it did anything.
+    pub fn request_selected_checks(&mut self, cx: &mut Context<Self>) -> bool {
+        let flagged = self
+            .selected_node()
+            .filter(|node| node.status == coffer_core::reconciliation::Status::Mismatch)
+            .map(|node| node.account.id);
+        if let Some(account) = flagged {
+            self.request_checks(account, cx);
+        }
+        flagged.is_some()
     }
 
     /// A row under CATEGORIES: ask the shell to filter Transactions by it.
@@ -404,7 +437,7 @@ impl Accounts {
         let name = self
             .data
             .node(account)
-            .map(|node| node.account.name.clone())
+            .map(|node| name(&node.account.name))
             .unwrap_or_default();
         self.store()?
             .close(account, on)

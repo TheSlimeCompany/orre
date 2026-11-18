@@ -334,7 +334,9 @@ section's rows and Coffer's refund card (D6.5) and the undo bar (D6.3). Marked
    bar reads "Confirmed transfer: Current account → Savings", "Marked as not a transfer"
    or "Unpaired transfer" (composed).
 10. **Open.** The table doesn't mark a suggested pair's rows yet, and there is no "Pair
-    with…" for rows detection didn't pair; both need a design.
+    with…" for rows detection didn't pair; both need a design. (The bulk-action bar's
+    "Mark as transfer" now pairs two rows by hand: "Mark as transfer and Create rule
+    from the bulk-action bar" below.)
 
 ### Decision record: removing transactions, and which rows need a category (2026-11-16)
 
@@ -376,3 +378,40 @@ From an architecture review of `crates/core`. Nothing the user sees changes exce
    ledger lines, not transactions, and is unchanged: a fully refunded money in's own
    line nets to zero and isn't listed; a partly refunded one's uncategorised remainder
    is.
+
+### Decision record: Mark as transfer and Create rule from the bulk-action bar (2026-11-18)
+
+The bulk-action bar's "Mark as transfer" and "Create rule" were drawn (D3, `112-0`) but did
+nothing. `DESIGN.md` → "Bulk actions" draws only the buttons, so both are composed from
+what the inspector already does (lead, 2026-11-18). Marked **(composed)**. **No
+migration.**
+
+1. **Mark as transfer is enabled for exactly two selected rows that make one transfer**
+   (`transfer::markable`, on plain values so the view answers it from the register):
+   different accounts, one currency, opposite amounts that aren't zero, neither in a
+   suggested or confirmed pair, excluded, split or linked (what Confirm refuses, point 3
+   of "transfer-pair confirmation"). Dates, closed accounts and the transfer window
+   aren't checked: the user knows the pair. Otherwise the button is disabled; it doesn't
+   say why yet, as there's no tooltip pattern for a toolbar button.
+2. **A row in a rejected group may be marked.** The register doesn't show rejected
+   groups, and "Not a transfer" or Unpair shouldn't be final. When the two rows are one
+   rejected pair, that group is confirmed again; otherwise a new confirmed group is made
+   and each row leaves its rejected group, its old partner staying there so detection
+   still doesn't suggest it. That partner is then alone in a rejected group, and stays
+   there if the marked row is later removed (undo-import dissolves only the removed rows'
+   groups): detection won't pair it again, though it can still be marked by hand, and
+   an export lists it with `transfer_status` `rejected` and no other side. Accepted for
+   now; cleaning up lone rejected groups would need undo to recreate them.
+3. **The write** (`inbox::mark_transfer` over `transfer::mark_in`) re-checks in `BEGIN
+   IMMEDIATE` and, in the same DB transaction, settles an agent's pending suggestion for
+   exactly that pair, as Confirm does (point 8 of "transfer-pair confirmation").
+4. **Undo** (`transfer::unmark`) reverses it exactly: the rejected pair's group back to
+   rejected, or the new group removed and each row back in the group it left. It refuses
+   if the pair has changed since. As with transfer decisions, there is no change batch,
+   and settled suggestions stay decided. The undo bar reads "Marked as transfer: Current
+   account → Savings" (money out first).
+5. **Create rule** runs `rule::rule_from` on every selected row and opens Rules on the
+   unsaved preview (`TransactionsEvent::CreateRule`, as "Create rule from this" does) only
+   when every row gives the same rule: same field, pattern and category. Otherwise it says
+   why under the selection's Category select. It is enabled whenever several rows are
+   selected, since knowing whether they agree needs a database read.

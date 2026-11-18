@@ -70,14 +70,31 @@ impl RemoveDialog {
     }
 }
 
+impl RemoveDialog {
+    /// "Remove `claude-code`?"
+    fn title(&self) -> Vec<super::table::Run> {
+        vec![plain("Remove "), mono(self.name.to_string()), plain("?")]
+    }
+
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3).
+    #[cfg(test)]
+    pub fn describe(&self) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        Dialog {
+            title: super::table::Run::joined(&self.title()),
+            fields: Vec::new(),
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![
+                Action::button("Cancel", true),
+                Action::button("Remove client", true),
+            ],
+        }
+    }
+}
+
 impl Render for RemoveDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = rich(
-            typography::TITLE,
-            color::TEXT,
-            vec![plain("Remove "), mono(self.name.to_string()), plain("?")],
-        )
-        .whitespace_nowrap();
+        let title = rich(typography::TITLE, color::TEXT, self.title()).whitespace_nowrap();
         let on_cancel = cx.entity().downgrade();
         Dialog::with_title(title, &self.focus)
             .body(caption(

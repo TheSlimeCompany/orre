@@ -1,6 +1,7 @@
 //! UI integration tests for the Rules view: the shell's Rules tab in a
 //! headless window, against a scratch database seeded with [`fixture`]
-//! through [`RulesStore`], as `coffer` runs it.
+//! through [`RulesStore`], as `coffer` runs it. What the view shows is read
+//! through its test-only `describe()` ([`super::describe`]).
 
 use coffer_core::change::{self as core_change, BatchStatus};
 use coffer_core::db::Database;
@@ -10,6 +11,10 @@ use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
+use super::describe::{
+    Action, BarDescription, CanvasDescription, InspectorDescription, ItemDescription,
+    PanelRowDescription, PreviewDescription, RulesDescription, ToolbarDescription, describe_window,
+};
 use super::view::{Input, Menu};
 use super::*;
 use crate::accounts::{Accounts, fixture as accounts_fixture};
@@ -102,6 +107,43 @@ pub(super) fn redraw(cx: &mut VisualTestContext) {
     cx.update(|window, cx| window.draw(cx).clear(cx));
 }
 
+/// What the Rules tab shows now ([`describe_window`]).
+pub(super) fn describe(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> RulesDescription {
+    describe_window(shell, cx)
+}
+
+/// The rows of the Rules table, as `describe()` lists them.
+pub(super) fn rule_rows(shown: &RulesDescription) -> &[super::describe::RuleRowDescription] {
+    match &shown.canvas {
+        CanvasDescription::Rules(rows) => rows,
+        other => panic!("not the rules table: {other:?}"),
+    }
+}
+
+/// The preview on the canvas.
+fn preview_of(shown: &RulesDescription) -> &PreviewDescription {
+    match &shown.canvas {
+        CanvasDescription::Preview(preview) => preview,
+        other => panic!("not the preview: {other:?}"),
+    }
+}
+
+/// The inspector's item.
+pub(super) fn item(shown: &RulesDescription) -> &ItemDescription {
+    match &shown.inspector {
+        InspectorDescription::Item(item) => item,
+        other => panic!("nothing in the inspector: {other:?}"),
+    }
+}
+
+/// The labels of `actions`, with whether each is enabled.
+fn labels(actions: &[Action]) -> Vec<(&str, bool)> {
+    actions
+        .iter()
+        .map(|action| (action.label.as_str(), action.enabled))
+        .collect()
+}
+
 fn click(id: &str, cx: &mut VisualTestContext) {
     let id = gpui_kit::SharedString::from(id.to_owned());
     cx.update(move |window, cx| window.click(id, cx));
@@ -116,57 +158,99 @@ fn shows(id: &str, cx: &mut VisualTestContext) -> bool {
 #[gpui_kit::test]
 fn rules_list_in_order_with_what_they_decide(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_, rules, cx) = open(cx, &scratch);
-    let (ids, never, selected) = cx.update(|_, cx| {
-        let rules = rules.read(cx);
-        (
-            rules
-                .rules()
-                .iter()
-                .map(|s| s.rule.id())
-                .collect::<Vec<_>>(),
-            rules
-                .rules()
-                .iter()
-                .filter(|s| s.never_reached())
-                .map(|s| s.rule.id())
-                .collect::<Vec<_>>(),
-            rules.selected_rule_id(),
-        )
-    });
+    let (shell, rules, cx) = open(cx, &scratch);
+    let ids: Vec<RuleId> =
+        cx.update(|_, cx| rules.read(cx).rules().iter().map(|s| s.rule.id()).collect());
     assert_eq!(ids, scratch.seeded.rules);
-    assert_eq!(never, [scratch.seeded.rules[2]], "UBER TRIP loses to UBER");
+    let shown = describe(&shell, cx);
+    let rows = rule_rows(&shown);
+    assert_eq!(rows.len(), 14);
     assert_eq!(
-        selected,
-        Some(scratch.seeded.rules[0]),
+        rows.iter().map(|row| row.number).collect::<Vec<_>>(),
+        (1..=14).collect::<Vec<_>>()
+    );
+    let never: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.never_reached)
+        .map(|row| row.when.as_str())
+        .collect();
+    assert_eq!(
+        never,
+        ["Merchant contains UBER TRIP"],
+        "UBER TRIP loses to UBER"
+    );
+    assert_eq!(rows[2].matches, "0");
+    assert_eq!(
+        (rows[5].account.as_str(), rows[5].then.as_str()),
+        ("Joint account", "Groceries + tag"),
+        "WAITROSE: one account, a category and a tag"
+    );
+    assert_eq!(rows[11].then, "Tag Gift Aid", "no category: the tag leads");
+    assert_eq!(
+        rows[13].when,
+        "Bank text contains FLAT 2B RENT · over £1,000"
+    );
+    assert_eq!(
+        shown.selected.as_deref(),
+        Some("Merchant contains TFL TRAVEL"),
         "the first rule opens"
     );
+    assert_eq!(item(&shown).title, "Merchant contains TFL TRAVEL");
     assert!(shows(&format!("rule-{}", scratch.seeded.rules[1]), cx));
 
     // The ACTION filter narrows the table; a second click clears it.
     click("rules-action-add_tag", cx);
-    let listed = cx.update(|_, cx| rules.read(cx).rules().len());
-    assert_eq!(listed, 2, "WAITROSE and JUSTGIVING add tags");
+    let shown = describe(&shell, cx);
+    let tagged: Vec<&str> = rule_rows(&shown)
+        .iter()
+        .map(|row| row.when.as_str())
+        .collect();
+    assert_eq!(
+        tagged,
+        ["Merchant contains WAITROSE", "Merchant contains JUSTGIVING"],
+        "WAITROSE and JUSTGIVING add tags"
+    );
+    let on: Vec<&PanelRowDescription> = shown.panel.filters.iter().filter(|f| f.selected).collect();
+    assert_eq!(on.len(), 1);
+    assert_eq!((on[0].label, on[0].count), ("Add tag", 2));
     click("rules-action-add_tag", cx);
-    let listed = cx.update(|_, cx| rules.read(cx).rules().len());
-    assert_eq!(listed, 14);
+    let shown = describe(&shell, cx);
+    assert_eq!(rule_rows(&shown).len(), 14);
+    assert!(shown.panel.filters.iter().all(|filter| !filter.selected));
 
     // Selecting the never-reached rule offers to move it above UBER.
     let trip = scratch.seeded.rules[2];
     click(&format!("rule-{trip}"), cx);
-    assert!(shows("rules-move-above", cx));
+    let shown = describe(&shell, cx);
+    let card = item(&shown);
+    assert_eq!(
+        card.never_reached.as_deref(),
+        Some(
+            "Rule 2, Merchant contains UBER, comes first and catches all 2 transactions this \
+             rule would match."
+        )
+    );
+    assert_eq!(
+        card.caption.as_deref(),
+        Some("transactions decided by this rule · rule 3 of 14")
+    );
+    assert_eq!(
+        labels(&card.actions)[..2],
+        [("Move above rule 2", true), ("Show rule 2", true)]
+    );
     click("rules-move-above", cx);
-    let order = cx.update(|_, cx| {
-        rules
-            .read(cx)
-            .rules()
-            .iter()
-            .map(|s| s.rule.id())
-            .collect::<Vec<_>>()
-    });
-    assert_eq!(order[1], trip, "moved above rule 2");
-    let decides = cx.update(|_, cx| rules.read(cx).data().rule(trip).unwrap().decides);
-    assert_eq!(decides, 2, "it decides its UBER TRIP rows now");
+    let shown = describe(&shell, cx);
+    let moved = &rule_rows(&shown)[1];
+    assert_eq!(
+        moved.when, "Merchant contains UBER TRIP",
+        "moved above rule 2"
+    );
+    assert_eq!(
+        (moved.matches.as_str(), moved.never_reached),
+        ("2", false),
+        "it decides its UBER TRIP rows now"
+    );
+    assert_eq!(item(&shown).never_reached, None);
 }
 
 #[gpui_kit::test]
@@ -239,34 +323,62 @@ fn editing_a_rule_saves_without_touching_history(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn applying_a_rule_previews_then_changes_and_undoes(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_, rules, cx) = open(cx, &scratch);
+    let (shell, rules, cx) = open(cx, &scratch);
     let dishoom = scratch.seeded.rules[12];
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_rule(Some(dishoom), cx)));
     redraw(cx);
     click("rules-apply", cx);
-    let (rows, changing) = cx.update(|_, cx| {
-        let apply = rules.read(cx).apply().cloned().unwrap();
-        (apply.rows.len(), apply.changing())
-    });
-    assert_eq!((rows, changing), (1, 1), "the one DISHOOM row");
-    assert!(shows("rules-commit", cx));
+    let shown = describe(&shell, cx);
+    assert_eq!(shown.toolbar.title, "Apply to past transactions");
+    assert_eq!(
+        shown.toolbar.caption,
+        "Rule 13: Merchant starts with DISHOOM → Eating out · nothing changes until you apply"
+    );
+    assert_eq!(labels(&shown.toolbar.buttons), [("Back to rules", true)]);
+    assert!(
+        shown.toolbar.keys.is_empty(),
+        "no key hints over the preview"
+    );
+    let preview = preview_of(&shown);
+    assert_eq!(preview.will_change.len(), 1, "the one DISHOOM row");
+    let row = &preview.will_change[0];
+    assert_eq!(
+        (row.merchant.as_str(), row.now.as_str(), row.after.as_str()),
+        ("DISHOOM", "Uncategorised", "Eating out")
+    );
+    assert_eq!(preview.user_set, None);
+    assert_eq!(labels(&preview.actions), [("Apply to 1 transaction", true)]);
+    assert!(
+        labels(&item(&shown).actions).contains(&("Apply to past transactions…", false)),
+        "Apply is off while its preview is open"
+    );
 
     click("rules-commit", cx);
-    let outcome = cx.update(|_, cx| rules.read(cx).outcome().cloned());
+    let shown = describe(&shell, cx);
+    assert_eq!(
+        shown.bar,
+        Some(BarDescription {
+            message: "Changed 1 transaction to Eating out".into(),
+            undo: true,
+        })
+    );
+    assert!(
+        rule_rows(&shown).iter().any(|row| row.selected),
+        "back to the table"
+    );
     let Some(Outcome::Done {
-        message,
-        undo: Some(batch),
-    }) = outcome
+        undo: Some(batch), ..
+    }) = cx.update(|_, cx| rules.read(cx).outcome().cloned())
     else {
-        panic!("the apply says what changed, with Undo");
+        panic!("the bar's Undo reverts a batch");
     };
-    assert_eq!(message.as_ref(), "Changed 1 transaction to Eating out");
     let batch_info = core_change::get(&scratch.db(), batch).unwrap();
     assert_eq!(batch_info.rule, Some(dishoom));
 
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.undo(cx)));
     let batch_info = core_change::get(&scratch.db(), batch).unwrap();
     assert_eq!(batch_info.status, BatchStatus::Undone);
+    assert_eq!(describe(&shell, cx).bar, None, "the bar goes");
 }
 
 #[gpui_kit::test]
@@ -295,33 +407,70 @@ fn a_rule_from_an_edit_is_previewed_then_created_and_applied(cx: &mut TestAppCon
         })
     });
     redraw(cx);
-    let (will, user_set, stored) = cx.update(|_, cx| {
-        let rules = rules.read(cx);
-        let apply = rules.apply().unwrap();
+    let shown = describe(&shell, cx);
+    assert!(
+        shown
+            .toolbar
+            .caption
+            .starts_with("New rule: Merchant contains VINTED → "),
+        "{}",
+        shown.toolbar.caption
+    );
+    let preview = preview_of(&shown);
+    let (user_set, include) = preview.user_set.clone().expect("the two the user set");
+    assert_eq!(
+        (preview.will_change.len(), user_set.len(), include),
+        (4, 2, false)
+    );
+    assert!(
+        user_set.iter().all(|row| row.after == "No change"),
+        "left as they are unless included"
+    );
+    assert_eq!(
+        labels(&preview.actions),
+        [
+            ("Create rule and change 4", true),
+            ("Create rule only", true)
+        ]
+    );
+    let new = item(&shown);
+    assert_eq!(new.title, "Merchant contains VINTED");
+    assert_eq!(
+        (new.figure.as_deref(), new.caption.as_deref()),
         (
-            apply.will_change().count(),
-            apply.user_set().count(),
-            rules.data().rules.len(),
+            Some("6"),
+            Some("earlier transactions match · new rule, not saved yet")
         )
-    });
-    assert_eq!((will, user_set, stored), (4, 2, 14));
+    );
+    assert_eq!(shown.panel.sections[0].count, 14, "nothing stored yet");
     assert!(shows("rules-create-only", cx));
 
     // "Change these too" includes the two the user set.
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.set_include(true, cx)));
-    click("rules-commit", cx);
-    let (count, first) = cx.update(|_, cx| {
-        let rules = rules.read(cx);
-        (
-            rules.data().rules.len(),
-            rules.data().rules[0].rule.origin(),
-        )
-    });
-    assert_eq!(count, 15);
+    let shown = describe(&shell, cx);
+    let preview = preview_of(&shown);
     assert_eq!(
-        first,
-        Some(core_rule::RuleOrigin::Edit),
-        "a new rule goes first"
+        labels(&preview.actions)[0],
+        ("Create rule and change 6", true)
+    );
+    assert!(
+        preview
+            .user_set
+            .as_ref()
+            .is_some_and(|(rows, on)| *on && rows.iter().all(|row| row.after != "No change"))
+    );
+    click("rules-commit", cx);
+    let shown = describe(&shell, cx);
+    assert_eq!(shown.panel.sections[0].count, 15);
+    let first = &rule_rows(&shown)[0];
+    assert_eq!(
+        (first.when.as_str(), first.selected),
+        ("Merchant contains VINTED", true),
+        "a new rule goes first, selected"
+    );
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).data().rules[0].rule.origin()),
+        Some(core_rule::RuleOrigin::Edit)
     );
     assert_eq!(
         scratch.category(scratch.seeded.vinted).as_deref(),
@@ -332,29 +481,43 @@ fn a_rule_from_an_edit_is_previewed_then_created_and_applied(cx: &mut TestAppCon
 #[gpui_kit::test]
 fn names_and_history_open_with_their_inspectors(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_, rules, cx) = open(cx, &scratch);
+    let (shell, rules, cx) = open(cx, &scratch);
     click("rules-section-names", cx);
-    let (section, selected, names) = cx.update(|_, cx| {
-        let rules = rules.read(cx);
-        (
-            rules.section(),
-            rules.selected_name(),
-            rules.data().names.len(),
-        )
-    });
-    assert_eq!(section, Section::Names);
-    assert_eq!(names, 8);
-    assert!(matches!(selected, Some(NameSelection::Stored(_))));
-    let amazon = cx.update(|_, cx| rules.read(cx).data().names[0].clone());
+    let shown = describe(&shell, cx);
+    assert!(shown.panel.sections[1].selected, "Merchant names is open");
+    assert_eq!(shown.panel.filter_title, "Match");
     assert_eq!(
-        amazon.alias.definition().name().as_str(),
-        "Amazon Marketplace"
+        shown.toolbar.caption,
+        "8 names · how a bank’s merchant text is shown"
     );
-    assert_eq!(amazon.matches, 3);
-    assert!(shows("rules-delete-name", cx));
+    let CanvasDescription::Names(names) = &shown.canvas else {
+        panic!("the names table: {:?}", shown.canvas);
+    };
+    assert_eq!(names.len(), 8);
+    let amazon = &names[0];
+    assert_eq!(
+        (
+            amazon.bank_text.as_str(),
+            amazon.shows_as.as_str(),
+            amazon.matches.as_str(),
+            amazon.selected
+        ),
+        ("Starts with AMZN MKTP", "Amazon Marketplace", "3", true)
+    );
+    assert_eq!(names[7].bank_text, "Pattern ^UBER \\*?(TRIP|BV)");
+    let inspector = item(&shown);
+    assert_eq!(
+        (inspector.title.as_str(), inspector.figure.as_deref()),
+        ("Amazon Marketplace", Some("3"))
+    );
+    assert_eq!(labels(&inspector.actions), [("Delete name…", true)]);
 
     // A new name applies at once once both fields are filled.
     click("rules-new-name", cx);
+    assert_eq!(
+        item(&describe(&shell, cx)).caption.as_deref(),
+        Some("new name, saved once both fields are filled in")
+    );
     cx.update(|_, cx| {
         rules.update(cx, |rules, cx| {
             rules.edit_name(
@@ -367,17 +530,51 @@ fn names_and_history_open_with_their_inspectors(cx: &mut TestAppContext) {
             )
         })
     });
-    let names = cx.update(|_, cx| rules.read(cx).data().names.len());
-    assert_eq!(names, 9);
+    let shown = describe(&shell, cx);
+    assert_eq!(shown.panel.sections[1].count, 9);
+    assert_eq!(item(&shown).title, "Vinted");
 
     click("rules-section-history", cx);
-    let (entries, items) = cx.update(|_, cx| {
-        let rules = rules.read(cx);
-        (rules.data().history.len(), rules.batch_items().len())
-    });
-    assert!(entries >= 5, "the applies, the undone one and the edits");
-    assert!(items > 0, "the newest change opens with what it changed");
-    assert!(shows("rules-undo-change", cx));
+    let shown = describe(&shell, cx);
+    let CanvasDescription::History(changes) = &shown.canvas else {
+        panic!("the history: {:?}", shown.canvas);
+    };
+    assert!(
+        changes.len() >= 5,
+        "the applies, the undone one and the edits"
+    );
+    let undone: Vec<&str> = changes
+        .iter()
+        .filter(|change| change.undone)
+        .map(|change| change.change.as_str())
+        .collect();
+    assert_eq!(undone, ["Applied rule PRET A MANGER → Eating out"]);
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.kind.starts_with("Undone "))
+    );
+    let newest = &changes[0];
+    assert!(newest.selected, "the newest change opens");
+    let inspector = item(&shown);
+    assert_eq!(inspector.title, newest.change);
+    assert_eq!(labels(&inspector.actions), [("Undo this change…", true)]);
+    let items = cx.update(|_, cx| rules.read(cx).batch_items().len());
+    assert!(items > 0, "with what it changed");
+
+    // Undo this change… opens the dialog, which says what goes back.
+    click("rules-undo-change", cx);
+    let dialog = describe(&shell, cx).dialog.expect("the undo dialog");
+    assert_eq!(dialog.title, format!("Undo “{}”?", newest.change));
+    assert!(
+        dialog.body.contains("back to the values"),
+        "{}",
+        dialog.body
+    );
+    assert_eq!(
+        labels(&dialog.actions),
+        [("Cancel", true), ("Undo change", true)]
+    );
 }
 
 #[gpui_kit::test]
@@ -429,78 +626,87 @@ fn stored_category(scratch: &Scratch, key: &str) -> Option<coffer_core::category
 fn the_categories_section_lists_and_filters_every_category(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let seeded = fixture::seed_categories(&mut scratch.db());
-    let (_, rules, cx) = open(cx, &scratch);
+    let (shell, rules, cx) = open(cx, &scratch);
     click("rules-section-categories", cx);
-    let (section, selected, rows, all) = cx.update(|_, cx| {
-        let rules = rules.read(cx);
-        (
-            rules.section(),
-            rules.selected_category(),
-            rules.category_rows().len(),
-            rules.data().categories.len(),
-        )
-    });
-    assert_eq!(section, Section::Categories);
-    assert_eq!(rows, all, "every category, hidden ones too");
-    assert!(
-        matches!(selected, Some(CategorySelection::Stored(_))),
+    let categories = |shown: &RulesDescription| match &shown.canvas {
+        CanvasDescription::Categories(rows) => rows.clone(),
+        other => panic!("the categories table: {other:?}"),
+    };
+    let shown = describe(&shell, cx);
+    let all = cx.update(|_, cx| rules.read(cx).data().categories.len());
+    assert_eq!(shown.panel.sections[3].count, all);
+    assert_eq!(
+        categories(&shown).len(),
+        all,
+        "every category, hidden ones too"
+    );
+    assert_eq!(
+        shown.selected.as_deref(),
+        Some(categories(&shown)[0].label.as_str()),
         "the first row opens"
     );
     assert!(shows(&format!("category-{}", seeded.coffee), cx));
     assert!(shows(&format!("category-{}", seeded.side_projects), cx));
-    assert!(shows("rules-category-hide", cx));
+    assert!(labels(&item(&shown).actions).contains(&("Hide category", true)));
+    assert_eq!(
+        shown
+            .panel
+            .filters
+            .iter()
+            .map(|f| f.label)
+            .collect::<Vec<_>>(),
+        ["Spending", "Income", "Transfers", "Hidden"]
+    );
 
     // KIND keeps a kind's groups and subcategories; a second click clears.
     click("rules-category-kind-income", cx);
-    let kinds = cx.update(|_, cx| {
-        rules
-            .read(cx)
-            .category_rows()
-            .iter()
-            .map(|row| row.summary.category.kind())
-            .collect::<Vec<_>>()
-    });
-    assert!(!kinds.is_empty());
-    assert!(
-        kinds
-            .iter()
-            .all(|kind| *kind == coffer_core::category::CategoryKind::Income)
-    );
+    let shown = describe(&shell, cx);
+    let income = categories(&shown);
+    assert!(!income.is_empty());
+    assert!(income.iter().all(|row| row.kind == "Income"));
+    assert_eq!(shown.panel.filters[1].count, income.len());
+    assert!(shown.panel.filters[1].selected);
     click("rules-category-kind-income", cx);
-    assert_eq!(cx.update(|_, cx| rules.read(cx).category_rows().len()), all);
+    assert_eq!(categories(&describe(&shell, cx)).len(), all);
 
     // Hidden: Mortgage, and Travel with its subcategories.
     click("rules-category-hidden", cx);
-    let hidden: Vec<String> = cx.update(|_, cx| {
-        rules
-            .read(cx)
-            .category_rows()
-            .iter()
-            .map(|row| row.summary.category.key().as_str().to_owned())
-            .collect()
-    });
+    let hidden: Vec<(String, bool, bool)> = categories(&describe(&shell, cx))
+        .into_iter()
+        .map(|row| (row.label, row.subcategory, row.hidden))
+        .collect();
     assert_eq!(
         hidden,
         [
-            "home.mortgage",
-            "travel",
-            "travel.flights",
-            "travel.accommodation"
+            ("Mortgage".to_owned(), true, true),
+            ("Travel".to_owned(), false, true),
+            ("Flights".to_owned(), true, true),
+            ("Accommodation".to_owned(), true, true),
         ]
     );
 
     // ↓ moves the selection through the listed rows.
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_category(None, cx)));
-    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_next(1, cx)));
+    let shown = describe(&shell, cx);
+    assert_eq!(
+        shown.inspector,
+        InspectorDescription::Nothing(inspector::NO_CATEGORY)
+    );
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.select_next(crate::ui::list::Move::DOWN, cx)
+        })
+    });
     let first = cx.update(|_, cx| rules.read(cx).selected_category());
     let mortgage = stored_category(&scratch, "home.mortgage").unwrap().id();
     assert_eq!(first, Some(CategorySelection::Stored(mortgage)));
+    assert_eq!(describe(&shell, cx).selected.as_deref(), Some("Mortgage"));
 
     // Another section and back keeps the Categories selection.
     click("rules-section-rules", cx);
-    assert_eq!(cx.update(|_, cx| rules.read(cx).section()), Section::Rules);
+    assert!(describe(&shell, cx).panel.sections[0].selected);
     click("rules-section-categories", cx);
-    assert_eq!(cx.update(|_, cx| rules.read(cx).selected_category()), first);
+    assert_eq!(describe(&shell, cx).selected.as_deref(), Some("Mortgage"));
 }
 
 #[gpui_kit::test]
@@ -518,6 +724,10 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
         cx.update(|_, cx| rules.read(cx).category_error()),
         Some(form::CategoryError::Blank)
     );
+    let shown = describe(&shell, cx);
+    assert_eq!(item(&shown).title, "New category");
+    assert_eq!(labels(&item(&shown).actions), [("Create category", false)]);
+    assert_eq!(shown.selected, None, "no row for it yet");
     let view = cx.update(|_, cx| shell.read(cx).rules_view().clone());
 
     // A name a sibling has is refused, ignoring case.
@@ -545,6 +755,10 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
         })
     });
     assert_eq!(cx.update(|_, cx| rules.read(cx).category_error()), None);
+    assert_eq!(
+        labels(&item(&describe(&shell, cx)).actions),
+        [("Create category", true)]
+    );
     click("rules-create-category", cx);
     let created = stored_category(&scratch, "food.coffee_beans").expect("created");
     assert_eq!(created.label(), "Coffee beans");
@@ -555,6 +769,10 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
     assert_eq!(
         cx.update(|_, cx| rules.read(cx).selected_category()),
         Some(CategorySelection::Stored(created.id()))
+    );
+    assert_eq!(
+        describe(&shell, cx).selected.as_deref(),
+        Some("Coffee beans")
     );
 
     // A new group takes the kind chosen for it.
@@ -625,12 +843,24 @@ fn renaming_hiding_and_deleting_a_category_go_to_the_database(cx: &mut TestAppCo
 
     // Groceries is used, so it can be hidden but not deleted.
     redraw(cx);
+    let shown = describe(&shell, cx);
+    assert_eq!(item(&shown).title, "Food shop");
+    assert_eq!(item(&shown).footer.as_deref(), Some("Key food.groceries"));
+    assert_eq!(labels(&item(&shown).actions), [("Hide category", true)]);
     assert!(!shows("rules-delete-category", cx));
     click("rules-category-hide", cx);
     assert!(
         stored_category(&scratch, "food.groceries")
             .unwrap()
             .is_hidden()
+    );
+    let shown = describe(&shell, cx);
+    assert_eq!(labels(&item(&shown).actions), [("Show category", true)]);
+    assert!(
+        item(&shown)
+            .caption
+            .as_deref()
+            .is_some_and(|caption| caption.ends_with(" · hidden"))
     );
     // The rule editor's category menu leaves it out, unless it's chosen.
     let data = cx.update(|_, cx| rules.read(cx).data().clone());
@@ -657,19 +887,190 @@ fn renaming_hiding_and_deleting_a_category_go_to_the_database(cx: &mut TestAppCo
 
     // Coffee is unused: Delete category… opens the dialog, which deletes it.
     click(&format!("category-{}", seeded.coffee), cx);
-    assert!(shows("rules-delete-category", cx));
+    let shown = describe(&shell, cx);
+    assert_eq!(
+        (item(&shown).figure.as_deref(), shown.selected.as_deref()),
+        (Some("0"), Some("Coffee"))
+    );
+    assert_eq!(
+        labels(&item(&shown).actions),
+        [("Hide category", true), ("Delete category…", true)]
+    );
     click("rules-delete-category", cx);
+    let described = describe(&shell, cx).dialog.expect("the dialog opens");
+    assert_eq!(described.title, "Delete the category “Coffee”?");
+    assert!(described.body.contains("it gets the key food.coffee"));
+    assert_eq!(
+        labels(&described.actions),
+        [("Cancel", true), ("Delete category", true)]
+    );
     let dialog = cx.update(|_, cx| view.read(cx).delete_category_dialog().cloned());
     let dialog = dialog.expect("the dialog opens");
     cx.update(|_, cx| dialog.update(cx, |dialog, cx| dialog.submit(cx)));
     redraw(cx);
     assert!(stored_category(&scratch, "food.coffee").is_none());
-    assert!(
-        cx.update(|_, cx| view.read(cx).delete_category_dialog().is_none()),
-        "the dialog closes"
-    );
+    assert_eq!(describe(&shell, cx).dialog, None, "the dialog closes");
     assert!(matches!(
         cx.update(|_, cx| rules.read(cx).selected_category()),
         Some(CategorySelection::Stored(_))
     ));
+}
+
+// describe() --------------------------------------------------------------------------
+
+/// The whole description of a small case, field by field: a new rule with
+/// nothing typed, in a view with no database.
+#[gpui_kit::test]
+fn a_new_rule_in_an_empty_view_is_described_in_full(cx: &mut TestAppContext) {
+    let rules = cx.new(|_| Rules::empty());
+    rules.update(cx, |rules, cx| rules.new_rule(cx));
+    let shown = rules.read_with(cx, |rules, _| rules.describe());
+    let row = |label, selected| PanelRowDescription {
+        label,
+        count: 0,
+        selected,
+    };
+    let key = |label: &str, key, enabled| Action::keyed(label, key, enabled);
+    assert_eq!(
+        shown,
+        RulesDescription {
+            panel: super::describe::PanelDescription {
+                sections: vec![
+                    row("Rules", true),
+                    row("Merchant names", false),
+                    row("Change history", false),
+                    row("Categories", false),
+                ],
+                filter_title: "Action",
+                filters: vec![
+                    row("Set category", false),
+                    row("Set merchant", false),
+                    row("Add tag", false),
+                    row("Set note", false),
+                    row("Exclude", false),
+                    row("Split", false),
+                    row("My share", false),
+                ],
+                cursor: None,
+                load_error: None,
+            },
+            toolbar: ToolbarDescription {
+                title: "Apply to past transactions",
+                caption: "New rule: not finished · nothing changes until you apply".into(),
+                keys: vec![],
+                buttons: vec![Action::button("Back to rules", true)],
+            },
+            refused: None,
+            canvas: CanvasDescription::Preview(PreviewDescription {
+                will_change: vec![],
+                user_set: None,
+                message: Some("Finish the rule in the inspector to see what it would change."),
+                actions: vec![
+                    Action::button("Create rule and change 0", false),
+                    Action::button("Create rule only", false),
+                ],
+            }),
+            selected: None,
+            inspector: InspectorDescription::Item(Box::new(ItemDescription {
+                title: "New rule".into(),
+                figure: Some("0".into()),
+                caption: Some("transactions match · new rule, not saved yet".into()),
+                never_reached: None,
+                suggestion: None,
+                footer: None,
+                actions: vec![],
+            })),
+            bar: None,
+            dialog: None,
+            actions: vec![
+                key("Reorder", "alt-up", false),
+                key("Reorder", "alt-down", false),
+                key("Back, or clear the selection", "escape", true),
+                key("Move up", "up", false),
+                key("Move down", "down", false),
+            ],
+        }
+    );
+
+    // Escape goes back: an empty table, and nothing selected.
+    rules.update(cx, |rules, cx| rules.cancel(cx));
+    let shown = rules.read_with(cx, |rules, _| rules.describe());
+    assert_eq!(
+        shown.canvas,
+        CanvasDescription::Empty {
+            title: "No rules yet",
+            caption: "Set a category on a transaction and Coffer offers to turn it into a rule \
+                      once the merchant comes back. Or start one with New rule.",
+        }
+    );
+    assert_eq!(
+        shown.inspector,
+        InspectorDescription::Nothing(inspector::NO_RULE)
+    );
+    assert_eq!(
+        shown.toolbar.caption,
+        "0 rules · checked top to bottom on every import"
+    );
+    assert!(shown.toolbar.keys.is_empty(), "no hints over no rules");
+    assert!(shown.actions.iter().all(|action| !action.enabled));
+}
+
+/// U.7: the keys bound in the Rules canvas's context are exactly
+/// [`view::KEYS`], the toolbar hints ↑↓ then ⌥↑↓ (one hint for both), and
+/// every key `describe()` lists is bound, so the toolbar, the keymap and
+/// `describe()` can't drift.
+#[gpui_kit::test]
+fn the_toolbar_hints_every_bound_key(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, _, cx) = open(cx, &scratch);
+    cx.update(|_, cx| view::KEYS.assert_bound(cx));
+    let shown = describe(&shell, cx);
+    assert_eq!(shown.toolbar.keys, [("↑↓", "Select"), ("⌥↑↓", "Reorder")]);
+    for key in view::KEYS.keys() {
+        for stroke in key.keys().iter().chain(key.and_keys()) {
+            assert!(
+                shown
+                    .actions
+                    .iter()
+                    .any(|action| action.key == Some(*stroke)),
+                "{stroke} isn't listed"
+            );
+        }
+        assert_eq!(key.hint().is_none(), key.keys() == ["escape"], "{key:?}");
+    }
+    let listed: Vec<Option<&str>> = shown.actions.iter().map(|action| action.key).collect();
+    assert_eq!(
+        listed,
+        [
+            Some("alt-up"),
+            Some("alt-down"),
+            Some("escape"),
+            Some("up"),
+            Some("down")
+        ]
+    );
+}
+
+#[gpui_kit::test]
+fn delete_rule_asks_first_and_names_what_stays(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, _, cx) = open(cx, &scratch);
+    click("rules-delete", cx);
+    let dialog = describe(&shell, cx).dialog.expect("the dialog opens");
+    assert_eq!(
+        dialog.title,
+        "Delete the rule “Merchant contains TFL TRAVEL”?"
+    );
+    assert!(
+        dialog
+            .body
+            .starts_with("The 2 transactions it categorised keep Transport. "),
+        "{}",
+        dialog.body
+    );
+    assert_eq!(
+        labels(&dialog.actions),
+        [("Cancel", true), ("Delete rule", true)]
+    );
+    assert_eq!(dialog.error, None);
 }

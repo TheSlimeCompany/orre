@@ -21,7 +21,8 @@ charts, and exposes the data to AI clients through an MCP server.
 ## Status and code map
 
 - **Status:** M0, the design track (D1–D6), M1 and M2 are done; every M3 item is built,
-  and M3's exit check on real data is the user's. Detail per item: `docs/ROADMAP.md`.
+  and M3's exit check on real data is the user's. The UI review is done except U.5
+  (deferred). Detail per item: `docs/ROADMAP.md`.
 - **Where things are:** [`docs/CODEMAP.md`](docs/CODEMAP.md), by crate and area. It
   lags the code: check the tree before assuming a module exists, and update the map
   when you add or move a module.
@@ -127,6 +128,9 @@ Changing any of these needs an explicit decision recorded in the topic's file un
 - **The only network call is the opt-in ECB rate fetch.** No telemetry, no other
   outbound requests. Saved reports render without HTML, images, or live links, so they
   can't trigger a request.
+- **A view's `describe()` and anything that runs its actions are test-only or dev-feature
+  only.** Never in a release build, never reachable from `coffer mcp` (decision record
+  in `docs/ARCHITECTURE.md`, 2026-11-18).
 - **Schema changes are new migrations.** Never edit a migration that has shipped.
 
 ## Personal financial data

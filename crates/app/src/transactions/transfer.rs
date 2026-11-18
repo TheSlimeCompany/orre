@@ -138,6 +138,11 @@ impl TransactionsView {
     }
 }
 
+/// Whether `row` has the Transfer section: it's in a pair.
+pub(super) fn has_section(view: &TransactionsView, row: &RegisterRow) -> bool {
+    pairing::pair(&view.register, row).is_some()
+}
+
 /// The Transfer section, or `None` outside a pair.
 pub(super) fn transfer_section(
     view: &TransactionsView,
@@ -153,7 +158,10 @@ pub(super) fn transfer_section(
     Some(
         section(true)
             .gap(spacing::S2)
-            .child(section_title_row("Transfer", None))
+            .child(section_title_row(
+                super::inspector::Section::Transfer.title(),
+                None,
+            ))
             .children(body)
             .children(
                 view.editor

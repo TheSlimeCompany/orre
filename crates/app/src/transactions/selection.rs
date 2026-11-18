@@ -4,6 +4,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::ui::list::{self, Move};
+
 /// What a click on a row does to the selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClickKind {
@@ -65,25 +67,40 @@ impl<Id: Copy + Ord> Selection<Id> {
         }
     }
 
-    /// Moves the keyboard row `delta` rows through `order`, stopping at the
-    /// ends, and selects it; with `extend`, selects the range from the
-    /// anchor to it (⇧↑/⇧↓). With no keyboard row yet, starts at the first
-    /// row (down) or the last (up).
-    pub fn move_by(&mut self, delta: isize, extend: bool, order: &[Id]) {
-        let Some(last) = order.len().checked_sub(1) else {
+    /// Moves the keyboard row through `order` ([`list::step`]: stopping at
+    /// the ends; with no keyboard row yet, down and Home start at the first
+    /// row and up and End at the last) and selects it; a [`Move::Extend`]
+    /// selects the range from the anchor to it (⇧↑/⇧↓).
+    pub fn move_by(&mut self, to: Move, order: &[Id]) {
+        let Some(target) = list::step(order, self.current.as_ref(), to) else {
             return;
         };
-        let target = match self.current.and_then(|id| position(order, id)) {
-            Some(index) => index.saturating_add_signed(delta).min(last),
-            None if delta < 0 => last,
-            None => 0,
-        };
-        let kind = if extend {
+        let kind = if to.extends() {
             ClickKind::Extend
         } else {
             ClickKind::Replace
         };
-        self.click(order[target], kind, order);
+        self.click(target, kind, order);
+    }
+
+    /// Moves the keyboard row through `order` as [`Self::move_by`] does,
+    /// but leaves the selection and the anchor as they are (⌘↑/⌘↓): the
+    /// keyboard's way to reach a row that ⌘-click would add.
+    pub fn move_cursor(&mut self, to: Move, order: &[Id]) {
+        if let Some(target) = list::step(order, self.current.as_ref(), to) {
+            self.current = Some(target);
+        }
+    }
+
+    /// Adds the keyboard row to the selection, or removes it, as ⌘-click on
+    /// it does (Space). Does nothing, and says so, when there's no keyboard
+    /// row in `order`.
+    pub fn toggle_current(&mut self, order: &[Id]) -> bool {
+        let Some(id) = self.current.filter(|id| order.contains(id)) else {
+            return false;
+        };
+        self.click(id, ClickKind::Toggle, order);
+        true
     }
 
     /// Selects nothing; the keyboard row stays where it was.
@@ -182,24 +199,36 @@ mod tests {
     #[test]
     fn keyboard_moves_stop_at_the_ends() {
         let mut selection = Selection::default();
-        selection.move_by(1, false, &ORDER);
+        selection.move_by(Move::DOWN, &ORDER);
         assert_eq!(
             selected(&selection),
             [10],
             "down with nothing selected starts at the top"
         );
-        selection.move_by(-1, false, &ORDER);
+        selection.move_by(Move::UP, &ORDER);
         assert_eq!(selected(&selection), [10]);
-        selection.move_by(10, false, &ORDER);
+        selection.move_by(Move::By(10), &ORDER);
         assert_eq!(selected(&selection), [50]);
-        selection.move_by(-1, true, &ORDER);
+        selection.move_by(Move::Extend(-1), &ORDER);
         assert_eq!(selected(&selection), [40, 50]);
+    }
+
+    #[test]
+    fn home_and_end_go_to_the_ends_and_select_only_that_row() {
+        let mut selection = Selection::default();
+        // Home with no keyboard row yet starts at the top, as ↓ does.
+        selection.move_by(Move::First, &ORDER);
+        assert_eq!(selected(&selection), [10]);
+        selection.move_by(Move::Extend(1), &ORDER);
+        assert_eq!(selected(&selection), [10, 20]);
+        selection.move_by(Move::Last, &ORDER);
+        assert_eq!(selected(&selection), [50]);
     }
 
     #[test]
     fn up_with_nothing_selected_starts_at_the_bottom() {
         let mut selection = Selection::default();
-        selection.move_by(-1, false, &ORDER);
+        selection.move_by(Move::UP, &ORDER);
         assert_eq!(selected(&selection), [50]);
     }
 
@@ -210,14 +239,47 @@ mod tests {
         selection.clear();
         assert!(selection.is_empty());
         assert_eq!(selection.current(), Some(30));
-        selection.move_by(1, false, &ORDER);
+        selection.move_by(Move::DOWN, &ORDER);
         assert_eq!(selected(&selection), [40]);
+    }
+
+    #[test]
+    fn the_cursor_moves_without_the_selection_and_toggle_adds_its_row() {
+        let mut selection = Selection::default();
+        selection.click(20, ClickKind::Replace, &ORDER);
+        selection.move_cursor(Move::DOWN, &ORDER);
+        selection.move_cursor(Move::DOWN, &ORDER);
+        assert_eq!(selected(&selection), [20], "⌘↓ leaves the selection");
+        assert_eq!(selection.current(), Some(40));
+        assert!(selection.toggle_current(&ORDER));
+        assert_eq!(selected(&selection), [20, 40], "not 30 between them");
+        selection.move_cursor(Move::UP, &ORDER);
+        selection.move_cursor(Move::UP, &ORDER);
+        assert!(selection.toggle_current(&ORDER));
+        assert_eq!(
+            selected(&selection),
+            [40],
+            "Space on a selected row removes it"
+        );
+        // Stopping at the ends, as every list does.
+        selection.move_cursor(Move::By(-10), &ORDER);
+        assert_eq!(selection.current(), Some(10));
+    }
+
+    #[test]
+    fn toggle_without_a_listed_cursor_row_does_nothing() {
+        let mut selection = Selection::default();
+        assert!(!selection.toggle_current(&ORDER));
+        selection.set([20]);
+        // The row has gone from the list.
+        assert!(!selection.toggle_current(&[10, 30]));
+        assert_eq!(selection.len(), 1);
     }
 
     #[test]
     fn empty_order_is_a_no_op() {
         let mut selection = Selection::<u8>::default();
-        selection.move_by(1, false, &[]);
+        selection.move_by(Move::DOWN, &[]);
         assert!(selection.is_empty());
     }
 }

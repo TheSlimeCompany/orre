@@ -8,7 +8,8 @@
 //!   which opens the database per call), the filters, the selected
 //!   suggestion and the outcome of the last decision. Every decision is
 //!   core's ([`coffer_core::inbox`]): this only picks the IDs.
-//! - [`panel`]: the left panel (INBOX status, KIND, SOURCE).
+//! - [`panel`]: the left panel (INBOX status, CHECKS, KIND, SOURCE), with
+//!   its keyboard cursor.
 //! - [`view::InboxView`]: the toolbar, the grouped table with the selected
 //!   suggestion open in place, and the inspector (`inspector`).
 //!
@@ -20,6 +21,8 @@
 //! Rationales, patterns, names and bank text are untrusted text: shown as
 //! plain text, stripped ([`text::plain`]), never acted on.
 
+#[cfg(test)]
+mod describe;
 pub mod fixture;
 mod inspector;
 pub mod panel;
@@ -31,6 +34,7 @@ use coffer_core::inbox::preview::Covered;
 use coffer_core::inbox::{COFFER_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
 use gpui_kit::{Context, SharedString};
 
+use crate::ui::list::{self, Move};
 use store::{Entry, InboxData, InboxStore};
 
 /// The order the kinds are listed in, widest reach first (`DESIGN.md` →
@@ -43,18 +47,13 @@ pub const KIND_ORDER: [SuggestionKind; 5] = [
     SuggestionKind::Categorization,
 ];
 
-/// Binds the Inbox's keys: A approve, R reject, ↑↓ move, Escape clears the
-/// selection. Call once, before the first [`view::InboxView`].
+/// Binds the Inbox's keys ([`view::KEYS`]): A approve, R reject, ↑↓
+/// select, Escape clears the selection; and the panel's ([`panel::KEYS`]):
+/// ↑↓ move its cursor, Enter and Space act on its row. Call once, before
+/// the first [`view::InboxView`].
 pub fn init(cx: &mut gpui_kit::App) {
-    use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
-    cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(view::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(view::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
-        KeyBinding::new("a", view::ApproveSelected, Some(view::CONTEXT)),
-        KeyBinding::new("r", view::RejectSelected, Some(view::CONTEXT)),
-    ]);
+    view::KEYS.bind(cx);
+    panel::KEYS.bind(cx);
 }
 
 /// Where the suggestions come from.
@@ -101,6 +100,10 @@ pub struct Inbox {
     covered: Option<(SuggestionId, Option<Covered>)>,
     outcome: Option<Outcome>,
     load_error: Option<SharedString>,
+    /// The panel row the keyboard cursor was last drawn on, for
+    /// `describe()` (test-only).
+    #[cfg(test)]
+    panel_cursor: std::cell::RefCell<Option<panel::InboxPanelRow>>,
 }
 
 impl Inbox {
@@ -135,6 +138,8 @@ impl Inbox {
             covered: None,
             outcome: None,
             load_error: None,
+            #[cfg(test)]
+            panel_cursor: Default::default(),
         }
     }
 
@@ -291,22 +296,12 @@ impl Inbox {
         self.select(next, cx);
     }
 
-    /// Moves the selection `step` rows (↑↓), stopping at the ends; with
-    /// nothing selected, down selects the first and up the last.
-    pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
-        let order = self.order();
-        if order.is_empty() {
-            return;
+    /// Moves the selection (↑↓, [`list::step`]): stopping at the ends;
+    /// with nothing selected, down selects the first and up the last.
+    pub fn select_next(&mut self, to: Move, cx: &mut Context<Self>) {
+        if let Some(next) = list::step(&self.order(), self.selected.as_ref(), to) {
+            self.select(Some(next), cx);
         }
-        let next = match self
-            .selected
-            .and_then(|id| order.iter().position(|row| *row == id))
-        {
-            Some(at) => at.saturating_add_signed(step).min(order.len() - 1),
-            None if step < 0 => order.len() - 1,
-            None => 0,
-        };
-        self.select(Some(order[next]), cx);
     }
 
     /// Looks up the rule that would cover the selected categorisation.
@@ -472,5 +467,7 @@ impl Inbox {
     }
 }
 
+#[cfg(test)]
+mod panel_tests;
 #[cfg(test)]
 mod tests;

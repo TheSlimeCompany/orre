@@ -28,6 +28,8 @@
 //! fields. Rule patterns, names and bank text are untrusted and shown plain
 //! ([`text`]).
 
+#[cfg(test)]
+mod describe;
 pub mod dialogs;
 pub mod fixture;
 pub mod form;
@@ -52,21 +54,32 @@ use coffer_core::rule::{
 };
 use gpui_kit::{Context, EventEmitter, SharedString};
 
+use crate::ui::list;
 use form::{CategoryError, CategoryForm, FormError, NameForm, RuleForm};
 use state::{CategoriesPane, CategoryEdit, HistoryPane, NameEdit, NamesPane, RuleEdit, RulesPane};
 use store::{RulesData, RulesStore};
+use text::Part;
 use write::{Policy, Said};
 
-/// Binds the view's keys: ↑↓ move the selection, Escape clears it or goes
-/// back from the preview. Call once, before the first [`view::RulesView`].
+gpui_kit::actions!(
+    coffer_rules,
+    [
+        /// ⌥↑ (Alt on Linux and Windows): move the selected rule one place
+        /// up (`DESIGN.md` → "Rules" → "Keyboard reorder").
+        MoveRuleUp,
+        /// ⌥↓: move the selected rule one place down.
+        MoveRuleDown,
+    ]
+);
+
+/// Binds the view's keys ([`view::KEYS`]): ↑↓ move the selection, ⌥↑⌥↓
+/// move the selected rule, Escape clears the selection or goes back from
+/// the preview; in the panel ([`panel::KEYS`]), ↑↓ move its cursor and
+/// Enter or Space act on it. Call once, before the first
+/// [`view::RulesView`].
 pub fn init(cx: &mut gpui_kit::App) {
-    use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
-    cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(view::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(view::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
-    ]);
+    view::KEYS.bind(cx);
+    panel::KEYS.bind(cx);
 }
 
 /// The lists under RULES in the panel.
@@ -176,8 +189,22 @@ pub enum Outcome {
         message: SharedString,
         undo: Option<ChangeBatchId>,
     },
+    /// A rule moved with ⌥↑⌥↓: the bar names it and where it is now
+    /// ([`Rules::moved_parts`]), and Undo moves it back.
+    Moved(Moved),
     /// Core refused it; nothing changed.
     Refused(SharedString),
+}
+
+/// A rule moved from the keyboard. Presses on the same rule, with nothing
+/// else changed between them, are one move: Undo returns the rule to `from`,
+/// where the first press found it. No transaction changes, so there's no
+/// change batch (as for Delete rule).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Moved {
+    pub rule: RuleId,
+    /// Its place (0 first) before the first press.
+    pub from: usize,
 }
 
 /// Where the view reads from.
@@ -215,6 +242,11 @@ pub struct Rules {
     history: HistoryPane,
     categories: CategoriesPane,
     outcome: Option<Outcome>,
+    /// The rules' order right after the last keyboard move, while its bar
+    /// is up: a reload that finds another order (a rule added or moved
+    /// elsewhere) drops the bar, so Undo can't put the rule back at a stale
+    /// place.
+    moved_order: Option<Vec<RuleId>>,
     load_error: Option<SharedString>,
 }
 
@@ -256,6 +288,7 @@ impl Rules {
             history: HistoryPane::default(),
             categories: CategoriesPane::default(),
             outcome: None,
+            moved_order: None,
             load_error: None,
         }
     }
@@ -318,6 +351,15 @@ impl Rules {
     /// asks.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         self.load();
+        if let Some(order) = self.moved_order.take()
+            && matches!(self.outcome, Some(Outcome::Moved(_)))
+        {
+            if order == self.rule_order() {
+                self.moved_order = Some(order);
+            } else {
+                self.outcome = None;
+            }
+        }
         self.reload_rule();
         self.reload_name();
         self.reload_batch();
@@ -687,12 +729,12 @@ impl Rules {
         self.select_rule(next, cx);
     }
 
-    /// Moves the selection `step` rows in the open section (↑↓).
-    pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selection in the open section (↑↓, [`list::step`]).
+    pub fn select_next(&mut self, to: list::Move, cx: &mut Context<Self>) {
         match self.section {
             Section::Rules if self.apply().is_none() => {
                 let order: Vec<RuleId> = self.rules().iter().map(|s| s.rule.id()).collect();
-                if let Some(next) = step_in(&order, self.selected_rule_id(), step) {
+                if let Some(next) = list::step(&order, self.selected_rule_id().as_ref(), to) {
                     self.select_rule(Some(next), cx);
                 }
             }
@@ -704,13 +746,13 @@ impl Rules {
                     Some(NameSelection::Stored(id)) => Some(id),
                     _ => None,
                 };
-                if let Some(next) = step_in(&order, current, step) {
+                if let Some(next) = list::step(&order, current.as_ref(), to) {
                     self.select_name(Some(NameSelection::Stored(next)), cx);
                 }
             }
             Section::History => {
                 let order: Vec<ChangeBatchId> = self.history().iter().map(|e| e.batch.id).collect();
-                if let Some(next) = step_in(&order, self.history.selected_id(), step) {
+                if let Some(next) = list::step(&order, self.history.selected_id().as_ref(), to) {
                     self.select_batch(Some(next), cx);
                 }
             }
@@ -724,7 +766,7 @@ impl Rules {
                     Some(CategorySelection::Stored(id)) => Some(id),
                     _ => None,
                 };
-                if let Some(next) = step_in(&order, current, step) {
+                if let Some(next) = list::step(&order, current.as_ref(), to) {
                     self.select_category(Some(CategorySelection::Stored(next)), cx);
                 }
             }
@@ -797,14 +839,95 @@ impl Rules {
     /// Moves rule `id` to `position` (dragging a row, Position, "Move
     /// above rule 2").
     pub fn move_rule(&mut self, id: RuleId, position: usize, cx: &mut Context<Self>) {
+        let _ = self.move_to(id, position, cx);
+    }
+
+    /// [`Rules::move_rule`], for ⌥↑⌥↓ and their Undo too: a refusal is said
+    /// under the toolbar, and `Err` says only that nothing moved.
+    fn move_to(
+        &mut self,
+        id: RuleId,
+        position: usize,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
         if self.data.position(id) == Some(position) {
-            return;
+            return Ok(());
         }
         // What was typed for the selected rule is saved first, as leaving
         // its field would: reading again after the move would replace it.
         self.save_rule(cx);
         let policy = Policy::new(Said::Toolbar);
-        let _ = self.write(policy, cx, |db| rule::move_to(db, id, position));
+        self.write(policy, cx, |db| rule::move_to(db, id, position))
+    }
+
+    /// ⌥↑ (`down` false) or ⌥↓ (`down` true): moves the selected stored
+    /// rule one place among the rows the table shows. With a filter on, it
+    /// moves past the rows the filter hides to just above (or below) the
+    /// next row shown. At either end nothing happens. Through the drop's
+    /// [`Rules::move_rule`] path, so a refusal is said as for a drop; once it
+    /// moves, the undo bar says where it went ([`Outcome::Moved`]).
+    pub fn reorder_selected(&mut self, down: bool, cx: &mut Context<Self>) {
+        if self.section != Section::Rules || self.apply().is_some() {
+            return;
+        }
+        let Some(id) = self.selected_rule_id() else {
+            return;
+        };
+        let shown: Vec<RuleId> = self.rules().iter().map(|s| s.rule.id()).collect();
+        let Some(at) = shown.iter().position(|rule| *rule == id) else {
+            return;
+        };
+        let next = if down {
+            shown.get(at + 1)
+        } else {
+            at.checked_sub(1).and_then(|before| shown.get(before))
+        };
+        // Taking the next shown row's place puts the rule just past it,
+        // whichever way it moves.
+        let (Some(from), Some(to)) = (
+            self.data.position(id),
+            next.and_then(|next| self.data.position(*next)),
+        ) else {
+            return;
+        };
+        // Presses on the same rule add up to one move, until anything else
+        // changes (which takes the bar away).
+        let from = match self.outcome {
+            Some(Outcome::Moved(moved)) if moved.rule == id => moved.from,
+            _ => from,
+        };
+        if self.move_to(id, to, cx).is_ok() {
+            self.outcome = Some(Outcome::Moved(Moved { rule: id, from }));
+            self.moved_order = Some(self.rule_order());
+            cx.notify();
+        }
+    }
+
+    /// Every stored rule, in order.
+    fn rule_order(&self) -> Vec<RuleId> {
+        self.data
+            .rules
+            .iter()
+            .map(|summary| summary.rule.id())
+            .collect()
+    }
+
+    /// The undo bar's line for a keyboard move: "Moved “Merchant contains
+    /// `UBER TRIP`” to rule 2 of 14", the rule as its inspector title names
+    /// it, the text to match in mono. `None` unless a move is the outcome
+    /// and the rule is still there.
+    pub fn moved_parts(&self) -> Option<Vec<Part>> {
+        let Some(Outcome::Moved(moved)) = self.outcome else {
+            return None;
+        };
+        let summary = self.data.rule(moved.rule)?;
+        let position = self.data.position(moved.rule)? + 1;
+        let rule = summary.rule.definition();
+        Some(vec![
+            Part::text(format!("Moved “{} ", text::condition(rule))),
+            Part::mono(text::pattern(rule)),
+            Part::text(format!("” to rule {position} of {}", self.data.rules.len())),
+        ])
     }
 
     /// The new rule's Position.
@@ -1017,17 +1140,29 @@ impl Rules {
         }
     }
 
-    /// The bar's Undo: undoes the last apply. When it fails, the bar offers
-    /// Undo again with the reason.
+    /// The bar's Undo: undoes the last apply, or moves a rule moved from
+    /// the keyboard back to where the presses began. When an apply's undo
+    /// fails, the bar offers Undo again with the reason; a move's is said
+    /// under the toolbar, as for a drop.
     pub fn undo(&mut self, cx: &mut Context<Self>) {
-        let Some(Outcome::Done {
-            undo: Some(batch), ..
-        }) = self.outcome.clone()
-        else {
-            return;
-        };
-        let policy = Policy::new(Said::UndoBar(batch)).tells_shell();
-        let _ = self.write(policy, cx, |db| change::undo(db, batch));
+        match self.outcome.clone() {
+            Some(Outcome::Done {
+                undo: Some(batch), ..
+            }) => {
+                let policy = Policy::new(Said::UndoBar(batch)).tells_shell();
+                let _ = self.write(policy, cx, |db| change::undo(db, batch));
+            }
+            Some(Outcome::Moved(moved)) => {
+                // Back where it began (pressed one way, then the other):
+                // nothing to move.
+                if self.data.position(moved.rule) == Some(moved.from) {
+                    self.dismiss_outcome(cx);
+                    return;
+                }
+                let _ = self.move_to(moved.rule, moved.from, cx);
+            }
+            _ => {}
+        }
     }
 
     /// Undoes `batch` for the undo dialog: the error is only returned, for
@@ -1482,20 +1617,10 @@ fn row_after<T: Copy + PartialEq>(order: &[T], id: T) -> Option<T> {
         .copied()
 }
 
-/// The item `step` rows from `current` in `order`, stopping at the ends;
-/// with nothing selected, down gives the first and up the last.
-fn step_in<T: Copy + PartialEq>(order: &[T], current: Option<T>, step: isize) -> Option<T> {
-    if order.is_empty() {
-        return None;
-    }
-    let next = match current.and_then(|id| order.iter().position(|row| *row == id)) {
-        Some(at) => at.saturating_add_signed(step).min(order.len() - 1),
-        None if step < 0 => order.len() - 1,
-        None => 0,
-    };
-    Some(order[next])
-}
-
+#[cfg(test)]
+mod panel_tests;
+#[cfg(test)]
+mod reorder_tests;
 #[cfg(test)]
 mod state_tests;
 #[cfg(test)]

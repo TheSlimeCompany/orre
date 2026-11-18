@@ -41,6 +41,9 @@ pub fn body(kind: AccountKind, deletion: Deletion) -> String {
     format!("{goes}This can't be undone; to keep its history, close it instead.")
 }
 
+/// The dialog's button that deletes.
+const DELETE: &str = "Delete account";
+
 /// Delete account, for one account.
 pub struct DeleteAccountDialog {
     accounts: Entity<Accounts>,
@@ -64,7 +67,7 @@ impl DeleteAccountDialog {
         let data = accounts.read(cx).data();
         let (title, body) = match data.node(account) {
             Some(node) => (
-                format!("Delete {}?", node.account.name).into(),
+                format!("Delete {}?", super::name(&node.account.name)).into(),
                 body(
                     node.account.kind,
                     data.detail(account)
@@ -110,6 +113,21 @@ impl DeleteAccountDialog {
     }
 }
 
+impl DeleteAccountDialog {
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3): its
+    /// body, which counts what goes, is a field labelled "".
+    #[cfg(test)]
+    pub fn describe(&self) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        Dialog {
+            title: self.title.to_string(),
+            fields: vec![(String::new(), self.body.clone())],
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![Action::button("Cancel", true), Action::button(DELETE, true)],
+        }
+    }
+}
+
 impl Render for DeleteAccountDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let cancel = cx.listener(|this, _, _, cx| this.cancel(cx));
@@ -127,7 +145,7 @@ impl Render for DeleteAccountDialog {
                     .on_click(cancel),
             )
             .action(
-                Button::new("delete-account-delete", "Delete account")
+                Button::new("delete-account-delete", DELETE)
                     .with_variant(ButtonVariant::DestructiveSolid)
                     .with_surface(color::FLOAT)
                     .on_click(delete),

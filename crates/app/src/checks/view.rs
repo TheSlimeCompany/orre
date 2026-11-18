@@ -2,13 +2,14 @@
 //! CHECKS row is selected (`docs/DESIGN.md` → "Review queues"; Paper
 //! `8SE-0`, `98K-0`, `9MQ-0`).
 //!
-//! The toolbar (52px) names the queue, with its keys for Possible
-//! duplicates (M merge, N not duplicates, ←→ keep, ↑↓ move); the body is
+//! The toolbar (52px) names the queue, with the hints of its keys
+//! ([`KEYS`]) for Possible duplicates (M Merge, N Not duplicates, ←→ Keep,
+//! ↑↓ Select); the body is
 //! [`super::duplicates`] or [`super::balances`]; after a merge or a
 //! dismissal the D6.3 undo bar floats at the foot of the canvas. A change
 //! core refuses is said under the toolbar in caption type, `danger`.
 
-use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -19,7 +20,8 @@ use gpui_kit::{
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
-use crate::ui::kbd::Kbd;
+use crate::ui::keys::{Key, ViewKeys, hints};
+use crate::ui::list::{Keys, ListKeysExt as _, Move};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
 use crate::ui::undo_bar::UndoBar;
@@ -29,6 +31,20 @@ use super::{Checks, Outcome, Queue};
 
 /// The key context of the queues' canvas, where M, N, ←→ and ↑↓ work.
 pub const CONTEXT: &str = "CofferChecks";
+
+/// The queues' keys, declared once (ROADMAP U.7): [`super::init`] binds
+/// them and the toolbar hints them. ↑↓ move through the open queue's rows;
+/// M, N and ←→ decide the selected pair in Possible duplicates; Escape
+/// (not hinted) clears the selection.
+pub const KEYS: ViewKeys = ViewKeys::new(
+    Keys::new(CONTEXT),
+    &[
+        Key::new::<MergeSelected>(&["m"], "M", super::duplicates::MERGE),
+        Key::new::<DismissSelected>(&["n"], "N", super::duplicates::NOT_DUPLICATES),
+        Key::new::<KeepOther>(&["left", "right"], "←→", "Keep"),
+        Key::new::<Cancel>(&["escape"], "Esc", "Clear the selection").unhinted(),
+    ],
+);
 
 gpui_kit::actions!(
     coffer_checks,
@@ -75,7 +91,7 @@ impl ChecksView {
             .checks
             .read(cx)
             .selected_person()
-            .map(|person| person.label.as_str().to_owned());
+            .map(super::owed::name_value);
         let Some(person) = person else {
             self.name_for = None;
             return;
@@ -134,7 +150,8 @@ impl ChecksView {
     }
 
     fn render_toolbar(&self, checks: &Checks, window: &Window) -> gpui_kit::Div {
-        if checks.queue() == Some(Queue::Owed) {
+        let queue = checks.queue().unwrap_or(Queue::Duplicates);
+        if queue == Queue::Owed {
             return div()
                 .flex()
                 .flex_none()
@@ -149,7 +166,7 @@ impl ChecksView {
                     div()
                         .flex()
                         .text_color(color::TEXT)
-                        .child(Tracked::new(typography::TITLE, "Owed to you")),
+                        .child(Tracked::new(typography::TITLE, queue.title())),
                 )
                 .child(
                     div()
@@ -166,43 +183,6 @@ impl ChecksView {
                         )),
                 );
         }
-        let (title, caption) = match checks.queue() {
-            Some(Queue::Balances) => {
-                let failing = checks.failing();
-                (
-                    "Balance checks",
-                    if failing > 0 {
-                        format!(
-                            "Every balance you enter or import is checked against the \
-                             transactions · {failing} failing"
-                        )
-                    } else {
-                        "Every balance you enter or import is checked against the transactions"
-                            .to_owned()
-                    },
-                )
-            }
-            _ => (
-                "Possible duplicates",
-                format!(
-                    "{} · nothing changes until you merge",
-                    count(checks.pending_pairs(), "pair", "pairs")
-                ),
-            ),
-        };
-        let key = |keys: &'static str, label: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(spacing::S1_5)
-                .child(Kbd::new(keys))
-                .child(
-                    div()
-                        .text_role(typography::CAPTION)
-                        .text_color(color::TEXT_MUTED)
-                        .child(label),
-                )
-        };
         div()
             .flex()
             .flex_none()
@@ -217,7 +197,7 @@ impl ChecksView {
                 div()
                     .flex()
                     .text_color(color::TEXT)
-                    .child(Tracked::new(typography::TITLE, title)),
+                    .child(Tracked::new(typography::TITLE, queue.title())),
             )
             .child(
                 div()
@@ -227,24 +207,9 @@ impl ChecksView {
                     .text_ellipsis()
                     .text_role(typography::CAPTION)
                     .text_color(color::TEXT_MUTED)
-                    .child(caption),
+                    .child(toolbar_caption(checks)),
             )
-            .when(
-                checks.queue() == Some(Queue::Duplicates) && checks.pending_pairs() > 0,
-                |this| {
-                    this.child(
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(spacing::S3)
-                            .child(key("M", "Merge"))
-                            .child(key("N", "Not duplicates"))
-                            .child(key("←→", "Keep"))
-                            .child(key("↑↓", "Move")),
-                    )
-                },
-            )
+            .when(hinted(checks), |this| this.child(hints(KEYS.hints())))
     }
 
     fn render_bar(&self, checks: &Checks) -> Option<AnyElement> {
@@ -272,6 +237,34 @@ impl ChecksView {
                 .into_any_element(),
         )
     }
+}
+
+/// The toolbar's caption on Possible duplicates and Balance checks (Owed
+/// to you's is [`super::owed::toolbar_caption`]).
+pub(super) fn toolbar_caption(checks: &Checks) -> String {
+    match checks.queue() {
+        Some(Queue::Balances) => {
+            let failing = checks.failing();
+            if failing > 0 {
+                format!(
+                    "Every balance you enter or import is checked against the transactions · \
+                     {failing} failing"
+                )
+            } else {
+                "Every balance you enter or import is checked against the transactions".to_owned()
+            }
+        }
+        _ => format!(
+            "{} · nothing changes until you merge",
+            count(checks.pending_pairs(), "pair", "pairs")
+        ),
+    }
+}
+
+/// Whether the toolbar hints the keys: on Possible duplicates, while a
+/// pair is pending.
+pub(super) fn hinted(checks: &Checks) -> bool {
+    checks.queue() == Some(Queue::Duplicates) && checks.pending_pairs() > 0
 }
 
 /// A refusal under the toolbar: caption type, `danger`.
@@ -346,20 +339,16 @@ impl Render for ChecksView {
         let root = div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &SelectUp, _, cx| {
-                this.update(cx, |checks, cx| match checks.queue() {
-                    Some(Queue::Balances) => checks.select_next_check(-1, cx),
-                    Some(Queue::Owed) => checks.select_next_person(-1, cx),
-                    _ => checks.select_next_pair(-1, cx),
-                })
-            }))
-            .on_action(cx.listener(|this, _: &SelectDown, _, cx| {
-                this.update(cx, |checks, cx| match checks.queue() {
-                    Some(Queue::Balances) => checks.select_next_check(1, cx),
-                    Some(Queue::Owed) => checks.select_next_person(1, cx),
-                    _ => checks.select_next_pair(1, cx),
-                })
-            }))
+            .on_list_move(
+                KEYS.list(),
+                cx.listener(|this, to: &Move, _, cx| {
+                    this.update(cx, |checks, cx| match checks.queue() {
+                        Some(Queue::Balances) => checks.select_next_check(*to, cx),
+                        Some(Queue::Owed) => checks.select_next_person(*to, cx),
+                        _ => checks.select_next_pair(*to, cx),
+                    })
+                }),
+            )
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 this.update(cx, |checks, cx| checks.clear_selection(cx))
             }))

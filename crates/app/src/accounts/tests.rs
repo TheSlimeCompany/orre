@@ -11,6 +11,9 @@ use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
+use super::describe::{
+    AccountRow, AccountsDescription, Action, Dialog, Header, Inspector, PanelSection, Section,
+};
 use super::*;
 use crate::shell::{ShellView, View};
 
@@ -110,6 +113,113 @@ fn selected(accounts: &Entity<Accounts>, cx: &mut VisualTestContext) -> Option<A
     cx.update(|_, cx| accounts.read(cx).selected())
 }
 
+/// What accounts management shows: the inspector while Transactions shows
+/// it (an account selected and no transaction), and the shell's dialog.
+fn describe(
+    shell: &Entity<ShellView>,
+    accounts: &Entity<Accounts>,
+    cx: &mut VisualTestContext,
+) -> AccountsDescription {
+    cx.update(|_, cx| {
+        let shell = shell.read(cx);
+        let transactions = shell.transactions().read(cx);
+        let inspector = transactions
+            .selected()
+            .is_empty()
+            .then(|| transactions.account_inspector(cx))
+            .flatten();
+        accounts
+            .read(cx)
+            .describe(inspector.as_ref().map(|inspector| inspector.read(cx)), cx)
+            .with_dialog(shell.dialog(), cx)
+    })
+}
+
+/// Every account row, ACCOUNTS then ASSETS AND LIABILITIES.
+fn rows(shown: &AccountsDescription) -> Vec<&AccountRow> {
+    shown
+        .sections
+        .iter()
+        .flat_map(|section| &section.rows)
+        .collect()
+}
+
+/// The panel's accounts by name, with the balance each shows.
+fn listed(shown: &AccountsDescription) -> Vec<(&str, &str)> {
+    rows(shown)
+        .into_iter()
+        .map(|row| (row.name.as_str(), row.balance.as_str()))
+        .collect()
+}
+
+/// The selected row's name, and whether it draws the cursor.
+fn selected_row(shown: &AccountsDescription) -> Option<(&str, bool)> {
+    rows(shown)
+        .into_iter()
+        .find(|row| row.selected)
+        .map(|row| (row.name.as_str(), row.cursor))
+}
+
+fn inspector(shown: &AccountsDescription) -> &Inspector {
+    shown
+        .inspector
+        .as_ref()
+        .expect("the account inspector shows")
+}
+
+/// The inspector's section titled `title` (`None`: Details, the first).
+fn section<'a>(shown: &'a AccountsDescription, title: Option<&str>) -> &'a Section {
+    let sections = &inspector(shown).sections;
+    match title {
+        None => &sections[0],
+        Some(title) => sections
+            .iter()
+            .find(|section| section.title.as_deref() == Some(title))
+            .unwrap_or_else(|| panic!("no {title} section: {sections:?}")),
+    }
+}
+
+/// The value of the row labelled `label` in `section`.
+fn value<'a>(section: &'a Section, label: &str) -> Option<&'a str> {
+    section
+        .rows
+        .iter()
+        .find(|(row, _)| row == label)
+        .map(|(_, value)| value.as_str())
+}
+
+/// The footer's buttons.
+fn footer(shown: &AccountsDescription) -> Vec<&str> {
+    let footer = inspector(shown).sections.last().unwrap();
+    footer.actions.iter().map(|a| a.label.as_str()).collect()
+}
+
+fn dialog(shown: &AccountsDescription) -> &Dialog {
+    shown.dialog.as_ref().expect("a dialog is open")
+}
+
+/// The open dialog's field labelled `label`.
+fn field<'a>(dialog: &'a Dialog, label: &str) -> Option<&'a str> {
+    dialog
+        .fields
+        .iter()
+        .find(|(field, _)| field == label)
+        .map(|(_, value)| value.as_str())
+}
+
+fn labels(actions: &[Action]) -> Vec<&str> {
+    actions.iter().map(|action| action.label.as_str()).collect()
+}
+
+/// Whether the panel key `key` does anything now.
+fn key_works(shown: &AccountsDescription, key: &str) -> bool {
+    shown
+        .keys
+        .iter()
+        .find(|action| action.key == Some(key))
+        .is_some_and(|action| action.enabled)
+}
+
 fn row(id: AccountId) -> String {
     format!("account-{id}")
 }
@@ -118,18 +228,34 @@ fn row(id: AccountId) -> String {
 fn the_panel_lists_the_database_and_a_click_shows_the_account(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let (shell, accounts, cx) = open(cx, &scratch);
-    assert!(shows(&row(scratch.current), cx));
-    assert!(shows(&row(scratch.pot), cx), "the pot is listed under it");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        listed(&shown),
+        [("Current account", "£100.00"), ("Holiday", "No balance")]
+    );
+    assert!(rows(&shown)[1].nested, "the pot is listed under it");
+    assert_eq!(shown.net_worth, ["£100.00"]);
     // The Transactions fixture opens with a transaction selected.
-    assert!(!shows("add-balance", cx));
+    assert_eq!(shown.inspector, None);
 
     click(&row(scratch.current), cx);
     assert_eq!(selected(&accounts, cx), Some(scratch.current));
     let transactions_selected =
         cx.update(|_, cx| shell.read(cx).transactions().read(cx).selected().len());
     assert_eq!(transactions_selected, 0, "the account takes the inspector");
-    assert!(shows("add-balance", cx));
-    assert!(shows("account-name", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(selected_row(&shown), Some(("Current account", false)));
+    assert_eq!(inspector(&shown).header.title, "Current account");
+    assert_eq!(
+        value(section(&shown, None), "Name"),
+        Some("Current account")
+    );
+    assert_eq!(value(section(&shown, None), "Bank"), Some("Example Bank"));
+    assert_eq!(
+        labels(&section(&shown, Some("Balances")).actions),
+        ["Add balance…"]
+    );
+    assert!(shows("add-balance", cx), "drawn as described");
 
     click(&row(scratch.current), cx);
     assert_eq!(
@@ -137,22 +263,39 @@ fn the_panel_lists_the_database_and_a_click_shows_the_account(cx: &mut TestAppCo
         None,
         "a second click: all accounts"
     );
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.inspector, None);
+    assert_eq!(selected_row(&shown), None);
     assert!(!shows("add-balance", cx));
 }
 
 #[gpui_kit::test]
 fn new_account_adds_and_selects_it(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(panel::ADD_ACCOUNT, cx);
-    assert!(shows("new-account-add", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, "New account");
+    assert_eq!(labels(&dialog(&shown).actions), ["Cancel", "Add account"]);
 
     type_into("new-account-name", "Amex", cx);
     type_into("new-account-bank", "American Express", cx);
     type_into("new-account-balance", "-42.50", cx);
+    let shown = describe(&shell, &accounts, cx);
+    let fields: Vec<&str> = dialog(&shown)
+        .fields
+        .iter()
+        .map(|(label, _)| label.as_str())
+        .collect();
+    assert_eq!(fields, ["Name", "Bank", "Kind", "Currency", "Balance", ""]);
+    assert_eq!(field(dialog(&shown), "Name"), Some("Amex"));
+    assert_eq!(field(dialog(&shown), "Bank"), Some("American Express"));
+    assert_eq!(field(dialog(&shown), "Kind"), Some("Current"));
+    assert_eq!(field(dialog(&shown), "Balance"), Some("-42.50"));
     click("new-account-add", cx);
 
-    assert!(!shows("new-account-add", cx), "the dialog closes");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None, "the dialog closes");
     let added = account::list(&scratch.db())
         .unwrap()
         .into_iter()
@@ -163,45 +306,43 @@ fn new_account_adds_and_selects_it(cx: &mut TestAppContext) {
     let balances = account::entered_balances(&scratch.db(), added.id).unwrap();
     assert_eq!(balances.len(), 1);
     assert_eq!(balances[0].balance.minor(), -4_250);
-    assert!(shows(&row(added.id), cx));
+    assert!(listed(&shown).contains(&("Amex", "−£42.50")), "{shown:?}");
+    assert_eq!(selected_row(&shown).map(|(name, _)| name), Some("Amex"));
 }
 
 #[gpui_kit::test]
 fn new_account_says_what_is_wrong_and_adds_nothing(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (shell, _accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(panel::ADD_ACCOUNT, cx);
 
     // No name.
     click("new-account-add", cx);
-    let error = cx.update(|_, cx| dialog_error(&shell, cx));
-    assert_eq!(error.as_deref(), Some("An account needs a name."));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).error.as_deref(),
+        Some("An account needs a name.")
+    );
 
     // A balance that would need rounding.
     type_into("new-account-name", "Amex", cx);
     type_into("new-account-balance", "12.345", cx);
     click("new-account-add", cx);
-    let error = cx.update(|_, cx| dialog_error(&shell, cx)).unwrap();
+    let shown = describe(&shell, &accounts, cx);
+    let error = dialog(&shown).error.clone().unwrap();
     assert!(error.starts_with("The balance isn't an amount"), "{error}");
     assert_eq!(account::list(&scratch.db()).unwrap().len(), 2);
 
     // Escape cancels.
     press("escape", cx);
-    assert!(!shows("new-account-add", cx));
+    assert_eq!(describe(&shell, &accounts, cx).dialog, None);
     assert_eq!(account::list(&scratch.db()).unwrap().len(), 2);
-}
-
-/// The open New account dialog's error.
-fn dialog_error(shell: &Entity<ShellView>, cx: &gpui_kit::App) -> Option<String> {
-    let dialog = shell.read(cx).dialog()?.clone();
-    let dialog = dialog.downcast::<new_account::NewAccountDialog>().ok()?;
-    dialog.read(cx).error().map(ToString::to_string)
 }
 
 #[gpui_kit::test]
 fn the_inspector_saves_a_rename_and_refuses_a_blank_name(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(scratch.current), cx);
 
     click("account-name", cx);
@@ -210,16 +351,13 @@ fn the_inspector_saves_a_rename_and_refuses_a_blank_name(cx: &mut TestAppContext
     press("enter", cx);
     let name = account::get(&scratch.db(), scratch.current).unwrap().name;
     assert_eq!(name, "Current account (Monzo)");
-    let shown = cx.update(|_, cx| {
-        accounts
-            .read(cx)
-            .selected_node()
-            .unwrap()
-            .account
-            .name
-            .clone()
-    });
-    assert_eq!(shown, "Current account (Monzo)", "the panel reads it back");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        selected_row(&shown).map(|(name, _)| name),
+        Some("Current account (Monzo)"),
+        "the panel reads it back"
+    );
+    assert_eq!(inspector(&shown).header.title, "Current account (Monzo)");
 
     // Clear the field: core refuses, and the stored name comes back.
     click("account-name", cx);
@@ -230,17 +368,28 @@ fn the_inspector_saves_a_rename_and_refuses_a_blank_name(cx: &mut TestAppContext
         account::get(&scratch.db(), scratch.current).unwrap().name,
         "Current account (Monzo)"
     );
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        value(section(&shown, None), "Name"),
+        Some("Current account (Monzo)"),
+        "the stored name is back in the field"
+    );
     let field = cx.update(|window, _| window.find("account-name").value().map(ToString::to_string));
-    assert_eq!(field.as_deref(), Some("Current account (Monzo)"));
+    assert_eq!(
+        field.as_deref(),
+        Some("Current account (Monzo)"),
+        "as drawn"
+    );
 }
 
 #[gpui_kit::test]
 fn add_balance_records_an_entered_balance(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(scratch.current), cx);
     click("add-balance", cx);
-    assert!(shows("add-balance-add", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, "Add a balance for Current account");
 
     type_into("add-balance-amount", "1,284.10", cx);
     // Replace today's date with one in the past.
@@ -248,9 +397,20 @@ fn add_balance_records_an_entered_balance(cx: &mut TestAppContext) {
     press("secondary-a", cx);
     cx.update(|window, cx| window.input("9 Nov 2026", cx));
     type_into("add-balance-note", "From the app", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).fields,
+        [
+            ("Balance".to_owned(), "1,284.10".to_owned()),
+            (String::new(), "9 Nov 2026".to_owned()),
+            ("Note".to_owned(), "From the app".to_owned()),
+        ]
+    );
+    assert_eq!(labels(&dialog(&shown).actions), ["Cancel", "Add balance"]);
     click("add-balance-add", cx);
 
-    assert!(!shows("add-balance-add", cx), "the dialog closes");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None, "the dialog closes");
     let balances = account::entered_balances(&scratch.db(), scratch.current).unwrap();
     assert_eq!(balances.len(), 2);
     assert_eq!(
@@ -259,17 +419,17 @@ fn add_balance_records_an_entered_balance(cx: &mut TestAppContext) {
     );
     assert_eq!(balances[0].balance.minor(), 128_410);
     assert_eq!(balances[0].note.as_deref(), Some("From the app"));
-    // The inspector lists it.
-    let listed = cx.update(|_, cx| {
-        accounts
-            .read(cx)
-            .data()
-            .detail(scratch.current)
-            .unwrap()
-            .balances
-            .len()
-    });
-    assert_eq!(listed, 2);
+    // The inspector lists it, newest first, and the panel shows it.
+    let balances: Vec<&str> = section(&shown, Some("Balances"))
+        .rows
+        .iter()
+        .map(|(_, value)| value.as_str())
+        .collect();
+    assert_eq!(
+        balances,
+        ["From the app · £1,284.10", "Entered by you · £100.00"]
+    );
+    assert_eq!(listed(&shown)[0], ("Current account", "£1,284.10"));
 }
 
 #[gpui_kit::test]
@@ -290,13 +450,16 @@ fn sample_data_cant_change(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn the_arrow_keys_move_through_the_panel(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let shown = describe(&shell, &accounts, cx);
+    assert!(key_works(&shown, "down") && !key_works(&shown, "escape"));
     click(&row(scratch.current), cx);
+    assert!(key_works(&describe(&shell, &accounts, cx), "escape"));
     press("down", cx);
     assert_eq!(
-        selected(&accounts, cx),
-        Some(scratch.pot),
-        "the pot is next"
+        selected_row(&describe(&shell, &accounts, cx)),
+        Some(("Holiday", true)),
+        "the pot is next, drawn with the cursor"
     );
     press("down", cx);
     assert_eq!(
@@ -307,7 +470,9 @@ fn the_arrow_keys_move_through_the_panel(cx: &mut TestAppContext) {
     press("up", cx);
     assert_eq!(selected(&accounts, cx), Some(scratch.current));
     press("escape", cx);
-    assert_eq!(selected(&accounts, cx), None, "Escape: all accounts");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(selected_row(&shown), None, "Escape: all accounts");
+    assert!(!key_works(&shown, "escape"));
 }
 
 #[gpui_kit::test]
@@ -319,8 +484,19 @@ fn the_kind_select_changes_the_kind_by_pointer_and_keyboard(cx: &mut TestAppCont
         &NewAccount::new("Card", AccountKind::Current, Currency::GBP),
     )
     .unwrap();
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(empty), cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(value(section(&shown, None), "Kind"), Some("Current"));
+    assert_eq!(
+        section(&shown, None).actions,
+        [
+            Action::button("Kind", true),
+            Action::button("Currency", true),
+            Action::button("Preset", true),
+        ],
+        "nothing in it: every select opens"
+    );
 
     click("inspector-kind", cx);
     assert!(shows("option-credit_card", cx), "the menu is open");
@@ -341,8 +517,13 @@ fn the_kind_select_changes_the_kind_by_pointer_and_keyboard(cx: &mut TestAppCont
         account::get(&scratch.db(), empty).unwrap().kind,
         AccountKind::Cash
     );
-    let shown = cx.update(|_, cx| accounts.read(cx).selected_node().unwrap().account.kind);
-    assert_eq!(shown, AccountKind::Cash);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(value(section(&shown, None), "Kind"), Some("Cash"));
+    assert_eq!(
+        value(section(&shown, None), "Bank"),
+        None,
+        "a cash account has no Bank"
+    );
     assert!(!shows("option-cash", cx), "choosing closes it");
     // Focus is back on the select: Enter opens it again, Escape closes it.
     press("enter", cx);
@@ -360,11 +541,21 @@ fn the_kind_select_changes_the_kind_by_pointer_and_keyboard(cx: &mut TestAppCont
 #[gpui_kit::test]
 fn an_edit_left_by_clicking_another_account_stays_with_its_account(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(scratch.current), cx);
     click("account-name", cx);
     press("end", cx);
     cx.update(|window, cx| window.input(" 2", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        value(section(&shown, None), "Name"),
+        Some("Current account 2"),
+        "typed, not saved yet"
+    );
+    assert_eq!(
+        selected_row(&shown).map(|(name, _)| name),
+        Some("Current account")
+    );
     // No Enter: the next click takes focus and changes the selection.
     click(&row(scratch.pot), cx);
     assert_eq!(selected(&accounts, cx), Some(scratch.pot));
@@ -379,8 +570,9 @@ fn an_edit_left_by_clicking_another_account_stays_with_its_account(cx: &mut Test
         "Holiday",
         "the pot is untouched"
     );
-    let field = cx.update(|window, _| window.find("account-name").value().map(ToString::to_string));
-    assert_eq!(field.as_deref(), Some("Holiday"));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(value(section(&shown, None), "Name"), Some("Holiday"));
+    assert!(listed(&shown).contains(&("Current account 2", "£100.00")));
 }
 
 // Assets, liabilities, closing and deleting (M3.17) ---------------------------
@@ -410,34 +602,31 @@ fn retype_date(id: &str, date: &str, cx: &mut VisualTestContext) {
     redraw(cx);
 }
 
-/// The open dialog's error, if it is a `D`.
-fn error_of<D: gpui_kit::Render>(
-    shell: &Entity<ShellView>,
-    cx: &mut VisualTestContext,
-    error: impl Fn(&D) -> Option<String> + 'static,
-) -> Option<String> {
-    cx.update(|_, cx| {
-        let dialog = shell.read(cx).dialog()?.clone();
-        let dialog = dialog.downcast::<D>().ok()?;
-        error(dialog.read(cx))
-    })
-}
-
 #[gpui_kit::test]
 fn the_assets_plus_adds_an_asset_shown_by_its_values(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(panel::ADD_VALUED_ACCOUNT, cx);
-    // Kind is Asset: no Bank, and a Note.
-    assert!(shows("new-account-add", cx));
-    assert!(!shows("new-account-bank", cx));
-    assert!(shows("new-account-note", cx));
+    // Kind is Asset: no Bank, Value for Balance, and a Note.
+    let shown = describe(&shell, &accounts, cx);
+    let fields: Vec<&str> = dialog(&shown)
+        .fields
+        .iter()
+        .map(|(label, _)| label.as_str())
+        .collect();
+    assert_eq!(fields, ["Name", "Kind", "Currency", "Value", "", "Note"]);
+    assert_eq!(field(dialog(&shown), "Kind"), Some("Asset"));
+    assert!(!shows("new-account-bank", cx), "drawn as described");
     type_into("new-account-name", "House", cx);
     type_into("new-account-balance", "385,000", cx);
     retype_date("new-account-date", "12 Oct 2026", cx);
     type_into("new-account-note", "Remortgage survey", cx);
     click("new-account-add", cx);
-    assert!(!shows("new-account-add", cx), "the dialog closes");
+    assert_eq!(
+        describe(&shell, &accounts, cx).dialog,
+        None,
+        "the dialog closes"
+    );
 
     let house = account::list(&scratch.db())
         .unwrap()
@@ -456,23 +645,61 @@ fn the_assets_plus_adds_an_asset_shown_by_its_values(cx: &mut TestAppContext) {
     assert_eq!(selected(&accounts, cx), Some(house.id));
 
     // Its values replace the transaction table, and ⌘N adds one.
+    let shown = describe(&shell, &accounts, cx);
+    let assets = &shown.sections[1];
+    assert_eq!(assets.title, "Assets and liabilities");
+    assert_eq!(assets.rows[0].name, "House");
+    let canvas = shown.valuations.as_ref().expect("the valuations canvas");
+    assert_eq!(canvas.title, "Valuations");
+    assert_eq!(
+        canvas.add,
+        Action::keyed("Add valuation", panel::ADD_VALUE_KEY, true)
+    );
+    assert_eq!(canvas.rows.len(), 1);
+    assert_eq!(canvas.rows[0].note, "Remortgage survey · first value");
+    assert_eq!(canvas.rows[0].value, "£385,000.00");
+    assert_eq!(canvas.rows[0].change, "—");
     assert!(shows("add-valuation", cx));
     // Clicking the row twice lets it go and selects it again, with the
     // panel focused: ⌘N works there.
     click(&row(house.id), cx);
     click(&row(house.id), cx);
     assert_eq!(selected(&accounts, cx), Some(house.id));
+    assert!(key_works(
+        &describe(&shell, &accounts, cx),
+        panel::ADD_VALUE_KEY
+    ));
     press("secondary-n", cx);
-    assert!(shows("add-balance-add", cx), "⌘N opens Add valuation");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).title,
+        "Add a valuation for House",
+        "⌘N opens Add valuation"
+    );
     type_into("add-balance-amount", "390,000", cx);
     retype_date("add-balance-date", "1 Nov 2026", cx);
     click("add-balance-add", cx);
-    assert!(!shows("add-balance-add", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None);
     let values = account::entered_balances(&scratch.db(), house.id).unwrap();
     assert_eq!(values[0].balance.minor(), 39_000_000);
+    let canvas = shown.valuations.as_ref().unwrap();
+    assert_eq!(
+        canvas.rows[0],
+        super::describe::ValuationRowDescription {
+            date: "1 Nov 2026".to_owned(),
+            note: "Valuation".to_owned(),
+            change: "+£5,000.00".to_owned(),
+            value: "£390,000.00".to_owned(),
+        }
+    );
+    assert!(canvas.caption.starts_with("2 values you entered"));
 
     // A bank account goes back to the table.
     click(&row(scratch.current), cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.valuations, None);
+    assert!(!key_works(&shown, panel::ADD_VALUE_KEY));
     assert!(!shows("add-valuation", cx));
 }
 
@@ -480,23 +707,44 @@ fn the_assets_plus_adds_an_asset_shown_by_its_values(cx: &mut TestAppContext) {
 fn a_liability_stores_what_is_owed_below_zero(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let mortgage = valued(&scratch, "Mortgage", AccountKind::Liability, -21_691_000);
-    let (shell, _accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(mortgage), cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        labels(&section(&shown, Some("Balances")).actions),
+        ["Add balance…"]
+    );
+    assert!(
+        section(&shown, Some("Balances")).rows.is_empty(),
+        "the canvas lists them"
+    );
     click("add-balance", cx);
     // A minus is refused: Coffer stores what's owed below zero itself.
     type_into("add-balance-amount", "-1", cx);
     retype_date("add-balance-date", "1 Nov 2026", cx);
     click("add-balance-add", cx);
-    let error = error_of(&shell, cx, |dialog: &add_balance::AddBalanceDialog| {
-        dialog.error().map(ToString::to_string)
-    });
-    assert!(error.unwrap().contains("without a minus"));
+    let shown = describe(&shell, &accounts, cx);
+    assert!(
+        dialog(&shown)
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("without a minus")
+    );
 
     click("add-balance-amount", cx);
     press("secondary-a", cx);
     cx.update(|window, cx| window.input("212,640", cx));
+    redraw(cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(field(dialog(&shown), "Owed"), Some("212,640"));
+    let caption = &dialog(&shown).fields.last().unwrap().1;
+    assert!(
+        caption.contains("Coffer stores it as −£212,640.00"),
+        "the caption says what will be stored: {caption}"
+    );
     click("add-balance-add", cx);
-    assert!(!shows("add-balance-add", cx));
+    assert_eq!(describe(&shell, &accounts, cx).dialog, None);
     let values = account::entered_balances(&scratch.db(), mortgage).unwrap();
     assert_eq!(values[0].balance.minor(), -21_264_000);
 }
@@ -508,34 +756,39 @@ fn closing_an_asset_hides_it_and_undo_reopens_it(cx: &mut TestAppContext) {
     let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(house), cx);
     click("close-account", cx);
-    assert!(shows("close-account-close", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, "Close House?");
+    assert_eq!(labels(&dialog(&shown).actions), ["Cancel", "Close account"]);
 
     // Not on or before its last value.
     retype_date("close-account-date", "12 Oct 2026", cx);
     click("close-account-close", cx);
-    let error = error_of(&shell, cx, |dialog: &close::CloseAccountDialog| {
-        dialog.error().map(ToString::to_string)
-    })
-    .expect("refused");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(field(dialog(&shown), "Sold on"), Some("12 Oct 2026"));
+    let error = dialog(&shown).error.clone().expect("refused");
     assert!(error.contains("2026-10-13"), "{error}");
     assert_eq!(account::get(&scratch.db(), house).unwrap().closed_on, None);
 
     retype_date("close-account-date", "6 Nov 2026", cx);
     click("close-account-close", cx);
-    assert!(!shows("close-account-close", cx), "the dialog closes");
     assert_eq!(
         account::get(&scratch.db(), house).unwrap().closed_on,
         NaiveDate::from_ymd_opt(2026, 11, 6)
     );
-    assert!(!shows(&row(house), cx), "it leaves the panel");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None, "the dialog closes");
+    assert!(
+        !listed(&shown).iter().any(|(name, _)| *name == "House"),
+        "it leaves the panel"
+    );
     assert_eq!(selected(&accounts, cx), None);
-    let message = cx.update(|_, cx| {
-        accounts
-            .read(cx)
-            .closed()
-            .map(|closed| closed.message.clone())
-    });
-    assert_eq!(message.as_deref(), Some("House closed"));
+    assert_eq!(
+        shown.undo_bar,
+        Some((
+            "House closed".to_owned(),
+            vec![Action::button("Undo", true)]
+        ))
+    );
 
     // Undo reopens it, without the £0 value closing added.
     click("undo-change", cx);
@@ -546,8 +799,9 @@ fn closing_an_asset_hides_it_and_undo_reopens_it(cx: &mut TestAppContext) {
             .len(),
         1
     );
-    assert!(shows(&row(house), cx));
-    assert_eq!(selected(&accounts, cx), Some(house));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(selected_row(&shown).map(|(name, _)| name), Some("House"));
+    assert_eq!(shown.undo_bar, None);
     assert!(!shows("undo-change", cx));
 }
 
@@ -555,20 +809,33 @@ fn closing_an_asset_hides_it_and_undo_reopens_it(cx: &mut TestAppContext) {
 fn delete_shows_only_where_core_allows_it(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let house = valued(&scratch, "House", AccountKind::Asset, 38_500_000);
-    let (_shell, accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
 
     // Current account has a pot: close only.
     click(&row(scratch.current), cx);
-    assert!(shows("close-account", cx));
-    assert!(!shows("delete-account", cx));
+    assert_eq!(footer(&describe(&shell, &accounts, cx)), ["Close account…"]);
+    assert!(!shows("delete-account", cx), "drawn as described");
 
     click(&row(house), cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(footer(&shown), ["Close account…", "Delete account…"]);
+    let note = &inspector(&shown).sections.last().unwrap().rows[0].1;
+    assert!(
+        note.starts_with("Sold it? Close it on the sale date"),
+        "{note}"
+    );
     click("delete-account", cx);
-    assert!(shows("delete-account-delete", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, "Delete House?");
+    assert_eq!(
+        labels(&dialog(&shown).actions),
+        ["Cancel", "Delete account"]
+    );
     click("delete-account-delete", cx);
-    assert!(!shows("delete-account-delete", cx));
     assert!(account::get(&scratch.db(), house).is_err(), "deleted");
-    assert!(!shows(&row(house), cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None);
+    assert!(!listed(&shown).iter().any(|(name, _)| *name == "House"));
     assert_eq!(selected(&accounts, cx), None);
 }
 
@@ -620,23 +887,43 @@ fn transaction_count(scratch: &Scratch, cash: AccountId) -> usize {
 fn a_short_cash_count_offers_its_difference_and_saves_both(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let cash = cash_account(&scratch, true);
-    let (shell, _accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(cash), cx);
-    assert!(shows("add-balance", cx), "the inspector's Count cash…");
+    let shown = describe(&shell, &accounts, cx);
+    let counts = section(&shown, Some("Counts"));
+    assert_eq!(labels(&counts.actions), ["Count cash…"]);
+    assert_eq!(counts.rows[0].1, "Starting point · £50.00");
     click("add-balance", cx);
-    assert!(shows("count-amount", cx));
-    assert!(!shows("count-add", cx), "nothing to add before a count");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, "Count cash for Cash");
+    assert_eq!(
+        labels(&dialog(&shown).actions),
+        ["Cancel", "Save count"],
+        "nothing to add before a count"
+    );
 
     type_into("count-amount", "18.00", cx);
     let counting = count_dialog(&shell, cx).expect("the count can be read");
     assert_eq!(counting.expectation.expected.unwrap().minor(), 2_300);
-    assert_eq!(counting.difference().unwrap().minor(), -500);
-    assert!(shows("count-save-only", cx));
-    assert!(shows("count-add", cx));
-    assert!(!shows("count-save", cx));
+    let shown = describe(&shell, &accounts, cx);
+    let expected = field(dialog(&shown), "Coffer").unwrap();
+    assert!(
+        expected.starts_with("£23.00 from transactions since the 1 Nov"),
+        "{expected}"
+    );
+    assert_eq!(field(dialog(&shown), "Difference"), Some("−£5.00"));
+    assert_eq!(
+        labels(&dialog(&shown).actions),
+        ["Cancel", "Save count only", "Add −£5.00 and save"]
+    );
+    assert!(shows("count-add", cx), "drawn as described");
 
     click("count-add", cx);
-    assert!(!shows("count-add", cx), "the dialog closes");
+    assert_eq!(
+        describe(&shell, &accounts, cx).dialog,
+        None,
+        "the dialog closes"
+    );
     let counts = account::entered_balances(&scratch.db(), cash).unwrap();
     assert_eq!(counts.len(), 2);
     assert_eq!(counts[0].balance.minor(), 1_800);
@@ -647,12 +934,12 @@ fn a_short_cash_count_offers_its_difference_and_saves_both(cx: &mut TestAppConte
 fn saving_a_cash_count_only_adds_no_transaction(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let cash = cash_account(&scratch, true);
-    let (_shell, _accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(cash), cx);
     click("add-balance", cx);
     type_into("count-amount", "18.00", cx);
     click("count-save-only", cx);
-    assert!(!shows("count-save-only", cx));
+    assert_eq!(describe(&shell, &accounts, cx).dialog, None);
     assert_eq!(
         account::entered_balances(&scratch.db(), cash)
             .unwrap()
@@ -674,12 +961,13 @@ fn a_matching_count_has_a_plain_save_and_the_first_count_too(cx: &mut TestAppCon
         )
         .unwrap()
     };
-    let (shell, _accounts, cx) = open(cx, &scratch);
+    let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(cash), cx);
     click("add-balance", cx);
     type_into("count-amount", "23.00", cx);
-    assert!(shows("count-save", cx));
-    assert!(!shows("count-add", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(field(dialog(&shown), "Difference"), Some("£0.00"));
+    assert_eq!(labels(&dialog(&shown).actions), ["Cancel", "Save count"]);
     press("escape", cx);
 
     click(&row(empty), cx);
@@ -687,13 +975,302 @@ fn a_matching_count_has_a_plain_save_and_the_first_count_too(cx: &mut TestAppCon
     type_into("count-amount", "12.00", cx);
     let counting = count_dialog(&shell, cx).unwrap();
     assert_eq!(counting.expectation.expected, None, "the starting point");
-    assert!(shows("count-save", cx));
-    assert!(!shows("count-add", cx));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).fields,
+        [
+            ("Counted".to_owned(), "12.00".to_owned()),
+            (
+                String::new(),
+                cx.update(|_, cx| crate::format::field_date(accounts.read(cx).data().today))
+            ),
+        ],
+        "no expectation or difference on the first count"
+    );
+    assert_eq!(labels(&dialog(&shown).actions), ["Cancel", "Save count"]);
     click("count-save", cx);
     assert_eq!(
         account::entered_balances(&scratch.db(), empty)
             .unwrap()
             .len(),
         1
+    );
+}
+
+/// The shell on Transactions over the states board's accounts, where Joint
+/// account's balance check failed.
+fn open_flagged(
+    cx: &mut TestAppContext,
+) -> (Entity<ShellView>, Entity<Accounts>, &mut VisualTestContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+    });
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        let accounts = cx.new(|_| Accounts::fixture(fixture::with_states()));
+        ShellView::with_accounts(View::Transactions, accounts, window, cx)
+    });
+    let accounts = cx.update(|_, cx| shell.read(cx).accounts().clone());
+    redraw(cx);
+    (shell, accounts, cx)
+}
+
+/// What the panel asked the shell for, as it happens.
+fn requests(
+    accounts: &Entity<Accounts>,
+    cx: &mut VisualTestContext,
+) -> std::rc::Rc<std::cell::RefCell<Vec<AccountsEvent>>> {
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = seen.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(accounts, move |_, event: &AccountsEvent, _| {
+            sink.borrow_mut().push(*event)
+        })
+        .detach()
+    });
+    seen
+}
+
+#[gpui_kit::test]
+fn enter_on_a_flagged_account_opens_its_check_as_the_dot_does(cx: &mut TestAppContext) {
+    let (shell, accounts, cx) = open_flagged(cx);
+    let seen = requests(&accounts, cx);
+    let shown = describe(&shell, &accounts, cx);
+    let flagged: Vec<&str> = rows(&shown)
+        .into_iter()
+        .filter(|row| row.flagged)
+        .map(|row| row.name.as_str())
+        .collect();
+    assert_eq!(flagged, ["Joint account"]);
+    // Clicking the row selects it and focuses the panel.
+    click(&row(fixture::JOINT), cx);
+    assert_eq!(selected(&accounts, cx), Some(fixture::JOINT));
+    assert!(key_works(
+        &describe(&shell, &accounts, cx),
+        panel::CHECK_KEY
+    ));
+
+    press("enter", cx);
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&AccountsEvent::ChecksRequested(fixture::JOINT)),
+        "what the flagged dot asks for"
+    );
+    assert_eq!(cx.update(|_, cx| shell.read(cx).view()), View::Inbox);
+}
+
+#[gpui_kit::test]
+fn enter_on_an_account_that_isnt_flagged_does_nothing(cx: &mut TestAppContext) {
+    let (shell, accounts, cx) = open_flagged(cx);
+    let seen = requests(&accounts, cx);
+    click(&row(fixture::CURRENT), cx);
+    let before = seen.borrow().len();
+    assert!(!key_works(
+        &describe(&shell, &accounts, cx),
+        panel::CHECK_KEY
+    ));
+
+    press("enter", cx);
+    assert_eq!(seen.borrow().len(), before, "nothing asked for");
+    assert_eq!(cx.update(|_, cx| shell.read(cx).view()), View::Transactions);
+    assert_eq!(selected(&accounts, cx), Some(fixture::CURRENT));
+
+    // The arrows go on to Joint, and there Enter opens its check.
+    let order = cx.update(|_, cx| panel::order(accounts.read(cx).data()));
+    let from = order.iter().position(|id| *id == fixture::CURRENT).unwrap();
+    let to = order.iter().position(|id| *id == fixture::JOINT).unwrap();
+    for _ in from..to {
+        press("down", cx);
+    }
+    assert_eq!(selected(&accounts, cx), Some(fixture::JOINT));
+    press("enter", cx);
+    assert_eq!(cx.update(|_, cx| shell.read(cx).view()), View::Inbox);
+}
+
+/// The whole description of the sample accounts with Current account
+/// selected: the panel, the inspector and the keys, field by field.
+#[gpui_kit::test]
+fn the_sample_accounts_are_described_in_full(cx: &mut TestAppContext) {
+    let (shell, accounts, cx) = open_flagged(cx);
+    click(&row(fixture::CURRENT), cx);
+    // A row: its name and balance, overdrawn, nested, flagged, selected.
+    let row = |name: &str, balance: &str, overdrawn, nested, flagged, selected| AccountRow {
+        name: name.to_owned(),
+        balance: balance.to_owned(),
+        overdrawn,
+        nested,
+        flagged,
+        selected,
+        cursor: false,
+    };
+    let rows = |rows: &[(&str, &str)]| -> Vec<(String, String)> {
+        rows.iter()
+            .map(|(label, value)| ((*label).to_owned(), (*value).to_owned()))
+            .collect()
+    };
+    let button = |label: &str, enabled: bool| Action::button(label, enabled);
+    let key = |label: &str, key: &'static str, enabled: bool| Action::keyed(label, key, enabled);
+    assert_eq!(
+        describe(&shell, &accounts, cx),
+        AccountsDescription {
+            net_worth: vec!["£18,240.55".to_owned()],
+            sections: vec![
+                PanelSection {
+                    title: "Accounts",
+                    add: button("Add account", true),
+                    rows: vec![
+                        row("Current account", "£1,284.10", false, false, false, true),
+                        row("Holiday", "£1,200.00", false, true, false, false),
+                        row("Rainy day", "£3,000.00", false, true, false, false),
+                        row("Joint account", "−£24.10", true, false, true, false),
+                        row("Savings", "£5,750.00", false, false, false, false),
+                        row("Stocks ISA", "£7,030.55", false, false, false, false),
+                        row("Amex", "No balance", false, false, false, false),
+                    ],
+                    note: None,
+                },
+                PanelSection {
+                    title: "Assets and liabilities",
+                    add: button("Add asset or liability", true),
+                    rows: Vec::new(),
+                    note: None,
+                },
+            ],
+            error: None,
+            inspector: Some(Inspector {
+                header: Header {
+                    title: "Current account".to_owned(),
+                    figure: Some("£1,284.10".to_owned()),
+                    caption: Some("Balance on 9 Nov · pots not included".to_owned()),
+                },
+                sections: vec![
+                    Section {
+                        title: None,
+                        rows: rows(&[
+                            ("Name", "Current account"),
+                            ("Bank", "Monzo"),
+                            ("Kind", "Current"),
+                            ("Currency", "GBP"),
+                            ("Preset", "Monzo"),
+                        ]),
+                        // It holds money: the currency is locked.
+                        actions: vec![
+                            button("Kind", true),
+                            button("Currency", false),
+                            button("Preset", true),
+                        ],
+                    },
+                    Section {
+                        title: Some("Balances".to_owned()),
+                        rows: rows(&[("1 Sep", "Entered by you · £1,071.70")]),
+                        actions: vec![button("Add balance…", true)],
+                    },
+                    Section {
+                        title: Some("Pots".to_owned()),
+                        rows: rows(&[
+                            ("Holiday", "£1,200.00"),
+                            ("Rainy day", "£3,000.00"),
+                            ("Total", "£4,200.00"),
+                        ]),
+                        actions: Vec::new(),
+                    },
+                    Section {
+                        title: Some("Imports".to_owned()),
+                        rows: rows(&[
+                            ("monzo-november.csv", "296 · 9 Nov"),
+                            ("monzo-october.csv", "281 · 2 Nov"),
+                        ]),
+                        actions: Vec::new(),
+                    },
+                    // It has pots and imports: close only.
+                    Section {
+                        title: None,
+                        rows: Vec::new(),
+                        actions: vec![button("Close account…", true)],
+                    },
+                ],
+            }),
+            valuations: None,
+            undo_bar: None,
+            dialog: None,
+            keys: vec![
+                key("Move up", "up", true),
+                key("Move down", "down", true),
+                key("All accounts", "escape", true),
+                key("Open its balance check", "enter", false),
+                key("Add valuation", "secondary-n", false),
+            ],
+        }
+    );
+}
+
+/// Account and pot names can come from an import or a preset, so the
+/// panel, the inspector, the dialogs, the undo bar and the description
+/// show them made plain ([`super::name`]: bidi, zero-width and control
+/// characters stripped), while the Name field holds the stored name as
+/// typed and an edit there round-trips it.
+#[gpui_kit::test]
+fn account_names_are_shown_and_described_plain(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let name = "Bills\u{202E} pot\u{200B} <b>ignore</b>";
+    let plain = "Bills pot <b>ignore</b>";
+    assert_eq!(super::name(name), plain);
+    let id = account::create(
+        &mut scratch.db(),
+        &NewAccount::new(name, AccountKind::Current, Currency::GBP),
+    )
+    .unwrap();
+    let mut pot = NewAccount::new("Rainy\u{7}\u{2066}day", AccountKind::Pot, Currency::GBP);
+    pot.parent = Some(id);
+    account::create(&mut scratch.db(), &pot).unwrap();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(id), cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(selected_row(&shown).map(|(name, _)| name), Some(plain));
+    assert!(
+        rows(&shown)
+            .iter()
+            .any(|row| row.nested && row.name == "Rainyday"),
+        "the pot's row: {:?}",
+        listed(&shown)
+    );
+    assert_eq!(inspector(&shown).header.title, plain);
+    assert!(
+        value(section(&shown, Some("Pots")), "Rainyday").is_some(),
+        "the Pots section"
+    );
+    assert_eq!(
+        value(section(&shown, None), "Name"),
+        Some(name),
+        "the Name field holds the stored name"
+    );
+    let drawn = cx.update(|window, _| window.find("account-name").value().map(ToString::to_string));
+    assert_eq!(drawn.as_deref(), Some(name), "the field holds it as typed");
+
+    // An edit in the field keeps the stored text: it round-trips.
+    click("account-name", cx);
+    press("end", cx);
+    cx.update(|window, cx| window.input(" 2", cx));
+    press("enter", cx);
+    let stored = format!("{name} 2");
+    assert_eq!(account::get(&scratch.db(), id).unwrap().name, stored);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        selected_row(&shown).map(|(name, _)| name),
+        Some(format!("{plain} 2").as_str())
+    );
+    assert_eq!(value(section(&shown, None), "Name"), Some(stored.as_str()));
+
+    // The Close dialog's title and the undo bar after it.
+    click("close-account", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, format!("Close {plain} 2?"));
+    click("close-account-close", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None, "it closed");
+    assert_eq!(
+        shown.undo_bar.map(|(message, _)| message),
+        Some(format!("{plain} 2 closed"))
     );
 }

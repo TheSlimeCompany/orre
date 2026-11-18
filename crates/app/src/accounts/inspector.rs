@@ -179,6 +179,153 @@ fn count_label(count: &StoredBalance, oldest: bool) -> String {
     }
 }
 
+/// The footer's buttons.
+pub const CLOSE: &str = "Close account…";
+pub const DELETE: &str = "Delete account…";
+
+/// The header's display figure: the latest balance, if there is one.
+pub(super) fn header_figure(node: &AccountNode) -> Option<String> {
+    node.latest
+        .map(|latest| money(latest.balance, Sign::Negative))
+}
+
+/// The header's caption.
+pub(super) enum HeaderCaption {
+    /// "Balance on " 9 Nov " · pots not included": the verb, the date (in
+    /// mono) and what follows it.
+    Dated {
+        verb: &'static str,
+        date: String,
+        tail: Option<String>,
+    },
+    /// No balance yet: what it says instead.
+    Missing(&'static str),
+}
+
+pub(super) fn header_caption(node: &AccountNode, data: &AccountsData) -> HeaderCaption {
+    let Some(latest) = node.latest else {
+        return HeaderCaption::Missing(
+            "No balance yet: add one below, or import a file that has balances.",
+        );
+    };
+    let kind = node.account.kind;
+    let verb = match kind {
+        AccountKind::Asset => "Valued by you on ",
+        AccountKind::Liability => "Owed on ",
+        _ => "Balance on ",
+    };
+    let tail = if !kind.holds_transactions() {
+        Some(" · in net worth".to_owned())
+    } else if kind == AccountKind::Cash {
+        Some(" · from your count and entries".to_owned())
+    } else if !node.pots.is_empty() {
+        Some(" · pots not included".to_owned())
+    } else {
+        data.parent_of(node.account.id)
+            .map(|parent| format!(" · in {}", super::name(&parent.account.name)))
+    };
+    HeaderCaption::Dated {
+        verb,
+        date: list_date(latest.date, data.today),
+        tail,
+    }
+}
+
+/// The Preset select's value.
+pub(super) fn preset_value(node: &AccountNode, data: &AccountsData) -> String {
+    node.account
+        .preset
+        .as_deref()
+        .map_or("No preset", |id| data.preset_name(id))
+        .to_owned()
+}
+
+/// The balances section's title and its add button, by kind.
+pub(super) fn balances_words(kind: AccountKind) -> (&'static str, &'static str) {
+    match kind {
+        AccountKind::Asset => ("Valuations", "Add valuation…"),
+        AccountKind::Liability => ("Balances", "Add balance…"),
+        AccountKind::Cash => ("Counts", "Count cash…"),
+        _ => ("Balances", "Add balance…"),
+    }
+}
+
+/// A row of the balances section, lane by lane.
+pub(super) struct BalanceText {
+    pub date: String,
+    pub label: String,
+    pub amount: String,
+}
+
+/// The balances section's rows, newest first: a cash account's counts are
+/// labelled as counts.
+pub(super) fn balance_rows(
+    node: &AccountNode,
+    balances: &[StoredBalance],
+    data: &AccountsData,
+) -> Vec<BalanceText> {
+    let cash = node.account.kind == AccountKind::Cash;
+    let oldest = balances.len().saturating_sub(1);
+    balances
+        .iter()
+        .enumerate()
+        .map(|(at, balance)| BalanceText {
+            date: list_date(balance.date, data.today),
+            label: if cash {
+                count_label(balance, at == oldest)
+            } else {
+                balance_label(balance)
+            },
+            amount: money(balance.balance, Sign::Negative),
+        })
+        .collect()
+}
+
+/// The footer's caption on an asset or liability.
+pub(super) fn footer_note(node: &AccountNode) -> Option<String> {
+    let zero = super::close::zero(coffer_core::money::Money::zero(node.account.currency));
+    match node.account.kind {
+        AccountKind::Asset => Some(format!(
+            "Sold it? Close it on the sale date: Coffer adds a {zero} value then, so earlier net worth stays right. Delete only an account added by mistake."
+        )),
+        AccountKind::Liability => Some(format!(
+            "Paid it off? Close it on the payoff date: Coffer adds a {zero} balance then. Delete only an account added by mistake."
+        )),
+        _ => None,
+    }
+}
+
+/// The pots' total, beside the section's title.
+pub(super) fn pots_total(node: &AccountNode) -> Option<String> {
+    node.pots_total()
+        .ok()
+        .flatten()
+        .map(|total| money(total, Sign::Negative))
+}
+
+/// A pot's latest balance, or "No balance".
+pub(super) fn pot_balance(pot: &AccountNode) -> String {
+    pot.latest.map_or_else(
+        || super::panel::NO_BALANCE.to_owned(),
+        |latest| money(latest.balance, Sign::Negative),
+    )
+}
+
+/// An import's row: its file, and "rows · day".
+pub(super) fn import_text(
+    batch: &coffer_core::import::BatchInfo,
+    data: &AccountsData,
+) -> (String, String) {
+    let day =
+        chrono::NaiveDate::parse_from_str(batch.imported_at.get(..10).unwrap_or(""), "%Y-%m-%d")
+            .map(|date| list_date(date, data.today))
+            .unwrap_or_default();
+    (
+        batch.source_file.clone(),
+        format!("{} · {day}", batch.transactions),
+    )
+}
+
 /// Which of the inspector's selects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Which {
@@ -241,6 +388,22 @@ impl AccountInspector {
         };
         inspector.sync(window, cx);
         inspector
+    }
+
+    /// What the Name and Bank fields hold now (test-only, for
+    /// `describe()`).
+    #[cfg(test)]
+    pub(super) fn field_values(&self, cx: &App) -> (String, String) {
+        (
+            self.name.read(cx).value().to_string(),
+            self.bank.read(cx).value().to_string(),
+        )
+    }
+
+    /// Why the last change wasn't saved (test-only, for `describe()`).
+    #[cfg(test)]
+    pub(super) fn error(&self) -> Option<&SharedString> {
+        self.error.as_ref()
     }
 
     /// The valuations canvas, to show instead of the transaction table
@@ -463,37 +626,15 @@ impl AccountInspector {
     }
 
     fn render_header(&self, node: &AccountNode, data: &AccountsData) -> AnyElement {
-        let figure = node
-            .latest
-            .map(|latest| money(latest.balance, Sign::Negative));
-        let when = match node.latest {
-            Some(latest) => {
-                let verb = match node.account.kind {
-                    AccountKind::Asset => "Valued by you on ",
-                    AccountKind::Liability => "Owed on ",
-                    _ => "Balance on ",
-                };
-                let mut line = caption(verb).child(
-                    div()
-                        .text_role(typography::MONO_VALUE)
-                        .child(list_date(latest.date, data.today)),
-                );
-                if !node.account.kind.holds_transactions() {
-                    line = line.child(" · in net worth");
-                } else if node.account.kind == AccountKind::Cash {
-                    line = line.child(" · from your count and entries");
-                } else if !node.pots.is_empty() {
-                    line = line.child(" · pots not included");
-                } else if let Some(parent) = data.parent_of(node.account.id) {
-                    line = line.child(format!(" · in {}", parent.account.name));
-                }
-                line
-            }
-            None => caption("No balance yet: add one below, or import a file that has balances."),
+        let when = match header_caption(node, data) {
+            HeaderCaption::Dated { verb, date, tail } => caption(verb)
+                .child(div().text_role(typography::MONO_VALUE).child(date))
+                .when_some(tail, |line, tail| line.child(tail)),
+            HeaderCaption::Missing(words) => caption(words),
         };
         header(
-            node.account.name.clone(),
-            figure,
+            super::name(&node.account.name),
+            header_figure(node),
             Some(when.into_any_element()),
         )
         .into_any_element()
@@ -540,12 +681,7 @@ impl AccountInspector {
             )
             .into_any_element()
         };
-        let preset_value = node
-            .account
-            .preset
-            .as_deref()
-            .map_or("No preset", |id| data.preset_name(id))
-            .to_owned();
+        let preset_value = preset_value(node, data);
         section(true)
             .gap(spacing::S2)
             .child(FieldRow::new(
@@ -588,12 +724,10 @@ impl AccountInspector {
         if valuations {
             return self.render_valuations(node);
         }
-        let with_year = balances
-            .iter()
-            .any(|balance| list_date(balance.date, data.today).len() > 6);
+        let rows = balance_rows(node, balances, data);
+        let with_year = rows.iter().any(|row| row.date.len() > 6);
         let cash = node.account.kind == AccountKind::Cash;
-        let oldest = balances.len().saturating_sub(1);
-        let rows = balances.iter().enumerate().map(|(at, balance)| {
+        let rows = rows.into_iter().map(|row| {
             div()
                 .flex()
                 .flex_none()
@@ -606,7 +740,7 @@ impl AccountInspector {
                         .w(date_lane(with_year))
                         .text_role(typography::MONO_VALUE)
                         .text_color(color::TEXT_MUTED)
-                        .child(list_date(balance.date, data.today)),
+                        .child(row.date),
                 )
                 .child(
                     div()
@@ -616,35 +750,25 @@ impl AccountInspector {
                         .text_ellipsis()
                         .text_role(typography::BODY)
                         .text_color(color::TEXT_SECONDARY)
-                        .child(if cash {
-                            count_label(balance, at == oldest)
-                        } else {
-                            balance_label(balance)
-                        }),
+                        .child(row.label),
                 )
                 .child(
                     div()
                         .flex_none()
                         .text_role(typography::MONO_AMOUNT)
                         .text_color(color::TEXT)
-                        .child(money(balance.balance, Sign::Negative)),
+                        .child(row.amount),
                 )
         });
         let id = node.account.id;
         let accounts = self.accounts.clone();
+        let (title, add_label) = balances_words(node.account.kind);
         let add = (!valuations).then(|| {
-            Button::new(
-                "add-balance",
-                if cash {
-                    "Count cash…"
-                } else {
-                    "Add balance…"
-                },
-            )
-            .on_click(move |_, _, cx| {
-                accounts.update(cx, |accounts, cx| accounts.request_add_balance(id, cx))
-            })
-            .into_any_element()
+            Button::new("add-balance", add_label)
+                .on_click(move |_, _, cx| {
+                    accounts.update(cx, |accounts, cx| accounts.request_add_balance(id, cx))
+                })
+                .into_any_element()
         });
         let monzo = node.account.preset.as_deref() == Some("uk-monzo");
         let note = if valuations {
@@ -664,16 +788,7 @@ impl AccountInspector {
         };
         section(true)
             .gap(spacing::S1)
-            .child(section_title_row(
-                if valuations {
-                    "Valuations"
-                } else if cash {
-                    "Counts"
-                } else {
-                    "Balances"
-                },
-                add,
-            ))
+            .child(section_title_row(title, add))
             .children(rows)
             .when_some(note, |this, note| {
                 this.child(crate::ui::field::caption(note))
@@ -686,17 +801,14 @@ impl AccountInspector {
     fn render_valuations(&self, node: &AccountNode) -> AnyElement {
         let id = node.account.id;
         let accounts = self.accounts.clone();
-        let (title, add, note) = match node.account.kind {
-            AccountKind::Liability => (
-                "Balances",
-                "Add balance…",
-                "Coffer holds each balance until the next. Monthly payments stay spending on the account they leave, so net worth catches up when you enter the next statement.",
-            ),
-            _ => (
-                "Valuations",
-                "Add valuation…",
-                "Net worth uses the latest value on or before each date. Add one whenever you have a new figure: a survey, an online estimate, a statement.",
-            ),
+        let (title, add) = balances_words(node.account.kind);
+        let note = match node.account.kind {
+            AccountKind::Liability => {
+                "Coffer holds each balance until the next. Monthly payments stay spending on the account they leave, so net worth catches up when you enter the next statement."
+            }
+            _ => {
+                "Net worth uses the latest value on or before each date. Add one whenever you have a new figure: a survey, an online estimate, a statement."
+            }
         };
         section(true)
             .gap(spacing::S1)
@@ -719,30 +831,21 @@ impl AccountInspector {
     fn render_footer(&self, node: &AccountNode, deletion: Deletion) -> AnyElement {
         let id = node.account.id;
         let (close, delete) = (self.accounts.clone(), self.accounts.clone());
-        let zero = super::close::zero(coffer_core::money::Money::zero(node.account.currency));
-        let note = match node.account.kind {
-            AccountKind::Asset => Some(format!(
-                "Sold it? Close it on the sale date: Coffer adds a {zero} value then, so earlier net worth stays right. Delete only an account added by mistake."
-            )),
-            AccountKind::Liability => Some(format!(
-                "Paid it off? Close it on the payoff date: Coffer adds a {zero} balance then. Delete only an account added by mistake."
-            )),
-            _ => None,
-        };
+        let note = footer_note(node);
         section(true)
             .gap(spacing::S2)
             .child(
                 div()
                     .flex()
                     .gap(spacing::S2)
-                    .child(Button::new("close-account", "Close account…").on_click(
-                        move |_, _, cx| {
+                    .child(
+                        Button::new("close-account", CLOSE).on_click(move |_, _, cx| {
                             close.update(cx, |accounts, cx| accounts.request_close(id, cx))
-                        },
-                    ))
+                        }),
+                    )
                     .when(deletion.refused.is_none(), |this| {
                         this.child(
-                            Button::new("delete-account", "Delete account…")
+                            Button::new("delete-account", DELETE)
                                 .with_variant(ButtonVariant::DestructiveCompact)
                                 .on_click(move |_, _, cx| {
                                     delete
@@ -761,11 +864,11 @@ impl AccountInspector {
         if node.pots.is_empty() {
             return None;
         }
-        let total = node.pots_total().ok().flatten().map(|total| {
+        let total = pots_total(node).map(|total| {
             div()
                 .text_role(typography::MONO_VALUE)
                 .text_color(color::TEXT_MUTED)
-                .child(money(total, Sign::Negative))
+                .child(total)
                 .into_any_element()
         });
         let rows = node.pots.iter().map(|pot| {
@@ -792,17 +895,14 @@ impl AccountInspector {
                         .text_ellipsis()
                         .text_role(typography::BODY)
                         .text_color(color::TEXT_SECONDARY)
-                        .child(pot.account.name.clone()),
+                        .child(super::name(&pot.account.name)),
                 )
                 .child(
                     div()
                         .flex_none()
                         .text_role(typography::MONO_AMOUNT)
                         .text_color(color::TEXT)
-                        .child(pot.latest.map_or_else(
-                            || "No balance".to_owned(),
-                            |latest| money(latest.balance, Sign::Negative),
-                        )),
+                        .child(pot_balance(pot)),
                 )
         });
         Some(
@@ -826,12 +926,7 @@ impl AccountInspector {
             return None;
         }
         let rows = imports.iter().map(|batch| {
-            let day = chrono::NaiveDate::parse_from_str(
-                batch.imported_at.get(..10).unwrap_or(""),
-                "%Y-%m-%d",
-            )
-            .map(|date| list_date(date, data.today))
-            .unwrap_or_default();
+            let (file, line) = import_text(batch, data);
             div()
                 .flex()
                 .flex_none()
@@ -846,14 +941,14 @@ impl AccountInspector {
                         .text_ellipsis()
                         .text_role(typography::BODY)
                         .text_color(color::TEXT_SECONDARY)
-                        .child(batch.source_file.clone()),
+                        .child(file),
                 )
                 .child(
                     div()
                         .flex_none()
                         .text_role(typography::MONO_VALUE)
                         .text_color(color::TEXT_MUTED)
-                        .child(format!("{} · {day}", batch.transactions)),
+                        .child(line),
                 )
         });
         Some(

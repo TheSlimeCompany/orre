@@ -389,18 +389,23 @@ fn rich_caption(window: &Window, parts: Vec<Part>) -> AnyElement {
         .into_any_element()
 }
 
-/// The refund's Category row while its purchase sets it (Paper `FGU-0`):
-/// marker and name in `text-secondary`, the 10px link in `icon-faint`.
-pub(super) fn following_category(view: &TransactionsView, row: &RegisterRow) -> AnyElement {
-    let purchase = view.register.refund_purchase(row);
-    let (label, marker) = purchase
+/// The purchase's category a linked refund follows, with its marker.
+pub(super) fn following_label(view: &TransactionsView, row: &RegisterRow) -> (String, Marker) {
+    view.register
+        .refund_purchase(row)
         .map(|purchase| {
             (
                 present::category_label(&view.register, purchase),
                 present::row_marker(&view.register, purchase),
             )
         })
-        .unwrap_or_else(|| ("Uncategorised".to_owned(), Marker::None));
+        .unwrap_or_else(|| ("Uncategorised".to_owned(), Marker::None))
+}
+
+/// The refund's Category row while its purchase sets it (Paper `FGU-0`):
+/// marker and name in `text-secondary`, the 10px link in `icon-faint`.
+pub(super) fn following_category(view: &TransactionsView, row: &RegisterRow) -> AnyElement {
+    let (label, marker) = following_label(view, row);
     let value = div()
         .flex()
         .flex_1()
@@ -523,7 +528,10 @@ pub(super) fn share_section(
     let spent = Money::new(row.amount.minor().saturating_abs(), row.amount.currency());
     let mut section = section(true)
         .gap(spacing::S2)
-        .child(section_title_row("Share", None))
+        .child(section_title_row(
+            super::inspector::Section::Share.title(),
+            None,
+        ))
         .child(control);
     match key {
         SHARED => {
@@ -826,7 +834,10 @@ pub(super) fn links_section(
     };
     section(true)
         .gap(spacing::S2)
-        .child(section_title_row("Links", link_button))
+        .child(section_title_row(
+            super::inspector::Section::Links.title(),
+            link_button,
+        ))
         .children(rows)
         .children(card)
         .children(caption.map(|parts| rich_caption(window, parts)))

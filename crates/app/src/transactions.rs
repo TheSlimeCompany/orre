@@ -19,12 +19,20 @@
 //!   and Date chips open menus; Uncategorised toggles. Search matches the
 //!   merchant, the bank's merchant and the raw description.
 //! - **Sort.** Clicking a column title sorts each day's rows by it, then
-//!   reverses, then goes back to newest first. Days never move.
+//!   reverses, then goes back to newest first. Days never move. Each title
+//!   is a Tab stop after the toolbar, where Enter or Space sorts as a click
+//!   does (`DESIGN.md` → "Keyboard paths").
+//! - **Selection.** A click selects a row, ⇧-click a range and ⌘-click
+//!   (Ctrl on Linux and Windows) adds or removes one. From the keyboard, ↑↓
+//!   move the selection and ⇧↑⇧↓ extend it; ⌘↑/⌘↓ move the keyboard row
+//!   without changing the selection and Space adds or removes it, as
+//!   ⌘-click does.
 //! - **Category edits.** Enter or a double-click on a row's category opens
 //!   the category menu in place; the inspector's Category select and the
 //!   bulk-action bar's Categorise set it for every selected row. Each goes
 //!   through core as one undoable change batch; after a change to several
-//!   rows the undo bar offers to revert it.
+//!   rows the undo bar offers to revert it. The bar's Mark as transfer and
+//!   Create rule are `transactions::bulk`'s.
 //! - **Splits, tags, notes and names** (M3.9) are edited in the inspector
 //!   (`transactions::editor`): each change is one undoable change batch too, and the
 //!   register is read again so the table shows it.
@@ -45,7 +53,10 @@
 //! view owns the selection (by transaction id, so it survives filtering)
 //! and the list's scroll state; rows only present (`ui::transaction_row`).
 
+mod bulk;
 pub mod confirm;
+#[cfg(test)]
+mod describe;
 mod editor;
 pub mod exclude_dialog;
 pub mod fixture;
@@ -64,6 +75,8 @@ pub mod store;
 pub mod transfer;
 mod write;
 
+use std::rc::Rc;
+
 use chrono::NaiveDate;
 use coffer_core::account::AccountKind;
 use coffer_core::change;
@@ -77,14 +90,15 @@ use coffer_core::reporting::register::{
     CategoryCounts, DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
 };
 use coffer_core::transfer as core_transfer;
-use gpui_kit::base::actions::{Cancel, SelectDown, SelectFirst, SelectLast, SelectUp};
+use gpui_kit::base::actions::{Cancel, Confirm};
+use gpui_kit::component::Disableable as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity, FocusHandle,
-    InteractiveElement as _, IntoElement, KeyBinding, ListAlignment, ListState, MouseButton,
-    MouseDownEvent, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task,
-    Window, div, list,
+    InteractiveElement as _, IntoElement, KeyBinding, KeyBindingContextPredicate, ListAlignment,
+    ListState, MouseButton, MouseDownEvent, ParentElement as _, Render, SharedString, Styled as _,
+    Subscription, Task, Window, div, list,
 };
 
 use crate::accounts::CategoryPick;
@@ -98,10 +112,11 @@ use crate::ui::bulk_action_bar::BulkActionBar;
 use crate::ui::button::{Button, ButtonVariant, Chip};
 use crate::ui::empty_state::EmptyState;
 use crate::ui::field::search_input;
+use crate::ui::list::{Keys, ListKeysExt as _, Move, Reveal as _};
 use crate::ui::menu::{self, MenuGroup, MenuList, SelectState, filter_groups};
 use crate::ui::notification::NotificationBar;
 use crate::ui::transaction_row::{
-    CategoryCell, DayHeader, TransactionColumn, TransactionHeader, TransactionRow,
+    DayHeader, SortedBy, TITLE_CONTEXT, TransactionColumn, TransactionHeader, TransactionRow,
 };
 use crate::ui::undo_bar::UndoBar;
 
@@ -112,6 +127,41 @@ use write::{Offer, Policy, Said};
 /// The key context of the canvas, where the arrow keys move the selection.
 const TABLE_CONTEXT: &str = "CofferTransactionsTable";
 
+/// The table's movement keys: ↑↓, ⇧↑⇧↓ to extend the selection, Home and
+/// End.
+const TABLE_KEYS: Keys = Keys::new(TABLE_CONTEXT).with_extend().with_ends();
+
+/// The key context of the table itself (column header and rows, not the
+/// toolbar or the bar over its foot), where ⌘↑/⌘↓ move the keyboard row and
+/// Space adds or removes it (`DESIGN.md` → "Keyboard paths").
+const ROWS_CONTEXT: &str = "CofferTransactionsRows";
+
+/// Where the cursor keys are bound: the table, unless a text field in it
+/// has focus (a row's category menu's filter), which keeps Space for
+/// typing and ⌘↑/⌘↓ for its own.
+const CURSOR_KEYS_CONTEXT: &str = "CofferTransactionsRows && !Input";
+
+/// ⌘↑/⌘↓ (Ctrl on Linux and Windows) with what they do, as bound
+/// (`secondary-`) and as a test-only `describe()` lists them.
+const CURSOR_MOVES: [(&str, Move, &str); 2] = [
+    ("secondary-up", Move::UP, "Move the keyboard row up"),
+    ("secondary-down", Move::DOWN, "Move the keyboard row down"),
+];
+
+/// Space: what it does to the keyboard row.
+#[cfg(test)]
+const TOGGLE_ROW: &str = "Add or remove the keyboard row";
+
+/// What Enter or Space does on a focused column title.
+#[cfg(test)]
+const SORT_BY_TITLE: &str = "Sort by the focused column";
+
+/// The labels of the canvas's own buttons (`describe()` lists them).
+const SHOW: &str = "Show";
+const CATEGORISE: &str = "Categorise";
+const MARK_AS_TRANSFER: &str = "Mark as transfer";
+const CREATE_RULE: &str = "Create rule";
+
 /// Menus taller than eight options scroll (`DESIGN.md` → "Accounts panel" →
 /// "Menus").
 const MENU_ROWS: f32 = 8.;
@@ -119,28 +169,45 @@ const MENU_ROWS: f32 = 8.;
 gpui_kit::actions!(
     coffer_transactions,
     [
-        /// ⇧↑: extend the selection one row up.
-        ExtendSelectionUp,
-        /// ⇧↓: extend the selection one row down.
-        ExtendSelectionDown,
         /// Enter: open the category menu on the keyboard row.
         EditCategory,
+        /// ⌘↑: move the keyboard row up, the selection unchanged.
+        CursorUp,
+        /// ⌘↓: move the keyboard row down, the selection unchanged.
+        CursorDown,
+        /// Space: add the keyboard row to the selection, or remove it, as
+        /// ⌘-click does.
+        ToggleRow,
     ]
 );
 
 /// Binds the table's and the menus' keys. Call once, before the first view
 /// is created.
 pub fn init(cx: &mut App) {
+    TABLE_KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(TABLE_CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(TABLE_CONTEXT)),
-        KeyBinding::new("shift-up", ExtendSelectionUp, Some(TABLE_CONTEXT)),
-        KeyBinding::new("shift-down", ExtendSelectionDown, Some(TABLE_CONTEXT)),
-        KeyBinding::new("home", SelectFirst, Some(TABLE_CONTEXT)),
-        KeyBinding::new("end", SelectLast, Some(TABLE_CONTEXT)),
-        KeyBinding::new("enter", EditCategory, Some(TABLE_CONTEXT)),
+        // In the rows only: Enter on a focused toolbar chip clicks the chip.
+        KeyBinding::new("enter", EditCategory, Some(ROWS_CONTEXT)),
         KeyBinding::new("escape", Cancel, Some(TABLE_CONTEXT)),
+        KeyBinding::new("space", ToggleRow, Some(CURSOR_KEYS_CONTEXT)),
+        KeyBinding::new("enter", Confirm { secondary: false }, Some(TITLE_CONTEXT)),
+        KeyBinding::new("space", Confirm { secondary: false }, Some(TITLE_CONTEXT)),
     ]);
+    // ⌘↑/⌘↓: `KeyBinding::new` can't resolve `secondary-` (⌘ on macOS, Ctrl
+    // elsewhere), so `load` asks the platform, as the shell's shortcuts do.
+    let context = Rc::new(
+        KeyBindingContextPredicate::parse(CURSOR_KEYS_CONTEXT).expect("the key context parses"),
+    );
+    let bindings = CURSOR_MOVES.map(|(key, to, _)| {
+        let action: Box<dyn gpui_kit::Action> = if to == Move::UP {
+            Box::new(CursorUp)
+        } else {
+            Box::new(CursorDown)
+        };
+        KeyBinding::load(key, action, Some(context.clone()), false, None, cx)
+            .expect("⌘↑ and ⌘↓ parse")
+    });
+    cx.bind_keys(bindings);
     menu::init(cx);
 }
 
@@ -266,6 +333,137 @@ fn table_column(column: SortColumn) -> TransactionColumn {
     }
 }
 
+// What the canvas says ------------------------------------------------------
+//
+// The text the canvas draws, worked out apart from the elements, so the
+// tests' `describe()` reads the same strings the view draws.
+
+/// What a table row shows.
+struct RowText {
+    /// The merchant, made plain: it may be the bank's text.
+    merchant: String,
+    /// An excluded row's category cell says why; its category is set in the
+    /// inspector.
+    cell: present::CellText,
+    /// The Account column, unless the table is filtered to one account.
+    account: Option<String>,
+    amount: String,
+    /// The amount in the original currency, unsigned.
+    original: Option<String>,
+    /// Whether the category can be set in place (Enter, a double-click).
+    editable: bool,
+}
+
+impl RowText {
+    fn of(view: &TransactionsView, row: &RegisterRow) -> Self {
+        let cell = match row.excluded {
+            Some(reason) => present::CellText::excluded(source::reason_label(reason)),
+            None => linking::cell(&view.register, row),
+        };
+        Self {
+            merchant: linking::name(&row.merchant),
+            cell,
+            account: view.filter.account.is_none().then(|| {
+                view.register
+                    .account(row.account)
+                    .map_or(String::new(), |account| account.name.clone())
+            }),
+            amount: format::money(row.amount, Sign::Always),
+            original: row.original.map(|original| {
+                let unsigned = original.checked_abs().unwrap_or(original);
+                format::money(unsigned, Sign::Negative)
+            }),
+            editable: row.takes_category() && row.excluded.is_none(),
+        }
+    }
+}
+
+/// A toolbar chip: its label (the filter's value, or its name) and whether
+/// it filters.
+struct ChipText {
+    label: String,
+    active: bool,
+    count: Option<String>,
+}
+
+impl ChipText {
+    fn new(value: Option<String>, name: &str) -> Self {
+        Self {
+            active: value.is_some(),
+            label: value.unwrap_or_else(|| name.to_owned()),
+            count: None,
+        }
+    }
+}
+
+/// What the toolbar shows besides the search field.
+struct ToolbarText {
+    account: ChipText,
+    category: ChipText,
+    date: ChipText,
+    uncategorised: ChipText,
+    excluded: ChipText,
+    /// A cash account is selected: "New transaction" in place of Import.
+    manual: bool,
+    /// The button's label and the shortcut on it.
+    button: (&'static str, &'static str),
+}
+
+impl ToolbarText {
+    fn of(view: &TransactionsView) -> Self {
+        let account = view
+            .filter
+            .account
+            .and_then(|id| view.register.account(id))
+            .map(|account| account.name.clone());
+        let category = view
+            .filter
+            .category
+            .and_then(|id| view.register.category(id))
+            .map(|category| category.label.clone());
+        let date = (view.date != DatePreset::AllTime).then(|| present::date_label(view.date));
+        Self {
+            account: ChipText::new(account, "Account"),
+            category: ChipText::new(category, "Category"),
+            date: ChipText::new(date.map(str::to_owned), "Date"),
+            uncategorised: ChipText {
+                label: "Uncategorised".to_owned(),
+                active: view.filter.uncategorised,
+                count: Some(view.listing.uncategorised.to_string()),
+            },
+            excluded: ChipText {
+                label: "Excluded".to_owned(),
+                active: view.filter.include_excluded,
+                count: None,
+            },
+            manual: view.on_manual_account(),
+            button: if view.on_manual_account() {
+                ("New transaction", "⌘N")
+            } else {
+                ("Import", "⌘I")
+            },
+        }
+    }
+}
+
+/// What the table area says when it has no rows.
+struct EmptyText {
+    title: &'static str,
+    body: Option<SharedString>,
+    /// The key cap and what it does.
+    shortcut: Option<(&'static str, &'static str)>,
+}
+
+/// The bar floating over the table's foot.
+enum BarText {
+    /// An edit on a row already left didn't save: the failure bar.
+    Failed(SharedString),
+    /// The undo bar.
+    Undo(SharedString),
+    /// The bulk-action bar, with the count selected.
+    Bulk(String),
+}
+
 /// What the undo bar's Undo does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UndoAction {
@@ -277,6 +475,9 @@ enum UndoAction {
     /// Reverses a transfer-pair decision: a status change, not a change
     /// batch (M3.8).
     Transfer(core_transfer::Decision),
+    /// Unmarks a pair "Mark as transfer" recorded: not a change batch
+    /// either.
+    Marked(core_transfer::Marked),
 }
 
 /// A change the undo bar can revert.
@@ -342,6 +543,13 @@ pub struct TransactionsView {
     inspector_select: SelectState,
     menu_filter: Entity<InputState>,
     chip_focus: [FocusHandle; 3],
+    /// The column titles' focus handles, in [`TransactionColumn::ALL`]'s
+    /// order: Tab stops after the toolbar's.
+    column_focus: [FocusHandle; 4],
+    /// The column title that had focus when the view was last drawn, for
+    /// the test-only `describe()`.
+    #[cfg(test)]
+    focused_column: Option<TransactionColumn>,
     /// Why the last change wasn't saved, said under the inspector's Category.
     edit_error: Option<SharedString>,
     /// The inspector's fields for the selected transaction (M3.9).
@@ -419,6 +627,9 @@ impl TransactionsView {
             menu_state: SelectState::with_trigger(focus.clone(), cx),
             inspector_select: SelectState::new(cx),
             chip_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
+            column_focus: std::array::from_fn(|_| cx.focus_handle().tab_stop(true)),
+            #[cfg(test)]
+            focused_column: None,
             focus,
             search,
             menu: None,
@@ -509,21 +720,6 @@ impl TransactionsView {
 
     pub fn filter(&self) -> &Filter {
         &self.filter
-    }
-
-    /// The menu that's open, if any.
-    pub fn open_menu(&self) -> Option<Menu> {
-        self.menu
-    }
-
-    /// The undo bar's message, while it shows.
-    pub fn undo_message(&self) -> Option<&SharedString> {
-        self.undo.as_ref().map(|undo| &undo.message)
-    }
-
-    /// Why the last change wasn't saved.
-    pub fn edit_error(&self) -> Option<&SharedString> {
-        self.edit_error.as_ref()
     }
 
     /// The selected rows, in display order.
@@ -623,8 +819,48 @@ impl TransactionsView {
         let merchant = self
             .register
             .row(failure.row)
-            .map(|row| row.merchant.as_str());
-        Some(present::unsaved_message(merchant).into())
+            .map(|row| linking::name(&row.merchant));
+        Some(present::unsaved_message(merchant.as_deref()).into())
+    }
+
+    /// What the table area says when it has no rows, once it's been read.
+    fn empty_text(&self) -> Option<EmptyText> {
+        if !self.loaded || !self.listing.is_empty() {
+            return None;
+        }
+        Some(if let Some(error) = &self.load_error {
+            EmptyText {
+                title: "Couldn't read the transactions",
+                body: Some(error.clone()),
+                shortcut: None,
+            }
+        } else if self.register.rows().is_empty() {
+            EmptyText {
+                title: "No transactions yet",
+                body: None,
+                shortcut: Some(("⌘I", "Import a statement")),
+            }
+        } else {
+            EmptyText {
+                title: "No transactions match",
+                body: Some("Nothing matches the search and filters.".into()),
+                shortcut: Some(("Esc", "Clear filters")),
+            }
+        })
+    }
+
+    /// The bar over the table's foot: the failure bar, else the undo bar,
+    /// else the bulk-action bar while several rows are selected.
+    fn bar_text(&self) -> Option<BarText> {
+        if let Some(message) = self.edit_failure_message() {
+            Some(BarText::Failed(message))
+        } else if let Some(undo) = &self.undo {
+            Some(BarText::Undo(undo.message.clone()))
+        } else if self.selection.len() > 1 {
+            Some(BarText::Bulk(self.selection.len().to_string()))
+        } else {
+            None
+        }
     }
 
     /// The failure bar's Show: back to the row, with why the edit didn't
@@ -1262,6 +1498,7 @@ impl TransactionsView {
                 self.include(id, true, cx);
             }
             UndoAction::Transfer(decision) => self.undo_transfer(decision, cx),
+            UndoAction::Marked(marked) => self.unmark_transfer(marked, cx),
         }
         cx.notify();
     }
@@ -1396,24 +1633,43 @@ impl TransactionsView {
         cx.notify();
     }
 
-    fn move_selection(&mut self, delta: isize, extend: bool, cx: &mut Context<Self>) {
-        self.selection.move_by(delta, extend, &self.order);
+    fn move_selection(&mut self, to: Move, cx: &mut Context<Self>) {
+        self.selection.move_by(to, &self.order);
         self.undo = None;
         self.edit_failure = None;
         self.reveal_current();
         cx.notify();
     }
 
+    /// ⌘↑/⌘↓: moves the keyboard row, the selection as it was.
+    fn move_cursor(&mut self, to: Move, cx: &mut Context<Self>) {
+        self.selection.move_cursor(to, &self.order);
+        self.reveal_current();
+        cx.notify();
+    }
+
+    /// Space: adds the keyboard row to the selection or removes it, as
+    /// ⌘-click on it does.
+    fn toggle_row(&mut self, cx: &mut Context<Self>) {
+        if self.selection.toggle_current(&self.order) {
+            self.undo = None;
+            self.edit_failure = None;
+            cx.notify();
+        }
+    }
+
+    /// The keyboard row, if Enter can open its category menu.
+    fn editable_current(&self) -> Option<TransactionId> {
+        self.selection.current().filter(|id| {
+            self.register
+                .row(*id)
+                .is_some_and(|row| row.takes_category() && row.excluded.is_none())
+        })
+    }
+
     /// Opens the category menu on the keyboard row, if it can take one.
     fn edit_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(id) = self.selection.current() else {
-            return;
-        };
-        if self
-            .register
-            .row(id)
-            .is_some_and(|row| row.takes_category() && row.excluded.is_none())
-        {
+        if let Some(id) = self.editable_current() {
             self.open(Menu::Row(id), window, cx);
         }
     }
@@ -1439,7 +1695,7 @@ impl TransactionsView {
             TableItem::Day { .. } => false,
         });
         if let Some(index) = index {
-            self.list.scroll_to_reveal_item(index);
+            self.list.reveal(index);
         }
     }
 
@@ -1481,43 +1737,32 @@ impl TransactionsView {
         let focus_visible = self.selection.current() == Some(id)
             && self.focus.is_focused(window)
             && window.last_input_was_keyboard();
-        // An excluded row's category cell says why; its category is set
-        // in the inspector.
-        let editable = row.takes_category() && row.excluded.is_none();
-        let cell = match row.excluded {
-            Some(reason) => CategoryCell::excluded(source::reason_label(reason)),
-            None => linking::cell(&self.register, row),
-        };
-        TransactionRow::new(
-            format!("txn-{id}"),
-            row.merchant.clone(),
+        let RowText {
+            merchant,
             cell,
-            format::money(row.amount, Sign::Always),
-        )
-        .when(self.filter.account.is_none(), |this| {
-            this.account(
-                self.register
-                    .account(row.account)
-                    .map_or(String::new(), |account| account.name.clone()),
+            account,
+            amount,
+            original,
+            editable,
+        } = RowText::of(self, row);
+        TransactionRow::new(format!("txn-{id}"), merchant, cell.cell(), amount)
+            .when_some(account, |this, account| this.account(account))
+            .when_some(original, |this, original| this.original_amount(original))
+            .selected(self.selection.contains(id))
+            .focus_visible(focus_visible)
+            .on_click(
+                cx.listener(move |this, event, window, cx| this.click_row(id, event, window, cx)),
             )
-        })
-        .when_some(row.original, |this, original| {
-            let unsigned = original.checked_abs().unwrap_or(original);
-            this.original_amount(format::money(unsigned, Sign::Negative))
-        })
-        .selected(self.selection.contains(id))
-        .focus_visible(focus_visible)
-        .on_click(cx.listener(move |this, event, window, cx| this.click_row(id, event, window, cx)))
-        .when(editable, |this| {
-            this.on_edit_category(cx.listener(move |this, _, window, cx| {
-                this.selection.set([id]);
-                this.open(Menu::Row(id), window, cx);
-            }))
-        })
-        .when(self.menu == Some(Menu::Row(id)), |this| {
-            this.category_menu(self.menu_list(Menu::Row(id), cx))
-        })
-        .into_any_element()
+            .when(editable, |this| {
+                this.on_edit_category(cx.listener(move |this, _, window, cx| {
+                    this.selection.set([id]);
+                    this.open(Menu::Row(id), window, cx);
+                }))
+            })
+            .when(self.menu == Some(Menu::Row(id)), |this| {
+                this.category_menu(self.menu_list(Menu::Row(id), cx))
+            })
+            .into_any_element()
     }
 
     /// `trigger` as the opener of `menu`: a press toggles it, judged by
@@ -1585,17 +1830,15 @@ impl TransactionsView {
     }
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let account = self
-            .filter
-            .account
-            .and_then(|id| self.register.account(id))
-            .map(|account| account.name.clone());
-        let category = self
-            .filter
-            .category
-            .and_then(|id| self.register.category(id))
-            .map(|category| category.label.clone());
-        let date = (self.date != DatePreset::AllTime).then(|| present::date_label(self.date));
+        let ToolbarText {
+            account,
+            category,
+            date,
+            uncategorised,
+            excluded,
+            manual,
+            button: (label, shortcut),
+        } = ToolbarText::of(self);
         div()
             .flex()
             .flex_none()
@@ -1611,44 +1854,32 @@ impl TransactionsView {
                     .flex_shrink(1.)
                     .min_w_0(),
             )
-            .child(
-                self.menu_chip(
-                    Menu::Account,
-                    Chip::new(
-                        "filter-account",
-                        account.clone().unwrap_or("Account".into()),
-                    )
-                    .active(account.is_some()),
-                    cx,
-                ),
-            )
-            .child(
-                self.menu_chip(
-                    Menu::Category,
-                    Chip::new(
-                        "filter-category",
-                        category.clone().unwrap_or("Category".into()),
-                    )
-                    .active(category.is_some()),
-                    cx,
-                ),
-            )
+            .child(self.menu_chip(
+                Menu::Account,
+                Chip::new("filter-account", account.label).active(account.active),
+                cx,
+            ))
+            .child(self.menu_chip(
+                Menu::Category,
+                Chip::new("filter-category", category.label).active(category.active),
+                cx,
+            ))
             .child(self.menu_chip(
                 Menu::Date,
-                Chip::new("filter-date", date.unwrap_or("Date")).active(date.is_some()),
+                Chip::new("filter-date", date.label).active(date.active),
                 cx,
             ))
             .child(
-                Chip::new("filter-uncategorised", "Uncategorised")
-                    .count(self.listing.uncategorised.to_string())
-                    .active(self.filter.uncategorised)
+                Chip::new("filter-uncategorised", uncategorised.label)
+                    .count(uncategorised.count.unwrap_or_default())
+                    .active(uncategorised.active)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_uncategorised(cx))),
             )
             // No count: with one it overflowed the toolbar at 1440 (D6.3);
             // the status bar counts the excluded rows.
             .child(
-                Chip::new("filter-excluded", "Excluded")
-                    .active(self.filter.include_excluded)
+                Chip::new("filter-excluded", excluded.label)
+                    .active(excluded.active)
                     .on_click(cx.listener(|this, _, _, cx| {
                         let on = !this.filter.include_excluded;
                         this.set_excluded(on, cx)
@@ -1656,21 +1887,21 @@ impl TransactionsView {
             )
             .child(div().flex_1())
             .map(|this| {
-                if self.on_manual_account() {
+                if manual {
                     // A cash account takes rows by hand (D6.3, `4D7-0`).
                     this.child(
-                        Button::new("new-transaction", "New transaction")
+                        Button::new("new-transaction", label)
                             .with_variant(ButtonVariant::Outline)
-                            .shortcut("⌘N")
+                            .shortcut(shortcut)
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(crate::shell::NewTransaction), cx)
                             }),
                     )
                 } else {
                     this.child(
-                        Button::new("import", "Import")
+                        Button::new("import", label)
                             .with_variant(ButtonVariant::Outline)
-                            .shortcut("⌘I")
+                            .shortcut(shortcut)
                             // The shell opens the Import dialog (M3.4).
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(crate::shell::ImportStatement), cx)
@@ -1685,9 +1916,18 @@ impl TransactionsView {
         let header = TransactionHeader::new()
             .full_bleed(true)
             .show_account(self.filter.account.is_none())
-            .on_sort(move |column, _, cx| {
-                view.update(cx, |this, cx| this.sort_by(column, cx)).ok();
-            });
+            .on_sort(move |column, by, window, cx| {
+                view.update(cx, |this, cx| {
+                    this.sort_by(column, cx);
+                    // A click leaves the keys with the table, as before the
+                    // titles could take focus; only Tab focuses a title.
+                    if by == SortedBy::Click {
+                        this.focus.clone().focus(window, cx);
+                    }
+                })
+                .ok();
+            })
+            .focus(self.column_focus.clone());
         match self.sort {
             Sort::Default => header,
             Sort::Ascending(column) => header.sorted(table_column(column), false),
@@ -1697,17 +1937,19 @@ impl TransactionsView {
 
     /// What the table area shows when it has no rows.
     fn render_empty(&self) -> Option<AnyElement> {
-        if !self.loaded || !self.listing.is_empty() {
-            return None;
-        }
-        let state = if let Some(error) = &self.load_error {
-            EmptyState::new("Couldn't read the transactions").body(error.clone())
-        } else if self.register.rows().is_empty() {
-            EmptyState::new("No transactions yet").shortcut("⌘I", "Import a statement")
-        } else {
-            EmptyState::new("No transactions match")
-                .body("Nothing matches the search and filters.")
-                .shortcut("Esc", "Clear filters")
+        let EmptyText {
+            title,
+            body,
+            shortcut,
+        } = self.empty_text()?;
+        let state = EmptyState::new(title);
+        let state = match body {
+            Some(body) => state.body(body),
+            None => state,
+        };
+        let state = match shortcut {
+            Some((keys, label)) => state.shortcut(keys, label),
+            None => state,
         };
         Some(
             div()
@@ -1728,7 +1970,11 @@ impl TransactionsView {
                 .into_any_element(),
         };
         div()
+            .key_context(ROWS_CONTEXT)
             .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &CursorUp, _, cx| this.move_cursor(Move::UP, cx)))
+            .on_action(cx.listener(|this, _: &CursorDown, _, cx| this.move_cursor(Move::DOWN, cx)))
+            .on_action(cx.listener(|this, _: &ToggleRow, _, cx| this.toggle_row(cx)))
             .flex()
             .flex_col()
             .flex_1()
@@ -1737,12 +1983,51 @@ impl TransactionsView {
             .child(body)
     }
 
+    /// The bulk-action bar for `count` selected rows, with Categorise's
+    /// menu above it while open.
+    fn render_bulk_bar(&self, count: String, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .relative()
+            .child(
+                BulkActionBar::new(count)
+                    .action(
+                        self.menu_trigger(
+                            Menu::Bulk,
+                            Button::new("bulk-categorise", CATEGORISE)
+                                .with_variant(ButtonVariant::Toolbar)
+                                .on_click(cx.listener(Self::keyboard_toggle(Menu::Bulk))),
+                            cx,
+                        ),
+                    )
+                    .action(
+                        Button::new("bulk-transfer", MARK_AS_TRANSFER)
+                            .with_variant(ButtonVariant::Toolbar)
+                            .disabled(self.markable_selection().is_none())
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.mark_selected_as_transfer(cx)),
+                            ),
+                    )
+                    .action(
+                        Button::new("bulk-rule", CREATE_RULE)
+                            .with_variant(ButtonVariant::Toolbar)
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.create_rule_from_selection(cx)),
+                            ),
+                    )
+                    .on_clear(cx.listener(|this, _, _, cx| this.clear_selection(cx))),
+            )
+            .when(self.menu == Some(Menu::Bulk), |this| {
+                this.child(menu::above(spacing::S1, self.menu_list(Menu::Bulk, cx)))
+            })
+            .into_any_element()
+    }
+
     fn render_floating(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let bar = if let Some(message) = self.edit_failure_message() {
-            NotificationBar::new(message)
+        let bar = match self.bar_text()? {
+            BarText::Failed(message) => NotificationBar::new(message)
                 .failed(true)
                 .action(
-                    Button::new("edit-failure-show", "Show")
+                    Button::new("edit-failure-show", SHOW)
                         .with_variant(ButtonVariant::Outline)
                         .on_click(cx.listener(|this, _, _, cx| this.show_failed_edit(cx))),
                 )
@@ -1750,45 +2035,15 @@ impl TransactionsView {
                     this.edit_failure = None;
                     cx.notify();
                 }))
-                .into_any_element()
-        } else if let Some(undo) = &self.undo {
-            UndoBar::new(undo.message.clone())
+                .into_any_element(),
+            BarText::Undo(message) => UndoBar::new(message)
                 .on_undo(cx.listener(|this, _, _, cx| this.undo_change(cx)))
                 .on_dismiss(cx.listener(|this, _, _, cx| {
                     this.undo = None;
                     cx.notify();
                 }))
-                .into_any_element()
-        } else if self.selection.len() > 1 {
-            div()
-                .relative()
-                .child(
-                    BulkActionBar::new(self.selection.len().to_string())
-                        .action(
-                            self.menu_trigger(
-                                Menu::Bulk,
-                                Button::new("bulk-categorise", "Categorise")
-                                    .with_variant(ButtonVariant::Toolbar)
-                                    .on_click(cx.listener(Self::keyboard_toggle(Menu::Bulk))),
-                                cx,
-                            ),
-                        )
-                        .action(
-                            Button::new("bulk-transfer", "Mark as transfer")
-                                .with_variant(ButtonVariant::Toolbar),
-                        )
-                        .action(
-                            Button::new("bulk-rule", "Create rule")
-                                .with_variant(ButtonVariant::Toolbar),
-                        )
-                        .on_clear(cx.listener(|this, _, _, cx| this.clear_selection(cx))),
-                )
-                .when(self.menu == Some(Menu::Bulk), |this| {
-                    this.child(menu::above(spacing::S1, self.menu_list(Menu::Bulk, cx)))
-                })
-                .into_any_element()
-        } else {
-            return None;
+                .into_any_element(),
+            BarText::Bulk(count) => self.render_bulk_bar(count, cx),
         };
         Some(
             div()
@@ -1806,23 +2061,9 @@ impl TransactionsView {
     fn render_canvas(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .key_context(TABLE_CONTEXT)
-            .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.move_selection(-1, false, cx)))
-            .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.move_selection(1, false, cx)))
-            .on_action(
-                cx.listener(|this, _: &ExtendSelectionUp, _, cx| this.move_selection(-1, true, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &ExtendSelectionDown, _, cx| {
-                    this.move_selection(1, true, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &SelectFirst, _, cx| {
-                this.move_selection(isize::MIN, false, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &SelectLast, _, cx| {
-                    this.move_selection(isize::MAX, false, cx)
-                }),
+            .on_list_move(
+                &TABLE_KEYS,
+                cx.listener(|this, to: &Move, _, cx| this.move_selection(*to, cx)),
             )
             .on_action(
                 cx.listener(|this, _: &EditCategory, window, cx| this.edit_current(window, cx)),
@@ -1845,6 +2086,14 @@ impl Render for TransactionsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_search(window, cx);
         self.sync_editor(window, cx);
+        #[cfg(test)]
+        {
+            self.focused_column = TransactionColumn::ALL
+                .into_iter()
+                .zip(&self.column_focus)
+                .find(|(_, focus)| focus.is_focused(window))
+                .map(|(column, _)| column);
+        }
         div()
             .flex()
             .flex_1()
@@ -1858,6 +2107,8 @@ impl Render for TransactionsView {
     }
 }
 
+#[cfg(test)]
+mod bulk_tests;
 #[cfg(test)]
 mod link_tests;
 #[cfg(test)]

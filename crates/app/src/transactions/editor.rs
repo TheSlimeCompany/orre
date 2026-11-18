@@ -173,7 +173,7 @@ impl Editor {
             amount,
             account_select: SelectState::new(cx),
             split: None,
-            tag_focus: cx.focus_handle(),
+            tag_focus: cx.focus_handle().tab_stop(true),
             add_line_focus: cx.focus_handle(),
             error: None,
             restore_error: None,

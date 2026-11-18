@@ -98,6 +98,30 @@ pub fn dates(a: NaiveDate, b: NaiveDate, today: NaiveDate) -> String {
     }
 }
 
+/// What a pair's row says, lane by lane.
+pub(super) struct PairRowText {
+    /// "OCADO RETAIL LTD and Ocado", the " and " in `joiner`.
+    pub names: Vec<Part>,
+    pub account: String,
+    pub why: String,
+    pub dates: String,
+    pub amount: String,
+}
+
+pub(super) fn pair_row_text(pair: &Pair, joiner: Rgba, today: NaiveDate) -> PairRowText {
+    PairRowText {
+        names: vec![
+            Part::text(text::name(&pair.rows[0])),
+            Part::text(" and ").color(joiner),
+            Part::text(text::name(&pair.rows[1])),
+        ],
+        account: text::account(&pair.account_name),
+        why: text::why(&pair.why),
+        dates: dates(pair.rows[0].date, pair.rows[1].date, today),
+        amount: text::signed(pair.rows[0].amount),
+    }
+}
+
 fn pair_row(
     pair: &Pair,
     selected: bool,
@@ -122,16 +146,14 @@ fn pair_row(
             color::TEXT_MUTED,
         )
     };
-    let names = rich(
-        window,
-        typography::BODY,
-        name,
-        vec![
-            Part::text(text::name(&pair.rows[0])),
-            Part::text(" and ").color(joiner),
-            Part::text(text::name(&pair.rows[1])),
-        ],
-    );
+    let PairRowText {
+        names,
+        account,
+        why,
+        dates,
+        amount,
+    } = pair_row_text(pair, joiner, today);
+    let names = rich(window, typography::BODY, name, names);
     let (select, focus) = (handle.clone(), focus.clone());
     div()
         .id(SharedString::from(format!("checks-pair-{id}")))
@@ -168,27 +190,27 @@ fn pair_row(
             lane(size::COLUMN_ACCOUNT)
                 .text_role(typography::BODY)
                 .text_color(lanes)
-                .child(plain(&pair.account_name, NAME_SHOWN)),
+                .child(account),
         )
         .child(
             lane(size::COLUMN_CATEGORY)
                 .text_role(typography::BODY)
                 .text_color(lanes)
-                .child(text::why(&pair.why)),
+                .child(why),
         )
         .child(
             lane(DATES_LANE)
                 .justify_end()
                 .text_role(typography::MONO_VALUE)
                 .text_color(dates_tone)
-                .child(dates(pair.rows[0].date, pair.rows[1].date, today)),
+                .child(dates),
         )
         .child(
             lane(size::COLUMN_AMOUNT)
                 .justify_end()
                 .text_role(typography::MONO_AMOUNT)
                 .text_color(name)
-                .child(text::signed(pair.rows[0].amount)),
+                .child(amount),
         )
         .into_any_element()
 }
@@ -256,21 +278,102 @@ fn field_row(label: &'static str, cells: [AnyElement; 2]) -> impl IntoElement {
         .child(column(excluded))
 }
 
+/// A text field of the comparison: its label and each row's value, the
+/// kept row's first, or what's said where a row has none.
+pub(super) struct Compared {
+    pub label: &'static str,
+    pub values: [Option<String>; 2],
+    pub missing: [&'static str; 2],
+    pub mono: bool,
+}
+
+/// A field of the comparison, in the order it's drawn.
+pub(super) enum Field {
+    Compared(Compared),
+    /// The categories, each with its marker ([`category_label`]).
+    Category,
+}
+
+/// The label of the comparison's [`Field::Category`].
+pub(super) const CATEGORY: &str = "Category";
+
+/// The comparison's fields, top to bottom.
+pub(super) fn fields(rows: &[PairRow; 2]) -> Vec<Field> {
+    let text = |label: &'static str,
+                mono: bool,
+                value: &dyn Fn(&PairRow) -> Option<String>,
+                missing: &dyn Fn(&PairRow) -> &'static str| {
+        Field::Compared(Compared {
+            label,
+            values: [value(&rows[0]), value(&rows[1])],
+            missing: [missing(&rows[0]), missing(&rows[1])],
+            mono,
+        })
+    };
+    vec![
+        text(
+            "Date",
+            true,
+            &|row| Some(format::field_date(row.date)),
+            &|_| "None",
+        ),
+        text(
+            "Merchant",
+            false,
+            &|row| row.merchant.as_deref().map(|name| plain(name, NAME_SHOWN)),
+            &|_| "None",
+        ),
+        text(
+            "Amount",
+            true,
+            &|row| Some(text::signed(row.amount)),
+            &|_| "None",
+        ),
+        Field::Category,
+        text(
+            "Bank text",
+            true,
+            &|row| (!row.is_manual()).then(|| plain(&row.bank_text, BANK_TEXT_SHOWN)),
+            &|row| {
+                if row.is_manual() {
+                    "None, added by hand"
+                } else {
+                    "None"
+                }
+            },
+        ),
+        text(
+            "Bank ID",
+            true,
+            &|row| row.bank_id.as_deref().map(|id| plain(id, BANK_TEXT_SHOWN)),
+            &|_| "None",
+        ),
+    ]
+}
+
 /// A text field compared: both values, `text` where they differ.
-fn compared(
-    label: &'static str,
-    rows: &[PairRow; 2],
-    value: impl Fn(&PairRow) -> Option<String>,
-    mono: bool,
-    missing: impl Fn(&PairRow) -> &'static str,
-) -> impl IntoElement {
-    let values = [value(&rows[0]), value(&rows[1])];
-    let differs = values[0] != values[1];
+fn compared(field: Compared) -> impl IntoElement {
+    let Compared {
+        label,
+        values: [kept, excluded],
+        missing: [kept_missing, excluded_missing],
+        mono,
+    } = field;
+    let differs = kept != excluded;
     let cells = [
-        value_cell(values[0].clone(), mono, differs, missing(&rows[0])),
-        value_cell(values[1].clone(), mono, differs, missing(&rows[1])),
+        value_cell(kept, mono, differs, kept_missing),
+        value_cell(excluded, mono, differs, excluded_missing),
     ];
     field_row(label, cells)
+}
+
+/// A row's category as its cell names it.
+pub(super) fn category_label(row: &PairRow) -> String {
+    match &row.category {
+        RowCategory::Category(category) => plain(&category.label, NAME_SHOWN),
+        RowCategory::Uncategorised => "Uncategorised".to_owned(),
+        RowCategory::Split => "Split".to_owned(),
+    }
 }
 
 fn category_cell(row: &PairRow, palette: &Palette, differs: bool) -> Cell {
@@ -294,7 +397,7 @@ fn category_cell(row: &PairRow, palette: &Palette, differs: bool) -> Cell {
                 .items_center()
                 .gap(spacing::S2)
                 .child(marker(palette, category).render())
-                .child(words(plain(&category.label, NAME_SHOWN), tone))
+                .child(words(category_label(row), tone))
                 .into_any_element(),
         },
         RowCategory::Uncategorised => Cell {
@@ -304,12 +407,12 @@ fn category_cell(row: &PairRow, palette: &Palette, differs: bool) -> Cell {
                 .items_center()
                 .gap(spacing::S2)
                 .child(Marker::None.render())
-                .child(words("Uncategorised".to_owned(), color::TEXT_MUTED))
+                .child(words(category_label(row), color::TEXT_MUTED))
                 .into_any_element(),
         },
         RowCategory::Split => Cell {
             key: "split".to_owned(),
-            element: words("Split".to_owned(), tone),
+            element: words(category_label(row), tone),
         },
     }
 }
@@ -367,6 +470,31 @@ fn footer_indent() -> gpui_kit::Pixels {
     size::COLUMN_AMOUNT + spacing::S6 + spacing::S5
 }
 
+/// The locked-period block's title.
+pub(super) const LOCKED_TITLE: &str = "The excluded row is in a locked period";
+
+/// The locked-period block's words, when the excluded row is locked.
+pub(super) fn locked_words(
+    pair: &Pair,
+    effect: &MergeEffect,
+    today: NaiveDate,
+) -> Option<Vec<Part>> {
+    let locked = effect.locked?;
+    Some(vec![
+        Part::text(format!(
+            "{} is locked through ",
+            text::account(&pair.account_name)
+        )),
+        Part::mono(text::date(locked.through, today)),
+        Part::text(", and this merge would exclude a row dated "),
+        Part::mono(text::date(locked.date, today)),
+        Part::text(
+            ". Unlock to merge, or keep the other row instead if it’s \
+                 outside the lock.",
+        ),
+    ])
+}
+
 /// The locked-period block (Paper `9VU-0`).
 fn locked_block(
     pair: &Pair,
@@ -375,7 +503,7 @@ fn locked_block(
     today: NaiveDate,
     window: &Window,
 ) -> Option<AnyElement> {
-    let locked = effect.locked?;
+    let words = locked_words(pair, effect, today)?;
     let account = pair.account;
     let unlock = handle.clone();
     Some(
@@ -406,29 +534,17 @@ fn locked_block(
                             .text_role(typography::BODY)
                             .font_weight(weight::STRONG)
                             .text_color(color::WARNING)
-                            .child("The excluded row is in a locked period"),
+                            .child(LOCKED_TITLE),
                     )
                     .child(div().text_role(typography::CAPTION).child(rich(
                         window,
                         typography::CAPTION,
                         color::TEXT_SECONDARY,
-                        vec![
-                            Part::text(format!(
-                                "{} is locked through ",
-                                plain(&pair.account_name, NAME_SHOWN)
-                            )),
-                            Part::mono(text::date(locked.through, today)),
-                            Part::text(", and this merge would exclude a row dated "),
-                            Part::mono(text::date(locked.date, today)),
-                            Part::text(
-                                ". Unlock to merge, or keep the other row instead if it’s \
-                                     outside the lock.",
-                            ),
-                        ],
+                        words,
                     ))),
             )
             .child(
-                Button::new("checks-pair-unlock", "Unlock…")
+                Button::new("checks-pair-unlock", UNLOCK)
                     .with_variant(ButtonVariant::Outline)
                     .on_click(click(move |_, _, cx| {
                         unlock.update(cx, |checks, cx| checks.request_unlock(account, cx))
@@ -436,6 +552,42 @@ fn locked_block(
             )
             .into_any_element(),
     )
+}
+
+/// The comparison's buttons, and the keys that do what they do
+/// ([`super::view::KEYS`]). Unlock… is the lock section's too.
+pub(super) const KEEP_OTHER: &str = "Keep this instead";
+pub(super) const UNLOCK: &str = "Unlock…";
+pub(super) const MERGE: &str = "Merge";
+pub(super) const NOT_DUPLICATES: &str = "Not duplicates";
+
+/// Whether Merge works on `pair`: core could plan it and the row it
+/// excludes isn't locked.
+pub(super) fn can_merge(pair: &Pair) -> bool {
+    pair.effect
+        .as_ref()
+        .is_ok_and(|effect| effect.locked.is_none())
+}
+
+/// Why a pair can't merge, as the canvas and the inspector say it.
+pub(super) fn cant_merge(message: &str) -> String {
+    format!("Can’t merge: {message}")
+}
+
+/// The caption beside Merge and Not duplicates, and whether it says why
+/// the pair can't merge (`danger`).
+pub(super) fn footer_caption(pair: &Pair) -> (String, bool) {
+    match &pair.effect {
+        Err(message) => (cant_merge(message), true),
+        Ok(effect) if effect.locked.is_some() => (
+            "Dismissing changes no transaction, so it isn’t locked.".to_owned(),
+            false,
+        ),
+        Ok(_) => (
+            "The excluded row stays under the Excluded filter. Undo any time.".to_owned(),
+            false,
+        ),
+    }
 }
 
 /// The selected pair, open under its row.
@@ -470,7 +622,7 @@ fn comparison(
                 text::added(&rows[1], today),
             )
             .child(
-                Button::new("checks-keep-other", "Keep this instead")
+                Button::new("checks-keep-other", KEEP_OTHER)
                     .with_variant(ButtonVariant::Outline)
                     .on_click(click(move |_, _, cx| {
                         keep.update(cx, |checks, cx| checks.keep_other(cx))
@@ -483,32 +635,32 @@ fn comparison(
         category_cell(&rows[1], palette, true),
     ];
     let categories_differ = categories[0].key != categories[1].key;
-    let categories = [
+    let mut categories = Some([
         category_cell(&rows[0], palette, categories_differ).element,
         category_cell(&rows[1], palette, categories_differ).element,
-    ];
+    ]);
+    let field_rows: Vec<AnyElement> = fields(rows)
+        .into_iter()
+        .map(|field| match field {
+            Field::Compared(field) => compared(field).into_any_element(),
+            Field::Category => field_row(CATEGORY, categories.take().expect("one Category field"))
+                .into_any_element(),
+        })
+        .collect();
 
     let effect = pair.effect.as_ref();
-    let locked = effect.ok().and_then(|effect| effect.locked).is_some();
-    let can_merge = effect.is_ok() && !locked;
+    let mergeable = can_merge(pair);
     let (merge, dismiss) = (handle.clone(), handle.clone());
-    let caption: AnyElement = match effect {
-        Err(message) => div()
-            .text_role(typography::CAPTION)
-            .text_color(color::DANGER)
-            .child(format!("Can’t merge: {message}"))
-            .into_any_element(),
-        Ok(_) if locked => div()
-            .text_role(typography::CAPTION)
-            .text_color(color::TEXT_MUTED)
-            .child("Dismissing changes no transaction, so it isn’t locked.")
-            .into_any_element(),
-        Ok(_) => div()
-            .text_role(typography::CAPTION)
-            .text_color(color::TEXT_MUTED)
-            .child("The excluded row stays under the Excluded filter. Undo any time.")
-            .into_any_element(),
-    };
+    let (words, refused) = footer_caption(pair);
+    let caption: AnyElement = div()
+        .text_role(typography::CAPTION)
+        .text_color(if refused {
+            color::DANGER
+        } else {
+            color::TEXT_MUTED
+        })
+        .child(words)
+        .into_any_element();
     let footer = div()
         .flex()
         .items_center()
@@ -516,15 +668,15 @@ fn comparison(
         .pl(footer_indent())
         .pt(spacing::S3)
         .child(
-            Button::new("checks-merge", "Merge")
+            Button::new("checks-merge", MERGE)
                 .with_variant(ButtonVariant::Primary)
-                .disabled(!can_merge)
+                .disabled(!mergeable)
                 .on_click(click(move |_, _, cx| {
                     merge.update(cx, |checks, cx| checks.merge(cx))
                 })),
         )
         .child(
-            Button::new("checks-dismiss", "Not duplicates")
+            Button::new("checks-dismiss", NOT_DUPLICATES)
                 .with_variant(ButtonVariant::Secondary)
                 .on_click(click(move |_, _, cx| {
                     dismiss.update(cx, |checks, cx| checks.dismiss(cx))
@@ -543,48 +695,7 @@ fn comparison(
         .border_b(size::HAIRLINE)
         .border_color(color::HAIRLINE)
         .child(headings)
-        .child(compared(
-            "Date",
-            rows,
-            |row| Some(format::field_date(row.date)),
-            true,
-            |_| "None",
-        ))
-        .child(compared(
-            "Merchant",
-            rows,
-            |row| row.merchant.as_deref().map(|name| plain(name, NAME_SHOWN)),
-            false,
-            |_| "None",
-        ))
-        .child(compared(
-            "Amount",
-            rows,
-            |row| Some(text::signed(row.amount)),
-            true,
-            |_| "None",
-        ))
-        .child(field_row("Category", categories))
-        .child(compared(
-            "Bank text",
-            rows,
-            |row| (!row.is_manual()).then(|| plain(&row.bank_text, BANK_TEXT_SHOWN)),
-            true,
-            |row| {
-                if row.is_manual() {
-                    "None, added by hand"
-                } else {
-                    "None"
-                }
-            },
-        ))
-        .child(compared(
-            "Bank ID",
-            rows,
-            |row| row.bank_id.as_deref().map(|id| plain(id, BANK_TEXT_SHOWN)),
-            true,
-            |_| "None",
-        ))
+        .children(field_rows)
         .children(effect.ok().and_then(|effect| {
             locked_block(pair, effect, handle, today, window).map(|block| {
                 div()
@@ -598,6 +709,31 @@ fn comparison(
         .into_any_element()
 }
 
+/// What the canvas says instead of pairs: why they couldn't be read, or
+/// that there are none.
+pub(super) fn empty(checks: &Checks) -> Option<(&'static str, SharedString)> {
+    if let Some(error) = checks.load_error() {
+        return Some(("Possible duplicates couldn’t be read", error.clone()));
+    }
+    checks.pairs().is_empty().then(|| {
+        (
+            "No possible duplicates",
+            "Coffer checks every import. A pair you marked “Not duplicates” isn’t flagged again."
+                .into(),
+        )
+    })
+}
+
+/// The caption under the pairs.
+pub(super) fn footnote() -> String {
+    format!(
+        "Exact duplicates never get this far: a row the bank already gave Coffer is skipped at \
+         import. A pair is flagged when one account has the same amount twice within {} days \
+         under different text.",
+        DuplicateWindow::DEFAULT.days()
+    )
+}
+
 /// The canvas under the toolbar.
 pub fn render_body(
     handle: &Entity<Checks>,
@@ -606,22 +742,8 @@ pub fn render_body(
     window: &Window,
 ) -> AnyElement {
     let today = checks.today();
-    if let Some(error) = checks.load_error() {
-        return empty_queue(
-            Glyph::DuplicateLarge,
-            "Possible duplicates couldn’t be read",
-            error.clone(),
-        )
-        .into_any_element();
-    }
-    if checks.pairs().is_empty() {
-        return empty_queue(
-            Glyph::DuplicateLarge,
-            "No possible duplicates",
-            "Coffer checks every import. A pair you marked “Not duplicates” isn’t flagged again."
-                .into(),
-        )
-        .into_any_element();
+    if let Some((title, body)) = empty(checks) {
+        return empty_queue(Glyph::DuplicateLarge, title, body).into_any_element();
     }
     let selected = checks.selected_pair().map(|pair| pair.candidate);
     let palette = &checks.data().palette;
@@ -656,12 +778,7 @@ pub fn render_body(
                         .px(spacing::S2)
                         .text_role(typography::CAPTION)
                         .text_color(color::TEXT_MUTED)
-                        .child(format!(
-                            "Exact duplicates never get this far: a row the bank already gave \
-                             Coffer is skipped at import. A pair is flagged when one account \
-                             has the same amount twice within {} days under different text.",
-                            DuplicateWindow::DEFAULT.days()
-                        )),
+                        .child(footnote()),
                 ),
         )
         .into_any_element()
@@ -694,7 +811,7 @@ fn value(window: &Window, parts: Vec<Part>) -> AnyElement {
 }
 
 /// A criterion: a 12px icon, the criterion, its value on the right.
-fn criterion(glyph: Glyph, tone: Rgba, label: &str, detail: Option<AnyElement>) -> AnyElement {
+fn criterion_row(glyph: Glyph, tone: Rgba, label: &str, detail: Option<AnyElement>) -> AnyElement {
     div()
         .flex()
         .flex_none()
@@ -727,86 +844,125 @@ fn detail(words: String, mono: bool) -> AnyElement {
         .into_any_element()
 }
 
-fn why_section(pair: &Pair) -> AnyElement {
+/// A criterion of "Why it was flagged": whether the pair meets it (✓) or
+/// differs (≠), what it is, and its value (mono or not).
+pub(super) struct Criterion {
+    pub met: bool,
+    pub label: String,
+    pub detail: Option<(String, bool)>,
+}
+
+/// The criteria the pair meets, then those that stopped the exact dedupe.
+pub(super) fn criteria(pair: &Pair) -> Vec<Criterion> {
     let why = &pair.why;
+    let met = |label: String, detail: String, mono: bool| Criterion {
+        met: true,
+        label,
+        detail: Some((detail, mono)),
+    };
     let mut rows = vec![
-        criterion(
-            Glyph::Check,
-            color::TEXT_MUTED,
-            "Same account",
-            Some(detail(plain(&pair.account_name, NAME_SHOWN), false)),
+        met(
+            "Same account".to_owned(),
+            text::account(&pair.account_name),
+            false,
         ),
-        criterion(
-            Glyph::Check,
-            color::TEXT_MUTED,
-            "Same amount",
-            Some(detail(text::signed(pair.rows[0].amount), true)),
+        met(
+            "Same amount".to_owned(),
+            text::signed(pair.rows[0].amount),
+            true,
         ),
-        criterion(
-            Glyph::Check,
-            color::TEXT_MUTED,
-            &format!("Within {} days", why.window.days()),
-            Some(detail(text::gap(why.days_apart).to_lowercase(), false)),
+        met(
+            format!("Within {} days", why.window.days()),
+            text::gap(why.days_apart).to_lowercase(),
+            false,
         ),
     ];
     for difference in text::differences(why) {
-        rows.push(criterion(Glyph::Differs, color::WARNING, difference, None));
+        rows.push(Criterion {
+            met: false,
+            label: difference.to_owned(),
+            detail: None,
+        });
     }
+    rows
+}
+
+/// The inspector's section titles.
+pub(super) const WHY_TITLE: &str = "Why it was flagged";
+pub(super) const MERGE_TITLE: &str = "If you merge";
+
+fn why_section(pair: &Pair) -> AnyElement {
+    let why = &pair.why;
+    let rows = criteria(pair).into_iter().map(|criterion| {
+        let (glyph, tone) = if criterion.met {
+            (Glyph::Check, color::TEXT_MUTED)
+        } else {
+            (Glyph::Differs, color::WARNING)
+        };
+        criterion_row(
+            glyph,
+            tone,
+            &criterion.label,
+            criterion.detail.map(|(words, mono)| detail(words, mono)),
+        )
+    });
     section(true)
         .gap(spacing::S1)
-        .child(
-            div()
-                .pb(spacing::S1)
-                .child(section_title("Why it was flagged")),
-        )
+        .child(div().pb(spacing::S1).child(section_title(WHY_TITLE)))
         .children(rows)
         .child(div().pt(spacing::S1).child(caption(text::why_caption(why))))
         .into_any_element()
 }
 
-fn if_you_merge(
+/// What leads a row of "If you merge": nothing, a category's marker, or a
+/// check's ✓ or alert.
+pub(super) enum Lead {
+    None,
+    Marker(Marker),
+    Glyph(Glyph, Rgba),
+}
+
+/// A row of "If you merge": its label ("" continuing the row above), what
+/// leads it, and its value.
+pub(super) struct MergeRow {
+    pub label: &'static str,
+    pub lead: Lead,
+    pub parts: Vec<Part>,
+}
+
+/// The rows of "If you merge": the row excluded, the values moved,
+/// spending, Coffer's count and the checks it changes.
+pub(super) fn merge_rows(
     pair: &Pair,
     effect: &MergeEffect,
     palette: &Palette,
     today: NaiveDate,
-    window: &Window,
-) -> AnyElement {
+) -> Vec<MergeRow> {
     let excluded = &pair.rows[1];
-    let mut rows: Vec<AnyElement> = vec![
-        FieldRow::new(
-            "Excludes",
-            value(
-                window,
-                vec![
-                    Part::text(text::name(excluded)),
-                    Part::text(" · ").color(color::TEXT_MUTED),
-                    Part::mono(text::date(excluded.date, today)),
-                ],
-            ),
-        )
-        .into_any_element(),
-    ];
+    let plain_row = |label: &'static str, parts: Vec<Part>| MergeRow {
+        label,
+        lead: Lead::None,
+        parts,
+    };
+    let mut rows = vec![plain_row(
+        "Excludes",
+        vec![
+            Part::text(text::name(excluded)),
+            Part::text(" · ").color(color::TEXT_MUTED),
+            Part::mono(text::date(excluded.date, today)),
+        ],
+    )];
     if !effect.carried.is_empty() {
-        rows.push(
-            FieldRow::new(
-                "Moves",
-                value(
-                    window,
-                    vec![
-                        Part::text(text::carried(&effect.carried)),
-                        Part::text(format!(" to {}", text::name(&pair.rows[0])))
-                            .color(color::TEXT_MUTED),
-                    ],
-                ),
-            )
-            .into_any_element(),
-        );
+        rows.push(plain_row(
+            "Moves",
+            vec![
+                Part::text(text::carried(&effect.carried)),
+                Part::text(format!(" to {}", text::name(&pair.rows[0]))).color(color::TEXT_MUTED),
+            ],
+        ));
     }
     if effect.spending.is_empty() {
-        rows.push(
-            FieldRow::new("Spending", value(window, vec![Part::text("No change")]))
-                .into_any_element(),
-        );
+        rows.push(plain_row("Spending", vec![Part::text("No change")]));
     }
     for (index, change) in effect.spending.iter().enumerate() {
         let (mark, label) = match &change.category {
@@ -821,48 +977,25 @@ fn if_you_merge(
         } else {
             " less"
         };
-        rows.push(
-            FieldRow::new(
-                if index == 0 { "Spending" } else { "" },
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap(spacing::S2)
-                    .px(spacing::S2)
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .child(mark.render())
-                    .child(rich(
-                        window,
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            Part::text(format!("{label} ")),
-                            Part::mono(text::unsigned(change.change)).color(color::TEXT_MUTED),
-                            Part::text(words).color(color::TEXT_MUTED),
-                        ],
-                    )),
-            )
-            .into_any_element(),
-        );
+        rows.push(MergeRow {
+            label: if index == 0 { "Spending" } else { "" },
+            lead: Lead::Marker(mark),
+            parts: vec![
+                Part::text(format!("{label} ")),
+                Part::mono(text::unsigned(change.change)).color(color::TEXT_MUTED),
+                Part::text(words).color(color::TEXT_MUTED),
+            ],
+        });
     }
     if let Some(count) = effect.count {
-        rows.push(
-            FieldRow::new(
-                "Balance",
-                value(
-                    window,
-                    vec![
-                        Part::mono(text::balance(count.before)),
-                        Part::text(" → ").color(color::TEXT_MUTED),
-                        Part::mono(text::balance(count.after)),
-                    ],
-                ),
-            )
-            .into_any_element(),
-        );
+        rows.push(plain_row(
+            "Balance",
+            vec![
+                Part::mono(text::balance(count.before)),
+                Part::text(" → ").color(color::TEXT_MUTED),
+                Part::mono(text::balance(count.after)),
+            ],
+        ));
     }
     for (index, change) in effect.checks.iter().enumerate() {
         let (glyph, tone, verb) = if change.after.is_passed() {
@@ -870,32 +1003,26 @@ fn if_you_merge(
         } else {
             (Glyph::Alert, color::DANGER, "fails")
         };
-        rows.push(
-            FieldRow::new(
-                if index == 0 { "Check" } else { "" },
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap(spacing::S1_5)
-                    .px(spacing::S2)
-                    .child(glyph.render().text_color(tone))
-                    .child(rich(
-                        window,
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            Part::mono(text::date(change.date, today)),
-                            Part::text(format!(" {verb}")),
-                        ],
-                    )),
-            )
-            .into_any_element(),
-        );
+        rows.push(MergeRow {
+            label: if index == 0 { "Check" } else { "" },
+            lead: Lead::Glyph(glyph, tone),
+            parts: vec![
+                Part::mono(text::date(change.date, today)),
+                Part::text(format!(" {verb}")),
+            ],
+        });
     }
+    rows
+}
 
-    let mut captions: Vec<AnyElement> = Vec::new();
+/// What merging does to each balance check it changes: the gap it closes
+/// or the check it breaks.
+pub(super) fn merge_captions(
+    pair: &Pair,
+    effect: &MergeEffect,
+    today: NaiveDate,
+) -> Vec<Vec<Part>> {
+    let mut captions = Vec::new();
     for change in &effect.checks {
         let computed = match change.before {
             coffer_core::reconciliation::Outcome::Failed { computed_minor, .. } => {
@@ -910,50 +1037,83 @@ fn if_you_merge(
             let gap = i64::try_from(difference.unsigned_abs())
                 .map(|minor| coffer_core::money::Money::new(minor, change.stated.currency()));
             if let Ok(gap) = gap {
-                captions.push(
-                    div()
-                        .text_role(typography::CAPTION)
-                        .child(rich(
-                            window,
-                            typography::CAPTION,
-                            color::TEXT_MUTED,
-                            vec![
-                                Part::text(format!(
-                                    "{} for {} on ",
-                                    text::stated_by(change.source),
-                                    plain(&pair.account_name, NAME_SHOWN)
-                                )),
-                                Part::mono(text::date(change.date, today)),
-                                Part::text(" is "),
-                                Part::mono(text::unsigned(gap)),
-                                Part::text(if difference > 0 {
-                                    " above Coffer’s. This pair explains all of it."
-                                } else {
-                                    " below Coffer’s. This pair explains all of it."
-                                }),
-                            ],
-                        ))
-                        .into_any_element(),
-                );
+                captions.push(vec![
+                    Part::text(format!(
+                        "{} for {} on ",
+                        text::stated_by(change.source),
+                        text::account(&pair.account_name)
+                    )),
+                    Part::mono(text::date(change.date, today)),
+                    Part::text(" is "),
+                    Part::mono(text::unsigned(gap)),
+                    Part::text(if difference > 0 {
+                        " above Coffer’s. This pair explains all of it."
+                    } else {
+                        " below Coffer’s. This pair explains all of it."
+                    }),
+                ]);
             }
         } else if change.breaks() {
-            captions.push(
-                div()
-                    .text_role(typography::CAPTION)
-                    .child(rich(
-                        window,
-                        typography::CAPTION,
-                        color::TEXT_MUTED,
-                        vec![
-                            Part::text("Merging makes the balance check on "),
-                            Part::mono(text::date(change.date, today)),
-                            Part::text(" fail: that balance counts both rows."),
-                        ],
-                    ))
-                    .into_any_element(),
-            );
+            captions.push(vec![
+                Part::text("Merging makes the balance check on "),
+                Part::mono(text::date(change.date, today)),
+                Part::text(" fail: that balance counts both rows."),
+            ]);
         }
     }
+    captions
+}
+
+fn if_you_merge(
+    pair: &Pair,
+    effect: &MergeEffect,
+    palette: &Palette,
+    today: NaiveDate,
+    window: &Window,
+) -> AnyElement {
+    let rows: Vec<AnyElement> = merge_rows(pair, effect, palette, today)
+        .into_iter()
+        .map(|row| match row.lead {
+            Lead::None => FieldRow::new(row.label, value(window, row.parts)).into_any_element(),
+            Lead::Marker(mark) => FieldRow::new(
+                row.label,
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap(spacing::S2)
+                    .px(spacing::S2)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(mark.render())
+                    .child(rich(window, typography::BODY, color::TEXT, row.parts)),
+            )
+            .into_any_element(),
+            Lead::Glyph(glyph, tone) => FieldRow::new(
+                row.label,
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap(spacing::S1_5)
+                    .px(spacing::S2)
+                    .child(glyph.render().text_color(tone))
+                    .child(rich(window, typography::BODY, color::TEXT, row.parts)),
+            )
+            .into_any_element(),
+        })
+        .collect();
+    let mut captions: Vec<AnyElement> = merge_captions(pair, effect, today)
+        .into_iter()
+        .map(|parts| {
+            div()
+                .text_role(typography::CAPTION)
+                .child(rich(window, typography::CAPTION, color::TEXT_MUTED, parts))
+                .into_any_element()
+        })
+        .collect();
     if effect.locked.is_some() {
         captions.push(caption(
             "The excluded row is in a locked period: this is what merging does once you unlock.",
@@ -961,11 +1121,25 @@ fn if_you_merge(
     }
     section(true)
         .gap(spacing::S2)
-        .child(section_title("If you merge"))
+        .child(section_title(MERGE_TITLE))
         .children(rows)
         .children(captions)
         .into_any_element()
 }
+
+/// The inspector's header for a pair: the kept row's name, its amount, and
+/// "Joint account · possible duplicate".
+pub(super) fn header_text(pair: &Pair) -> (String, String, String) {
+    (
+        text::name(&pair.rows[0]),
+        text::signed(pair.rows[0].amount),
+        format!("{} · possible duplicate", text::account(&pair.account_name)),
+    )
+}
+
+/// The inspector with nothing selected.
+pub(super) const NOTHING_SELECTED: &str =
+    "Select a pair to compare its two rows and see what merging would do.";
 
 /// The inspector.
 pub fn render_inspector(checks: &Checks, window: &Window) -> AnyElement {
@@ -973,17 +1147,8 @@ pub fn render_inspector(checks: &Checks, window: &Window) -> AnyElement {
     let mut sections: Vec<AnyElement> = Vec::new();
     match checks.selected_pair() {
         Some(pair) => {
-            sections.push(
-                header(
-                    text::name(&pair.rows[0]),
-                    Some(text::signed(pair.rows[0].amount)),
-                    Some(caption(format!(
-                        "{} · possible duplicate",
-                        plain(&pair.account_name, NAME_SHOWN)
-                    ))),
-                )
-                .into_any_element(),
-            );
+            let (title, figure, words) = header_text(pair);
+            sections.push(header(title, Some(figure), Some(caption(words))).into_any_element());
             sections.push(why_section(pair));
             match &pair.effect {
                 Ok(effect) => sections.push(if_you_merge(
@@ -996,12 +1161,12 @@ pub fn render_inspector(checks: &Checks, window: &Window) -> AnyElement {
                 Err(message) => sections.push(
                     section(true)
                         .gap(spacing::S2)
-                        .child(section_title("If you merge"))
+                        .child(section_title(MERGE_TITLE))
                         .child(
                             div()
                                 .text_role(typography::CAPTION)
                                 .text_color(color::DANGER)
-                                .child(format!("Can’t merge: {message}")),
+                                .child(cant_merge(message)),
                         )
                         .into_any_element(),
                 ),
@@ -1009,9 +1174,7 @@ pub fn render_inspector(checks: &Checks, window: &Window) -> AnyElement {
         }
         None => sections.push(
             section(false)
-                .child(caption(
-                    "Select a pair to compare its two rows and see what merging would do.",
-                ))
+                .child(caption(NOTHING_SELECTED))
                 .into_any_element(),
         ),
     }

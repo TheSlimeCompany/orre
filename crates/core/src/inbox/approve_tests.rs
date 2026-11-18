@@ -585,6 +585,58 @@ fn not_a_transfer_in_transactions_rejects_the_agents_pair() {
 }
 
 #[test]
+fn marking_in_transactions_approves_the_agents_pair() {
+    let mut f = Fixture::new();
+    let out = f.row(day(2), -5000, "To savings", None);
+    let inn = f.row_on(f.savings, day(20), 5000, "From current", None);
+    let other_out = f.row(day(3), -700, "To savings", None);
+    let other_in = f.row_on(f.savings, day(3), 700, "From current", None);
+    let same = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": inn.get()}),
+    );
+    let other = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": other_out.get(), "inflow_id": other_in.get()}),
+    );
+
+    let marked = mark_transfer(&mut f.db, inn, out).unwrap();
+    assert_eq!(marked.settled, vec![same]);
+    let group = marked.marked.group;
+    assert_eq!(
+        transfer::group(&f.db, group).unwrap().status,
+        TransferStatus::Confirmed
+    );
+    let settled = get(&f.db, same).unwrap();
+    assert_eq!(settled.status, SuggestionStatus::Approved);
+    assert_eq!(
+        settled.applied,
+        Some(json!({"transfer_group_id": group.get(), "settled_by": "transactions"}))
+    );
+    assert_eq!(get(&f.db, other).unwrap().status, SuggestionStatus::Pending);
+
+    // Undoing the mark leaves the settled suggestion decided.
+    transfer::unmark(&mut f.db, &marked.marked).unwrap();
+    assert_eq!(get(&f.db, same).unwrap().status, SuggestionStatus::Approved);
+}
+
+#[test]
+fn a_refused_mark_settles_nothing() {
+    let mut f = Fixture::new();
+    let out = f.row(day(2), -5000, "To savings", None);
+    let inn = f.row_on(f.savings, day(2), 5000, "From current", None);
+    let id = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": inn.get()}),
+    );
+    // Marked already, without settling: marking again is refused.
+    transfer::mark(&mut f.db, out, inn).unwrap();
+
+    assert!(mark_transfer(&mut f.db, out, inn).is_err());
+    assert_eq!(get(&f.db, id).unwrap().status, SuggestionStatus::Pending);
+}
+
+#[test]
 fn a_refused_decision_settles_nothing() {
     let mut f = Fixture::new();
     let out = f.row(day(2), -5000, "To savings", None);

@@ -24,7 +24,6 @@
 use coffer_core::access_log::activity::{ArgumentValue, arguments};
 use coffer_core::access_log::{LoggedCall, Outcome};
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
@@ -35,6 +34,7 @@ use crate::cli::ai_access::{PURPOSE_CHARS, one_line};
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, radius, size, spacing, typography, weight};
 use crate::ui::icon::Glyph;
+use crate::ui::list::{ListKeysExt as _, Move};
 use crate::ui::menu::{MenuGroup, MenuOption, Select};
 use crate::ui::text::TextRoleExt as _;
 
@@ -64,6 +64,140 @@ const FILTER: TextRole = TextRole {
     weight: weight::MEDIUM,
     ..typography::CAPTION
 };
+
+/// The toolbar's title and caption.
+pub const TITLE: &str = "Access log";
+pub const CAPTION: &str = "Every tool call: which client, why it says it asked, and how many rows went back · never the data itself";
+
+/// What a call without a purpose says instead.
+pub const NO_PURPOSE: &str = "No purpose given";
+
+/// A row's kind lane: the `refused` icon for a refused call, `inbox` for
+/// a write, nothing for a read.
+pub fn kind(row: &LogRow) -> Option<Glyph> {
+    let refused = row.call.outcome != Outcome::Ok;
+    if store::refused(row.call.outcome) {
+        Some(Glyph::Refused)
+    } else if row.writes && !refused {
+        Some(Glyph::Inbox)
+    } else {
+        None
+    }
+}
+
+/// A row's purpose lane, and its tone: why it was refused, the purpose in
+/// quotes and cut as the CLI cuts it, or that none was given.
+pub fn purpose(call: &LoggedCall) -> (String, gpui_kit::Rgba) {
+    match (refusal(call), &call.purpose) {
+        (Some(text), _) => (text, color::TEXT_MUTED),
+        (None, Some(purpose)) => (
+            format!("“{}”", one_line(purpose, PURPOSE_CHARS)),
+            color::TEXT_SECONDARY,
+        ),
+        (None, None) => (NO_PURPOSE.to_owned(), color::TEXT_MUTED),
+    }
+}
+
+/// A call's rows: "—" when it was refused or failed.
+pub fn rows(call: &LoggedCall) -> String {
+    if call.outcome != Outcome::Ok {
+        "—".to_owned()
+    } else {
+        count(call.row_count)
+    }
+}
+
+/// The inspector's figure and caption for a call: "Rows returned · today
+/// at 10:41:07".
+pub fn call_header(row: &LogRow, today: chrono::NaiveDate) -> (String, Vec<table::Run>) {
+    let call = &row.call;
+    let ok = call.outcome == Outcome::Ok;
+    let when = if row.local.date() == today {
+        "today at ".to_owned()
+    } else {
+        format!("{} at ", row.local.format("%-d %b %Y"))
+    };
+    (
+        rows(call),
+        vec![
+            plain(if ok {
+                "Rows returned · "
+            } else {
+                "Nothing returned · "
+            }),
+            plain(when),
+            mono(row.local.format("%H:%M:%S").to_string()),
+        ],
+    )
+}
+
+/// The call inspector's Client and Kind rows.
+pub fn call_rows(row: &LogRow) -> [(&'static str, Vec<table::Run>); 2] {
+    let call = &row.call;
+    let muted = |text: String| plain(text).color(color::TEXT_MUTED);
+    let level = match call.access_level {
+        Some(level) => format!(" · {} access", level_label(level).to_lowercase()),
+        None => " · no access".to_owned(),
+    };
+    let kind = match (call.outcome, row.writes) {
+        (Outcome::Ok, true) => vec![plain("Wrote"), muted(" · to the Inbox".into())],
+        (Outcome::Ok, false) => vec![plain("Read"), muted(" · changes nothing".into())],
+        (Outcome::Error, _) => vec![plain("Failed"), muted(" · nothing returned".into())],
+        _ => vec![plain("Refused"), muted(" · before the tool ran".into())],
+    };
+    [
+        ("Client", vec![mono(call.client.clone()), muted(level)]),
+        ("Kind", kind),
+    ]
+}
+
+/// The call's arguments, each key padded to the longest and its value with
+/// its tone; `None` when it has none ("None.").
+pub fn argument_lines(call: &LoggedCall) -> Option<Vec<(String, String, gpui_kit::Rgba)>> {
+    if call.args_redacted_json.trim() == "{}" || call.summarised_calls.is_some() {
+        return None;
+    }
+    let lines = arguments(&call.args_redacted_json);
+    let key_width = lines
+        .iter()
+        .map(|line| line.key.chars().count())
+        .max()
+        .unwrap_or(0);
+    Some(
+        lines
+            .into_iter()
+            .map(|line| {
+                let key = format!("{:width$} ", line.key, width = key_width);
+                let (value, tone) = match line.value {
+                    ArgumentValue::Text { length } => (
+                        format!(
+                            "text, {length} {}",
+                            if length == 1 {
+                                "character"
+                            } else {
+                                "characters"
+                            }
+                        ),
+                        color::TEXT_MUTED,
+                    ),
+                    ArgumentValue::Kept(value) => (value, color::TEXT),
+                    ArgumentValue::Undeclared(count) => {
+                        (format!("{count} not stored"), color::TEXT_MUTED)
+                    }
+                };
+                (key, value, tone)
+            })
+            .collect(),
+    )
+}
+
+/// The inspector's Purpose, whole and in quotes; `None` when none was
+/// given.
+pub fn full_purpose(call: &LoggedCall) -> Option<String> {
+    call.purpose
+        .as_ref()
+        .map(|purpose| format!("“{}”", one_line(purpose, usize::MAX)))
+}
 
 /// Why a refused or failed call returned nothing, as its row and
 /// inspector say it.
@@ -181,16 +315,43 @@ impl SettingsView {
         }
     }
 
+    /// The client filter's label: the client, or "All clients".
+    pub(super) fn client_filter_label(&self) -> String {
+        self.log_filter
+            .client
+            .clone()
+            .unwrap_or_else(|| "All clients".to_owned())
+    }
+
+    /// The log's rows in day groups, newest first, as the rows come.
+    pub(super) fn log_days(&self) -> Vec<(chrono::NaiveDate, Vec<LogRow>)> {
+        let mut days: Vec<(chrono::NaiveDate, Vec<LogRow>)> = Vec::new();
+        for row in &self.log {
+            match days.last_mut() {
+                Some((date, rows)) if *date == row.local.date() => rows.push(row.clone()),
+                _ => days.push((row.local.date(), vec![row.clone()])),
+            }
+        }
+        days
+    }
+
+    /// What the log says when the filter matches no call.
+    pub(super) fn empty_log(&self) -> String {
+        match &self.log_filter.client {
+            Some(client) => format!(
+                "No calls from {client} in {}.",
+                self.log_filter.period.label().to_lowercase()
+            ),
+            None => format!(
+                "No calls in {}.",
+                self.log_filter.period.label().to_lowercase()
+            ),
+        }
+    }
+
     fn filter_select(&self, which: Filter, cx: &mut Context<Self>) -> Select {
         let (id, name, label) = match which {
-            Filter::Client => (
-                "log-client-filter",
-                "Client",
-                self.log_filter
-                    .client
-                    .clone()
-                    .unwrap_or_else(|| "All clients".to_owned()),
-            ),
+            Filter::Client => ("log-client-filter", "Client", self.client_filter_label()),
             Filter::Period => (
                 "log-period-filter",
                 "Period",
@@ -261,27 +422,9 @@ impl SettingsView {
         let selected = self.selected_call == Some(call.id);
         let refused = call.outcome != Outcome::Ok;
         let id = call.id;
-        let kind = if store::refused(call.outcome) {
-            Some(Glyph::Refused)
-        } else if row.writes && !refused {
-            Some(Glyph::Inbox)
-        } else {
-            None
-        };
-        let purpose: AnyElement = match (refusal(call), &call.purpose) {
-            (Some(text), _) => div()
-                .text_color(color::TEXT_MUTED)
-                .child(text)
-                .into_any_element(),
-            (None, Some(purpose)) => div()
-                .text_color(color::TEXT_SECONDARY)
-                .child(format!("“{}”", one_line(purpose, PURPOSE_CHARS)))
-                .into_any_element(),
-            (None, None) => div()
-                .text_color(color::TEXT_MUTED)
-                .child("No purpose given")
-                .into_any_element(),
-        };
+        let kind = kind(row);
+        let (words, tone) = purpose(call);
+        let purpose: AnyElement = div().text_color(tone).child(words).into_any_element();
         selectable_row(format!("call-{id}"), selected)
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.list_focus.focus(window, cx);
@@ -343,11 +486,7 @@ impl SettingsView {
                     } else {
                         color::TEXT
                     })
-                    .child(if refused {
-                        "—".to_owned()
-                    } else {
-                        count(call.row_count)
-                    }),
+                    .child(rows(call)),
             )
             .test_support()
             .into_any_element()
@@ -361,14 +500,7 @@ impl SettingsView {
             .child(self.filter_select(Filter::Client, cx))
             .child(self.filter_select(Filter::Period, cx));
 
-        // Day groups, newest first, as the rows come.
-        let mut days: Vec<(chrono::NaiveDate, Vec<LogRow>)> = Vec::new();
-        for row in &self.log {
-            match days.last_mut() {
-                Some((date, rows)) if *date == row.local.date() => rows.push(row.clone()),
-                _ => days.push((row.local.date(), vec![row.clone()])),
-            }
-        }
+        let days = self.log_days();
         let first_lane = time_lane() + spacing::S3 + size::COLUMN_ACCOUNT;
         let groups: Vec<AnyElement> = days
             .iter()
@@ -417,18 +549,16 @@ impl SettingsView {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .child(toolbar(
-                "Access log",
-                "Every tool call: which client, why it says it asked, and how many rows went back · never the data itself",
-                filters,
-            ))
+            .child(toolbar(TITLE, CAPTION, filters))
             .child(
                 table::body("log-body")
                     .key_context(table::LIST_CONTEXT)
                     .track_focus(&self.list_focus.clone().tab_stop(true))
                     .track_scroll(&self.log_scroll)
-                    .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.select_next(-1, cx)))
-                    .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.select_next(1, cx)))
+                    .on_list_move(
+                        &table::LIST_KEYS,
+                        cx.listener(|this, to: &Move, _, cx| this.select_next(*to, cx)),
+                    )
                     .on_scroll(cx.listener(move |this, _, _, cx| {
                         // Near the end: the next page.
                         let left = scroll.max_offset().y + scroll.offset().y;
@@ -448,18 +578,10 @@ impl SettingsView {
                     })
                     .when(empty, |this| {
                         this.child(
-                            div().pt(spacing::S3).px(spacing::S2).child(caption(
-                                match &self.log_filter.client {
-                                    Some(client) => format!(
-                                        "No calls from {client} in {}.",
-                                        self.log_filter.period.label().to_lowercase()
-                                    ),
-                                    None => format!(
-                                        "No calls in {}.",
-                                        self.log_filter.period.label().to_lowercase()
-                                    ),
-                                },
-                            )),
+                            div()
+                                .pt(spacing::S3)
+                                .px(spacing::S2)
+                                .child(caption(self.empty_log())),
                         )
                     })
                     .children(groups)
@@ -475,56 +597,19 @@ impl SettingsView {
             .and_then(|id| self.log.iter().find(|row| row.call.id == id))?
             .clone();
         let call = &row.call;
-        let ok = call.outcome == Outcome::Ok;
-        let when = if row.local.date() == self.clock.today {
-            "today at ".to_owned()
-        } else {
-            format!("{} at ", row.local.format("%-d %b %Y"))
-        };
+        let (figure, words) = call_header(&row, self.clock.today);
         let header = table::inspector_header(
             table::mono_title(call.tool.clone()),
-            Some(if ok {
-                count(call.row_count)
-            } else {
-                "—".to_owned()
-            }),
-            rich(
-                typography::CAPTION,
-                color::TEXT_MUTED,
-                vec![
-                    plain(if ok {
-                        "Rows returned · "
-                    } else {
-                        "Nothing returned · "
-                    }),
-                    plain(when),
-                    mono(row.local.format("%H:%M:%S").to_string()),
-                ],
-            )
-            .into_any_element(),
+            Some(figure),
+            rich(typography::CAPTION, color::TEXT_MUTED, words).into_any_element(),
         );
 
-        let muted = |text: String| plain(text).color(color::TEXT_MUTED);
-        let level = match call.access_level {
-            Some(level) => format!(" · {} access", level_label(level).to_lowercase()),
-            None => " · no access".to_owned(),
-        };
-        let kind = match (call.outcome, row.writes) {
-            (Outcome::Ok, true) => vec![plain("Wrote"), muted(" · to the Inbox".into())],
-            (Outcome::Ok, false) => vec![plain("Read"), muted(" · changes nothing".into())],
-            (Outcome::Error, _) => vec![plain("Failed"), muted(" · nothing returned".into())],
-            _ => vec![plain("Refused"), muted(" · before the tool ran".into())],
-        };
-        let mut details = section(None)
-            .child(value_row(
-                "Client",
-                rich(
-                    typography::BODY,
-                    color::TEXT,
-                    vec![mono(call.client.clone()), muted(level)],
-                ),
-            ))
-            .child(value_row("Kind", rich(typography::BODY, color::TEXT, kind)));
+        let mut details =
+            call_rows(&row)
+                .into_iter()
+                .fold(section(None), |section, (label, runs)| {
+                    section.child(value_row(label, rich(typography::BODY, color::TEXT, runs)))
+                });
         if let Some(refusal) = refusal(call) {
             details = details.child(caption(format!("{refusal}.")));
         } else {
@@ -534,62 +619,36 @@ impl SettingsView {
             ));
         }
 
-        let lines = arguments(&call.args_redacted_json);
-        let key_width = lines
-            .iter()
-            .map(|line| line.key.chars().count())
-            .max()
-            .unwrap_or(0);
-        let block = div()
-            .flex()
-            .flex_col()
-            .p(spacing::S2)
-            .rounded(radius::MD)
-            .bg(color::FIELD)
-            .text_role(typography::MONO_VALUE)
-            .children(lines.into_iter().map(|line| {
-                let key = format!("{:width$} ", line.key, width = key_width);
-                let (value, tone) = match line.value {
-                    ArgumentValue::Text { length } => (
-                        format!(
-                            "text, {length} {}",
-                            if length == 1 {
-                                "character"
-                            } else {
-                                "characters"
-                            }
-                        ),
-                        color::TEXT_MUTED,
-                    ),
-                    ArgumentValue::Kept(value) => (value, color::TEXT),
-                    ArgumentValue::Undeclared(count) => {
-                        (format!("{count} not stored"), color::TEXT_MUTED)
-                    }
-                };
-                div()
-                    .flex()
-                    .whitespace_nowrap()
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_color(color::TEXT_SECONDARY)
-                            .child(key),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_ellipsis()
-                            .text_color(tone)
-                            .child(value),
-                    )
-            }));
         let args = section(Some("Arguments"))
-            .map(|this| {
-                if call.args_redacted_json.trim() == "{}" || call.summarised_calls.is_some() {
-                    this.child(caption("None."))
-                } else {
-                    this.child(block)
-                }
+            .map(|this| match argument_lines(call) {
+                None => this.child(caption("None.")),
+                Some(lines) => this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .p(spacing::S2)
+                        .rounded(radius::MD)
+                        .bg(color::FIELD)
+                        .text_role(typography::MONO_VALUE)
+                        .children(lines.into_iter().map(|(key, value, tone)| {
+                            div()
+                                .flex()
+                                .whitespace_nowrap()
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(color::TEXT_SECONDARY)
+                                        .child(key),
+                                )
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .text_ellipsis()
+                                        .text_color(tone)
+                                        .child(value),
+                                )
+                        })),
+                ),
             })
             .child(caption(
                 "Dates, keys and numbers are kept. Free text is stored as its length only, so \
@@ -597,16 +656,16 @@ impl SettingsView {
             ));
 
         let purpose = section(Some("Purpose"))
-            .child(match &call.purpose {
+            .child(match full_purpose(call) {
                 Some(purpose) => div()
                     .text_role(typography::BODY)
                     .text_color(color::TEXT_SECONDARY)
-                    .child(format!("“{}”", one_line(purpose, usize::MAX)))
+                    .child(purpose)
                     .into_any_element(),
                 None => div()
                     .text_role(typography::BODY)
                     .text_color(color::TEXT_MUTED)
-                    .child("No purpose given")
+                    .child(NO_PURPOSE)
                     .into_any_element(),
             })
             .child(caption(

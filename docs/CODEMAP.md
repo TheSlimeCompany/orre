@@ -81,7 +81,9 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
   with `Recorder::track` (M3.11), recorded on the money in's `links` field
   (`V17__change_item_links.sql`).
 - `transfer`: transfer-pair detection (M1.16); `transfer/decision.rs`:
-  `transfer::{confirm, reject, unpair, undo, pair_of, availability}` (M3.8).
+  `transfer::{confirm, reject, unpair, undo, pair_of, availability}` (M3.8);
+  `transfer/mark.rs`: `transfer::{markable, mark, unmark}`, two rows marked as a transfer
+  by hand (the bulk-action bar; `inbox::mark_transfer` settles an agent's suggestion).
 
 ### Links, duplicates and reconciliation
 
@@ -178,6 +180,29 @@ per call through its own store and changes data only through core.
   `Segmented::fill`), `ui::notification`, `ui::undo_bar`, `ui::tag`, and the rest of
   `crates/app/src/ui/`. Variants added for later views: `ButtonVariant::Ghost`,
   `SelectField::private`/`amount`, `CategoryCell::suffix`/`repays`, `Glyph::Owed`.
+- `ui::list` (U.6): the keyboard behaviour every list shares. A view declares its
+  list's keys as a `list::Keys` constant (↑↓, optionally Home/End and ⇧↑⇧↓) and binds
+  them in its `init`; `on_list_move` hands it one `list::Move` per key; `list::step`
+  (by id) and `list::target` (by index) find the row reached, stopping at the ends;
+  `list::Reveal` scrolls it into view. The view keeps its selection and its look.
+  `Keys::hint` is the toolbar's "↑↓ Select".
+- `ui::keys` (U.7): a view's keys as data. A `keys::ViewKeys` constant holds its
+  `list::Keys` and its decision keys (`keys::Key`: keystrokes, action, key cap, label;
+  Escape `unhinted`). `bind` binds them, `keys::hints(KEYS.hints())` draws the toolbar's
+  hints, a test-only `describe()` lists them, and `ViewKeys::assert_bound` (tests) checks
+  the keymap holds exactly them. Used by the Inbox, the review queues (Checks) and Rules.
+- `ui::panel_cursor` (U.9): the keyboard cursor for a left panel of filters (Rules and
+  the Inbox). A Tab stop where ↑↓ move a cursor across sections without changing the
+  selection, and Enter or Space act on its row as a click does. `PanelKeys` binds the
+  keys, `PanelCursor::keyed` keeps the cursor with the panel's element,
+  `panel_cursor(...)` wires the element, and `Frame::mark` gives the cursor row
+  `ListRow::current` and the inset ring.
+- `ui::describe` (U.1–U.3, tests only): what the views' test-only `describe()` share
+  (`Action`, `PanelRow`, `Header`, `Section`, `Inspector`, `Dialog`). Each view's own is
+  a `#[cfg(test)] mod describe` beside it (`inbox`, `transactions`, `checks`, `rules`,
+  `settings`, `accounts`), built from the text the view draws; the tests assert on it.
+  Never in a release build or reachable from `coffer mcp` (`docs/architecture/app.md`,
+  2026-11-18).
 - `format`: writes and reads money and dates.
 - `showcase`: the component showcase, `coffer --showcase`.
 
@@ -197,7 +222,8 @@ per call through its own store and changes data only through core.
   `link_fixture.rs` (D6.5's sample data; M3.11), `transfer.rs` (the Transfer section,
   M3.8), `source.rs` (the exclusion card and the Source section), `rule_prompt.rs`
   ("Create a rule from this edit?" and the Rule section; emits
-  `TransactionsEvent::CreateRule`/`OpenRule`).
+  `TransactionsEvent::CreateRule`/`OpenRule`), `bulk.rs` (the bulk-action bar's Mark as
+  transfer and Create rule).
 - M3.10: the Excluded chip and excluded rows; the `exclude_dialog.rs`, `confirm.rs`
   (undo-import, delete) and `new_transaction.rs` dialogs; `manual_edit.rs` (a manual
   row's Date, Amount and Account).
@@ -226,7 +252,8 @@ per call through its own store and changes data only through core.
 ### Inbox and checks (M3.6, M3.14, M3.12)
 
 - `inbox/`: `Inbox` (status, filters, groups, selection, decisions through
-  `store::InboxStore`), `panel`, `view` (the grouped table, the selected suggestion open
+  `store::InboxStore`), `panel` (a Tab stop: ↑↓ move a keyboard cursor through INBOX,
+  CHECKS, KIND and SOURCE, Enter and Space act), `view` (the grouped table, the selected suggestion open
   in place, A / R / ↑↓), `inspector` ("If you approve"), `text` (labels, untrusted text
   made plain with `envelope::shown`), `fixture` (D6.6's samples, seeded through core into
   a scratch database).

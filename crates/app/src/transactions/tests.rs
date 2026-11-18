@@ -13,6 +13,8 @@ use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Modifiers, SharedString, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
+use super::describe::{BarDescription, TransactionsDescription};
+use super::editor::EditPlace;
 use super::*;
 
 fn setup(cx: &mut TestAppContext) {
@@ -70,19 +72,31 @@ fn row_id(id: TransactionId) -> String {
     format!("txn-{id}")
 }
 
-fn selected(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Vec<TransactionId> {
-    cx.update(|_, cx| view.read(cx).selected().iter().map(|row| row.id).collect())
+fn describe(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> TransactionsDescription {
+    cx.update(|_, cx| view.read(cx).describe(cx))
 }
 
+/// The selected rows, as described.
+fn selected(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Vec<TransactionId> {
+    describe(view, cx).selected()
+}
+
+/// The rows the table lists, as described.
 fn listed(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Vec<TransactionId> {
-    cx.update(|_, cx| {
-        let view = view.read(cx);
-        view.listing()
-            .rows
-            .iter()
-            .map(|&index| view.register().rows()[index].id)
-            .collect()
-    })
+    describe(view, cx).listed()
+}
+
+/// The menu that's open, as described.
+fn open_menu(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Option<Menu> {
+    describe(view, cx).menu.map(|menu| menu.menu)
+}
+
+/// Whether the bulk-action bar shows, as described.
+fn bulk_bar(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> bool {
+    matches!(describe(view, cx).bar, Some(BarDescription::Bulk { .. }))
 }
 
 // The fixture ----------------------------------------------------------------
@@ -135,14 +149,12 @@ fn keys_move_and_extend_the_selection(cx: &mut TestAppContext) {
             id("txn-tfl-09")
         ]
     );
-    assert!(
-        shows("bulk-clear", cx),
-        "several rows show the bulk-action bar"
-    );
+    assert!(bulk_bar(&view, cx), "several rows show the bulk-action bar");
+    assert!(shows("bulk-clear", cx));
 
     press("escape", cx);
     assert!(selected(&view, cx).is_empty());
-    assert!(!shows("bulk-clear", cx));
+    assert!(!bulk_bar(&view, cx));
 
     press("end", cx);
     let last = fixture::TRANSACTIONS.last().expect("fixture rows").id;
@@ -170,14 +182,19 @@ fn search_narrows_the_rows_and_escape_clears_it(cx: &mut TestAppContext) {
 
     // Nothing matches: the empty state offers to clear the filters.
     type_text("zzz", cx);
-    assert!(listed(&view, cx).is_empty());
+    let description = describe(&view, cx);
+    assert!(description.listed().is_empty());
+    assert_eq!(
+        description.empty.map(|empty| (empty.title, empty.shortcut)),
+        Some(("No transactions match", Some(("Esc", "Clear filters"))))
+    );
 
     // The filter hid the selected row, so nothing is selected: Escape
     // clears the filters.
     assert!(selected(&view, cx).is_empty());
     press("escape", cx);
     assert_eq!(listed(&view, cx).len(), fixture::TRANSACTIONS.len());
-    assert!(cx.update(|_, cx| view.read(cx).filter().text.is_empty()));
+    assert_eq!(describe(&view, cx).toolbar.search, "");
 }
 
 #[gpui_kit::test]
@@ -212,13 +229,10 @@ fn uncategorised_toggles_and_sort_reorders_within_days(cx: &mut TestAppContext) 
 fn the_date_chip_filters_by_period(cx: &mut TestAppContext) {
     let (view, cx) = open_fixture(cx);
     click("filter-date", cx);
-    assert_eq!(
-        cx.update(|_, cx| view.read(cx).open_menu()),
-        Some(Menu::Date)
-    );
+    assert_eq!(open_menu(&view, cx), Some(Menu::Date));
     click("option-last_month", cx);
     assert!(listed(&view, cx).is_empty(), "the fixture is all November");
-    assert_eq!(cx.update(|_, cx| view.read(cx).open_menu()), None);
+    assert_eq!(open_menu(&view, cx), None);
 
     click("filter-date", cx);
     press("up", cx);
@@ -236,14 +250,18 @@ fn the_fixture_cant_be_changed(cx: &mut TestAppContext) {
     click(row_id(fixture::id("txn-bluebottle-09")), cx);
     press("enter", cx);
     assert_eq!(
-        cx.update(|_, cx| view.read(cx).open_menu()),
+        open_menu(&view, cx),
         Some(Menu::Row(fixture::id("txn-bluebottle-09")))
     );
     // Nothing is highlighted until the user moves or types.
     press("down", cx);
     press("enter", cx);
-    assert!(cx.update(|_, cx| view.read(cx).edit_error().is_some()));
-    assert_eq!(cx.update(|_, cx| view.read(cx).open_menu()), None);
+    let description = describe(&view, cx);
+    assert_eq!(
+        description.one().unwrap().category_error.as_deref(),
+        Some(super::write::SAMPLE_DATA)
+    );
+    assert_eq!(description.menu, None);
 }
 
 // The database ---------------------------------------------------------------
@@ -329,7 +347,11 @@ fn the_table_reads_the_database(cx: &mut TestAppContext) {
     newest_first.reverse();
     assert_eq!(listed(&view, cx), newest_first);
     assert!(shows(row_id(scratch.rows[0]), cx));
-    assert_eq!(cx.update(|_, cx| view.read(cx).listing().uncategorised), 4);
+    let uncategorised = &describe(&view, cx).toolbar.chips[3];
+    assert_eq!(
+        (uncategorised.label.as_str(), uncategorised.count.as_deref()),
+        ("Uncategorised", Some("4"))
+    );
 }
 
 #[gpui_kit::test]
@@ -339,31 +361,28 @@ fn a_category_set_in_place_is_saved_through_core(cx: &mut TestAppContext) {
     let coffee = scratch.rows[0];
     click(row_id(coffee), cx);
     press("enter", cx);
-    assert_eq!(
-        cx.update(|_, cx| view.read(cx).open_menu()),
-        Some(Menu::Row(coffee))
-    );
+    assert_eq!(open_menu(&view, cx), Some(Menu::Row(coffee)));
 
     // The filter field narrows the 67 categories; Enter takes the first.
     type_text("eating", cx);
+    let menu = describe(&view, cx).menu.unwrap();
+    assert_eq!(menu.filter.as_deref(), Some("eating"));
+    let first = &menu.groups[0].options[0];
+    assert_eq!(
+        (first.label.as_str(), first.highlighted),
+        ("Eating out", true)
+    );
     press("enter", cx);
-    assert_eq!(cx.update(|_, cx| view.read(cx).open_menu()), None);
+    assert_eq!(open_menu(&view, cx), None);
     assert_eq!(scratch.category(coffee).as_deref(), Some("food.eating_out"));
 
     // The register is read again, and the row keeps its selection.
-    let category = cx.update(|_, cx| {
-        let view = view.read(cx);
-        match view.register().row(coffee).unwrap().category {
-            RowCategory::Category(id) => view.register().category(id).unwrap().label.clone(),
-            _ => String::new(),
-        }
-    });
-    assert_eq!(category, "Eating out");
-    assert_eq!(selected(&view, cx), [coffee]);
-    assert!(
-        cx.update(|_, cx| view.read(cx).undo_message().is_none()),
-        "one row: no undo bar"
-    );
+    let description = describe(&view, cx);
+    let row = description.row(coffee).unwrap();
+    assert_eq!(row.category, "Eating out");
+    assert!(row.selected);
+    assert_eq!(description.selected(), [coffee]);
+    assert_eq!(description.bar, None, "one row: no undo bar");
 }
 
 #[gpui_kit::test]
@@ -375,18 +394,15 @@ fn a_bulk_categorise_can_be_undone(cx: &mut TestAppContext) {
     redraw(cx);
 
     click("bulk-categorise", cx);
-    assert_eq!(
-        cx.update(|_, cx| view.read(cx).open_menu()),
-        Some(Menu::Bulk)
-    );
+    assert_eq!(open_menu(&view, cx), Some(Menu::Bulk));
     type_text("clothing", cx);
     press("enter", cx);
     for id in &ids {
         assert_eq!(scratch.category(*id).as_deref(), Some("shopping.clothing"));
     }
     assert_eq!(
-        cx.update(|_, cx| view.read(cx).undo_message().cloned()),
-        Some("Categorised 3 transactions as Clothing".into())
+        describe(&view, cx).undo_message(),
+        Some("Categorised 3 transactions as Clothing")
     );
     assert!(shows("undo-change", cx));
 
@@ -395,6 +411,10 @@ fn a_bulk_categorise_can_be_undone(cx: &mut TestAppContext) {
         assert_eq!(scratch.category(*id), None);
     }
     assert!(!shows("undo-change", cx));
+    assert!(
+        bulk_bar(&view, cx),
+        "the three are still selected: the bulk-action bar is back"
+    );
 }
 
 #[gpui_kit::test]
@@ -462,6 +482,10 @@ fn the_panels_account_filters_the_table(cx: &mut TestAppContext) {
         !shows("sort-account", cx),
         "the Account column hides on one account"
     );
+    let description = describe(&view, cx);
+    assert!(!description.account_column);
+    assert_eq!(description.toolbar.chips[0].label, "Current account");
+    assert!(description.rows().all(|row| row.account.is_none()));
 
     // The Account chip mirrors the panel: All accounts clears it.
     click("filter-account", cx);
@@ -532,6 +556,9 @@ fn a_two_way_split_is_one_edit_and_add_line(cx: &mut TestAppContext) {
     let amazon = scratch.rows[3];
     click(row_id(amazon), cx);
     assert!(shows("split", cx), "an unsplit row offers Split");
+    let one = describe(&view, cx).one().cloned().unwrap();
+    assert!(one.sections.contains(&"Split"));
+    assert_eq!(one.split, None);
 
     click("split", cx);
     assert_eq!(
@@ -549,14 +576,21 @@ fn a_two_way_split_is_one_edit_and_add_line(cx: &mut TestAppContext) {
         "the new line took the remainder and the split saved"
     );
     // The table's row is split now, and the editor kept its fields.
-    assert!(cx.update(|_, cx| matches!(
-        view.read(cx).register().row(amazon).unwrap().category,
-        RowCategory::Split(_)
-    )));
+    let description = describe(&view, cx);
     assert_eq!(
-        cx.update(|_, cx| view.read(cx).editor.split.as_ref().unwrap().lines.len()),
-        2
+        description.row(amazon).unwrap().category,
+        "Uncategorised, Uncategorised"
     );
+    let split = description.one().unwrap().split.clone().unwrap();
+    assert_eq!(
+        split.lines,
+        [
+            // As typed; the line "Add line" filled in, formatted.
+            ("Category".to_owned(), "20.00".to_owned()),
+            ("Category".to_owned(), "−£3.99".to_owned()),
+        ]
+    );
+    assert_eq!(split.remaining, "£0.00");
 
     // A line's category is chosen from the category menu.
     let key = line_key(&view, 0, cx);
@@ -638,13 +672,20 @@ fn tags_are_created_from_the_menu_and_toggled(cx: &mut TestAppContext) {
     click(row_id(amazon), cx);
 
     click("add-tag", cx);
-    assert_eq!(
-        cx.update(|_, cx| view.read(cx).open_menu()),
-        Some(Menu::Tags)
-    );
+    assert_eq!(open_menu(&view, cx), Some(Menu::Tags));
     type_text("Mum's birthday", cx);
     // "Create “…”", then "Create “…” as private".
     press("down", cx);
+    let menu = describe(&view, cx).menu.unwrap();
+    let highlighted: Vec<&str> = menu
+        .groups
+        .iter()
+        .flat_map(|group| &group.options)
+        .filter(|option| option.highlighted)
+        .map(|option| option.label.as_str())
+        .collect();
+    assert_eq!(highlighted.len(), 1);
+    assert!(highlighted[0].ends_with("as private"), "{highlighted:?}");
     press("enter", cx);
     let tags = |cx: &mut VisualTestContext| {
         cx.update(|_, cx| {
@@ -664,6 +705,13 @@ fn tags_are_created_from_the_menu_and_toggled(cx: &mut TestAppContext) {
     };
     assert_eq!(tags(cx), [("Mum's birthday".to_owned(), true)]);
     assert!(shows("tag-1", cx));
+    let one = describe(&view, cx).one().cloned().unwrap();
+    let field = one
+        .fields
+        .iter()
+        .find(|field| field.label == "Tags")
+        .unwrap();
+    assert_eq!(field.value, "Mum's birthday");
 
     // The menu ticks it; choosing it again takes it off.
     click("add-tag", cx);
@@ -735,6 +783,13 @@ fn a_transfer_has_no_split_section_and_the_fixture_cant_split(cx: &mut TestAppCo
     let (view, cx) = open_fixture(cx);
     click(row_id(fixture::id("txn-rainy-day-09")), cx);
     assert!(!shows("split", cx));
+    assert!(
+        !describe(&view, cx)
+            .one()
+            .unwrap()
+            .sections
+            .contains(&"Split")
+    );
 
     click(row_id(fixture::id("txn-amazon-09")), cx);
     click("split", cx);
@@ -744,12 +799,10 @@ fn a_transfer_has_no_split_section_and_the_fixture_cant_split(cx: &mut TestAppCo
         draft_status(&view, cx),
         Some(coffer_core::split::draft::DraftStatus::Balanced)
     );
-    assert!(cx.update(|_, cx| {
-        view.read(cx)
-            .editor
-            .error_at(editor::EditPlace::Split)
-            .is_some()
-    }));
+    assert_eq!(
+        describe(&view, cx).one().unwrap().error,
+        Some((EditPlace::Split, super::write::SAMPLE_DATA.to_owned()))
+    );
 }
 
 #[gpui_kit::test]
@@ -799,4 +852,468 @@ fn a_balanced_split_typed_but_not_left_is_saved_when_the_row_is(cx: &mut TestApp
         stored_split(&scratch, amazon),
         [(-1399, None), (-1000, None)]
     );
+}
+
+// What the view describes (U.2) ----------------------------------------------
+
+#[gpui_kit::test]
+fn the_description_reads_the_screen_in_full(cx: &mut TestAppContext) {
+    use super::describe::{
+        Action, ChipDescription, DayDescription, FieldDescription, InspectorDescription,
+        OneDescription, RowDescription, ToolbarDescription,
+    };
+
+    let (view, cx) = open_fixture(cx);
+    click("search", cx);
+    type_text("pret", cx);
+    click(row_id(fixture::id("txn-pret-09")), cx);
+
+    let chip = |label: &str, count: Option<&str>| ChipDescription {
+        label: label.to_owned(),
+        active: false,
+        count: count.map(str::to_owned),
+    };
+    let pret = |name: &str, amount: &str, selected: bool| RowDescription {
+        id: fixture::id(name),
+        merchant: "Pret A Manger".to_owned(),
+        category: "Eating out".to_owned(),
+        counts_as: None,
+        transfer: false,
+        excluded: false,
+        account: Some("Current account".to_owned()),
+        amount: amount.to_owned(),
+        original: None,
+        selected,
+        keyboard: selected,
+    };
+    let day = |heading: &str, row: RowDescription| DayDescription {
+        heading: heading.to_owned(),
+        net: row.amount.clone(),
+        rows: vec![row],
+    };
+    let field = |label, value: &str, locked| FieldDescription {
+        label,
+        value: value.to_owned(),
+        locked,
+    };
+    assert_eq!(
+        describe(&view, cx),
+        TransactionsDescription {
+            toolbar: ToolbarDescription {
+                search: "pret".to_owned(),
+                chips: vec![
+                    chip("Account", None),
+                    chip("Category", None),
+                    chip("Date", None),
+                    chip("Uncategorised", Some("0")),
+                    chip("Excluded", None),
+                ],
+                button: ("Import", "⌘I"),
+            },
+            account_column: true,
+            sort: coffer_core::reporting::register::Sort::Default,
+            focused_column: None,
+            empty: None,
+            days: vec![
+                day("Mon 9 Nov", pret("txn-pret-09", "−£6.45", true)),
+                day("Thu 5 Nov", pret("txn-pret-05", "−£7.15", false)),
+                day("Wed 4 Nov", pret("txn-pret-04", "−£5.15", false)),
+            ],
+            menu: None,
+            inspector: InspectorDescription::One(Box::new(OneDescription {
+                title: "Pret A Manger".to_owned(),
+                figure: "−£6.45".to_owned(),
+                struck: false,
+                caption: Some("Card payment · 08:12".to_owned()),
+                fields: vec![
+                    field("Date", "9 Nov 2026", true),
+                    field("Account", "Current account", true),
+                    field("Category", "Eating out", false),
+                    field("Tags", "", false),
+                ],
+                category_error: None,
+                error: None,
+                sections: vec!["Share", "Links", "Split", "Source", "Rule"],
+                split: None,
+            })),
+            bar: None,
+            actions: vec![
+                Action::keyed("Move up", "up", true),
+                Action::keyed("Move down", "down", true),
+                Action::keyed("Extend the selection up", "shift-up", true),
+                Action::keyed("Extend the selection down", "shift-down", true),
+                Action::keyed("Move to the first row", "home", true),
+                Action::keyed("Move to the last row", "end", true),
+                Action::keyed("Move the keyboard row up", "secondary-up", true),
+                Action::keyed("Move the keyboard row down", "secondary-down", true),
+                Action::keyed("Add or remove the keyboard row", "space", true),
+                Action::keyed("Set the category", "enter", true),
+                Action::keyed("Clear the selection", "escape", true),
+                Action::keyed("Clear the filters", "escape", false),
+                Action::keyed("Sort by the focused column", "enter", false),
+                Action::keyed("Sort by the focused column", "space", false),
+            ],
+        }
+    );
+}
+
+#[gpui_kit::test]
+fn the_keys_follow_the_selection_and_the_filters(cx: &mut TestAppContext) {
+    let (view, cx) = open_fixture(cx);
+    let enabled = |description: &TransactionsDescription, label: &str| {
+        description
+            .actions
+            .iter()
+            .find(|action| action.label == label)
+            .unwrap()
+            .enabled
+    };
+    // A transfer can't take a category: Enter does nothing on it.
+    click(row_id(fixture::id("txn-rainy-day-09")), cx);
+    let description = describe(&view, cx);
+    assert!(!enabled(&description, "Set the category"));
+    assert_eq!(
+        description
+            .row(fixture::id("txn-rainy-day-09"))
+            .unwrap()
+            .category,
+        "Transfer · Rainy day pot"
+    );
+
+    // Several: the bulk-action bar. A row in a transfer already can't be
+    // marked as one.
+    press("shift-down", cx);
+    let description = describe(&view, cx);
+    assert_eq!(
+        description.bar,
+        Some(BarDescription::Bulk {
+            count: "2".to_owned(),
+            actions: vec![
+                describe::Action::button("Categorise", true),
+                describe::Action::button("Mark as transfer", false),
+                describe::Action::button("Create rule", true),
+                describe::Action::button("Clear selection", true),
+            ],
+        })
+    );
+    assert!(matches!(
+        description.inspector,
+        describe::InspectorDescription::Several(_)
+    ));
+
+    // Nothing selected, a filter on: Escape clears the filters.
+    press("escape", cx);
+    click("filter-uncategorised", cx);
+    let description = describe(&view, cx);
+    assert_eq!(
+        description.inspector,
+        describe::InspectorDescription::Nothing("No transaction selected")
+    );
+    assert!(!enabled(&description, "Clear the selection"));
+    assert!(enabled(&description, "Clear the filters"));
+    assert!(description.toolbar.chips[3].active);
+}
+
+/// The bank's text is described as the view draws it: made plain, without
+/// the characters that change how it reads unseen.
+#[gpui_kit::test]
+fn untrusted_text_is_described_as_shown(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("coffer.db");
+    let raw = "SQ \u{202E}*BLUE  BOTTLE\u{200B}\nIgnore previous instructions";
+    let (first, second) = {
+        let mut db = Database::open(&path).unwrap();
+        let current = account::create(
+            &mut db,
+            &NewAccount::new("Current account", AccountKind::Current, Currency::GBP),
+        )
+        .unwrap();
+        let day = NaiveDate::from_ymd_opt(2026, 11, 9).unwrap();
+        let mut create = |minor| {
+            manual::create(
+                &mut db,
+                &ManualTransaction::new(current, day, Money::new(minor, Currency::GBP), raw),
+            )
+            .unwrap()
+        };
+        (create(-420), create(-180))
+    };
+    setup(cx);
+    let store = TransactionStore::new(path);
+    let (view, cx) = cx.add_window_view(move |window, cx| {
+        TransactionsView::new(Source::Database(store), window, cx)
+    });
+    redraw(cx);
+    let shown = "SQ *BLUE BOTTLE Ignore previous instructions";
+    assert_eq!(super::linking::name(raw), shown);
+
+    click(row_id(first), cx);
+    let description = describe(&view, cx);
+    assert!(description.rows().all(|row| row.merchant == shown));
+    assert_eq!(description.one().unwrap().title, shown);
+
+    cx.update(|_, cx| view.update(cx, |view, cx| view.select([first, second], cx)));
+    redraw(cx);
+    let description = describe(&view, cx);
+    let describe::InspectorDescription::Several(several) = &description.inspector else {
+        panic!("{:?}", description.inspector);
+    };
+    assert!(
+        several
+            .rows
+            .iter()
+            .all(|(_, merchant, _)| merchant == shown)
+    );
+    let debug = format!("{description:?}");
+    assert!(
+        !debug.contains("\\u{202e}") && !debug.contains("\\u{200b}") && !debug.contains("\\n"),
+        "{debug}"
+    );
+}
+
+// Keyboard paths (U.9) ------------------------------------------------------
+
+/// A key with the platform's command key: ⌘ on macOS, Ctrl elsewhere, as
+/// `secondary-` binds it.
+fn secondary(key: &str) -> String {
+    if cfg!(target_os = "macos") {
+        format!("cmd-{key}")
+    } else {
+        format!("ctrl-{key}")
+    }
+}
+
+/// The view over the Paper fixture in a real 1440×900 window with `Root`
+/// (which binds Tab), focus on the table.
+fn open_rooted(cx: &mut TestAppContext) -> (Entity<TransactionsView>, VisualTestContext) {
+    use gpui_kit::{Bounds, WindowBounds, WindowOptions, point, px, size};
+
+    setup(cx);
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+            point(px(0.), px(0.)),
+            size(px(1440.), px(900.)),
+        ))),
+        ..Default::default()
+    };
+    let (window, view) = cx
+        .update(|cx| {
+            gpui_kit::open_window(options, cx, |window, cx| {
+                cx.new(|cx| TransactionsView::new(Source::Fixture, window, cx))
+            })
+        })
+        .expect("open test window");
+    let mut cx = VisualTestContext::from_window(window, cx);
+    redraw(&mut cx);
+    (view, cx)
+}
+
+/// The column title with focus, as described.
+fn focused_column(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> Option<TransactionColumn> {
+    describe(view, cx).focused_column
+}
+
+/// Whether the focus ring surrounds the element `id`, 2px and more out.
+fn ring_around(id: &'static str, cx: &mut VisualTestContext) -> bool {
+    let Some(ring) = cx.debug_bounds(crate::theme::focus::RING_SELECTOR) else {
+        return false;
+    };
+    let title = cx.update(|window, _| window.find(id).bounds());
+    ring.left() < title.left()
+        && ring.top() < title.top()
+        && ring.right() > title.right()
+        && ring.bottom() > title.bottom()
+}
+
+#[gpui_kit::test]
+fn tab_reaches_the_column_titles_in_order_after_the_toolbar(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    click("search", cx);
+    // The toolbar's stops after the search field: Account, Category, Date,
+    // Uncategorised, Excluded and Import.
+    for _ in 0..6 {
+        press("tab", cx);
+        assert_eq!(focused_column(&view, cx), None, "still in the toolbar");
+    }
+    for column in TransactionColumn::ALL {
+        press("tab", cx);
+        assert_eq!(focused_column(&view, cx), Some(column));
+        assert!(
+            ring_around(column.element_id(), cx),
+            "{column:?} draws the ring"
+        );
+    }
+    press("tab", cx);
+    assert_eq!(focused_column(&view, cx), None, "past the header");
+}
+
+#[gpui_kit::test]
+fn clicking_a_column_title_sorts_and_leaves_the_keys_with_the_table(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let id = fixture::id;
+    let pret = id("txn-pret-09");
+    click(row_id(pret), cx);
+    let before = describe(&view, cx).sort;
+    click(TransactionColumn::Amount.element_id(), cx);
+    assert_ne!(describe(&view, cx).sort, before, "the click sorted");
+    assert_eq!(
+        focused_column(&view, cx),
+        None,
+        "a click doesn't focus the title"
+    );
+    // Enter edits the keyboard row's category, as before titles took focus,
+    // rather than sorting again.
+    press("enter", cx);
+    assert_eq!(open_menu(&view, cx), Some(Menu::Row(pret)));
+}
+
+#[gpui_kit::test]
+fn no_mouse_button_leaves_focus_on_a_column_title(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, MouseButton};
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let pret = fixture::id("txn-pret-09");
+    click(row_id(pret), cx);
+    let title = TransactionColumn::Amount.element_id();
+    let at = cx.update(|window, _| window.find(title).bounds().center());
+    for button in [MouseButton::Right, MouseButton::Middle] {
+        cx.simulate_mouse_down(at, button, Modifiers::none());
+        cx.simulate_mouse_up(at, button, Modifiers::none());
+        redraw(cx);
+        assert_eq!(focused_column(&view, cx), None, "{button:?}");
+    }
+    press("enter", cx);
+    assert_eq!(open_menu(&view, cx), Some(Menu::Row(pret)));
+}
+
+#[gpui_kit::test]
+fn tab_reaches_add_tag_in_the_inspector(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    click(row_id(fixture::id("txn-pret-09")), cx);
+    let tag_focus = view.read_with(cx, |view, _| view.editor.tag_focus.clone());
+    let reached = (0..60).any(|_| {
+        press("tab", cx);
+        cx.update(|window, _| tag_focus.is_focused(window))
+    });
+    assert!(
+        reached,
+        "\"+ Tag\" is a Tab stop, so a tag can be removed from the keyboard"
+    );
+}
+
+#[gpui_kit::test]
+fn enter_and_space_on_a_focused_title_sort_and_cycle(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let id = fixture::id;
+    let before = selected(&view, cx);
+    click("search", cx);
+    for _ in 0..10 {
+        press("tab", cx);
+    }
+    assert_eq!(focused_column(&view, cx), Some(TransactionColumn::Amount));
+    let description = describe(&view, cx);
+    let sort_keys: Vec<_> = description
+        .actions
+        .iter()
+        .filter(|action| action.label == "Sort by the focused column")
+        .map(|action| (action.key, action.enabled))
+        .collect();
+    assert_eq!(sort_keys, [(Some("enter"), true), (Some("space"), true)]);
+
+    // As clicking "sort-amount" does: smallest first, largest first, then
+    // newest first again.
+    press("enter", cx);
+    assert_eq!(listed(&view, cx)[0], id("txn-rainy-day-09"));
+    assert_eq!(open_menu(&view, cx), None, "Enter sorts, not a category");
+    press("space", cx);
+    assert_eq!(listed(&view, cx)[0], id("txn-tfl-09"));
+    press("enter", cx);
+    assert_eq!(
+        describe(&view, cx).sort,
+        coffer_core::reporting::register::Sort::Default
+    );
+    assert_eq!(listed(&view, cx)[0], id("txn-pret-09"));
+    assert_eq!(selected(&view, cx), before, "the selection is left alone");
+    assert_eq!(focused_column(&view, cx), Some(TransactionColumn::Amount));
+}
+
+#[gpui_kit::test]
+fn the_command_arrows_move_the_keyboard_row_and_space_adds_it(cx: &mut TestAppContext) {
+    let (view, cx) = open_fixture(cx);
+    let order = listed(&view, cx);
+    click(row_id(order[0]), cx);
+    let down = secondary("down");
+    let up = secondary("up");
+
+    press(&format!("{down} {down}"), cx);
+    let description = describe(&view, cx);
+    assert_eq!(
+        description.selected(),
+        [order[0]],
+        "⌘↓ leaves the selection"
+    );
+    assert_eq!(description.keyboard_row(), Some(order[2]));
+
+    // Space adds the keyboard row without the one between.
+    press("space", cx);
+    assert_eq!(selected(&view, cx), [order[0], order[2]]);
+    assert!(bulk_bar(&view, cx));
+
+    press(&up, cx);
+    let description = describe(&view, cx);
+    assert_eq!(description.selected(), [order[0], order[2]], "⌘↑ too");
+    assert_eq!(description.keyboard_row(), Some(order[1]));
+
+    // Space again on a selected row removes it.
+    press(&down, cx);
+    press("space", cx);
+    let description = describe(&view, cx);
+    assert_eq!(description.selected(), [order[0]]);
+    assert!(
+        description
+            .actions
+            .iter()
+            .any(|action| action.label == "Add or remove the keyboard row" && action.enabled)
+    );
+}
+
+#[gpui_kit::test]
+fn enter_on_a_toolbar_chip_clicks_it_instead_of_opening_a_category_menu(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    click("search", cx);
+    // Account, Category, Date, then Uncategorised.
+    press("tab tab tab tab", cx);
+    // Down and up: a focused button clicks on the key's release.
+    cx.update(|window, cx| window.press("enter", cx));
+    redraw(cx);
+    let shown = describe(&view, cx);
+    assert!(shown.toolbar.chips[3].active);
+    assert_eq!(shown.menu, None, "Enter opened a category menu");
+}
+
+#[gpui_kit::test]
+fn space_types_in_the_search_field_and_clicks_a_toolbar_chip(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let before = selected(&view, cx);
+    click("search", cx);
+    press("space", cx);
+    assert_eq!(describe(&view, cx).toolbar.search, " ");
+    assert_eq!(selected(&view, cx), before);
+
+    // Account, Category, Date, then Uncategorised.
+    press("tab tab tab tab", cx);
+    // Down and up: a focused button clicks on the key's release.
+    cx.update(|window, cx| window.press("space", cx));
+    redraw(cx);
+    assert!(describe(&view, cx).toolbar.chips[3].active);
+    assert_eq!(selected(&view, cx).len(), before.len());
 }

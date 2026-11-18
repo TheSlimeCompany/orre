@@ -24,10 +24,11 @@
 
 use std::rc::Rc;
 
+use gpui_kit::base::actions::Confirm;
 use gpui_kit::component::list::ListItem;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Div, ElementId, InteractiveElement as _, IntoElement,
+    AnyElement, App, ClickEvent, Div, ElementId, FocusHandle, InteractiveElement as _, IntoElement,
     ParentElement as _, RenderOnce, Rgba, SharedString, StatefulInteractiveElement as _,
     Styled as _, Transformation, Window, div, radians,
 };
@@ -43,7 +44,18 @@ use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
-type SortHandler = Rc<dyn Fn(TransactionColumn, &mut Window, &mut App)>;
+type SortHandler = Rc<dyn Fn(TransactionColumn, SortedBy, &mut Window, &mut App)>;
+
+/// How a column title was asked to sort.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortedBy {
+    /// A click. A title never takes focus from the mouse (its mouse-down is
+    /// stopped), so the view puts focus where a click on the header always
+    /// put it: on the table.
+    Click,
+    /// Enter or Space on the focused title, which keeps focus.
+    Key,
+}
 
 /// A table column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,9 +95,12 @@ impl TransactionColumn {
 }
 
 /// One row's cells laid out in the table's columns. Header and rows share
-/// it, so their columns line up.
+/// it, so their columns line up. A row's cells clip what they hold, so long
+/// text truncates; the header's titles fit, and theirs don't, so a focused
+/// title's ring (drawn outside it) isn't cut off at the cell's edge.
 fn columns(
     row: Div,
+    clip: bool,
     merchant: impl IntoElement,
     category: impl IntoElement,
     account: Option<impl IntoElement>,
@@ -99,7 +114,7 @@ fn columns(
             .gap(spacing::S2)
             .w(width)
             .min_w_0()
-            .overflow_hidden()
+            .when(clip, |this| this.overflow_hidden())
     };
     row.flex()
         .items_center()
@@ -111,7 +126,7 @@ fn columns(
                 .items_center()
                 .gap(spacing::S2)
                 .min_w_0()
-                .overflow_hidden()
+                .when(clip, |this| this.overflow_hidden())
                 .child(merchant),
         )
         .child(cell(size::COLUMN_CATEGORY).child(category))
@@ -142,13 +157,23 @@ fn truncating(text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
+/// The key context of a focused column title, where Enter and Space sort
+/// (`DESIGN.md` → "Keyboard paths"). Its owner binds them to [`Confirm`]
+/// here: deeper than the table's own context, so Enter sorts rather than
+/// opening a row's category menu.
+pub const TITLE_CONTEXT: &str = "CofferColumnTitle";
+
 /// The table's column header: 28px, `canvas` fill (it stays put while the
 /// rows scroll under it), bottom `hairline`, section-label type.
 ///
 /// The column the table is sorted by has a `text` label and a chevron in
 /// `icon-faint`, pointing down for Z–A or largest first and up otherwise;
 /// the others are `text-muted`. With [`TransactionHeader::on_sort`], every
-/// title is clickable and shows the chevron on hover.
+/// title is clickable and shows the chevron on hover. With
+/// [`TransactionHeader::focus`] as well, each title is a Tab stop: focused
+/// from the keyboard, it shows its chevron as on hover and the focus ring
+/// 2px out (radius `radius-sm` + 2), and Enter or Space (bound in
+/// [`TITLE_CONTEXT`]) sorts as a click does.
 #[derive(IntoElement)]
 pub struct TransactionHeader {
     sorted_by: Option<TransactionColumn>,
@@ -156,6 +181,8 @@ pub struct TransactionHeader {
     show_account: bool,
     full_bleed: bool,
     on_sort: Option<SortHandler>,
+    /// Each title's focus handle, in [`TransactionColumn::ALL`]'s order.
+    focus: Option<[FocusHandle; 4]>,
 }
 
 impl TransactionHeader {
@@ -167,6 +194,7 @@ impl TransactionHeader {
             show_account: true,
             full_bleed: false,
             on_sort: None,
+            focus: None,
         }
     }
 
@@ -184,12 +212,21 @@ impl TransactionHeader {
         self
     }
 
-    /// Runs `handler` with the column whose title was clicked.
+    /// Runs `handler` with the column whose title was clicked, or sorted
+    /// from the keyboard, and which of the two it was.
     pub fn on_sort(
         mut self,
-        handler: impl Fn(TransactionColumn, &mut Window, &mut App) + 'static,
+        handler: impl Fn(TransactionColumn, SortedBy, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_sort = Some(Rc::new(handler));
+        self
+    }
+
+    /// Makes each sortable title focusable with its handle (in
+    /// [`TransactionColumn::ALL`]'s order; make them Tab stops), so the
+    /// keyboard can sort. Needs [`Self::on_sort`].
+    pub fn focus(mut self, handles: [FocusHandle; 4]) -> Self {
+        self.focus = Some(handles);
         self
     }
 
@@ -216,13 +253,27 @@ impl Default for TransactionHeader {
 }
 
 impl RenderOnce for TransactionHeader {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
         let role = typography::SECTION_LABEL;
         let on_sort = self.on_sort.clone();
         let descending = self.descending;
         let title = |column: TransactionColumn| {
             let sorted = self.sorted_by == Some(column);
             let sortable = on_sort.is_some();
+            let focus = self
+                .focus
+                .as_ref()
+                .filter(|_| sortable)
+                .and_then(|handles| {
+                    TransactionColumn::ALL
+                        .iter()
+                        .position(|other| *other == column)
+                        .map(|index| handles[index].clone())
+                });
+            // Focused from the keyboard: the chevron shows as on hover.
+            let focused = focus
+                .as_ref()
+                .is_some_and(|focus| focus.is_focused(window) && window.last_input_was_keyboard());
             let group = column.element_id();
             let chevron = || {
                 Glyph::ChevronDown
@@ -244,23 +295,37 @@ impl RenderOnce for TransactionHeader {
                     div()
                         .flex()
                         .flex_none()
-                        .when(!sorted, |this| {
+                        .when(!sorted && !focused, |this| {
                             this.opacity(0.)
                                 .group_hover(group, |style| style.opacity(1.))
                         })
                         .child(chevron())
                 })
             };
-            div()
+            let title = div()
                 .id(column.element_id())
                 .group(group)
                 .flex()
                 .items_center()
                 .gap(spacing::S1)
+                .rounded(radius::SM)
                 .when(lead, |this| this.children(marker()))
                 .when_some(handler, |this, handler| {
+                    let keyed = handler.clone();
                     this.cursor_pointer()
-                        .on_click(move |_, window, cx| handler(column, window, cx))
+                        .on_click(move |_, window, cx| handler(column, SortedBy::Click, window, cx))
+                        .when_some(focus.clone(), |this, focus| {
+                            this.track_focus(&focus)
+                                // Only Tab focuses a title: a press of any
+                                // button (a right-click, a drag off it) would
+                                // otherwise leave the keys with it.
+                                .on_any_mouse_down(|_, window, _| window.prevent_default())
+                                .key_context(TITLE_CONTEXT)
+                                .on_action(move |_: &Confirm, window, cx| {
+                                    cx.stop_propagation();
+                                    keyed(column, SortedBy::Key, window, cx)
+                                })
+                        })
                 })
                 .child(
                     div()
@@ -275,7 +340,11 @@ impl RenderOnce for TransactionHeader {
                         .child(Tracked::new(role, column.title())),
                 )
                 .when(!lead, |this| this.children(marker()))
-                .test_support()
+                .test_support();
+            match &focus {
+                Some(focus) => title.focus_visible_ring(focus, FocusRingPlacement::Outside, window),
+                None => title,
+            }
         };
         columns(
             div()
@@ -289,6 +358,7 @@ impl RenderOnce for TransactionHeader {
                 .bg(color::CANVAS)
                 .border_b(size::HAIRLINE)
                 .border_color(color::HAIRLINE),
+            false,
             title(TransactionColumn::Merchant),
             title(TransactionColumn::Category),
             self.show_account.then(|| title(TransactionColumn::Account)),
@@ -840,6 +910,7 @@ impl RenderOnce for TransactionRow {
             })
             .child(columns(
                 div().w_full().min_w_0(),
+                true,
                 merchant,
                 category,
                 account,

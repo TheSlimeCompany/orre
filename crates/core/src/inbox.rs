@@ -63,7 +63,7 @@ use crate::rule::{UnknownKey, key_enum};
 
 pub use approve::{
     Applied, ApproveError, ApproveOptions, Approved, DECIDED_IN_TRANSACTIONS, TransferDecided,
-    approve, approve_all, decide_transfer, reject, reject_all,
+    TransferMarked, approve, approve_all, decide_transfer, mark_transfer, reject, reject_all,
 };
 pub use impact::{
     AliasImpact, CategorizationImpact, Detail, Impact, LinkImpact, RuleImpact, TransferImpact,

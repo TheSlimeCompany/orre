@@ -16,7 +16,7 @@
 //!
 //! People are local labels and merchants untrusted text: shown plain.
 
-use coffer_core::link::owed::{ClaimMatch, ClaimRow, OwedQueue, Person};
+use coffer_core::link::owed::{ClaimMatch, ClaimRow, Cost, OwedQueue, Payment, Person};
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -116,7 +116,30 @@ fn section_header(title: &'static str, count: usize, lanes: [&'static str; 3]) -
         .into_any_element()
 }
 
+/// What an expense claim's row says, lane by lane.
+pub(super) struct ClaimRowText {
+    pub merchant: String,
+    pub account: String,
+    pub date: String,
+    pub owed: String,
+}
+
+pub(super) fn claim_row_text(claim: &ClaimRow, today: chrono::NaiveDate) -> ClaimRowText {
+    ClaimRowText {
+        merchant: plain(&claim.merchant, NAME_SHOWN),
+        account: text::account(&claim.account_name),
+        date: text::date(claim.date, today),
+        owed: unsigned(claim.owed),
+    }
+}
+
 fn claim_row(claim: &ClaimRow, today: chrono::NaiveDate) -> AnyElement {
+    let ClaimRowText {
+        merchant,
+        account,
+        date,
+        owed,
+    } = claim_row_text(claim, today);
     row_frame(claim.matched.then_some(Glyph::Link))
         .child(
             div()
@@ -126,26 +149,26 @@ fn claim_row(claim: &ClaimRow, today: chrono::NaiveDate) -> AnyElement {
                 .text_ellipsis()
                 .text_role(typography::BODY)
                 .text_color(color::TEXT)
-                .child(plain(&claim.merchant, NAME_SHOWN)),
+                .child(merchant),
         )
         .child(
             lane(size::COLUMN_ACCOUNT)
                 .text_role(typography::BODY)
                 .text_color(color::TEXT_MUTED)
-                .child(plain(&claim.account_name, NAME_SHOWN)),
+                .child(account),
         )
         .child(
             lane(date_lane())
                 .text_role(typography::MONO_VALUE)
                 .text_color(color::TEXT_MUTED)
-                .child(text::date(claim.date, today)),
+                .child(date),
         )
         .child(
             lane(size::COLUMN_AMOUNT)
                 .justify_end()
                 .text_role(typography::MONO_AMOUNT)
                 .text_color(color::TEXT)
-                .child(unsigned(claim.owed)),
+                .child(owed),
         )
         .into_any_element()
 }
@@ -153,12 +176,8 @@ fn claim_row(claim: &ClaimRow, today: chrono::NaiveDate) -> AnyElement {
 /// The strip naming a matched payment (Paper `CX8-0`), indented to the
 /// text lane: "+£150.60 from ACME LTD EXPENSES on 9 Nov matches the two
 /// marked claims exactly. Link it and both clear."
-fn match_strip(
-    found: &ClaimMatch,
-    handle: &Entity<Checks>,
-    today: chrono::NaiveDate,
-    window: &Window,
-) -> AnyElement {
+/// What a match strip says, and the undo bar's message after linking it.
+pub(super) fn match_text(found: &ClaimMatch, today: chrono::NaiveDate) -> (Vec<Part>, String) {
     let claims = found.claims.len();
     let (matches, clears) = match claims {
         1 => (
@@ -175,22 +194,32 @@ fn match_strip(
         ),
     };
     let merchant = plain(&found.merchant, NAME_SHOWN);
-    let words = rich(
-        window,
-        typography::CAPTION,
-        color::TEXT_MUTED,
-        vec![
-            Part::mono(text::signed(found.amount)).color(color::TEXT_STRONG),
-            Part::text(format!(" from {merchant}")).color(color::TEXT_STRONG),
-            Part::text(" on "),
-            Part::mono(text::date(found.date, today)),
-            Part::text(format!(" {matches}. {clears}")),
-        ],
-    );
+    let words = vec![
+        Part::mono(text::signed(found.amount)).color(color::TEXT_STRONG),
+        Part::text(format!(" from {merchant}")).color(color::TEXT_STRONG),
+        Part::text(" on "),
+        Part::mono(text::date(found.date, today)),
+        Part::text(format!(" {matches}. {clears}")),
+    ];
     let message = format!(
         "Linked {merchant} to {}",
         text::count(claims, "claim", "claims")
     );
+    (words, message)
+}
+
+/// A match strip's buttons.
+pub(super) const LINK: &str = "Link as reimbursement";
+pub(super) const NOT_THIS: &str = "Not this";
+
+fn match_strip(
+    found: &ClaimMatch,
+    handle: &Entity<Checks>,
+    today: chrono::NaiveDate,
+    window: &Window,
+) -> AnyElement {
+    let (words, message) = match_text(found, today);
+    let words = rich(window, typography::CAPTION, color::TEXT_MUTED, words);
     let (link, reject) = (handle.clone(), handle.clone());
     let (links, rejected) = (found.links.clone(), found.links.clone());
     let key = found.inflow;
@@ -210,18 +239,15 @@ fn match_strip(
                 .child(words),
         )
         .child(
-            Button::new(
-                SharedString::from(format!("owed-link-{key}")),
-                "Link as reimbursement",
-            )
-            .with_variant(ButtonVariant::Outline)
-            .on_click(click(move |_, _, cx| {
-                let (links, message) = (links.clone(), message.clone());
-                link.update(cx, |checks, cx| checks.link_match(links, message, cx))
-            })),
+            Button::new(SharedString::from(format!("owed-link-{key}")), LINK)
+                .with_variant(ButtonVariant::Outline)
+                .on_click(click(move |_, _, cx| {
+                    let (links, message) = (links.clone(), message.clone());
+                    link.update(cx, |checks, cx| checks.link_match(links, message, cx))
+                })),
         )
         .child(
-            Button::new(SharedString::from(format!("owed-reject-{key}")), "Not this")
+            Button::new(SharedString::from(format!("owed-reject-{key}")), NOT_THIS)
                 .with_variant(ButtonVariant::Ghost)
                 .on_click(click(move |_, _, cx| {
                     let links = rejected.clone();
@@ -232,17 +258,45 @@ fn match_strip(
 }
 
 /// COSTS: "2 since 30 Oct", "1 on 8 Nov".
-fn costs_words(person: &Person, today: chrono::NaiveDate, window: &Window) -> AnyElement {
+pub(super) fn costs_parts(person: &Person, today: chrono::NaiveDate) -> Vec<Part> {
     let first = person.costs.first().map(|cost| cost.date);
-    let parts = match (person.costs.len(), first) {
+    match (person.costs.len(), first) {
         (0, _) | (_, None) => vec![Part::text("—")],
         (1, Some(date)) => vec![Part::text("1 on "), Part::mono(text::date(date, today))],
         (count, Some(date)) => vec![
             Part::text(format!("{count} since ")),
             Part::mono(text::date(date, today)),
         ],
-    };
-    rich(window, typography::BODY, color::TEXT_MUTED, parts).into_any_element()
+    }
+}
+
+/// A person's name, as their row, the inspector and its titles show it.
+pub(super) fn person_name(person: &Person) -> String {
+    plain(person.label.as_str(), NAME_SHOWN)
+}
+
+/// What a person's row says, lane by lane.
+pub(super) struct PersonRowText {
+    pub name: String,
+    pub costs: Vec<Part>,
+    pub last_paid: String,
+    pub owed: String,
+}
+
+pub(super) fn person_row_text(person: &Person, today: chrono::NaiveDate) -> PersonRowText {
+    PersonRowText {
+        name: person_name(person),
+        costs: costs_parts(person, today),
+        last_paid: last_paid(person, today),
+        owed: unsigned(person.owed),
+    }
+}
+
+/// LAST PAID: the day of their last payment, or "—".
+pub(super) fn last_paid(person: &Person, today: chrono::NaiveDate) -> String {
+    person
+        .last_paid()
+        .map_or_else(|| "—".to_owned(), |date| text::date(date, today))
 }
 
 fn person_row(
@@ -254,6 +308,12 @@ fn person_row(
     window: &Window,
 ) -> AnyElement {
     let lift = |rest| if selected { color::TEXT } else { rest };
+    let PersonRowText {
+        name,
+        costs,
+        last_paid,
+        owed,
+    } = person_row_text(person, today);
     let (label, currency) = (person.label.clone(), person.owed.currency());
     let handle = handle.clone();
     let focus = focus.clone();
@@ -278,29 +338,25 @@ fn person_row(
                 .text_ellipsis()
                 .text_role(typography::BODY)
                 .text_color(color::TEXT)
-                .child(plain(person.label.as_str(), NAME_SHOWN)),
+                .child(name),
         )
         .child(
             lane(size::COLUMN_ACCOUNT)
                 .text_color(lift(color::TEXT_MUTED))
-                .child(costs_words(person, today, window)),
+                .child(rich(window, typography::BODY, color::TEXT_MUTED, costs)),
         )
         .child(
             lane(date_lane())
                 .text_role(typography::MONO_VALUE)
                 .text_color(color::TEXT_MUTED)
-                .child(
-                    person
-                        .last_paid()
-                        .map_or_else(|| "—".to_owned(), |date| text::date(date, today)),
-                ),
+                .child(last_paid),
         )
         .child(
             lane(size::COLUMN_AMOUNT)
                 .justify_end()
                 .text_role(typography::MONO_AMOUNT)
                 .text_color(color::TEXT)
-                .child(unsigned(person.owed)),
+                .child(owed),
         )
         .into_any_element()
 }
@@ -326,6 +382,27 @@ pub fn toolbar_caption(queue: &OwedQueue) -> Vec<Part> {
     parts
 }
 
+/// What the canvas says instead of claims and people: why they couldn't
+/// be read, or that nothing is owed.
+pub(super) fn empty(checks: &Checks) -> Option<(&'static str, SharedString)> {
+    if let Some(error) = checks.load_error() {
+        return Some(("Owed to you couldn’t be read", error.clone()));
+    }
+    let queue = &checks.data().owed;
+    (queue.claims.is_empty() && queue.people.is_empty()).then(|| {
+        (
+            "Nothing owed to you",
+            "Mark a purchase as shared or to claim back, and it waits here until the money \
+             comes back."
+                .into(),
+        )
+    })
+}
+
+/// The table's sections' titles.
+pub(super) const CLAIMS: &str = "Expense claims";
+pub(super) const SHARED: &str = "Shared costs";
+
 pub fn render_body(
     handle: &Entity<Checks>,
     checks: &Checks,
@@ -333,25 +410,10 @@ pub fn render_body(
     window: &Window,
 ) -> AnyElement {
     let today = checks.today();
-    if let Some(error) = checks.load_error() {
-        return empty_queue(
-            Glyph::OwedLarge,
-            "Owed to you couldn’t be read",
-            error.clone(),
-        )
-        .into_any_element();
+    if let Some((title, body)) = empty(checks) {
+        return empty_queue(Glyph::OwedLarge, title, body).into_any_element();
     }
     let queue = &checks.data().owed;
-    if queue.claims.is_empty() && queue.people.is_empty() {
-        return empty_queue(
-            Glyph::OwedLarge,
-            "Nothing owed to you",
-            "Mark a purchase as shared or to claim back, and it waits here until the money \
-             comes back."
-                .into(),
-        )
-        .into_any_element();
-    }
     let mut sections: Vec<AnyElement> = Vec::new();
     if !queue.claims.is_empty() {
         sections.push(
@@ -362,7 +424,7 @@ pub fn render_body(
                 .pt(spacing::S2)
                 .pb(spacing::S3)
                 .child(section_header(
-                    "Expense claims",
+                    CLAIMS,
                     queue.claims.len(),
                     ["Paid from", "Spent", "Owed"],
                 ))
@@ -389,7 +451,7 @@ pub fn render_body(
                     this.border_t(size::HAIRLINE).border_color(color::HAIRLINE)
                 })
                 .child(section_header(
-                    "Shared costs",
+                    SHARED,
                     queue.people.len(),
                     ["Costs", "Last paid", "Owed"],
                 ))
@@ -441,9 +503,39 @@ pub fn render_body(
         .into_any_element()
 }
 
+/// What a row of Costs or Payments says: its date, its name and its
+/// amount.
+pub(super) struct ListRowText {
+    pub date: String,
+    pub name: String,
+    pub amount: String,
+}
+
+/// A row of Costs: the day, the merchant and the person's part.
+pub(super) fn cost_row_text(cost: &Cost, today: chrono::NaiveDate) -> ListRowText {
+    ListRowText {
+        date: text::date(cost.date, today),
+        name: plain(&cost.merchant, NAME_SHOWN),
+        amount: unsigned(cost.part),
+    }
+}
+
+/// A row of Payments: the day, what it was ([`payment_what`]) and the
+/// amount.
+pub(super) fn payment_row_text(payment: &Payment, today: chrono::NaiveDate) -> ListRowText {
+    ListRowText {
+        date: text::date(payment.date, today),
+        name: payment_what(payment),
+        amount: text::signed(payment.amount),
+    }
+}
+
 /// A 28px list row in the inspector (Paper `E6O-0`, `E7P-0`): mono date in
 /// a 48px lane, the name, the mono amount.
-fn inspector_row(date: String, name: String, amount: String, tone: gpui_kit::Rgba) -> AnyElement {
+fn inspector_row(
+    ListRowText { date, name, amount }: ListRowText,
+    tone: gpui_kit::Rgba,
+) -> AnyElement {
     div()
         .flex()
         .flex_none()
@@ -478,6 +570,51 @@ fn inspector_row(date: String, name: String, amount: String, tone: gpui_kit::Rgb
         .into_any_element()
 }
 
+/// The inspector's header for a person: their name, what they owe, and
+/// "Owes you for 2 shared costs".
+pub(super) fn header_text(person: &Person) -> (String, String, String) {
+    (
+        person_name(person),
+        unsigned(person.owed),
+        format!(
+            "Owes you for {}",
+            text::count(person.costs.len(), "shared cost", "shared costs")
+        ),
+    )
+}
+
+/// A payment's name in the inspector: "Sam K · bank transfer".
+pub(super) fn payment_what(payment: &Payment) -> String {
+    match payment.payment_type.as_deref().map(str::trim) {
+        Some(kind) if !kind.is_empty() => format!(
+            "{} · {}",
+            plain(&payment.merchant, NAME_SHOWN),
+            plain(&kind.to_lowercase(), NAME_SHOWN)
+        ),
+        _ => plain(&payment.merchant, NAME_SHOWN),
+    }
+}
+
+/// The inspector's section titles, its button and its field.
+pub(super) const COSTS: &str = "Costs";
+pub(super) const LINK_PAYMENT: &str = "Link a payment…";
+pub(super) const NAME: &str = "Name";
+
+/// "Payments from Sam".
+pub(super) fn payments_title(person: &Person) -> String {
+    format!("Payments from {}", person_name(person))
+}
+
+/// What the Name field holds for `person` until it's typed in: their
+/// label as it is, to edit.
+pub(super) fn name_value(person: &Person) -> String {
+    person.label.as_str().to_owned()
+}
+
+/// The inspector with nothing selected.
+pub(super) const NOTHING_SELECTED: &str =
+    "Select a person to see what they owe, link a payment from them or rename them.";
+
 /// The inspector (Paper `CCW-0`). `name` is the Name field, made by the
 /// view; `name_error` why the last rename was refused.
 pub fn render_inspector(
@@ -491,27 +628,17 @@ pub fn render_inspector(
     let mut sections: Vec<AnyElement> = Vec::new();
     match checks.selected_person() {
         Some(person) => {
-            let shown = plain(person.label.as_str(), NAME_SHOWN);
-            let costs = person.costs.len();
+            let shown = person_name(person);
+            let (title, figure, words) = header_text(person);
             sections.push(
-                header(
-                    shown.clone(),
-                    Some(unsigned(person.owed)),
-                    Some(
-                        caption(format!(
-                            "Owes you for {}",
-                            text::count(costs, "shared cost", "shared costs")
-                        ))
-                        .into_any_element(),
-                    ),
-                )
-                .into_any_element(),
+                header(title, Some(figure), Some(caption(words).into_any_element()))
+                    .into_any_element(),
             );
             sections.push(
                 section(true)
                     .gap(spacing::S2)
                     .child(section_title_row(
-                        "Costs",
+                        COSTS,
                         Some(
                             div()
                                 .text_role(typography::CAPTION)
@@ -520,14 +647,12 @@ pub fn render_inspector(
                                 .into_any_element(),
                         ),
                     ))
-                    .children(person.costs.iter().map(|cost| {
-                        inspector_row(
-                            text::date(cost.date, today),
-                            plain(&cost.merchant, NAME_SHOWN),
-                            unsigned(cost.part),
-                            color::TEXT,
-                        )
-                    }))
+                    .children(
+                        person
+                            .costs
+                            .iter()
+                            .map(|cost| inspector_row(cost_row_text(cost, today), color::TEXT)),
+                    )
                     .into_any_element(),
             );
             let request = handle.clone();
@@ -546,9 +671,9 @@ pub fn render_inspector(
                 section(true)
                     .gap(spacing::S2)
                     .child(section_title_row(
-                        format!("Payments from {shown}"),
+                        payments_title(person),
                         Some(
-                            Button::new("owed-link-payment", "Link a payment…")
+                            Button::new("owed-link-payment", LINK_PAYMENT)
                                 .with_variant(ButtonVariant::Outline)
                                 .on_click(click(move |_, _, cx| {
                                     request.update(cx, |checks, cx| checks.request_link_payment(cx))
@@ -557,20 +682,7 @@ pub fn render_inspector(
                         ),
                     ))
                     .children(person.payments.iter().map(|payment| {
-                        let what = match payment.payment_type.as_deref().map(str::trim) {
-                            Some(kind) if !kind.is_empty() => format!(
-                                "{} · {}",
-                                plain(&payment.merchant, NAME_SHOWN),
-                                plain(&kind.to_lowercase(), NAME_SHOWN)
-                            ),
-                            _ => plain(&payment.merchant, NAME_SHOWN),
-                        };
-                        inspector_row(
-                            text::date(payment.date, today),
-                            what,
-                            text::signed(payment.amount),
-                            color::TEXT_SECONDARY,
-                        )
+                        inspector_row(payment_row_text(payment, today), color::TEXT_SECONDARY)
                     }))
                     .child(div().text_role(typography::CAPTION).child(rich(
                         window,
@@ -590,7 +702,7 @@ pub fn render_inspector(
             sections.push(
                 section(true)
                     .gap(spacing::S2)
-                    .children(field.map(|field| FieldRow::new("Name", field)))
+                    .children(field.map(|field| FieldRow::new(NAME, field)))
                     .children(name_error.map(error_caption))
                     .child(
                         div()
@@ -609,10 +721,7 @@ pub fn render_inspector(
                     div()
                         .text_role(typography::CAPTION)
                         .text_color(color::TEXT_MUTED)
-                        .child(
-                            "Select a person to see what they owe, link a payment from them or \
-                             rename them.",
-                        ),
+                        .child(NOTHING_SELECTED),
                 )
                 .into_any_element(),
         ),

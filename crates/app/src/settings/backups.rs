@@ -20,9 +20,9 @@
 //! button is disabled.
 
 use coffer_core::backup::Reason;
-use coffer_core::backup::detail::Detail;
+use coffer_core::backup::detail::{Detail, Since};
+use coffer_core::db::SchemaVersion;
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -31,6 +31,7 @@ use gpui_kit::{
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
+use crate::ui::list::{ListKeysExt as _, Move};
 use crate::ui::text::TextRoleExt as _;
 use gpui_kit::component::Disableable as _;
 
@@ -71,7 +72,130 @@ pub fn reason(detail: &Detail) -> Vec<table::Run> {
     }
 }
 
+/// The toolbar's title and caption.
+pub const TITLE: &str = "Backups";
+pub const CAPTION: &str =
+    "Taken before every import, restore and update · the last 10 and one a month are kept";
+
+/// The groups' titles.
+pub const RECENT: &str = "Recent";
+pub const MONTHLY: &str = "One a month";
+
+/// What the canvas says with no backups.
+pub const NO_BACKUPS: &str = "No backups yet. Coffer takes one before every import and update; \
+                              Back up now takes one at any time.";
+
+/// What "Since this backup" says when nothing would be undone.
+pub const NOTHING_SINCE: &str = "Nothing has been imported, edited in bulk or suggested since.";
+
+/// The inspector's title: "Backup from 10 Nov, 14:02".
+pub fn backup_title(row: &BackupRow, today: chrono::NaiveDate) -> Vec<table::Run> {
+    vec![plain("Backup from "), mono(taken(row, today))]
+}
+
+/// The inspector's caption under the figure.
+pub fn backup_caption(row: &BackupRow) -> &'static str {
+    match row.contents {
+        Some(_) => "Transactions in this backup",
+        None => "Coffer couldn't read this backup",
+    }
+}
+
+/// The inspector's Taken, and Holds and Schema when it could be read.
+pub fn backup_rows(
+    row: &BackupRow,
+    supported: SchemaVersion,
+) -> Vec<(&'static str, Vec<table::Run>)> {
+    let muted = |text: String| plain(text).color(color::TEXT_MUTED);
+    let mut rows = vec![(
+        "Taken",
+        vec![
+            mono(row.local.format("%-d %b %Y, %H:%M").to_string()),
+            muted(if row.backup.reason == Reason::Manual {
+                " · by you".into()
+            } else {
+                " · automatic".into()
+            }),
+        ],
+    )];
+    if let Some(contents) = row.contents {
+        rows.push((
+            "Holds",
+            vec![
+                mono(count(contents.accounts)),
+                plain(format!(" {} ", plural(contents.accounts, "account"))),
+                muted("·".into()),
+                plain(" "),
+                mono(count(contents.rules)),
+                plain(format!(" {} ", plural(contents.rules, "rule"))),
+                muted("·".into()),
+                plain(" settings"),
+            ],
+        ));
+        rows.push((
+            "Schema",
+            vec![
+                mono(contents.schema_version.to_string()),
+                muted(match contents.schema_version.cmp(&supported) {
+                    std::cmp::Ordering::Equal => " · same as this version".into(),
+                    std::cmp::Ordering::Less => {
+                        format!(" · updated to {supported} after restoring")
+                    }
+                    std::cmp::Ordering::Greater => {
+                        format!(" · newer than this version's {supported}")
+                    }
+                }),
+            ],
+        ));
+    }
+    rows
+}
+
+/// What restoring would undo, line by line: its label and its count.
+pub fn since_lines(since: &Since) -> Vec<(Vec<table::Run>, String)> {
+    let mut lines: Vec<(Vec<table::Run>, String)> = since
+        .imports
+        .iter()
+        .map(|import| {
+            (
+                vec![plain("Import of "), mono(import.file.clone())],
+                format!("{} {}", count(import.rows), plural(import.rows, "row")),
+            )
+        })
+        .collect();
+    if since.edits > 0 {
+        lines.push((vec![plain("Your edits")], count(since.edits)));
+    }
+    if since.suggestions > 0 {
+        lines.push((vec![plain("Inbox suggestions")], count(since.suggestions)));
+    }
+    lines
+}
+
+/// Whether this version can restore the backup.
+pub fn readable(row: &BackupRow, supported: SchemaVersion) -> bool {
+    row.contents
+        .is_some_and(|contents| contents.schema_version <= supported)
+}
+
+/// The backup's file as the inspector shows it: its folder, then its name.
+pub fn file_lines(row: &BackupRow) -> (String, String) {
+    let shown = display_path(&row.backup.path);
+    match shown.rsplit_once('/') {
+        Some((dir, name)) => (format!("{dir}/"), name.to_owned()),
+        None => (String::new(), shown.clone()),
+    }
+}
+
 impl SettingsView {
+    /// What restoring the selected backup would undo, once it's been read.
+    pub(super) fn since_for(&self, row: &BackupRow) -> Option<&Since> {
+        self.since
+            .as_ref()
+            .filter(|(path, _)| *path == row.backup.path)
+            .map(|(_, since)| since)
+    }
+
     fn backup_row(&self, row: &BackupRow, cx: &mut Context<Self>) -> AnyElement {
         let path = row.backup.path.clone();
         let selected = self.selected_backup.as_ref() == Some(&path);
@@ -130,7 +254,7 @@ impl SettingsView {
         let (monthly, recent): (Vec<&BackupRow>, Vec<&BackupRow>) =
             rows.iter().partition(|row| row.monthly);
         let mut groups: Vec<AnyElement> = Vec::new();
-        for (index, (title, members)) in [("Recent", recent), ("One a month", monthly)]
+        for (index, (title, members)) in [(RECENT, recent), (MONTHLY, monthly)]
             .into_iter()
             .filter(|(_, members)| !members.is_empty())
             .enumerate()
@@ -170,17 +294,15 @@ impl SettingsView {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .child(toolbar(
-                "Backups",
-                "Taken before every import, restore and update · the last 10 and one a month are kept",
-                actions,
-            ))
+            .child(toolbar(TITLE, CAPTION, actions))
             .child(
                 table::body("backups-body")
                     .key_context(table::LIST_CONTEXT)
                     .track_focus(&self.list_focus.clone().tab_stop(true))
-                    .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.select_next(-1, cx)))
-                    .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.select_next(1, cx)))
+                    .on_list_move(
+                        &table::LIST_KEYS,
+                        cx.listener(|this, to: &Move, _, cx| this.select_next(*to, cx)),
+                    )
                     .when_some(self.backups_error.clone(), |this, error| {
                         this.child(
                             div()
@@ -192,10 +314,12 @@ impl SettingsView {
                         )
                     })
                     .when(empty, |this| {
-                        this.child(div().pt(spacing::S3).px(spacing::S2).child(caption(
-                            "No backups yet. Coffer takes one before every import and update; \
-                             Back up now takes one at any time.",
-                        )))
+                        this.child(
+                            div()
+                                .pt(spacing::S3)
+                                .px(spacing::S2)
+                                .child(caption(NO_BACKUPS)),
+                        )
                     })
                     .children(groups)
                     .child(
@@ -221,97 +345,37 @@ impl SettingsView {
             .as_ref()
             .and_then(|path| self.backups.row(path))?
             .clone();
-        let muted = |text: String| plain(text).color(color::TEXT_MUTED);
         let header = table::inspector_header(
             rich(
                 typography::TITLE,
                 color::TEXT,
-                vec![plain("Backup from "), mono(taken(&row, self.clock.today))],
+                backup_title(&row, self.clock.today),
             )
             .whitespace_nowrap()
             .into_any_element(),
             row.contents.map(|contents| count(contents.transactions)),
-            caption(match row.contents {
-                Some(_) => "Transactions in this backup",
-                None => "Coffer couldn't read this backup",
-            })
-            .into_any_element(),
+            caption(backup_caption(&row)).into_any_element(),
         );
 
         let supported = self.backups.supported;
-        let mut details = section(None).child(value_row(
-            "Taken",
-            rich(
-                typography::BODY,
-                color::TEXT,
-                vec![
-                    mono(row.local.format("%-d %b %Y, %H:%M").to_string()),
-                    muted(if row.backup.reason == Reason::Manual {
-                        " · by you".into()
-                    } else {
-                        " · automatic".into()
-                    }),
-                ],
-            ),
-        ));
-        if let Some(contents) = row.contents {
-            details = details
-                .child(value_row(
-                    "Holds",
-                    rich(
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            mono(count(contents.accounts)),
-                            plain(format!(" {} ", plural(contents.accounts, "account"))),
-                            muted("·".into()),
-                            plain(" "),
-                            mono(count(contents.rules)),
-                            plain(format!(" {} ", plural(contents.rules, "rule"))),
-                            muted("·".into()),
-                            plain(" settings"),
-                        ],
-                    ),
-                ))
-                .child(value_row(
-                    "Schema",
-                    rich(
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            mono(contents.schema_version.to_string()),
-                            muted(match contents.schema_version.cmp(&supported) {
-                                std::cmp::Ordering::Equal => " · same as this version".into(),
-                                std::cmp::Ordering::Less => {
-                                    format!(" · updated to {supported} after restoring")
-                                }
-                                std::cmp::Ordering::Greater => {
-                                    format!(" · newer than this version's {supported}")
-                                }
-                            }),
-                        ],
-                    ),
-                ));
-        }
-        details = details.child(value_row(
-            "Size",
-            div()
-                .text_role(typography::MONO_AMOUNT)
-                .text_color(color::TEXT)
-                .child(file_size(row.backup.size)),
-        ));
+        let details = backup_rows(&row, supported)
+            .into_iter()
+            .fold(section(None), |section, (label, runs)| {
+                section.child(value_row(label, rich(typography::BODY, color::TEXT, runs)))
+            })
+            .child(value_row(
+                "Size",
+                div()
+                    .text_role(typography::MONO_AMOUNT)
+                    .text_color(color::TEXT)
+                    .child(file_size(row.backup.size)),
+            ));
 
-        let since_rows: Vec<AnyElement> = match self
-            .since
-            .as_ref()
-            .filter(|(path, _)| *path == row.backup.path)
-        {
-            Some((_, since)) if since.is_empty() => vec![
-                caption("Nothing has been imported, edited in bulk or suggested since.")
-                    .into_any_element(),
-            ],
-            Some((_, since)) => {
-                let line = |label: Vec<table::Run>, value: String| {
+        let since_rows: Vec<AnyElement> = match self.since_for(&row) {
+            Some(since) if since.is_empty() => vec![caption(NOTHING_SINCE).into_any_element()],
+            Some(since) => since_lines(since)
+                .into_iter()
+                .map(|(label, value)| {
                     div()
                         .flex()
                         .flex_none()
@@ -330,33 +394,11 @@ impl SettingsView {
                                 .child(value),
                         )
                         .into_any_element()
-                };
-                let mut lines: Vec<AnyElement> = since
-                    .imports
-                    .iter()
-                    .map(|import| {
-                        line(
-                            vec![plain("Import of "), mono(import.file.clone())],
-                            format!("{} {}", count(import.rows), plural(import.rows, "row")),
-                        )
-                    })
-                    .collect();
-                if since.edits > 0 {
-                    lines.push(line(vec![plain("Your edits")], count(since.edits)));
-                }
-                if since.suggestions > 0 {
-                    lines.push(line(
-                        vec![plain("Inbox suggestions")],
-                        count(since.suggestions),
-                    ));
-                }
-                lines
-            }
+                })
+                .collect(),
             None => Vec::new(),
         };
-        let readable = row
-            .contents
-            .is_some_and(|contents| contents.schema_version <= supported);
+        let readable = readable(&row, supported);
         let restore = section(Some("Since this backup"))
             .children(since_rows)
             .child(caption(
@@ -373,11 +415,7 @@ impl SettingsView {
                 ),
             );
 
-        let shown = display_path(&row.backup.path);
-        let (dir, name) = match shown.rsplit_once('/') {
-            Some((dir, name)) => (format!("{dir}/"), name.to_owned()),
-            None => (String::new(), shown.clone()),
-        };
+        let (dir, name) = file_lines(&row);
         let reveal = row.backup.path.clone();
         let file = section(Some("File"))
             .child(
