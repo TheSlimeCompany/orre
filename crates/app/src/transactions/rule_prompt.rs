@@ -295,7 +295,7 @@ pub(super) fn rule_section(row: &RegisterRow, cx: &mut Context<TransactionsView>
     };
     section(true)
         .gap(spacing::S2)
-        .child(section_title("Rule"))
+        .child(section_title(super::inspector::Section::Rule.title()))
         .child(
             div()
                 .flex()

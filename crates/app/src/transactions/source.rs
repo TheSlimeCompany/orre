@@ -172,7 +172,7 @@ pub(super) fn source_section(
         .child(source_caption(&row.source, view.today));
     let section = section(true)
         .gap(spacing::S2)
-        .child(section_title("Source"));
+        .child(section_title(super::inspector::Section::Source.title()));
     let section = match &row.source {
         RowSource::Manual { .. } => section.child(caption).child(
             div().flex().child(

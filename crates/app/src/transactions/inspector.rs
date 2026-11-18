@@ -17,6 +17,7 @@
 //! Several transactions: a count, the total, what they share, one Category
 //! select that sets all of them, and the list.
 
+use coffer_core::id::TransactionId;
 use coffer_core::reporting::register::{RegisterRow, RowCategory};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -42,7 +43,196 @@ use crate::ui::tag::{AddTagPill, TagPill};
 use crate::ui::text::TextRoleExt as _;
 
 use super::editor::{EditPlace, LineFields};
-use super::{Menu, TransactionsView, present};
+use super::{Menu, TransactionsView, linking, present};
+
+/// The Category select's placeholder.
+pub(super) const CHOOSE_CATEGORY: &str = "Choose a category";
+
+/// A split line's category select before one is chosen.
+pub(super) const LINE_PLACEHOLDER: &str = "Category";
+
+/// What the inspector says with nothing selected.
+pub(super) const NOTHING_SELECTED: &str = "No transaction selected";
+
+// What the inspector says ----------------------------------------------------
+//
+// The text the inspector draws, worked out apart from the elements, so the
+// tests' `describe()` reads the same strings.
+
+/// The header for one transaction.
+pub(super) struct HeaderText {
+    /// The merchant, made plain: it may be the bank's text.
+    pub(super) title: String,
+    pub(super) figure: String,
+    /// Excluded: the figure is struck through, the card below it.
+    pub(super) struck: bool,
+    /// How it was paid (the bank's words, made plain).
+    pub(super) method: Option<String>,
+    /// When, in mono: "12:41".
+    pub(super) time: Option<String>,
+}
+
+impl HeaderText {
+    pub(super) fn of(row: &RegisterRow) -> Self {
+        Self {
+            title: linking::name(&row.merchant),
+            figure: format::money(row.amount, Sign::Always),
+            struck: row.excluded.is_some(),
+            method: row
+                .payment_type
+                .as_deref()
+                .map(linking::name)
+                .filter(|text| !text.is_empty()),
+            time: row.time.map(|time| time.format("%H:%M").to_string()),
+        }
+    }
+}
+
+/// The Category row of one transaction's Details.
+pub(super) enum CategoryField {
+    /// The select: the category and its marker, or the placeholder.
+    Select(Option<(String, Marker)>),
+    /// Read-only: a transfer's.
+    Locked(String),
+    /// A linked refund's: its purchase's, read-only (M3.11, Paper `FGQ-0`).
+    Follows,
+    /// None: a split row's categories are its lines', in the split editor.
+    Lines,
+}
+
+impl CategoryField {
+    pub(super) fn of(view: &TransactionsView, row: &RegisterRow) -> Self {
+        let register = &view.register;
+        if row.category_follows_purchase() {
+            Self::Follows
+        } else if row.takes_category() {
+            Self::Select(
+                register
+                    .row_categories(row)
+                    .first()
+                    .map(|category| (category.label.clone(), present::marker(category.colour))),
+            )
+        } else if matches!(row.category, RowCategory::Split(_)) {
+            Self::Lines
+        } else {
+            Self::Locked(present::category_label(register, row))
+        }
+    }
+}
+
+/// A section of one transaction's inspector after Details, in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Section {
+    Transfer,
+    Share,
+    Links,
+    Split,
+    Source,
+    Rule,
+}
+
+impl Section {
+    pub(super) fn title(self) -> &'static str {
+        match self {
+            Self::Transfer => "Transfer",
+            Self::Share => "Share",
+            Self::Links => "Links",
+            Self::Split => "Split",
+            Self::Source => "Source",
+            Self::Rule => "Rule",
+        }
+    }
+
+    /// Where an edit's error is said in it (the sections say it
+    /// themselves; `describe()` asks).
+    #[cfg(test)]
+    pub(super) fn place(self) -> Option<EditPlace> {
+        match self {
+            Self::Transfer => Some(EditPlace::Transfer),
+            Self::Share => Some(EditPlace::Share),
+            Self::Links => Some(EditPlace::Links),
+            Self::Split => Some(EditPlace::Split),
+            Self::Source => Some(EditPlace::Source),
+            Self::Rule => None,
+        }
+    }
+
+    /// `row`'s sections. A row in a transfer pair has neither Share nor
+    /// Links: the Transfer section takes their place, after Details (M3.8).
+    /// Share on money out, Links on everything outside a transfer, between
+    /// Details and Split (D6.5). Every row that can be split has the Split
+    /// section (`DESIGN.md`: "Every unsplit transaction"); a transfer can't
+    /// be. Source sits between Split and Rule (D6.3, `2Q3-0`).
+    pub(super) fn of(view: &TransactionsView, row: &RegisterRow) -> Vec<Self> {
+        let mut sections = Vec::new();
+        if super::transfer::has_section(view, row) {
+            sections.push(Self::Transfer);
+        }
+        if row.takes_share() {
+            sections.push(Self::Share);
+        }
+        if row.takes_links() {
+            sections.push(Self::Links);
+        }
+        if matches!(row.category, RowCategory::Split(_)) || row.splittable {
+            sections.push(Self::Split);
+        }
+        sections.push(Self::Source);
+        if row.transfer.is_none() {
+            sections.push(Self::Rule);
+        }
+        sections
+    }
+}
+
+/// One row of a multi-selection's list.
+pub(super) struct SelectedText {
+    pub(super) id: TransactionId,
+    pub(super) date: String,
+    /// Made plain, as in the table.
+    pub(super) merchant: String,
+    pub(super) amount: String,
+}
+
+/// The inspector for several transactions.
+pub(super) struct SeveralText {
+    pub(super) title: String,
+    /// The total, when they share a currency.
+    pub(super) figure: Option<String>,
+    /// What they share: "Uncategorised · Current account".
+    pub(super) caption: Option<String>,
+    /// The Category select's value, while any of them can take one.
+    pub(super) category: Option<Option<(String, Marker)>>,
+    pub(super) rows: Vec<SelectedText>,
+}
+
+impl SeveralText {
+    pub(super) fn of(view: &TransactionsView, selected: &[&RegisterRow]) -> Self {
+        let totals = present::total(selected);
+        let shared = shared(view, selected);
+        let editable = selected.iter().any(|row| row.takes_category());
+        let value = view
+            .chosen_key(Menu::Inspector)
+            .and_then(|key| key.parse::<i64>().ok())
+            .and_then(|id| view.register.category(id))
+            .map(|category| (category.label.clone(), present::marker(category.colour)));
+        Self {
+            title: format!("{} transactions", selected.len()),
+            figure: (totals.len() == 1).then(|| format::money(totals[0], Sign::Always)),
+            caption: (!shared.is_empty()).then(|| shared.join(" · ")),
+            category: editable.then_some(value),
+            rows: selected
+                .iter()
+                .map(|row| SelectedText {
+                    id: row.id,
+                    date: format::list_date(row.date, view.today),
+                    merchant: linking::name(&row.merchant),
+                    amount: format::money(row.amount, Sign::Always),
+                })
+                .collect(),
+        }
+    }
+}
 
 /// The Category select for the selection: `value` with `marker`, or a
 /// placeholder.
@@ -53,7 +243,7 @@ fn category_select(
 ) -> AnyElement {
     let field = match value {
         Some((label, marker)) => SelectField::new("inspector-category-field", label).marker(marker),
-        None => SelectField::new("inspector-category-field", "Choose a category")
+        None => SelectField::new("inspector-category-field", CHOOSE_CATEGORY)
             .marker(Marker::None)
             .placeholder(true),
     };
@@ -256,7 +446,7 @@ fn split_line(
         .marker(present::marker(category.colour)),
         None => SelectField::new(
             SharedString::from(format!("split-category-field-{key}")),
-            "Category",
+            LINE_PLACEHOLDER,
         )
         .marker(Marker::None)
         .placeholder(true),
@@ -429,7 +619,7 @@ fn split_section(
     let Some(split) = &view.editor.split else {
         return section
             .child(section_title_row(
-                "Split",
+                Section::Split.title(),
                 Some(
                     Button::new("split", "Split")
                         .with_variant(ButtonVariant::Outline)
@@ -450,7 +640,7 @@ fn split_section(
         .collect();
     section
         .child(section_title_row(
-            "Split",
+            Section::Split.title(),
             Some(
                 Button::new("remove-split", "Remove split")
                     .with_variant(ButtonVariant::Outline)
@@ -472,11 +662,13 @@ fn single(
     cx: &mut Context<TransactionsView>,
 ) -> Vec<AnyElement> {
     let register = &view.register;
-    let method = row
-        .payment_type
-        .clone()
-        .filter(|text| !text.trim().is_empty());
-    let time = row.time.map(|time| time.format("%H:%M").to_string());
+    let HeaderText {
+        title,
+        figure,
+        struck,
+        method,
+        time,
+    } = HeaderText::of(row);
     let caption_line = match (method, time) {
         (None, None) => None,
         (method, time) => Some(
@@ -496,29 +688,19 @@ fn single(
     let account = register
         .account(row.account)
         .map_or(String::new(), |account| account.name.clone());
-    let split = matches!(row.category, RowCategory::Split(_));
-    // A split row's categories are its lines', in the split editor.
-    // A linked refund's category is its purchase's (M3.11, Paper `FGQ-0`).
-    let following = row.category_follows_purchase();
-    let category: Option<AnyElement> = if following {
-        None
-    } else if row.takes_category() {
-        let value = register
-            .row_categories(row)
-            .first()
-            .map(|category| (category.label.clone(), present::marker(category.colour)));
-        Some(category_select(view, value, cx))
-    } else if split {
-        None
-    } else {
-        Some(LockedValue::new(present::category_label(register, row)).into_any_element())
+    let field = CategoryField::of(view, row);
+    let following = matches!(field, CategoryField::Follows);
+    let category: Option<AnyElement> = match field {
+        CategoryField::Select(value) => Some(category_select(view, value, cx)),
+        CategoryField::Locked(label) => Some(LockedValue::new(label).into_any_element()),
+        CategoryField::Follows | CategoryField::Lines => None,
     };
     let bank_note = row.bank_note.clone().filter(|note| !note.trim().is_empty());
-    let figure = format::money(row.amount, Sign::Always);
     // An excluded row's figure is struck through, the card below it (D6.3).
-    let header = match row.excluded {
-        Some(_) => struck_header(row.merchant.clone(), figure, caption_line),
-        None => header(row.merchant.clone(), Some(figure), caption_line),
+    let header = if struck {
+        struck_header(title, figure, caption_line)
+    } else {
+        header(title, Some(figure), caption_line)
     }
     .children(super::source::exclusion_card(view, row, cx));
     // A manual row's source fields are the user's own (D6.3, `4D7-0`).
@@ -582,26 +764,15 @@ fn single(
             .children(super::rule_prompt::card(view, row, window, cx))
             .into_any_element(),
     ];
-    // A row in a transfer pair has neither Share nor Links: the Transfer
-    // section takes their place, after Details (M3.8).
-    sections.extend(super::transfer::transfer_section(view, row, cx));
-    // Share on money out, Links on everything outside a transfer, between
-    // Details and Split (D6.5).
-    if row.takes_share() {
-        sections.push(super::links::share_section(view, row, window, cx));
-    }
-    if row.takes_links() {
-        sections.push(super::links::links_section(view, row, window, cx));
-    }
-    // Every row that can be split has the section (`DESIGN.md`: "Every
-    // unsplit transaction"); a transfer can't be.
-    if split || row.splittable {
-        sections.push(split_section(view, window, cx));
-    }
-    // Between Split and Rule (D6.3, `2Q3-0`): where the row came from.
-    sections.push(super::source::source_section(view, row, cx));
-    if row.transfer.is_none() {
-        sections.push(super::rule_prompt::rule_section(row, cx));
+    for section in Section::of(view, row) {
+        sections.extend(match section {
+            Section::Transfer => super::transfer::transfer_section(view, row, cx),
+            Section::Share => Some(super::links::share_section(view, row, window, cx)),
+            Section::Links => Some(super::links::links_section(view, row, window, cx)),
+            Section::Split => Some(split_section(view, window, cx)),
+            Section::Source => Some(super::source::source_section(view, row, cx)),
+            Section::Rule => Some(super::rule_prompt::rule_section(row, cx)),
+        });
     }
     sections
 }
@@ -634,11 +805,14 @@ fn multiple(
     selected: &[&RegisterRow],
     cx: &mut Context<TransactionsView>,
 ) -> Vec<AnyElement> {
-    let totals = present::total(selected);
-    let figure = (totals.len() == 1).then(|| format::money(totals[0], Sign::Always));
-    let shared = shared(view, selected);
-    let today = view.today;
-    let rows = selected.iter().map(|row| {
+    let SeveralText {
+        title,
+        figure,
+        caption: shared,
+        category,
+        rows,
+    } = SeveralText::of(view, selected);
+    let rows = rows.into_iter().map(|row| {
         div()
             .id(SharedString::from(format!("selected-{}", row.id)))
             .flex()
@@ -650,7 +824,7 @@ fn multiple(
                     .flex_none()
                     .text_role(typography::MONO_VALUE)
                     .text_color(color::TEXT_MUTED)
-                    .child(format::list_date(row.date, today)),
+                    .child(row.date),
             )
             .child(
                 div()
@@ -660,32 +834,26 @@ fn multiple(
                     .text_ellipsis()
                     .text_role(typography::BODY)
                     .text_color(color::TEXT_SECONDARY)
-                    .child(row.merchant.clone()),
+                    .child(row.merchant),
             )
             .child(
                 div()
                     .flex_none()
                     .text_role(typography::MONO_AMOUNT)
                     .text_color(color::TEXT)
-                    .child(format::money(row.amount, Sign::Always)),
+                    .child(row.amount),
             )
     });
-    let value = view
-        .chosen_key(Menu::Inspector)
-        .and_then(|key| key.parse::<i64>().ok())
-        .and_then(|id| view.register.category(id))
-        .map(|category| (category.label.clone(), present::marker(category.colour)));
-    let editable = selected.iter().any(|row| row.takes_category());
     vec![
         header(
-            format!("{} transactions", selected.len()),
+            title,
             figure,
-            (!shared.is_empty()).then(|| caption(shared.join(" · ")).into_any_element()),
+            shared.map(|shared| caption(shared).into_any_element()),
         )
         .into_any_element(),
         section(true)
             .gap(spacing::S2)
-            .when(editable, |this| {
+            .when_some(category, |this, value| {
                 this.child(FieldRow::new("Category", category_select(view, value, cx)))
                     .children(edit_error(view))
             })
@@ -705,7 +873,7 @@ fn empty() -> Vec<AnyElement> {
                 div()
                     .text_role(typography::BODY)
                     .text_color(color::TEXT_MUTED)
-                    .child("No transaction selected"),
+                    .child(NOTHING_SELECTED),
             )
             .into_any_element(),
     ]

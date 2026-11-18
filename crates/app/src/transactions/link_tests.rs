@@ -10,6 +10,7 @@ use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
+use super::describe::{FieldDescription, TransactionsDescription};
 use super::link_dialog::{Choice, LinkDialog};
 use super::link_fixture::{self, Seeded, Variant};
 use super::links::LinkFrom;
@@ -70,6 +71,13 @@ fn open<'a>(
     (view, cx)
 }
 
+fn describe(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> TransactionsDescription {
+    cx.update(|_, cx| view.read(cx).describe(cx))
+}
+
 fn select(view: &Entity<TransactionsView>, id: TransactionId, cx: &mut VisualTestContext) {
     view.update(cx, |view, cx| view.select([id], cx));
     redraw(cx);
@@ -109,12 +117,28 @@ fn the_suggestion_card_links_and_undo_brings_it_back(cx: &mut TestAppContext) {
         statuses(&view, refund, cx),
         [(LinkKind::Refund, LinkStatus::Confirmed)]
     );
+    let description = describe(&view, cx);
     assert_eq!(
-        cx.update(|_, cx| view.read(cx).undo_message().cloned()),
-        Some("Linked the ASOS.com refund to the 28 Oct purchase".into())
+        description.undo_message(),
+        Some("Linked the ASOS.com refund to the 28 Oct purchase")
     );
     // The refund's category is now the purchase's, read-only.
     assert!(!shows("inspector-category", cx));
+    let category = description
+        .one()
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.label == "Category")
+        .cloned();
+    assert!(
+        matches!(category, Some(FieldDescription { locked: true, .. })),
+        "{category:?}"
+    );
+    assert_eq!(
+        description.row(refund).unwrap().counts_as.as_deref(),
+        Some("refund")
+    );
     let purchase = scratch.seeded.asos_purchase;
     let left = cx.update(|_, cx| view.read(cx).register().row(purchase).unwrap().share.left);
     assert_eq!(left, gbp(3_400));
@@ -162,8 +186,8 @@ fn a_links_cross_unlinks_it(cx: &mut TestAppContext) {
     let left = cx.update(|_, cx| view.read(cx).register().row(trainline).unwrap().share.left);
     assert_eq!(left, gbp(3_860));
     assert_eq!(
-        cx.update(|_, cx| view.read(cx).undo_message().cloned()),
-        Some("Unlinked the reimbursement".into())
+        describe(&view, cx).undo_message(),
+        Some("Unlinked the reimbursement")
     );
 }
 

@@ -1,18 +1,22 @@
 //! Tests of the edit pipeline ([`TransactionsView::write`]) at its
 //! interface: a policy and a call on the database, on the Paper fixture and
 //! on a scratch database, checking where errors are said and how they're
-//! worded, the undo bar, the events the shell gets and the register being
-//! read again.
+//! worded (as [`TransactionsView::describe`] reads the screen), the undo
+//! bar, the events the shell gets and the register being read again.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use coffer_core::account::{self, AccountKind, NewAccount};
 use coffer_core::db::Database;
+use coffer_core::manual::{self, ManualTransaction};
+use coffer_core::money::{Currency, Money};
 use gpui_kit::{TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
 use crate::accounts::store::StoreError;
 
+use super::describe::{BarDescription, OneDescription, TransactionsDescription};
 use super::editor::EditPlace;
 use super::write::{Clears, Offer, Policy, SAMPLE_DATA, Said};
 use super::*;
@@ -41,18 +45,37 @@ fn fixture_view(cx: &mut TestAppContext) -> (Entity<TransactionsView>, &mut Visu
     (view, cx)
 }
 
-/// The view over an empty scratch database, read once.
+/// The view over a scratch database with one payment, read once, the
+/// payment selected: its inspector says every error but a transfer's and
+/// an exclusion's.
 fn database_view<'a>(
     cx: &'a mut TestAppContext,
     dir: &TempDir,
 ) -> (Entity<TransactionsView>, &'a mut VisualTestContext) {
     setup(cx);
     let path = dir.path().join("coffer.db");
-    drop(Database::open(&path).unwrap());
+    let payment = {
+        let mut db = Database::open(&path).unwrap();
+        let current = account::create(
+            &mut db,
+            &NewAccount::new("Current account", AccountKind::Current, Currency::GBP),
+        )
+        .unwrap();
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 9).unwrap();
+        let entry = ManualTransaction::new(
+            current,
+            day,
+            Money::new(-2399, Currency::GBP),
+            "AMAZON MARKETPLACE",
+        );
+        manual::create(&mut db, &entry).unwrap()
+    };
     let store = TransactionStore::new(path);
     let (view, cx) = cx.add_window_view(move |window, cx| {
         TransactionsView::new(Source::Database(store), window, cx)
     });
+    redraw(cx);
+    cx.update(|_, cx| view.update(cx, |view, cx| view.select([payment], cx)));
     redraw(cx);
     (view, cx)
 }
@@ -94,23 +117,37 @@ fn events(
     events
 }
 
-/// What the view says, wherever it says it.
-#[derive(Debug, PartialEq, Eq)]
-struct Shown {
-    category: Option<SharedString>,
-    inspector: Option<(EditPlace, SharedString)>,
-    undo: Option<SharedString>,
+fn describe(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> TransactionsDescription {
+    cx.update(|_, cx| view.read(cx).describe(cx))
 }
 
-fn said(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Shown {
-    cx.update(|_, cx| {
-        let view = view.read(cx);
-        Shown {
-            category: view.edit_error().cloned(),
-            inspector: view.editor.error.clone(),
-            undo: view.undo_message().cloned(),
-        }
-    })
+/// The inspector of the one selected transaction, as described.
+fn inspector(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> OneDescription {
+    describe(view, cx)
+        .one()
+        .cloned()
+        .expect("one transaction is selected")
+}
+
+/// What the undo bar says, as described.
+fn undo_bar(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Option<String> {
+    describe(view, cx).undo_message().map(str::to_owned)
+}
+
+/// Whether the screen says nothing went wrong: no error in the inspector,
+/// no bar.
+fn says_nothing(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> bool {
+    let description = describe(view, cx);
+    let one = description.one().expect("one transaction is selected");
+    one.category_error.is_none() && one.error.is_none() && description.bar.is_none()
+}
+
+/// An error as the inspector describes it.
+fn at(place: EditPlace, error: &str) -> Option<(EditPlace, String)> {
+    Some((place, error.to_owned()))
 }
 
 fn generation(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> u64 {
@@ -155,14 +192,11 @@ fn sample_data_is_refused_where_the_policy_says(cx: &mut TestAppContext) {
         store_call(&called),
     );
     assert_eq!(result, Err(SAMPLE_DATA.into()));
-    assert_eq!(
-        said(&view, cx),
-        Shown {
-            category: Some(SAMPLE_DATA.into()),
-            inspector: None,
-            undo: None,
-        }
-    );
+    let description = describe(&view, cx);
+    let one = description.one().unwrap();
+    assert_eq!(one.category_error.as_deref(), Some(SAMPLE_DATA));
+    assert_eq!(one.error, None);
+    assert_eq!(description.bar, None);
 
     let result = write(
         &view,
@@ -172,8 +206,8 @@ fn sample_data_is_refused_where_the_policy_says(cx: &mut TestAppContext) {
     );
     assert_eq!(result, Err(SAMPLE_DATA.into()));
     assert_eq!(
-        said(&view, cx).inspector,
-        Some((EditPlace::Split, SAMPLE_DATA.into()))
+        inspector(&view, cx).error,
+        at(EditPlace::Split, SAMPLE_DATA)
     );
 
     // A dialog says it itself; the view says nothing new.
@@ -192,14 +226,7 @@ fn sample_data_is_refused_where_the_policy_says(cx: &mut TestAppContext) {
         store_call(&called),
     );
     assert_eq!(result, Err(SAMPLE_DATA.into()));
-    assert_eq!(
-        said(&view, cx),
-        Shown {
-            category: None,
-            inspector: None,
-            undo: None,
-        }
-    );
+    assert!(says_nothing(&view, cx));
 
     assert!(!*called.borrow(), "the store is never called");
     assert!(events.borrow().is_empty(), "the shell isn't told");
@@ -209,20 +236,30 @@ fn sample_data_is_refused_where_the_policy_says(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn sample_data_refused_from_the_bar_is_offered_again(cx: &mut TestAppContext) {
     let (view, cx) = fixture_view(cx);
+    // An excluded row, shown, whose inspector has the exclusion card.
+    let odeon = fixture::id("txn-odeon-07");
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.show_fixture(fixture::excluded_register(), cx);
+            view.set_excluded(true, cx);
+            view.select([odeon], cx);
+        })
+    });
+    redraw(cx);
     let events = events(&view, cx);
-    let policy = Policy::new(Said::Inspector(EditPlace::Transfer))
+    let policy = Policy::new(Said::Inspector(EditPlace::Exclusion))
         .sentence()
         .emit(TransactionsEvent::Changed)
-        .retry(include("txn-amazon-09"))
+        .retry(include("txn-odeon-07"))
         .always();
     assert!(write(&view, cx, policy, save).is_err());
+    let description = describe(&view, cx);
+    let one = description.one().unwrap();
+    assert_eq!(one.category_error, None);
+    assert_eq!(one.error, at(EditPlace::Exclusion, SAMPLE_DATA));
     assert_eq!(
-        said(&view, cx),
-        Shown {
-            category: None,
-            inspector: Some((EditPlace::Transfer, SAMPLE_DATA.into())),
-            undo: Some(format!("Couldn't undo: {SAMPLE_DATA}").into()),
-        }
+        description.undo_message(),
+        Some(format!("Couldn't undo: {SAMPLE_DATA}").as_str())
     );
     assert_eq!(
         *events.borrow(),
@@ -268,7 +305,10 @@ fn a_restore_refuses_writes_and_queries_before_core_is_called(cx: &mut TestAppCo
         Ok(())
     });
     assert_eq!(result, Err(restoring.into()));
-    assert_eq!(said(&view, cx).category, Some(restoring.into()));
+    assert_eq!(
+        inspector(&view, cx).category_error.as_deref(),
+        Some(restoring)
+    );
     let flag = called.clone();
     let result: Result<(), _> = cx.update(|_, cx| {
         view.read(cx).query(move |_| {
@@ -292,22 +332,24 @@ fn a_store_error_is_said_where_and_as_the_policy_says(cx: &mut TestAppContext) {
 
     let result = write(&view, cx, Policy::new(Said::Category), refuse);
     assert_eq!(result, Err(REFUSED.into()), "as it is");
-    assert_eq!(said(&view, cx).category, Some(REFUSED.into()));
-    assert_eq!(said(&view, cx).inspector, None);
+    assert_eq!(
+        inspector(&view, cx).category_error.as_deref(),
+        Some(REFUSED)
+    );
+    assert_eq!(inspector(&view, cx).error, None);
 
     let result = write(&view, cx, Policy::link(EditPlace::Links), refuse);
     assert_eq!(result, Err(REFUSED.into()));
-    assert_eq!(
-        said(&view, cx).inspector,
-        Some((EditPlace::Links, REFUSED.into()))
-    );
+    assert_eq!(inspector(&view, cx).error, at(EditPlace::Links, REFUSED));
 
-    let policy = Policy::new(Said::Inspector(EditPlace::Exclusion)).sentence();
+    // (The exclusion card's place, as "Include again" says it, is checked
+    // in `source_tests`, on an excluded row.)
+    let policy = Policy::new(Said::Inspector(EditPlace::Source)).sentence();
     let result = write(&view, cx, policy, refuse);
     assert_eq!(result, Err("The store refused it.".into()));
     assert_eq!(
-        said(&view, cx).inspector,
-        Some((EditPlace::Exclusion, "The store refused it.".into()))
+        inspector(&view, cx).error,
+        at(EditPlace::Source, "The store refused it.")
     );
 
     // A dialog's error is only returned: what the view said stays.
@@ -315,14 +357,11 @@ fn a_store_error_is_said_where_and_as_the_policy_says(cx: &mut TestAppContext) {
     assert_eq!(result, Err("The store refused it.".into()));
     let result = write(&view, cx, Policy::new(Said::Logged), refuse);
     assert_eq!(result, Err(REFUSED.into()));
-    assert_eq!(
-        said(&view, cx),
-        Shown {
-            category: Some(REFUSED.into()),
-            inspector: Some((EditPlace::Exclusion, "The store refused it.".into())),
-            undo: None,
-        }
-    );
+    let description = describe(&view, cx);
+    let one = description.one().unwrap();
+    assert_eq!(one.category_error.as_deref(), Some(REFUSED));
+    assert_eq!(one.error, at(EditPlace::Source, "The store refused it."));
+    assert_eq!(description.bar, None);
 }
 
 #[gpui_kit::test]
@@ -336,30 +375,31 @@ fn a_save_takes_away_the_error_the_policy_clears(cx: &mut TestAppContext) {
                 view.editor.error = Some((EditPlace::Details, "before".into()));
             })
         });
+        redraw(cx);
     };
 
     say_both(&view, cx);
     write(&view, cx, Policy::new(Said::Category), save).unwrap();
-    assert_eq!(said(&view, cx).category, None);
-    assert!(said(&view, cx).inspector.is_some());
+    assert_eq!(inspector(&view, cx).category_error, None);
+    assert_eq!(inspector(&view, cx).error, at(EditPlace::Details, "before"));
 
     say_both(&view, cx);
     write(&view, cx, Policy::edit(EditPlace::Split), save).unwrap();
-    assert_eq!(said(&view, cx).inspector, None, "wherever it was said");
-    assert!(said(&view, cx).category.is_some());
+    assert_eq!(inspector(&view, cx).error, None, "wherever it was said");
+    assert!(inspector(&view, cx).category_error.is_some());
 
     say_both(&view, cx);
     write(&view, cx, Policy::ledger(), save).unwrap();
     write(&view, cx, Policy::new(Said::Logged), save).unwrap();
     let policy = Policy::new(Said::Category).clears(Clears::Nothing);
     write(&view, cx, policy, save).unwrap();
-    assert!(said(&view, cx).category.is_some());
-    assert!(said(&view, cx).inspector.is_some());
+    assert!(inspector(&view, cx).category_error.is_some());
+    assert!(inspector(&view, cx).error.is_some());
 
     let policy = Policy::new(Said::Dialog).clears(Clears::Inspector);
     write(&view, cx, policy, save).unwrap();
-    assert_eq!(said(&view, cx).inspector, None);
-    assert!(said(&view, cx).category.is_some());
+    assert_eq!(inspector(&view, cx).error, None);
+    assert!(inspector(&view, cx).category_error.is_some());
 }
 
 // The undo bar -------------------------------------------------------------------
@@ -370,12 +410,12 @@ fn the_undo_bar_follows_the_offer(cx: &mut TestAppContext) {
     let (view, cx) = database_view(cx, &dir);
     let amazon = include("txn-amazon-09");
     let pret = include("txn-pret-09");
-    let showing = Some(SharedString::from("Excluded as a bank error"));
+    let showing = Some("Excluded as a bank error".to_owned());
 
     // Single-row edits leave it as it is (the M3.3 rule).
     set_bar(&view, cx, amazon);
     write(&view, cx, Policy::edit(EditPlace::Details), save).unwrap();
-    assert_eq!(said(&view, cx).undo, showing);
+    assert_eq!(undo_bar(&view, cx), showing);
 
     write(
         &view,
@@ -384,7 +424,7 @@ fn the_undo_bar_follows_the_offer(cx: &mut TestAppContext) {
         save,
     )
     .unwrap();
-    assert_eq!(said(&view, cx).undo, None);
+    assert_eq!(undo_bar(&view, cx), None);
 
     // From what the store returned.
     let policy = Policy::link(EditPlace::Links).undo(|count: &usize| {
@@ -394,28 +434,28 @@ fn the_undo_bar_follows_the_offer(cx: &mut TestAppContext) {
         )
     });
     write(&view, cx, policy, |_| Ok(2)).unwrap();
-    assert_eq!(said(&view, cx).undo, Some("Linked 2 payments".into()));
+    assert_eq!(undo_bar(&view, cx).as_deref(), Some("Linked 2 payments"));
 
     set_bar(&view, cx, amazon);
     let policy = Policy::ledger().undo(move |_| Offer::ClearIf(pret));
     write(&view, cx, policy, save).unwrap();
-    assert_eq!(said(&view, cx).undo, showing, "it offers something else");
+    assert_eq!(undo_bar(&view, cx), showing, "it offers something else");
     let policy = Policy::ledger().undo(move |_| Offer::ClearIf(amazon));
     write(&view, cx, policy, save).unwrap();
-    assert_eq!(said(&view, cx).undo, None);
+    assert_eq!(undo_bar(&view, cx), None);
 
     // A failure offers nothing new, unless it was the bar's own Undo.
     set_bar(&view, cx, amazon);
     let policy = Policy::link(EditPlace::Links).undo(move |_| Offer::Show(pret, "Linked".into()));
     write(&view, cx, policy, refuse).unwrap_err();
-    assert_eq!(said(&view, cx).undo, showing);
+    assert_eq!(undo_bar(&view, cx), showing);
     let policy = Policy::new(Said::Inspector(EditPlace::Exclusion))
         .sentence()
         .retry(amazon);
     write(&view, cx, policy, refuse).unwrap_err();
     assert_eq!(
-        said(&view, cx).undo,
-        Some("Couldn't undo: The store refused it.".into())
+        undo_bar(&view, cx).as_deref(),
+        Some("Couldn't undo: The store refused it.")
     );
     let action = cx.update(|_, cx| view.read(cx).undo.as_ref().map(|undo| undo.action));
     assert_eq!(action, Some(amazon), "Undo tries the same again");
@@ -429,8 +469,8 @@ fn the_undo_bar_follows_the_offer(cx: &mut TestAppContext) {
     )
     .unwrap();
     assert_eq!(
-        said(&view, cx).undo,
-        Some("Couldn't undo: The store refused it.".into())
+        undo_bar(&view, cx).as_deref(),
+        Some("Couldn't undo: The store refused it.")
     );
 }
 
@@ -511,14 +551,11 @@ fn nothing_happens_when_nothing_was_written(cx: &mut TestAppContext) {
         .undo(|_| Offer::Clear)
         .wrote(|renamed| *renamed);
     assert_eq!(write(&view, cx, policy, |_| Ok(false)), Ok(false));
-    assert_eq!(
-        said(&view, cx),
-        Shown {
-            category: Some("before".into()),
-            inspector: None,
-            undo: Some("Excluded as a bank error".into()),
-        }
-    );
+    let description = describe(&view, cx);
+    let one = description.one().unwrap();
+    assert_eq!(one.category_error.as_deref(), Some("before"));
+    assert_eq!(one.error, None);
+    assert_eq!(description.undo_message(), Some("Excluded as a bank error"));
     assert!(events.borrow().is_empty());
     assert_eq!(generation(&view, cx), start);
 
@@ -526,7 +563,7 @@ fn nothing_happens_when_nothing_was_written(cx: &mut TestAppContext) {
         .emit(TransactionsEvent::Changed)
         .wrote(|renamed| *renamed);
     assert_eq!(write(&view, cx, policy, |_| Ok(true)), Ok(true));
-    assert_eq!(said(&view, cx).category, None);
+    assert_eq!(inspector(&view, cx).category_error, None);
     assert_eq!(*events.borrow(), [TransactionsEvent::Changed]);
     assert_eq!(generation(&view, cx), start + 1);
 }
@@ -542,7 +579,7 @@ fn an_error_on_a_row_left_goes_to_the_failure_bar(cx: &mut TestAppContext) {
     // Nothing failed: nothing moves.
     cx.update(|_, cx| view.update(cx, |view, _| view.say_on_failure_bar(amazon)));
     assert!(cx.update(|_, cx| view.read(cx).edit_failure.is_none()));
-    assert!(said(&view, cx).undo.is_some());
+    assert!(undo_bar(&view, cx).is_some());
 
     write(&view, cx, Policy::edit(EditPlace::Details), save).unwrap_err();
     cx.update(|_, cx| view.update(cx, |view, _| view.say_on_failure_bar(amazon)));
@@ -555,14 +592,19 @@ fn an_error_on_a_row_left_goes_to_the_failure_bar(cx: &mut TestAppContext) {
             reason: SAMPLE_DATA.into(),
         })
     );
+    redraw(cx);
+    let description = describe(&view, cx);
     assert_eq!(
-        said(&view, cx),
-        Shown {
-            category: None,
-            inspector: None,
-            undo: None,
-        },
+        description.bar,
+        Some(BarDescription::Failed {
+            message: "Couldn't save the change to Amazon Marketplace".to_owned(),
+            actions: vec![
+                describe::Action::button("Show", true),
+                describe::Action::button("Dismiss", true),
+            ],
+        }),
         "the failure bar takes the undo bar's place"
     );
-    assert!(cx.update(|_, cx| view.read(cx).edit_failure_message().is_some()));
+    let one = description.one().unwrap();
+    assert_eq!((&one.category_error, &one.error), (&None, &None));
 }

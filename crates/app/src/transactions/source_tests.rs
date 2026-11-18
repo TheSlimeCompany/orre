@@ -20,6 +20,7 @@ use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
 use super::confirm::{DeleteTransactionDialog, UndoImportDialog};
+use super::describe::TransactionsDescription;
 use super::exclude_dialog::ExcludeDialog;
 use super::new_transaction::{Direction, NewTransactionDialog};
 use super::*;
@@ -161,19 +162,29 @@ fn open_database<'a>(
     (view, cx)
 }
 
-fn listed(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Vec<TransactionId> {
-    cx.update(|_, cx| {
-        let view = view.read(cx);
-        view.listing()
-            .rows
-            .iter()
-            .map(|&index| view.register().rows()[index].id)
-            .collect()
-    })
+fn describe(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> TransactionsDescription {
+    cx.update(|_, cx| view.read(cx).describe(cx))
 }
 
+/// The rows the table lists, as described.
+fn listed(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Vec<TransactionId> {
+    describe(view, cx).listed()
+}
+
+/// The selected rows, as described.
 fn selected(view: &Entity<TransactionsView>, cx: &mut VisualTestContext) -> Vec<TransactionId> {
-    cx.update(|_, cx| view.read(cx).selected().iter().map(|row| row.id).collect())
+    describe(view, cx).selected()
+}
+
+/// Why the last edit didn't save, where the inspector says it.
+fn inspector_error(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> Option<(editor::EditPlace, String)> {
+    describe(view, cx).one().and_then(|one| one.error.clone())
 }
 
 /// `build`'s dialog in a window of its own, beside the view's.
@@ -201,20 +212,16 @@ fn the_excluded_chip_shows_excluded_rows_in_their_days(cx: &mut TestAppContext) 
     redraw(cx);
     let odeon = fixture::id("txn-odeon-07");
     let saturday_net = |cx: &mut VisualTestContext| {
-        cx.update(|_, cx| {
-            let view = view.read(cx);
-            let listing = view.listing();
-            listing
-                .days
-                .iter()
-                .find(|day| day.date == NaiveDate::from_ymd_opt(2026, 11, 7).unwrap())
-                .map(|day| day.net.clone())
-                .unwrap()
-        })
+        describe(&view, cx)
+            .days
+            .into_iter()
+            .find(|day| day.heading == "Sat 7 Nov")
+            .map(|day| day.net)
+            .unwrap()
     };
     assert!(!listed(&view, cx).contains(&odeon), "hidden by default");
     let net = saturday_net(cx);
-    assert_eq!(net, [gbp(-16_054)]);
+    assert_eq!(net, "−£160.54");
     assert_eq!(
         cx.update(|_, cx| view.read(cx).counts()),
         Counts {
@@ -225,7 +232,13 @@ fn the_excluded_chip_shows_excluded_rows_in_their_days(cx: &mut TestAppContext) 
     );
 
     click("filter-excluded", cx);
-    assert!(listed(&view, cx).contains(&odeon));
+    let description = describe(&view, cx);
+    let row = description.row(odeon).unwrap();
+    assert_eq!(
+        (row.category.as_str(), row.excluded),
+        ("Excluded · Bank error", true)
+    );
+    assert!(description.toolbar.chips[4].active);
     assert_eq!(
         saturday_net(cx),
         net,
@@ -242,13 +255,18 @@ fn the_excluded_chip_shows_excluded_rows_in_their_days(cx: &mut TestAppContext) 
     assert!(!shows("exclude", cx));
 
     // Sample data can't change: Include again says so in the card.
+    let one = describe(&view, cx).one().cloned().unwrap();
+    assert!(one.struck);
+    assert_eq!(one.sections, ["Share", "Links", "Split", "Source", "Rule"]);
     click("include-again", cx);
-    assert!(cx.update(|_, cx| {
-        view.read(cx)
-            .editor
-            .error_at(editor::EditPlace::Exclusion)
-            .is_some()
-    }));
+    assert_eq!(
+        inspector_error(&view, cx),
+        Some((
+            editor::EditPlace::Exclusion,
+            super::write::SAMPLE_DATA.to_owned()
+        )),
+        "said in the card"
+    );
 
     // Escape clears the selection, then the filters, the chip with them.
     cx.update(|_, cx| view.update(cx, |view, cx| view.clear_selection(cx)));
@@ -319,8 +337,8 @@ fn excluding_hides_the_row_and_undo_includes_it_again(cx: &mut TestAppContext) {
     );
     assert!(!listed(&view, cx).contains(&odeon), "the chip is off");
     assert_eq!(
-        cx.update(|_, cx| view.read(cx).undo_message().cloned()),
-        Some("Excluded as bank error".into())
+        describe(&view, cx).undo_message(),
+        Some("Excluded as bank error")
     );
     assert_eq!(cx.update(|_, cx| view.read(cx).counts().excluded), 1);
 
@@ -541,12 +559,10 @@ fn a_manual_rows_date_amount_and_account_save_through_core(cx: &mut TestAppConte
         date.update(cx, |input, cx| input.set_value("31 Feb", window, cx));
         view.update(cx, |view, cx| view.commit_manual_date(window, cx));
     });
-    assert!(cx.update(|_, cx| {
-        view.read(cx)
-            .editor
-            .error_at(editor::EditPlace::Details)
-            .is_some()
-    }));
+    assert!(matches!(
+        inspector_error(&view, cx),
+        Some((editor::EditPlace::Details, _))
+    ));
     assert_eq!(manual::get(&scratch.db(), shop).unwrap().date, day(6));
 }
 
@@ -599,7 +615,7 @@ fn an_edit_that_fails_as_the_row_is_left_is_said_in_the_failure_bar(cx: &mut Tes
     let shop = scratch.corner_shop;
     let (view, cx) = open_database(cx, &scratch);
     let failure =
-        |cx: &mut VisualTestContext| cx.update(|_, cx| view.read(cx).edit_failure_message());
+        |cx: &mut VisualTestContext| describe(&view, cx).failure_message().map(str::to_owned);
     let bad_date = |cx: &mut VisualTestContext| {
         cx.update(|window, cx| {
             let date = view.read(cx).editor.date.clone();
@@ -625,12 +641,8 @@ fn an_edit_that_fails_as_the_row_is_left_is_said_in_the_failure_bar(cx: &mut Tes
     click("edit-failure-show", cx);
     assert_eq!(selected(&view, cx), [shop]);
     assert_eq!(failure(cx), None);
-    let error = cx.update(|_, cx| {
-        view.read(cx)
-            .editor
-            .error_at(editor::EditPlace::Details)
-            .unwrap()
-    });
+    let (place, error) = inspector_error(&view, cx).unwrap();
+    assert_eq!(place, editor::EditPlace::Details);
     assert!(error.contains("date"), "{error}");
 
     // The fields show what's stored again, so leaving now saves nothing and
@@ -682,12 +694,8 @@ fn a_paired_manual_rows_amount_waits_until_it_is_unpaired(cx: &mut TestAppContex
     // Refused under Details while it's a transfer, and nothing changes.
     click(row_id(cashback), cx);
     set_amount("12.00", cx);
-    let error = cx.update(|_, cx| {
-        view.read(cx)
-            .editor
-            .error_at(editor::EditPlace::Details)
-            .unwrap()
-    });
+    let (place, error) = inspector_error(&view, cx).unwrap();
+    assert_eq!(place, editor::EditPlace::Details);
     assert!(error.contains("transfer pair"), "{error}");
     assert_eq!(
         manual::get(&scratch.db(), cashback).unwrap().amount,
@@ -705,10 +713,7 @@ fn a_paired_manual_rows_amount_waits_until_it_is_unpaired(cx: &mut TestAppContex
     cx.update(|_, cx| view.update(cx, |view, cx| view.reload(cx)));
     redraw(cx);
     set_amount("12.00", cx);
-    assert_eq!(
-        cx.update(|_, cx| view.read(cx).editor.error_at(editor::EditPlace::Details)),
-        None
-    );
+    assert_eq!(inspector_error(&view, cx), None);
     assert_eq!(
         manual::get(&scratch.db(), cashback).unwrap().amount,
         gbp(1200)

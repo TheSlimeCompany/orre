@@ -18,6 +18,8 @@ use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
 use serde_json::json;
 use tempfile::TempDir;
 
+use super::describe::TransactionsDescription;
+use super::editor::EditPlace;
 use super::*;
 
 fn setup(cx: &mut TestAppContext) {
@@ -152,30 +154,56 @@ fn import_one(
         .id
 }
 
-fn open<'a>(cx: &'a mut TestAppContext, scratch: &Scratch) -> &'a mut VisualTestContext {
+fn open<'a>(
+    cx: &'a mut TestAppContext,
+    scratch: &Scratch,
+) -> (Entity<TransactionsView>, &'a mut VisualTestContext) {
     setup(cx);
     let store = TransactionStore::new(scratch.path.clone());
-    let (_view, cx) = cx.add_window_view(move |window, cx| {
+    let (view, cx) = cx.add_window_view(move |window, cx| {
         TransactionsView::new(Source::Database(store), window, cx)
     });
     redraw(cx);
-    cx
+    (view, cx)
+}
+
+fn describe(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> TransactionsDescription {
+    cx.update(|_, cx| view.read(cx).describe(cx))
 }
 
 #[gpui_kit::test]
 fn confirming_a_suggested_pair_settles_the_agents_suggestion_and_undoes(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let cx = open(cx, &scratch);
+    let (view, cx) = open(cx, &scratch);
     click(format!("txn-{}", scratch.out), cx);
     assert!(shows("confirm-transfer", cx));
     assert!(shows("reject-transfer", cx));
     assert!(!shows("split", cx), "a transfer can't be split");
+
+    let one = describe(&view, cx).one().cloned().unwrap();
+    // A suggested pair isn't a transfer yet: the Rule section stays.
+    assert_eq!(one.sections, ["Transfer", "Source", "Rule"]);
+    assert!(
+        !describe(&view, cx).row(scratch.out).unwrap().transfer,
+        "not drawn as a transfer until it's confirmed"
+    );
 
     click("confirm-transfer", cx);
     assert_eq!(scratch.status(), TransferStatus::Confirmed);
     assert_eq!(scratch.suggestion(), SuggestionStatus::Approved);
     assert!(shows("unpair-transfer", cx));
     assert!(shows("undo-change", cx));
+    let description = describe(&view, cx);
+    assert_eq!(
+        description.undo_message(),
+        Some("Confirmed transfer: Current account → Savings")
+    );
+    let row = description.row(scratch.out).unwrap();
+    assert!(row.transfer);
+    assert!(row.category.starts_with("Transfer"), "{}", row.category);
 
     click("undo-change", cx);
     assert_eq!(scratch.status(), TransferStatus::Suggested);
@@ -185,7 +213,7 @@ fn confirming_a_suggested_pair_settles_the_agents_suggestion_and_undoes(cx: &mut
 #[gpui_kit::test]
 fn not_a_transfer_rejects_the_pair_and_the_section_goes(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let cx = open(cx, &scratch);
+    let (_view, cx) = open(cx, &scratch);
     click(format!("txn-{}", scratch.inn), cx);
     click("reject-transfer", cx);
     assert_eq!(scratch.status(), TransferStatus::Rejected);
@@ -198,7 +226,7 @@ fn not_a_transfer_rejects_the_pair_and_the_section_goes(cx: &mut TestAppContext)
 fn unpairing_a_confirmed_pair_and_undoing_it(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     transfer::confirm(&mut Database::open(&scratch.path).unwrap(), scratch.group).unwrap();
-    let cx = open(cx, &scratch);
+    let (_view, cx) = open(cx, &scratch);
     click(format!("txn-{}", scratch.out), cx);
     click("unpair-transfer", cx);
     assert_eq!(scratch.status(), TransferStatus::Rejected);
@@ -213,7 +241,7 @@ fn unpairing_a_confirmed_pair_and_undoing_it(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn a_refused_undo_keeps_the_bar_and_says_why(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let cx = open(cx, &scratch);
+    let (view, cx) = open(cx, &scratch);
     click(format!("txn-{}", scratch.out), cx);
     click("reject-transfer", cx);
     // Changed behind the view's back: the pair is suggested again.
@@ -229,4 +257,11 @@ fn a_refused_undo_keeps_the_bar_and_says_why(cx: &mut TestAppContext) {
     click("undo-change", cx);
     assert_eq!(scratch.status(), TransferStatus::Suggested);
     assert!(shows("undo-change", cx), "the bar stays");
+    // With the reason, in the bar and under the Transfer section.
+    let description = describe(&view, cx);
+    let message = description.undo_message().unwrap();
+    assert!(message.starts_with("Couldn't undo: "), "{message}");
+    let (place, reason) = description.one().unwrap().error.clone().unwrap();
+    assert_eq!(place, EditPlace::Transfer);
+    assert_eq!(message, format!("Couldn't undo: {reason}"));
 }

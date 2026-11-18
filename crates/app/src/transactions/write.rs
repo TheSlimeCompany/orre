@@ -46,7 +46,7 @@ pub(super) const SAMPLE_DATA: &str = "This is sample data, which can't be change
 /// Where a write's error is said.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Said {
-    /// Under the inspector's Category select ([`TransactionsView::edit_error`]).
+    /// Under the inspector's Category select (the view's `edit_error`).
     Category,
     /// Under an inspector section.
     Inspector(EditPlace),
