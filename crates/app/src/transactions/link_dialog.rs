@@ -20,6 +20,11 @@
 //! - "Link a payment…" on Owed to you opens it for that person, Kind fixed
 //!   to Settlement, listing money in.
 //!
+//! Keyboard (`DESIGN.md` → "Keyboard paths"): from the search field, ↑↓
+//! move the chosen row (its `molten-soft` look), skipping the rows at
+//! `opacity-disabled` and stopping at the ends, and scroll it into view;
+//! Enter is the primary button.
+//!
 //! The link is made by the Transactions screen ([`TransactionsView::link`]),
 //! through core's `edit::link`, which checks both sides and the caps; a
 //! refusal is said under the form in caption type, `danger`.
@@ -29,11 +34,11 @@ use coffer_core::link::{LinkKind, LinkTarget, NewLink, ShareLabel};
 use coffer_core::money::{Currency, Money};
 use coffer_core::reporting::linking::{self as core_linking, Blocked, Candidate};
 use coffer_core::reporting::register::{Register, RegisterRow};
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::{self, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
 };
 
@@ -45,6 +50,7 @@ use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::dialog::Dialog;
 use crate::ui::field::{self as fields, FieldRow, error_caption, search_input, text_input};
 use crate::ui::icon::Glyph;
+use crate::ui::list::{self, Move, Reveal as _};
 use crate::ui::segmented::Segmented;
 use crate::ui::text::TextRoleExt as _;
 
@@ -68,6 +74,8 @@ pub struct LinkDialog {
     search: Entity<InputState>,
     amount: Entity<InputState>,
     chosen: Option<Choice>,
+    /// The rows' scrolling, so ↑↓ can bring the chosen row into view.
+    scroll: ScrollHandle,
     focus: FocusHandle,
     error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
@@ -117,6 +125,7 @@ impl LinkDialog {
             search,
             amount,
             chosen: None,
+            scroll: ScrollHandle::new(),
             focus,
             error: None,
             _subscriptions: subscriptions,
@@ -217,6 +226,51 @@ impl LinkDialog {
         if self.chosen != first {
             self.chosen = first;
             self.fill_amount(window, cx);
+        }
+    }
+
+    /// The rows listed, in order, each with whether it can be chosen: a
+    /// candidate that can't take more is listed at `opacity-disabled`.
+    fn rows(&self, cx: &App) -> Vec<(Choice, bool)> {
+        if self.lists_people() {
+            self.people(cx)
+                .into_iter()
+                .map(|(label, _)| (Choice::Person(label), true))
+                .collect()
+        } else {
+            self.candidates(cx)
+                .into_iter()
+                .map(|candidate| {
+                    (
+                        Choice::Transaction(candidate.transaction),
+                        candidate.blocked.is_none(),
+                    )
+                })
+                .collect()
+        }
+    }
+
+    /// ↑↓ from the search field: chooses the next row that can be chosen
+    /// that way ([`list::step`]: stopping at the ends; with nothing chosen,
+    /// ↓ starts at the top and ↑ at the bottom), and scrolls it into view.
+    fn move_choice(&mut self, to: Move, window: &mut Window, cx: &mut Context<Self>) {
+        let rows = self.rows(cx);
+        let open: Vec<Choice> = rows
+            .iter()
+            .filter(|(_, enabled)| *enabled)
+            .map(|(choice, _)| choice.clone())
+            .collect();
+        let Some(next) = list::step(&open, self.chosen.as_ref(), to) else {
+            return;
+        };
+        if let Some(index) = rows.iter().position(|(choice, _)| *choice == next) {
+            self.scroll.reveal(index);
+        }
+        if self.chosen.as_ref() == Some(&next) {
+            // At an end: the amount typed stays.
+            cx.notify();
+        } else {
+            self.choose(next, window, cx);
         }
     }
 
@@ -597,10 +651,35 @@ impl Render for LinkDialog {
                 .text_color(color::TEXT_MUTED)
                 .child(self.nothing())
         });
+        // The rows scroll as one, so ↑↓ can bring the chosen one into view.
+        let rows = (!rows.is_empty()).then(|| {
+            div()
+                .id("link-rows")
+                .flex()
+                .flex_col()
+                .gap(spacing::S1)
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll)
+                .children(rows)
+        });
         let list = div()
             .flex()
             .flex_col()
             .gap(spacing::S1)
+            // The search field's own keys, caught on the way down to it, so
+            // typing searches while ↑↓ choose a row and Enter links.
+            .capture_action(cx.listener(|this, _: &input::MoveUp, window, cx| {
+                cx.stop_propagation();
+                this.move_choice(Move::UP, window, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &input::MoveDown, window, cx| {
+                cx.stop_propagation();
+                this.move_choice(Move::DOWN, window, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &input::Enter, _, cx| {
+                cx.stop_propagation();
+                this.submit(cx);
+            }))
             .child(search_input(&self.search).w_full())
             .children(rows)
             .children(empty);

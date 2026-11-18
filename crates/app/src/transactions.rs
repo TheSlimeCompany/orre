@@ -19,7 +19,14 @@
 //!   and Date chips open menus; Uncategorised toggles. Search matches the
 //!   merchant, the bank's merchant and the raw description.
 //! - **Sort.** Clicking a column title sorts each day's rows by it, then
-//!   reverses, then goes back to newest first. Days never move.
+//!   reverses, then goes back to newest first. Days never move. Each title
+//!   is a Tab stop after the toolbar, where Enter or Space sorts as a click
+//!   does (`DESIGN.md` → "Keyboard paths").
+//! - **Selection.** A click selects a row, ⇧-click a range and ⌘-click
+//!   (Ctrl on Linux and Windows) adds or removes one. From the keyboard, ↑↓
+//!   move the selection and ⇧↑⇧↓ extend it; ⌘↑/⌘↓ move the keyboard row
+//!   without changing the selection and Space adds or removes it, as
+//!   ⌘-click does.
 //! - **Category edits.** Enter or a double-click on a row's category opens
 //!   the category menu in place; the inspector's Category select and the
 //!   bulk-action bar's Categorise set it for every selected row. Each goes
@@ -66,6 +73,8 @@ pub mod store;
 pub mod transfer;
 mod write;
 
+use std::rc::Rc;
+
 use chrono::NaiveDate;
 use coffer_core::account::AccountKind;
 use coffer_core::change;
@@ -79,14 +88,14 @@ use coffer_core::reporting::register::{
     CategoryCounts, DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
 };
 use coffer_core::transfer as core_transfer;
-use gpui_kit::base::actions::Cancel;
+use gpui_kit::base::actions::{Cancel, Confirm};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity, FocusHandle,
-    InteractiveElement as _, IntoElement, KeyBinding, ListAlignment, ListState, MouseButton,
-    MouseDownEvent, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task,
-    Window, div, list,
+    InteractiveElement as _, IntoElement, KeyBinding, KeyBindingContextPredicate, ListAlignment,
+    ListState, MouseButton, MouseDownEvent, ParentElement as _, Render, SharedString, Styled as _,
+    Subscription, Task, Window, div, list,
 };
 
 use crate::accounts::CategoryPick;
@@ -103,7 +112,9 @@ use crate::ui::field::search_input;
 use crate::ui::list::{Keys, ListKeysExt as _, Move, Reveal as _};
 use crate::ui::menu::{self, MenuGroup, MenuList, SelectState, filter_groups};
 use crate::ui::notification::NotificationBar;
-use crate::ui::transaction_row::{DayHeader, TransactionColumn, TransactionHeader, TransactionRow};
+use crate::ui::transaction_row::{
+    DayHeader, TITLE_CONTEXT, TransactionColumn, TransactionHeader, TransactionRow,
+};
 use crate::ui::undo_bar::UndoBar;
 
 use selection::{ClickKind, Selection};
@@ -116,6 +127,31 @@ const TABLE_CONTEXT: &str = "CofferTransactionsTable";
 /// The table's movement keys: ↑↓, ⇧↑⇧↓ to extend the selection, Home and
 /// End.
 const TABLE_KEYS: Keys = Keys::new(TABLE_CONTEXT).with_extend().with_ends();
+
+/// The key context of the table itself (column header and rows, not the
+/// toolbar or the bar over its foot), where ⌘↑/⌘↓ move the keyboard row and
+/// Space adds or removes it (`DESIGN.md` → "Keyboard paths").
+const ROWS_CONTEXT: &str = "CofferTransactionsRows";
+
+/// Where the cursor keys are bound: the table, unless a text field in it
+/// has focus (a row's category menu's filter), which keeps Space for
+/// typing and ⌘↑/⌘↓ for its own.
+const CURSOR_KEYS_CONTEXT: &str = "CofferTransactionsRows && !Input";
+
+/// ⌘↑/⌘↓ (Ctrl on Linux and Windows) with what they do, as bound
+/// (`secondary-`) and as a test-only `describe()` lists them.
+const CURSOR_MOVES: [(&str, Move, &str); 2] = [
+    ("secondary-up", Move::UP, "Move the keyboard row up"),
+    ("secondary-down", Move::DOWN, "Move the keyboard row down"),
+];
+
+/// Space: what it does to the keyboard row.
+#[cfg(test)]
+const TOGGLE_ROW: &str = "Add or remove the keyboard row";
+
+/// What Enter or Space does on a focused column title.
+#[cfg(test)]
+const SORT_BY_TITLE: &str = "Sort by the focused column";
 
 /// The labels of the canvas's own buttons (`describe()` lists them).
 const SHOW: &str = "Show";
@@ -132,6 +168,13 @@ gpui_kit::actions!(
     [
         /// Enter: open the category menu on the keyboard row.
         EditCategory,
+        /// ⌘↑: move the keyboard row up, the selection unchanged.
+        CursorUp,
+        /// ⌘↓: move the keyboard row down, the selection unchanged.
+        CursorDown,
+        /// Space: add the keyboard row to the selection, or remove it, as
+        /// ⌘-click does.
+        ToggleRow,
     ]
 );
 
@@ -140,9 +183,28 @@ gpui_kit::actions!(
 pub fn init(cx: &mut App) {
     TABLE_KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("enter", EditCategory, Some(TABLE_CONTEXT)),
+        // In the rows only: Enter on a focused toolbar chip clicks the chip.
+        KeyBinding::new("enter", EditCategory, Some(ROWS_CONTEXT)),
         KeyBinding::new("escape", Cancel, Some(TABLE_CONTEXT)),
+        KeyBinding::new("space", ToggleRow, Some(CURSOR_KEYS_CONTEXT)),
+        KeyBinding::new("enter", Confirm { secondary: false }, Some(TITLE_CONTEXT)),
+        KeyBinding::new("space", Confirm { secondary: false }, Some(TITLE_CONTEXT)),
     ]);
+    // ⌘↑/⌘↓: `KeyBinding::new` can't resolve `secondary-` (⌘ on macOS, Ctrl
+    // elsewhere), so `load` asks the platform, as the shell's shortcuts do.
+    let context = Rc::new(
+        KeyBindingContextPredicate::parse(CURSOR_KEYS_CONTEXT).expect("the key context parses"),
+    );
+    let bindings = CURSOR_MOVES.map(|(key, to, _)| {
+        let action: Box<dyn gpui_kit::Action> = if to == Move::UP {
+            Box::new(CursorUp)
+        } else {
+            Box::new(CursorDown)
+        };
+        KeyBinding::load(key, action, Some(context.clone()), false, None, cx)
+            .expect("⌘↑ and ⌘↓ parse")
+    });
+    cx.bind_keys(bindings);
     menu::init(cx);
 }
 
@@ -475,6 +537,11 @@ pub struct TransactionsView {
     inspector_select: SelectState,
     menu_filter: Entity<InputState>,
     chip_focus: [FocusHandle; 3],
+    /// The column titles' focus handles, in [`TransactionColumn::ALL`]'s
+    /// order: Tab stops after the toolbar's.
+    column_focus: [FocusHandle; 4],
+    /// The column title that had focus when the view was last drawn.
+    focused_column: Option<TransactionColumn>,
     /// Why the last change wasn't saved, said under the inspector's Category.
     edit_error: Option<SharedString>,
     /// The inspector's fields for the selected transaction (M3.9).
@@ -552,6 +619,8 @@ impl TransactionsView {
             menu_state: SelectState::with_trigger(focus.clone(), cx),
             inspector_select: SelectState::new(cx),
             chip_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
+            column_focus: std::array::from_fn(|_| cx.focus_handle().tab_stop(true)),
+            focused_column: None,
             focus,
             search,
             menu: None,
@@ -1562,6 +1631,23 @@ impl TransactionsView {
         cx.notify();
     }
 
+    /// ⌘↑/⌘↓: moves the keyboard row, the selection as it was.
+    fn move_cursor(&mut self, to: Move, cx: &mut Context<Self>) {
+        self.selection.move_cursor(to, &self.order);
+        self.reveal_current();
+        cx.notify();
+    }
+
+    /// Space: adds the keyboard row to the selection or removes it, as
+    /// ⌘-click on it does.
+    fn toggle_row(&mut self, cx: &mut Context<Self>) {
+        if self.selection.toggle_current(&self.order) {
+            self.undo = None;
+            self.edit_failure = None;
+            cx.notify();
+        }
+    }
+
     /// The keyboard row, if Enter can open its category menu.
     fn editable_current(&self) -> Option<TransactionId> {
         self.selection.current().filter(|id| {
@@ -1822,7 +1908,8 @@ impl TransactionsView {
             .show_account(self.filter.account.is_none())
             .on_sort(move |column, _, cx| {
                 view.update(cx, |this, cx| this.sort_by(column, cx)).ok();
-            });
+            })
+            .focus(self.column_focus.clone());
         match self.sort {
             Sort::Default => header,
             Sort::Ascending(column) => header.sorted(table_column(column), false),
@@ -1865,7 +1952,11 @@ impl TransactionsView {
                 .into_any_element(),
         };
         div()
+            .key_context(ROWS_CONTEXT)
             .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &CursorUp, _, cx| this.move_cursor(Move::UP, cx)))
+            .on_action(cx.listener(|this, _: &CursorDown, _, cx| this.move_cursor(Move::DOWN, cx)))
+            .on_action(cx.listener(|this, _: &ToggleRow, _, cx| this.toggle_row(cx)))
             .flex()
             .flex_col()
             .flex_1()
@@ -1964,6 +2055,11 @@ impl Render for TransactionsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_search(window, cx);
         self.sync_editor(window, cx);
+        self.focused_column = TransactionColumn::ALL
+            .into_iter()
+            .zip(&self.column_focus)
+            .find(|(_, focus)| focus.is_focused(window))
+            .map(|(column, _)| column);
         div()
             .flex()
             .flex_1()

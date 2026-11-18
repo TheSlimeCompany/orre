@@ -912,6 +912,7 @@ fn the_description_reads_the_screen_in_full(cx: &mut TestAppContext) {
             },
             account_column: true,
             sort: coffer_core::reporting::register::Sort::Default,
+            focused_column: None,
             empty: None,
             days: vec![
                 day("Mon 9 Nov", pret("txn-pret-09", "−£6.45", true)),
@@ -943,9 +944,14 @@ fn the_description_reads_the_screen_in_full(cx: &mut TestAppContext) {
                 Action::keyed("Extend the selection down", "shift-down", true),
                 Action::keyed("Move to the first row", "home", true),
                 Action::keyed("Move to the last row", "end", true),
+                Action::keyed("Move the keyboard row up", "secondary-up", true),
+                Action::keyed("Move the keyboard row down", "secondary-down", true),
+                Action::keyed("Add or remove the keyboard row", "space", true),
                 Action::keyed("Set the category", "enter", true),
                 Action::keyed("Clear the selection", "escape", true),
                 Action::keyed("Clear the filters", "escape", false),
+                Action::keyed("Sort by the focused column", "enter", false),
+                Action::keyed("Sort by the focused column", "space", false),
             ],
         }
     );
@@ -1062,4 +1068,195 @@ fn untrusted_text_is_described_as_shown(cx: &mut TestAppContext) {
         !debug.contains("\\u{202e}") && !debug.contains("\\u{200b}") && !debug.contains("\\n"),
         "{debug}"
     );
+}
+
+// Keyboard paths (U.9) ------------------------------------------------------
+
+/// A key with the platform's command key: ⌘ on macOS, Ctrl elsewhere, as
+/// `secondary-` binds it.
+fn secondary(key: &str) -> String {
+    if cfg!(target_os = "macos") {
+        format!("cmd-{key}")
+    } else {
+        format!("ctrl-{key}")
+    }
+}
+
+/// The view over the Paper fixture in a real 1440×900 window with `Root`
+/// (which binds Tab), focus on the table.
+fn open_rooted(cx: &mut TestAppContext) -> (Entity<TransactionsView>, VisualTestContext) {
+    use gpui_kit::{Bounds, WindowBounds, WindowOptions, point, px, size};
+
+    setup(cx);
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+            point(px(0.), px(0.)),
+            size(px(1440.), px(900.)),
+        ))),
+        ..Default::default()
+    };
+    let (window, view) = cx
+        .update(|cx| {
+            gpui_kit::open_window(options, cx, |window, cx| {
+                cx.new(|cx| TransactionsView::new(Source::Fixture, window, cx))
+            })
+        })
+        .expect("open test window");
+    let mut cx = VisualTestContext::from_window(window, cx);
+    redraw(&mut cx);
+    (view, cx)
+}
+
+/// The column title with focus, as described.
+fn focused_column(
+    view: &Entity<TransactionsView>,
+    cx: &mut VisualTestContext,
+) -> Option<TransactionColumn> {
+    describe(view, cx).focused_column
+}
+
+/// Whether the focus ring surrounds the element `id`, 2px and more out.
+fn ring_around(id: &'static str, cx: &mut VisualTestContext) -> bool {
+    let Some(ring) = cx.debug_bounds(crate::theme::focus::RING_SELECTOR) else {
+        return false;
+    };
+    let title = cx.update(|window, _| window.find(id).bounds());
+    ring.left() < title.left()
+        && ring.top() < title.top()
+        && ring.right() > title.right()
+        && ring.bottom() > title.bottom()
+}
+
+#[gpui_kit::test]
+fn tab_reaches_the_column_titles_in_order_after_the_toolbar(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    click("search", cx);
+    // The toolbar's stops after the search field: Account, Category, Date,
+    // Uncategorised, Excluded and Import.
+    for _ in 0..6 {
+        press("tab", cx);
+        assert_eq!(focused_column(&view, cx), None, "still in the toolbar");
+    }
+    for column in TransactionColumn::ALL {
+        press("tab", cx);
+        assert_eq!(focused_column(&view, cx), Some(column));
+        assert!(
+            ring_around(column.element_id(), cx),
+            "{column:?} draws the ring"
+        );
+    }
+    press("tab", cx);
+    assert_eq!(focused_column(&view, cx), None, "past the header");
+}
+
+#[gpui_kit::test]
+fn enter_and_space_on_a_focused_title_sort_and_cycle(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let id = fixture::id;
+    let before = selected(&view, cx);
+    click("search", cx);
+    for _ in 0..10 {
+        press("tab", cx);
+    }
+    assert_eq!(focused_column(&view, cx), Some(TransactionColumn::Amount));
+    let description = describe(&view, cx);
+    let sort_keys: Vec<_> = description
+        .actions
+        .iter()
+        .filter(|action| action.label == "Sort by the focused column")
+        .map(|action| (action.key, action.enabled))
+        .collect();
+    assert_eq!(sort_keys, [(Some("enter"), true), (Some("space"), true)]);
+
+    // As clicking "sort-amount" does: smallest first, largest first, then
+    // newest first again.
+    press("enter", cx);
+    assert_eq!(listed(&view, cx)[0], id("txn-rainy-day-09"));
+    assert_eq!(open_menu(&view, cx), None, "Enter sorts, not a category");
+    press("space", cx);
+    assert_eq!(listed(&view, cx)[0], id("txn-tfl-09"));
+    press("enter", cx);
+    assert_eq!(
+        describe(&view, cx).sort,
+        coffer_core::reporting::register::Sort::Default
+    );
+    assert_eq!(listed(&view, cx)[0], id("txn-pret-09"));
+    assert_eq!(selected(&view, cx), before, "the selection is left alone");
+    assert_eq!(focused_column(&view, cx), Some(TransactionColumn::Amount));
+}
+
+#[gpui_kit::test]
+fn the_command_arrows_move_the_keyboard_row_and_space_adds_it(cx: &mut TestAppContext) {
+    let (view, cx) = open_fixture(cx);
+    let order = listed(&view, cx);
+    click(row_id(order[0]), cx);
+    let down = secondary("down");
+    let up = secondary("up");
+
+    press(&format!("{down} {down}"), cx);
+    let description = describe(&view, cx);
+    assert_eq!(
+        description.selected(),
+        [order[0]],
+        "⌘↓ leaves the selection"
+    );
+    assert_eq!(description.keyboard_row(), Some(order[2]));
+
+    // Space adds the keyboard row without the one between.
+    press("space", cx);
+    assert_eq!(selected(&view, cx), [order[0], order[2]]);
+    assert!(bulk_bar(&view, cx));
+
+    press(&up, cx);
+    let description = describe(&view, cx);
+    assert_eq!(description.selected(), [order[0], order[2]], "⌘↑ too");
+    assert_eq!(description.keyboard_row(), Some(order[1]));
+
+    // Space again on a selected row removes it.
+    press(&down, cx);
+    press("space", cx);
+    let description = describe(&view, cx);
+    assert_eq!(description.selected(), [order[0]]);
+    assert!(
+        description
+            .actions
+            .iter()
+            .any(|action| action.label == "Add or remove the keyboard row" && action.enabled)
+    );
+}
+
+#[gpui_kit::test]
+fn enter_on_a_toolbar_chip_clicks_it_instead_of_opening_a_category_menu(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    click("search", cx);
+    // Account, Category, Date, then Uncategorised.
+    press("tab tab tab tab", cx);
+    // Down and up: a focused button clicks on the key's release.
+    cx.update(|window, cx| window.press("enter", cx));
+    redraw(cx);
+    let shown = describe(&view, cx);
+    assert!(shown.toolbar.chips[3].active);
+    assert_eq!(shown.menu, None, "Enter opened a category menu");
+}
+
+#[gpui_kit::test]
+fn space_types_in_the_search_field_and_clicks_a_toolbar_chip(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let before = selected(&view, cx);
+    click("search", cx);
+    press("space", cx);
+    assert_eq!(describe(&view, cx).toolbar.search, " ");
+    assert_eq!(selected(&view, cx), before);
+
+    // Account, Category, Date, then Uncategorised.
+    press("tab tab tab tab", cx);
+    // Down and up: a focused button clicks on the key's release.
+    cx.update(|window, cx| window.press("space", cx));
+    redraw(cx);
+    assert!(describe(&view, cx).toolbar.chips[3].active);
+    assert_eq!(selected(&view, cx).len(), before.len());
 }

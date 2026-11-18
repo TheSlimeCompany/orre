@@ -1,7 +1,8 @@
 //! What the Transactions screen shows, as plain data, for tests (ROADMAP
-//! U.2): the toolbar, the column header's sort, the days and their rows,
-//! the selection, the open menu, the inspector, the bar over the table's
-//! foot (failure, undo or bulk actions) and the keys with what they do.
+//! U.2): the toolbar, the column header's sort and focused title, the days
+//! and their rows, the selection and the keyboard row, the open menu, the
+//! inspector, the bar over the table's foot (failure, undo or bulk actions)
+//! and the keys with what they do.
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
 //! release build and nothing outside the tests can reach it, `coffer mcp`
@@ -37,8 +38,9 @@ use super::inspector::{
 };
 use super::present::{self, CellKind};
 use super::{
-    BarText, CATEGORISE, CREATE_RULE, ChipText, EmptyText, MARK_AS_TRANSFER, Menu, RowText, SHOW,
-    TABLE_KEYS, TableItem, ToolbarText, TransactionsView,
+    BarText, CATEGORISE, CREATE_RULE, CURSOR_MOVES, ChipText, EmptyText, MARK_AS_TRANSFER, Menu,
+    RowText, SHOW, SORT_BY_TITLE, TABLE_KEYS, TOGGLE_ROW, TableItem, ToolbarText,
+    TransactionColumn, TransactionsView,
 };
 
 /// What the Transactions screen shows ([`TransactionsView::describe`]).
@@ -50,6 +52,9 @@ pub struct TransactionsDescription {
     pub account_column: bool,
     /// The column the header marks, and which way.
     pub sort: Sort,
+    /// The column title with focus, where Enter and Space sort, as last
+    /// drawn.
+    pub focused_column: Option<TransactionColumn>,
     /// What the table area says with no rows.
     pub empty: Option<EmptyDescription>,
     pub days: Vec<DayDescription>,
@@ -122,7 +127,9 @@ pub struct RowDescription {
     /// The amount in the original currency, under it.
     pub original: Option<String>,
     pub selected: bool,
-    /// The keyboard row: ↑↓ move from it and Enter opens its category menu.
+    /// The keyboard row: ↑↓ move from it, Enter opens its category menu,
+    /// ⌘↑/⌘↓ move it without changing the selection and Space adds or
+    /// removes it.
     pub keyboard: bool,
 }
 
@@ -561,7 +568,18 @@ impl TransactionsView {
             .into_iter()
             .map(|(key, to)| Action::keyed(to.label(), key, has_rows))
             .collect();
+        actions.extend(
+            CURSOR_MOVES
+                .into_iter()
+                .map(|(key, _, label)| Action::keyed(label, key, has_rows)),
+        );
+        let cursor_listed = self
+            .selection
+            .current()
+            .is_some_and(|id| self.order.contains(&id));
+        let title = self.focused_column.is_some();
         actions.extend([
+            Action::keyed(TOGGLE_ROW, "space", cursor_listed),
             Action::keyed(
                 "Set the category",
                 "enter",
@@ -573,6 +591,8 @@ impl TransactionsView {
                 "escape",
                 self.selection.is_empty() && self.has_filters(),
             ),
+            Action::keyed(SORT_BY_TITLE, "enter", title),
+            Action::keyed(SORT_BY_TITLE, "space", title),
         ]);
         TransactionsDescription {
             toolbar: ToolbarDescription {
@@ -585,6 +605,7 @@ impl TransactionsView {
             },
             account_column: self.filter.account.is_none(),
             sort: self.sort,
+            focused_column: self.focused_column,
             empty: self.empty_text().map(
                 |EmptyText {
                      title,
@@ -614,6 +635,11 @@ impl TransactionsDescription {
     /// The rows the table lists, in its order.
     pub fn listed(&self) -> Vec<TransactionId> {
         self.rows().map(|row| row.id).collect()
+    }
+
+    /// The keyboard row, if listed.
+    pub fn keyboard_row(&self) -> Option<TransactionId> {
+        self.rows().find(|row| row.keyboard).map(|row| row.id)
     }
 
     /// The selected rows, in the table's order.

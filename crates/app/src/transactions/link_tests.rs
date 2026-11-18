@@ -290,3 +290,52 @@ fn the_dialog_links_a_refund_to_the_chosen_purchase(cx: &mut TestAppContext) {
     });
     assert_eq!(sam, Some(gbp(0)));
 }
+
+#[gpui_kit::test]
+fn the_arrows_choose_a_candidate_past_blocked_ones_and_enter_links(cx: &mut TestAppContext) {
+    let scratch = scratch(Variant::Suggested);
+    let (view, cx) = open(cx, &scratch);
+    let refund = scratch.seeded.asos_refund;
+    let transactions = view.clone();
+    let (dialog, cx) = cx.add_window_view(move |window, cx| {
+        LinkDialog::new(transactions, LinkFrom::Transaction(refund), window, cx)
+    });
+    redraw(cx);
+    // Every purchase, not just ASOS.com's: the search starts with the
+    // merchant, so it's cleared.
+    for _ in 0.."ASOS.com".len() {
+        cx.simulate_keystrokes("backspace");
+    }
+    redraw(cx);
+    let candidates = cx.update(|_, cx| dialog.read(cx).candidates(cx));
+    assert!(candidates.len() > 3, "{candidates:?}");
+    assert!(candidates[0].blocked.is_none() && candidates[1].blocked.is_none());
+    assert!(
+        candidates[2].blocked.is_some(),
+        "ASOS.com's refunded purchase"
+    );
+    assert!(candidates[3].blocked.is_none());
+    let chosen = |cx: &mut VisualTestContext| cx.update(|_, cx| dialog.read(cx).chosen().cloned());
+    let at = |index: usize| Some(Choice::Transaction(candidates[index].transaction));
+    assert_eq!(chosen(cx), at(0));
+
+    cx.simulate_keystrokes("down");
+    assert_eq!(chosen(cx), at(1));
+    cx.simulate_keystrokes("down");
+    assert_eq!(chosen(cx), at(3), "past the blocked row");
+    cx.simulate_keystrokes("up");
+    assert_eq!(chosen(cx), at(1), "past it on the way back too");
+    cx.simulate_keystrokes("up up");
+    assert_eq!(chosen(cx), at(0), "stopping at the top");
+    cx.simulate_keystrokes("down");
+    assert_eq!(chosen(cx), at(1));
+
+    cx.simulate_keystrokes("enter");
+    redraw(cx);
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).error().cloned()), None);
+    assert_eq!(
+        statuses(&view, candidates[1].transaction, cx),
+        [(LinkKind::Refund, LinkStatus::Confirmed)],
+        "Enter linked the chosen purchase"
+    );
+}

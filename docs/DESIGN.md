@@ -2558,9 +2558,11 @@ and ⌥ is Alt on Linux and Windows. No new tokens or components.
     (its existing `molten-soft` look) and scroll it into view, skipping rows at
     `opacity-disabled`. Enter is the primary button.
   - *⌘-click in Transactions* adds a row to the selection without its neighbours; ⇧↑↓
-    only extends a range. Proposed: ⌘↑ / ⌘↓ move the panel-style keyboard cursor
-    without changing the selection, and Space adds or removes the cursor row. Needs the
-    user's decision before it's built (see the U.9 report).
+    only extends a range. Built (the user decided to build it, 2026-11-18): ⌘↑ / ⌘↓
+    move the keyboard row without changing the selection, and Space adds or removes it,
+    as ⌘-click does. The keyboard row keeps its existing look (the inset focus ring, on
+    the `molten-soft` fill when selected), so nothing new is drawn. The keys work while
+    the table has focus, not in a text field.
 - **Already have a keyboard path** (hover only styles them, or a key exists): Inbox
   approve ✓ / reject ✕ (shown on hover or selection; A and R act on the selected row);
   agent-card rows (Tab stops that reveal their buttons on focus too); the tag pill's ✕

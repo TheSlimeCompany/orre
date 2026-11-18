@@ -83,6 +83,26 @@ impl<Id: Copy + Ord> Selection<Id> {
         self.click(target, kind, order);
     }
 
+    /// Moves the keyboard row through `order` as [`Self::move_by`] does,
+    /// but leaves the selection and the anchor as they are (⌘↑/⌘↓): the
+    /// keyboard's way to reach a row that ⌘-click would add.
+    pub fn move_cursor(&mut self, to: Move, order: &[Id]) {
+        if let Some(target) = list::step(order, self.current.as_ref(), to) {
+            self.current = Some(target);
+        }
+    }
+
+    /// Adds the keyboard row to the selection, or removes it, as ⌘-click on
+    /// it does (Space). Does nothing, and says so, when there's no keyboard
+    /// row in `order`.
+    pub fn toggle_current(&mut self, order: &[Id]) -> bool {
+        let Some(id) = self.current.filter(|id| order.contains(id)) else {
+            return false;
+        };
+        self.click(id, ClickKind::Toggle, order);
+        true
+    }
+
     /// Selects nothing; the keyboard row stays where it was.
     pub fn clear(&mut self) {
         self.selected.clear();
@@ -221,6 +241,39 @@ mod tests {
         assert_eq!(selection.current(), Some(30));
         selection.move_by(Move::DOWN, &ORDER);
         assert_eq!(selected(&selection), [40]);
+    }
+
+    #[test]
+    fn the_cursor_moves_without_the_selection_and_toggle_adds_its_row() {
+        let mut selection = Selection::default();
+        selection.click(20, ClickKind::Replace, &ORDER);
+        selection.move_cursor(Move::DOWN, &ORDER);
+        selection.move_cursor(Move::DOWN, &ORDER);
+        assert_eq!(selected(&selection), [20], "⌘↓ leaves the selection");
+        assert_eq!(selection.current(), Some(40));
+        assert!(selection.toggle_current(&ORDER));
+        assert_eq!(selected(&selection), [20, 40], "not 30 between them");
+        selection.move_cursor(Move::UP, &ORDER);
+        selection.move_cursor(Move::UP, &ORDER);
+        assert!(selection.toggle_current(&ORDER));
+        assert_eq!(
+            selected(&selection),
+            [40],
+            "Space on a selected row removes it"
+        );
+        // Stopping at the ends, as every list does.
+        selection.move_cursor(Move::By(-10), &ORDER);
+        assert_eq!(selection.current(), Some(10));
+    }
+
+    #[test]
+    fn toggle_without_a_listed_cursor_row_does_nothing() {
+        let mut selection = Selection::default();
+        assert!(!selection.toggle_current(&ORDER));
+        selection.set([20]);
+        // The row has gone from the list.
+        assert!(!selection.toggle_current(&[10, 30]));
+        assert_eq!(selection.len(), 1);
     }
 
     #[test]
