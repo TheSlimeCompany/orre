@@ -2,9 +2,11 @@
 //! the open section's table, or the apply preview.
 //!
 //! - **Rules** (`B1J-0`): # (24) · WHEN (flex) · ACCOUNT (140) · THEN
-//!   (180) · MATCHES (96), 28px rows, the selected one `molten-soft`; a row
-//!   is dragged onto another to take its place. A never-reached rule says
-//!   so in `warning` before a `text-muted` 0.
+//!   (180) · MATCHES (96), 28px rows, the selected one `molten-soft` (with
+//!   the inset focus ring while the table has keyboard focus); a row is
+//!   dragged onto another to take its place, or the selected one moved with
+//!   ⌥↑⌥↓. A never-reached rule says so in `warning` before a `text-muted`
+//!   0.
 //! - **Apply to past transactions** (`EFT-0`): MERCHANT · ACCOUNT · NOW ·
 //!   AFTER · DATE · AMOUNT; "Will change", then "Category you set" with
 //!   "Change these too"; the footer's buttons and caption.
@@ -36,6 +38,7 @@ use gpui_kit::{
 };
 
 use crate::format::{self, Sign};
+use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
 use crate::theme::tokens::{color, radius, shadow, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
 use crate::ui::icon::Glyph;
@@ -208,25 +211,27 @@ pub fn toolbar(entity: &Entity<Rules>, window: &Window, cx: &mut Context<RulesVi
                         .with_variant(ButtonVariant::Outline)
                         .on_click(move |_, _, cx| entity.update(cx, |rules, cx| rules.new_rule(cx)))
                 };
+                let hint = |keys: &'static str, label: &'static str| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(spacing::S1_5)
+                        .child(Kbd::new(keys))
+                        .child(
+                            div()
+                                .text_role(typography::CAPTION)
+                                .text_color(color::TEXT_MUTED)
+                                .child(label),
+                        )
+                };
                 let keys = div()
                     .flex()
                     .flex_none()
                     .items_center()
                     .gap(spacing::S3)
                     .when(!data.rules.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(spacing::S1_5)
-                                .child(Kbd::new("↑↓"))
-                                .child(
-                                    div()
-                                        .text_role(typography::CAPTION)
-                                        .text_color(color::TEXT_MUTED)
-                                        .child("Move"),
-                                ),
-                        )
+                        this.child(hint("↑↓", "Select"))
+                            .child(hint("⌥↑↓", "Reorder"))
                     })
                     .child(new_rule);
                 (
@@ -328,16 +333,18 @@ pub fn toolbar(entity: &Entity<Rules>, window: &Window, cx: &mut Context<RulesVi
 
 // Canvas -------------------------------------------------------------------------
 
-/// The open section's canvas.
+/// The open section's canvas. `ring`: the table has keyboard focus, so the
+/// selected rule shows the inset focus ring.
 pub fn render(
     entity: &Entity<Rules>,
+    ring: bool,
     window: &mut Window,
     cx: &mut Context<RulesView>,
 ) -> AnyElement {
     let rules = entity.read(cx);
     match (rules.section(), rules.apply().is_some()) {
         (Section::Rules, true) => apply_body(entity, rules),
-        (Section::Rules, false) => rules_body(entity, rules, window),
+        (Section::Rules, false) => rules_body(entity, rules, ring, window),
         (Section::Names, _) => names_body(entity, rules, window),
         (Section::History, _) => history_body(entity, rules, window),
         (Section::Categories, _) => categories_body(entity, rules),
@@ -414,7 +421,7 @@ impl Render for DragGhost {
     }
 }
 
-fn rules_body(entity: &Entity<Rules>, rules: &Rules, window: &Window) -> AnyElement {
+fn rules_body(entity: &Entity<Rules>, rules: &Rules, ring: bool, window: &Window) -> AnyElement {
     let data = rules.data();
     if data.rules.is_empty() {
         return empty(
@@ -438,15 +445,16 @@ fn rules_body(entity: &Entity<Rules>, rules: &Rules, window: &Window) -> AnyElem
     let rows: Vec<AnyElement> = rules
         .rules()
         .into_iter()
-        .map(|summary| rule_row(entity, data, summary, selected, window))
+        .map(|summary| rule_row(entity, data, summary, selected, ring, window))
         .collect();
     body()
         .child(header)
         .children(rows)
         .child(note(
             "Each field is set by the first rule that matches, so put a specific rule above a \
-             broader one; drag a row to reorder. Rules run on new imports. Past transactions \
-             change only through Apply to past transactions, which shows every change first.",
+             broader one; drag a row, or press ⌥↑ or ⌥↓ on the selected rule, to reorder. Rules \
+             run on new imports. Past transactions change only through Apply to past \
+             transactions, which shows every change first.",
         ))
         .into_any_element()
 }
@@ -456,6 +464,7 @@ fn rule_row(
     data: &RulesData,
     summary: &RuleSummary,
     selected: Option<coffer_core::id::RuleId>,
+    ring: bool,
     window: &Window,
 ) -> AnyElement {
     let rule = summary.rule.definition();
@@ -612,6 +621,9 @@ fn rule_row(
         )
         .child(lane(size::COLUMN_CATEGORY).child(then))
         .child(lane(size::COLUMN_AMOUNT).justify_end().child(matches))
+        .when(selected && ring, |this| {
+            this.show_focus_ring(FocusRingPlacement::Inset, window)
+        })
         .test_support()
         .into_any_element()
 }

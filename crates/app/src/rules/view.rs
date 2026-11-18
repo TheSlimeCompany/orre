@@ -8,8 +8,10 @@
 //! or Enter saves a stored rule or name, and a select saves at once.
 //!
 //! The canvas is [`super::table`]; the inspector is [`super::inspector`].
-//! After an apply the D6.3 undo bar floats at the foot of the canvas; a
-//! change core refuses is said under the toolbar in caption type, `danger`.
+//! After an apply, or a rule moved with ⌥↑⌥↓, the D6.3 undo bar floats at
+//! the foot of the canvas; a change core refuses is said under the toolbar
+//! in caption type, `danger`. ⌥↑⌥↓ work only while the table itself has
+//! focus, not in the inspector's fields.
 
 use std::collections::HashMap;
 
@@ -38,9 +40,9 @@ use super::dialogs::DeleteCategoryDialog;
 use super::form::{ActionForm, AmountChoice, Direction, SplitLineForm, Unavailable};
 use super::store::RulesData;
 use super::text;
-use super::{Outcome, Rules};
+use super::{MoveRuleDown, MoveRuleUp, Outcome, Rules};
 
-/// The key context of the Rules canvas, where ↑↓ and Escape work.
+/// The key context of the Rules canvas, where ↑↓, ⌥↑⌥↓ and Escape work.
 pub const CONTEXT: &str = "CofferRules";
 
 /// The canvas's movement keys: ↑↓ through the open section's rows.
@@ -191,6 +193,18 @@ impl RulesView {
     /// The canvas's focus: where ↑↓ and Escape work.
     pub fn focus_handle(&self) -> &FocusHandle {
         &self.focus
+    }
+
+    /// ⌥↑ or ⌥↓: moves the selected rule, but only while the table itself
+    /// has focus. The binding's context takes in the inspector too, where
+    /// the keys stay with the field, so anywhere else they go on.
+    fn reorder(&mut self, down: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.rules
+            .update(cx, |rules, cx| rules.reorder_selected(down, cx));
     }
 
     fn add_input(
@@ -1006,15 +1020,25 @@ impl RulesView {
         self.sync(window, cx);
     }
 
-    fn render_bar(&self, rules: &Rules) -> Option<AnyElement> {
-        let Some(Outcome::Done { message, undo }) = rules.outcome() else {
-            return None;
+    fn render_bar(&self, rules: &Rules, window: &Window) -> Option<AnyElement> {
+        let (bar, undoable) = match rules.outcome()? {
+            Outcome::Done { message, undo } => (UndoBar::new(message.clone()), undo.is_some()),
+            Outcome::Moved(_) => (
+                UndoBar::rich(text::rich(
+                    window,
+                    typography::BODY,
+                    color::TEXT,
+                    rules.moved_parts()?,
+                )),
+                true,
+            ),
+            Outcome::Refused(_) => return None,
         };
         let (undo_on, dismiss_on) = (self.rules.clone(), self.rules.clone());
-        let mut bar = UndoBar::new(message.clone()).on_dismiss(move |_, _, cx| {
+        let mut bar = bar.on_dismiss(move |_, _, cx| {
             dismiss_on.update(cx, |rules, cx| rules.dismiss_outcome(cx))
         });
-        if undo.is_some() {
+        if undoable {
             bar = bar.on_undo(move |_, _, cx| undo_on.update(cx, |rules, cx| rules.undo(cx)));
         }
         Some(
@@ -1134,6 +1158,12 @@ impl Render for RulesView {
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 this.rules.update(cx, |rules, cx| rules.cancel(cx))
             }))
+            .on_action(
+                cx.listener(|this, _: &MoveRuleUp, window, cx| this.reorder(false, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &MoveRuleDown, window, cx| this.reorder(true, window, cx)),
+            )
             .flex()
             .flex_1()
             .min_w_0()
@@ -1145,10 +1175,13 @@ impl Render for RulesView {
                 Some(Outcome::Refused(message)) => Some(message.clone()),
                 _ => None,
             };
-            (refusal, self.render_bar(rules))
+            (refusal, self.render_bar(rules, window))
         };
+        // The selected row takes the inset focus ring while the table has
+        // keyboard focus, so it shows where ↑↓ and ⌥↑⌥↓ act.
+        let ring = self.focus.is_focused(window) && window.last_input_was_keyboard();
         let toolbar = super::table::toolbar(&entity, window, cx);
-        let canvas_body = super::table::render(&entity, window, cx);
+        let canvas_body = super::table::render(&entity, ring, window, cx);
         let inspector = super::inspector::render(self, &entity, window, cx);
         let canvas = div()
             .relative()

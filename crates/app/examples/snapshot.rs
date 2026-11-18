@@ -89,7 +89,10 @@
 //!   `rules-history`: Change history with the newest change (`GZT-0`);
 //!   `rules-delete` and `rules-undo`: the dialogs (`HFH-0`); `rules-empty`:
 //!   no rules yet (`HFH-0`); `transactions-rule-prompt`: "Create a rule
-//!   from this edit?" after the VINTED edit (`3WT-0`);
+//!   from this edit?" after the VINTED edit (`3WT-0`); `rules-reorder`:
+//!   UBER TRIP moved above UBER with ⌥↑, with the undo bar (`I8D-0`);
+//!   `rules-reorder-filtered`: Add tag picked, JUSTGIVING moved above
+//!   WAITROSE with ⌥↑ (`IIH-0`);
 //! - `rules-categories`: Categories with Groceries selected;
 //!   `rules-category-new`: New category, "Coffee beans" under Food;
 //!   `rules-category-delete`: the dialog on the unused Coffee (composed,
@@ -889,6 +892,10 @@ enum RulesShot {
     Undo,
     Empty,
     Prompt,
+    /// ⌥↑ on rule 3 (UBER TRIP).
+    Reorder,
+    /// ⌥↑ on rule 12 (JUSTGIVING) with Add tag picked.
+    ReorderFiltered,
 }
 
 /// The Rules snapshots: each on a fresh scratch database.
@@ -905,6 +912,8 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
         ("rules-undo", RulesShot::Undo),
         ("rules-empty", RulesShot::Empty),
         ("transactions-rule-prompt", RulesShot::Prompt),
+        ("rules-reorder", RulesShot::Reorder),
+        ("rules-reorder-filtered", RulesShot::ReorderFiltered),
     ];
     for (name, shot) in shots {
         let dir = tempfile::TempDir::new()?;
@@ -940,7 +949,13 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                     RulesShot::Rules | RulesShot::AddAction | RulesShot::Delete => {
                         rules.select_rule(ids.get(1).copied(), cx)
                     }
-                    RulesShot::NeverReached => rules.select_rule(ids.get(2).copied(), cx),
+                    RulesShot::NeverReached | RulesShot::Reorder => {
+                        rules.select_rule(ids.get(2).copied(), cx)
+                    }
+                    RulesShot::ReorderFiltered => {
+                        rules.toggle_action_filter(coffer_core::rule::ActionKind::AddTag, cx);
+                        rules.select_rule(ids.get(11).copied(), cx)
+                    }
                     RulesShot::PatternError => rules.select_rule(ids.get(9).copied(), cx),
                     RulesShot::Names => rules.show(RulesSection::Names, cx),
                     RulesShot::History | RulesShot::Undo => rules.show(RulesSection::History, cx),
@@ -985,6 +1000,9 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 }
                 RulesShot::Delete => rules.update(cx, |rules, cx| rules.request_delete_rule(cx)),
                 RulesShot::Undo => rules.update(cx, |rules, cx| rules.request_undo(cx)),
+                RulesShot::Reorder | RulesShot::ReorderFiltered => {
+                    rules.update(cx, |rules, cx| rules.reorder_selected(false, cx))
+                }
                 RulesShot::Prompt => {
                     if let Some(vinted) = vinted {
                         let transactions = shell.read(cx).transactions().clone();

@@ -4,8 +4,8 @@
 //! offers to undo it.
 
 use gpui_kit::{
-    App, ClickEvent, IntoElement, ParentElement as _, RenderOnce, SharedString, Styled as _,
-    Window, div,
+    AnyElement, App, ClickEvent, IntoElement, ParentElement as _, RenderOnce, SharedString,
+    Styled as _, Window, div,
 };
 
 use crate::theme::tokens::{color, radius, shadow, size, spacing, typography};
@@ -24,7 +24,7 @@ type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 /// it's dismissed or the next change replaces it.
 #[derive(IntoElement)]
 pub struct UndoBar {
-    message: SharedString,
+    message: AnyElement,
     on_undo: Option<ClickHandler>,
     on_dismiss: Option<ClickHandler>,
 }
@@ -32,14 +32,21 @@ pub struct UndoBar {
 impl UndoBar {
     /// A bar saying `message` ("Categorised 3 transactions as Shopping").
     pub fn new(message: impl Into<SharedString>) -> Self {
+        Self::rich(message.into())
+    }
+
+    /// A bar saying `message`, a line that mixes fonts (a rule with its
+    /// pattern in mono). It's set in body text, `text`, unless its runs say
+    /// otherwise.
+    pub fn rich(message: impl IntoElement) -> Self {
         Self {
-            message: message.into(),
+            message: message.into_any_element(),
             on_undo: None,
             on_dismiss: None,
         }
     }
 
-    /// Runs `handler` on "Undo": revert the change batch.
+    /// Runs `handler` on "Undo": revert the change.
     pub fn on_undo(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -48,8 +55,8 @@ impl UndoBar {
         self
     }
 
-    /// Runs `handler` on the ✕: close the bar. The change stays undoable
-    /// from the change history.
+    /// Runs `handler` on the ✕: close the bar. A change batch stays
+    /// undoable from the change history.
     pub fn on_dismiss(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,

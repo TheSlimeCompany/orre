@@ -1,8 +1,9 @@
 //! Keyboard shortcut keys (`docs/DESIGN.md` → "Components" → **Kbd**).
 //!
-//! Geist Mono has no ⌘ (U+2318), and a missing glyph comes from whatever
-//! fallback font the platform picks (`DESIGN.md` → "Rendering findings"), so
-//! [`Kbd`] sets ⌘ in Inter, which has it, and the rest in Geist Mono.
+//! Geist Mono has neither ⌘ (U+2318) nor ⌥ (U+2325), and a missing glyph
+//! comes from whatever fallback font the platform picks (`DESIGN.md` →
+//! "Rendering findings"), so [`Kbd`] sets both in Inter, which has them, and
+//! the rest in Geist Mono.
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -16,6 +17,13 @@ use crate::ui::text::TextRoleExt as _;
 
 /// The command key, which Geist Mono doesn't have.
 const COMMAND: char = '\u{2318}';
+/// The option key, which Geist Mono doesn't have either.
+const OPTION: char = '\u{2325}';
+
+/// Whether `ch` is set in Inter rather than Geist Mono.
+fn in_ui_font(ch: char) -> bool {
+    matches!(ch, COMMAND | OPTION)
+}
 
 /// How big a [`Kbd`] is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -84,22 +92,22 @@ impl Kbd {
     }
 }
 
-/// `keys` split where the font changes: runs of ⌘ and runs of anything
-/// else, each with whether it's ⌘.
+/// `keys` split where the font changes: runs of ⌘ and ⌥ and runs of
+/// anything else, each with whether it's set in Inter.
 fn runs(keys: &str) -> Vec<(bool, &str)> {
     let mut runs = Vec::new();
     let mut start = 0;
-    let mut command = None;
+    let mut ui = None;
     for (index, ch) in keys.char_indices() {
-        let is_command = ch == COMMAND;
-        if command.is_some_and(|current| current != is_command) {
-            runs.push((command.unwrap_or_default(), &keys[start..index]));
+        let is_ui = in_ui_font(ch);
+        if ui.is_some_and(|current| current != is_ui) {
+            runs.push((ui.unwrap_or_default(), &keys[start..index]));
             start = index;
         }
-        command = Some(is_command);
+        ui = Some(is_ui);
     }
-    if let Some(command) = command {
-        runs.push((command, &keys[start..]));
+    if let Some(ui) = ui {
+        runs.push((ui, &keys[start..]));
     }
     runs
 }
@@ -121,9 +129,9 @@ impl RenderOnce for Kbd {
             .bg(paint(color::HOVER))
             .text_role(role)
             .text_color(paint(color::TEXT_SECONDARY))
-            .children(runs(&self.keys).into_iter().map(|(command, text)| {
+            .children(runs(&self.keys).into_iter().map(|(ui, text)| {
                 div()
-                    .when(command, |this| this.font_family(font::UI))
+                    .when(ui, |this| this.font_family(font::UI))
                     .child(SharedString::from(text.to_owned()))
             }))
     }
@@ -139,5 +147,12 @@ mod tests {
         assert_eq!(runs("⇧⌘P"), vec![(false, "⇧"), (true, "⌘"), (false, "P")]);
         assert_eq!(runs("Esc"), vec![(false, "Esc")]);
         assert!(runs("").is_empty());
+    }
+
+    #[test]
+    fn option_is_split_from_the_mono_keys_like_command() {
+        assert_eq!(runs("⌥↑↓"), vec![(true, "⌥"), (false, "↑↓")]);
+        assert_eq!(runs("⌥⌘K"), vec![(true, "⌥⌘"), (false, "K")]);
+        assert_eq!(runs("⇧⌥P"), vec![(false, "⇧"), (true, "⌥"), (false, "P")]);
     }
 }
