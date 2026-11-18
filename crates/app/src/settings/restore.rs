@@ -195,8 +195,9 @@ impl RestoreDialog {
         cx.emit(DialogClosed);
     }
 
-    fn title(&self) -> impl IntoElement {
-        let runs = match self.target.local {
+    /// "Restore the backup from 10 Nov, 14:02?", or the file's name.
+    fn title_runs(&self) -> Vec<Run> {
+        match self.target.local {
             Some(local) => {
                 use chrono::Datelike as _;
                 let when = if local.year() == self.today.year() {
@@ -217,8 +218,29 @@ impl RestoreDialog {
                 ),
                 plain("?"),
             ],
-        };
-        rich(typography::TITLE, color::TEXT, runs).whitespace_nowrap()
+        }
+    }
+
+    fn title(&self) -> impl IntoElement {
+        rich(typography::TITLE, color::TEXT, self.title_runs()).whitespace_nowrap()
+    }
+
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3): its
+    /// title, the error, and Cancel and Restore (off while it restores,
+    /// Restore until the checks pass).
+    #[cfg(test)]
+    pub fn describe(&self) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        let restoring = self.stage == Stage::Restoring;
+        Dialog {
+            title: Run::joined(&self.title_runs()),
+            fields: Vec::new(),
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![
+                Action::button("Cancel", !restoring),
+                Action::button("Restore", self.can_restore() && !restoring),
+            ],
+        }
     }
 }
 

@@ -24,6 +24,8 @@
 //! bank text are untrusted and shown plain ([`text`]).
 
 pub mod balances;
+#[cfg(test)]
+mod describe;
 pub mod duplicates;
 pub mod fixture;
 pub mod lock;
@@ -58,6 +60,20 @@ pub enum Queue {
     Balances,
     /// Owed to you (M3.11).
     Owed,
+}
+
+impl Queue {
+    /// Every queue, in the panel's order.
+    pub const ALL: [Queue; 3] = [Queue::Duplicates, Queue::Balances, Queue::Owed];
+
+    /// What the queue is called: its toolbar's title.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Queue::Duplicates => "Possible duplicates",
+            Queue::Balances => "Balance checks",
+            Queue::Owed => "Owed to you",
+        }
+    }
 }
 
 /// What the queues ask their owner (the shell) to do.

@@ -480,6 +480,43 @@ fn toggle_row(label: &str, hint: &str, toggle: Toggle) -> impl IntoElement {
         .child(toggle)
 }
 
+/// The dialog's title.
+pub const TITLE: &str = "Export transactions";
+
+impl ExportDialog {
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3): the
+    /// format and the two toggles as fields, the problem as its error, and
+    /// Cancel and Export… (off until there's something to export).
+    #[cfg(test)]
+    pub fn describe(&self) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        let on = |on: bool| if on { "On" } else { "Off" }.to_owned();
+        Dialog {
+            title: TITLE.to_owned(),
+            fields: vec![
+                (
+                    "Format".to_owned(),
+                    match self.format {
+                        Format::Csv => "CSV",
+                        Format::Json => "JSON",
+                    }
+                    .to_owned(),
+                ),
+                (
+                    "Excluded transactions".to_owned(),
+                    on(self.include_excluded),
+                ),
+                ("Notes and tags".to_owned(), on(self.include_notes)),
+            ],
+            error: self.problem.as_ref().map(ToString::to_string),
+            actions: vec![
+                Action::button("Cancel", true),
+                Action::button("Export…", self.counts.is_some() && self.problem.is_none()),
+            ],
+        }
+    }
+}
+
 impl Render for ExportDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let format = Segmented::new(
@@ -586,7 +623,7 @@ impl Render for ExportDialog {
         });
         let can_export = self.counts.is_some() && self.problem.is_none();
         let on_cancel = cx.entity().downgrade();
-        Dialog::new("Export transactions", &self.focus)
+        Dialog::new(TITLE, &self.focus)
             .title_trailing(format)
             .body(fields)
             .body(toggles)

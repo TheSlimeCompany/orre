@@ -181,18 +181,47 @@ impl LockDialog {
     }
 }
 
+impl LockDialog {
+    /// The chosen date, as the title and the body name it.
+    fn date(&self) -> String {
+        self.through
+            .map(|through| text::date(through, self.today))
+            .unwrap_or_default()
+    }
+
+    /// "Lock Savings through 31 Oct?"
+    fn title(&self) -> String {
+        format!(
+            "Lock {} through {}?",
+            plain(&self.name, NAME_SHOWN),
+            self.date()
+        )
+    }
+
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3).
+    #[cfg(test)]
+    pub fn describe(&self) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        Dialog {
+            title: self.title(),
+            fields: vec![(
+                "Through".to_owned(),
+                self.through.map(format::field_date).unwrap_or_default(),
+            )],
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![Action::button("Cancel", true), Action::button("Lock", true)],
+        }
+    }
+}
+
 impl Render for LockDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let name = plain(&self.name, NAME_SHOWN);
-        let date = self
-            .through
-            .map(|through| text::date(through, self.today))
-            .unwrap_or_default();
+        let date = self.date();
         let title = div()
             .whitespace_nowrap()
             .text_role(typography::TITLE)
             .text_color(color::TEXT)
-            .child(format!("Lock {name} through {date}?"));
+            .child(self.title());
         let body = div().text_role(typography::CAPTION).child(rich(
             window,
             typography::CAPTION,
@@ -301,13 +330,35 @@ impl UnlockDialog {
     }
 }
 
+impl UnlockDialog {
+    /// "Unlock Joint account?"
+    fn title(&self) -> String {
+        format!("Unlock {}?", plain(&self.name, NAME_SHOWN))
+    }
+
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3).
+    #[cfg(test)]
+    pub fn describe(&self) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        Dialog {
+            title: self.title(),
+            fields: Vec::new(),
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![
+                Action::button("Cancel", true),
+                Action::button("Unlock", true),
+            ],
+        }
+    }
+}
+
 impl Render for UnlockDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let title = div()
             .whitespace_nowrap()
             .text_role(typography::TITLE)
             .text_color(color::TEXT)
-            .child(format!("Unlock {}?", plain(&self.name, NAME_SHOWN)));
+            .child(self.title());
         let mut words = Vec::new();
         if let Some(through) = self.through {
             words.push(Part::text(format!(

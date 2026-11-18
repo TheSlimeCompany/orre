@@ -150,7 +150,8 @@ impl ChecksView {
     }
 
     fn render_toolbar(&self, checks: &Checks, window: &Window) -> gpui_kit::Div {
-        if checks.queue() == Some(Queue::Owed) {
+        let queue = checks.queue().unwrap_or(Queue::Duplicates);
+        if queue == Queue::Owed {
             return div()
                 .flex()
                 .flex_none()
@@ -165,7 +166,7 @@ impl ChecksView {
                     div()
                         .flex()
                         .text_color(color::TEXT)
-                        .child(Tracked::new(typography::TITLE, "Owed to you")),
+                        .child(Tracked::new(typography::TITLE, queue.title())),
                 )
                 .child(
                     div()
@@ -182,30 +183,6 @@ impl ChecksView {
                         )),
                 );
         }
-        let (title, caption) = match checks.queue() {
-            Some(Queue::Balances) => {
-                let failing = checks.failing();
-                (
-                    "Balance checks",
-                    if failing > 0 {
-                        format!(
-                            "Every balance you enter or import is checked against the \
-                             transactions · {failing} failing"
-                        )
-                    } else {
-                        "Every balance you enter or import is checked against the transactions"
-                            .to_owned()
-                    },
-                )
-            }
-            _ => (
-                "Possible duplicates",
-                format!(
-                    "{} · nothing changes until you merge",
-                    count(checks.pending_pairs(), "pair", "pairs")
-                ),
-            ),
-        };
         div()
             .flex()
             .flex_none()
@@ -220,7 +197,7 @@ impl ChecksView {
                 div()
                     .flex()
                     .text_color(color::TEXT)
-                    .child(Tracked::new(typography::TITLE, title)),
+                    .child(Tracked::new(typography::TITLE, queue.title())),
             )
             .child(
                 div()
@@ -230,12 +207,9 @@ impl ChecksView {
                     .text_ellipsis()
                     .text_role(typography::CAPTION)
                     .text_color(color::TEXT_MUTED)
-                    .child(caption),
+                    .child(toolbar_caption(checks)),
             )
-            .when(
-                checks.queue() == Some(Queue::Duplicates) && checks.pending_pairs() > 0,
-                |this| this.child(hints(KEYS.hints())),
-            )
+            .when(hinted(checks), |this| this.child(hints(KEYS.hints())))
     }
 
     fn render_bar(&self, checks: &Checks) -> Option<AnyElement> {
@@ -263,6 +237,34 @@ impl ChecksView {
                 .into_any_element(),
         )
     }
+}
+
+/// The toolbar's caption on Possible duplicates and Balance checks (Owed
+/// to you's is [`super::owed::toolbar_caption`]).
+pub(super) fn toolbar_caption(checks: &Checks) -> String {
+    match checks.queue() {
+        Some(Queue::Balances) => {
+            let failing = checks.failing();
+            if failing > 0 {
+                format!(
+                    "Every balance you enter or import is checked against the transactions · \
+                     {failing} failing"
+                )
+            } else {
+                "Every balance you enter or import is checked against the transactions".to_owned()
+            }
+        }
+        _ => format!(
+            "{} · nothing changes until you merge",
+            count(checks.pending_pairs(), "pair", "pairs")
+        ),
+    }
+}
+
+/// Whether the toolbar hints the keys: on Possible duplicates, while a
+/// pair is pending.
+pub(super) fn hinted(checks: &Checks) -> bool {
+    checks.queue() == Some(Queue::Duplicates) && checks.pending_pairs() > 0
 }
 
 /// A refusal under the toolbar: caption type, `danger`.

@@ -136,6 +136,94 @@ pub fn command(name: &ClientName) -> String {
     format!("coffer mcp --client {name}")
 }
 
+/// The toolbar's title and caption.
+pub const TITLE: &str = "AI clients";
+pub const CAPTION: &str = "Each client sees only what its access level allows · nothing is shared until you enable a client";
+
+/// The off banner's title.
+pub const OFF_TITLE: &str = "AI access is off";
+
+/// LAST CONNECTED for a client that never called.
+pub const NEVER: &str = "Never";
+
+/// ACCESS for a client that asked to connect.
+pub const NOT_ENABLED: &str = "Not enabled";
+
+/// What the Clients group says while it's empty.
+pub fn no_clients() -> Vec<table::Run> {
+    vec![
+        plain("No client is enabled yet. A client asks to connect the first time it runs "),
+        mono("coffer mcp --client <name>").color(color::TEXT_SECONDARY),
+        plain(", and is listed below until you enable or ignore it."),
+    ]
+}
+
+/// The line under a request, before its buttons.
+pub fn request_line(request: &RequestRow) -> Vec<table::Run> {
+    vec![
+        plain("Its configuration runs "),
+        mono(command(&request.name)).color(color::TEXT_SECONDARY),
+        plain(
+            ". It was refused before any tool ran, and stays refused until you \
+             enable it.",
+        ),
+    ]
+}
+
+/// The client inspector's caption: "Tool calls in 7 days · 214 rows
+/// returned".
+pub fn client_caption(client: &ClientRow) -> Vec<table::Run> {
+    vec![
+        plain("Tool calls in 7 days · "),
+        mono(count(client.week.read_rows)),
+        plain(" rows returned"),
+    ]
+}
+
+/// The client inspector's "Last 7 days": Read, Wrote and Refused.
+pub fn week_rows(client: &ClientRow) -> [(&'static str, Vec<table::Run>); 3] {
+    let week = &client.week;
+    let muted = |text: &str| plain(text.to_owned()).color(color::TEXT_MUTED);
+    let refused = week.refused_total();
+    let mut refused_runs = vec![
+        mono(count(refused)),
+        plain(format!(" {}", plural(refused, "call"))),
+    ];
+    if refused > 0
+        && let Some(reason) = refused_reason(client)
+    {
+        refused_runs.push(muted(reason));
+    }
+    [
+        (
+            "Read",
+            vec![
+                mono(count(week.reads)),
+                plain(format!(" {} ", plural(week.reads, "call"))),
+                muted("·"),
+                plain(" "),
+                mono(count(week.read_rows)),
+                plain(format!(" {}", plural(week.read_rows, "row"))),
+            ],
+        ),
+        (
+            "Wrote",
+            vec![
+                mono(count(client.written.suggestions)),
+                plain(format!(
+                    " {} ",
+                    plural(client.written.suggestions, "suggestion")
+                )),
+                muted("·"),
+                plain(" "),
+                mono(count(client.written.reports)),
+                plain(format!(" {}", plural(client.written.reports, "review"))),
+            ],
+        ),
+        ("Refused", refused_runs),
+    ]
+}
+
 /// The neutral banner while AI access is off (Paper `GS7-0`).
 fn off_banner(cx: &mut Context<SettingsView>) -> impl IntoElement {
     div()
@@ -163,7 +251,7 @@ fn off_banner(cx: &mut Context<SettingsView>) -> impl IntoElement {
                     div()
                         .text_role(typography::SECTION_TITLE)
                         .text_color(color::TEXT_STRONG)
-                        .child("AI access is off"),
+                        .child(OFF_TITLE),
                 )
                 .child(caption(
                     "Every client is refused before any tool runs, and each refusal is logged. \
@@ -225,7 +313,7 @@ impl SettingsView {
                     None => div()
                         .text_role(typography::BODY)
                         .text_color(color::TEXT_MUTED)
-                        .child("Never"),
+                        .child(NEVER),
                 }),
             )
             .child(
@@ -269,7 +357,7 @@ impl SettingsView {
                 cell(Some(size::COLUMN_CATEGORY))
                     .text_role(typography::BODY)
                     .text_color(color::TEXT_MUTED)
-                    .child("Not enabled"),
+                    .child(NOT_ENABLED),
             )
             .child(
                 cell(Some(size::COLUMN_ACCOUNT))
@@ -301,14 +389,7 @@ impl SettingsView {
                 rich(
                     typography::CAPTION,
                     color::TEXT_MUTED,
-                    vec![
-                        plain("Its configuration runs "),
-                        mono(command(&request.name)).color(color::TEXT_SECONDARY),
-                        plain(
-                            ". It was refused before any tool ran, and stays refused until you \
-                             enable it.",
-                        ),
-                    ],
+                    request_line(request),
                 )
                 .flex_1()
                 .min_w_0(),
@@ -374,23 +455,18 @@ impl SettingsView {
             .when(!on, |this| this.opacity(opacity::DISABLED))
             .child(clients_header)
             .children(rows)
-            .when(self.ai.clients.is_empty() && self.ai_error.is_none(), |this| {
-                this.child(
-                    div()
-                        .px(spacing::S2)
-                        .pl(spacing::S2 + LEAD + spacing::S2)
-                        .py(spacing::S1)
-                        .child(rich(
-                            typography::CAPTION,
-                            color::TEXT_MUTED,
-                            vec![
-                                plain("No client is enabled yet. A client asks to connect the first time it runs "),
-                                mono("coffer mcp --client <name>").color(color::TEXT_SECONDARY),
-                                plain(", and is listed below until you enable or ignore it."),
-                            ],
-                        )),
-                )
-            });
+            .when(
+                self.ai.clients.is_empty() && self.ai_error.is_none(),
+                |this| {
+                    this.child(
+                        div()
+                            .px(spacing::S2)
+                            .pl(spacing::S2 + LEAD + spacing::S2)
+                            .py(spacing::S1)
+                            .child(rich(typography::CAPTION, color::TEXT_MUTED, no_clients())),
+                    )
+                },
+            );
 
         let requests = (!self.ai.requests.is_empty()).then(|| {
             let header = row()
@@ -507,11 +583,7 @@ impl SettingsView {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .child(toolbar(
-                "AI clients",
-                "Each client sees only what its access level allows · nothing is shared until you enable a client",
-                kill_switch,
-            ))
+            .child(toolbar(TITLE, CAPTION, kill_switch))
             .child(
                 table::body("clients-body")
                     .key_context(table::LIST_CONTEXT)
@@ -591,18 +663,13 @@ impl SettingsView {
             .as_ref()
             .and_then(|name| self.ai.client(name))?
             .clone();
-        let week = &client.week;
         let header = table::inspector_header(
             table::mono_title(client.name.to_string()),
-            Some(count(week.calls)),
+            Some(count(client.week.calls)),
             rich(
                 typography::CAPTION,
                 color::TEXT_MUTED,
-                vec![
-                    plain("Tool calls in 7 days · "),
-                    mono(count(week.read_rows)),
-                    plain(" rows returned"),
-                ],
+                client_caption(&client),
             )
             .into_any_element(),
         );
@@ -671,62 +738,18 @@ impl SettingsView {
                 ],
             ));
 
-        let muted = |text: &str| plain(text.to_owned()).color(color::TEXT_MUTED);
-        let refused = week.refused_total();
-        let mut refused_runs = vec![
-            mono(count(refused)),
-            plain(format!(" {}", plural(refused, "call"))),
-        ];
-        if refused > 0
-            && let Some(reason) = refused_reason(&client)
-        {
-            refused_runs.push(muted(reason));
-        }
         let open_log = client.name.to_string();
-        let last_week =
-            section(Some("Last 7 days"))
-                .child(value_row(
-                    "Read",
-                    rich(
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            mono(count(week.reads)),
-                            plain(format!(" {} ", plural(week.reads, "call"))),
-                            muted("·"),
-                            plain(" "),
-                            mono(count(week.read_rows)),
-                            plain(format!(" {}", plural(week.read_rows, "row"))),
-                        ],
-                    ),
-                ))
-                .child(value_row(
-                    "Wrote",
-                    rich(
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            mono(count(client.written.suggestions)),
-                            plain(format!(
-                                " {} ",
-                                plural(client.written.suggestions, "suggestion")
-                            )),
-                            muted("·"),
-                            plain(" "),
-                            mono(count(client.written.reports)),
-                            plain(format!(" {}", plural(client.written.reports, "review"))),
-                        ],
-                    ),
-                ))
-                .child(value_row(
-                    "Refused",
-                    rich(typography::BODY, color::TEXT, refused_runs),
-                ))
-                .child(div().flex().pt(spacing::S1).child(
-                    Button::new("open-access-log", "Open access log").on_click(cx.listener(
-                        move |this, _, _, cx| this.open_log_for(Some(open_log.clone()), cx),
-                    )),
-                ));
+        let last_week = week_rows(&client).into_iter().fold(
+            section(Some("Last 7 days")),
+            |section, (label, runs)| {
+                section.child(value_row(label, rich(typography::BODY, color::TEXT, runs)))
+            },
+        );
+        let last_week = last_week.child(div().flex().pt(spacing::S1).child(
+            Button::new("open-access-log", "Open access log").on_click(
+                cx.listener(move |this, _, _, cx| this.open_log_for(Some(open_log.clone()), cx)),
+            ),
+        ));
 
         let remove = client.name.clone();
         let foot = section(None)

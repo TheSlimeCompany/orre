@@ -228,6 +228,13 @@ pub fn mono(text: impl Into<String>) -> Run {
 }
 
 impl Run {
+    /// The runs' text, joined as the paragraph draws it (test-only, for a
+    /// `describe()`).
+    #[cfg(test)]
+    pub fn joined(runs: &[Run]) -> String {
+        runs.iter().map(|run| run.text.as_str()).collect()
+    }
+
     pub fn color(mut self, color: Rgba) -> Self {
         self.color = Some(color);
         self
@@ -430,10 +437,15 @@ pub fn backup_order(backups: &BackupsData) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The notification bar for `notice`.
-pub fn notice_bar(notice: &Notice, cx: &mut Context<SettingsView>) -> NotificationBar {
-    let failed = matches!(notice.message, NoticeMessage::Failed(_));
-    let message: AnyElement = match &notice.message {
+/// What a notification says: runs, or plain text.
+pub enum NoticeText {
+    Rich(Vec<Run>),
+    Plain(String),
+}
+
+/// What the notification bar says for `message`.
+pub fn notice_text(message: &NoticeMessage) -> NoticeText {
+    match message {
         NoticeMessage::BackedUp { transactions, size } => {
             let mut runs = vec![plain("Backed up ")];
             if let Some(transactions) = transactions {
@@ -444,25 +456,17 @@ pub fn notice_bar(notice: &Notice, cx: &mut Context<SettingsView>) -> Notificati
             }
             runs.push(plain(" · ").color(color::TEXT_MUTED));
             runs.push(mono(file_size(*size)).color(color::TEXT_MUTED));
-            rich(typography::BODY, color::TEXT, runs).into_any_element()
+            NoticeText::Rich(runs)
         }
-        NoticeMessage::Exported { rows, file } => rich(
-            typography::BODY,
-            color::TEXT,
-            vec![
-                plain("Exported "),
-                mono(count(*rows as u64)),
-                plain(format!(" {} to ", plural(*rows as u64, "row"))),
-                mono(file.clone()),
-            ],
-        )
-        .into_any_element(),
-        NoticeMessage::Copied { file } => rich(
-            typography::BODY,
-            color::TEXT,
-            vec![plain("Saved a copy as "), mono(file.clone())],
-        )
-        .into_any_element(),
+        NoticeMessage::Exported { rows, file } => NoticeText::Rich(vec![
+            plain("Exported "),
+            mono(count(*rows as u64)),
+            plain(format!(" {} to ", plural(*rows as u64, "row"))),
+            mono(file.clone()),
+        ]),
+        NoticeMessage::Copied { file } => {
+            NoticeText::Rich(vec![plain("Saved a copy as "), mono(file.clone())])
+        }
         NoticeMessage::Restored { migrated, log_kept } => {
             let mut text = String::from("Restored the backup");
             if *migrated {
@@ -475,9 +479,18 @@ pub fn notice_bar(notice: &Notice, cx: &mut Context<SettingsView>) -> Notificati
                     if *rows == 1 { "entry" } else { "entries" }
                 )),
             }
-            div().child(text).into_any_element()
+            NoticeText::Plain(text)
         }
-        NoticeMessage::Failed(text) => div().child(text.clone()).into_any_element(),
+        NoticeMessage::Failed(text) => NoticeText::Plain(text.to_string()),
+    }
+}
+
+/// The notification bar for `notice`.
+pub fn notice_bar(notice: &Notice, cx: &mut Context<SettingsView>) -> NotificationBar {
+    let failed = matches!(notice.message, NoticeMessage::Failed(_));
+    let message: AnyElement = match notice_text(&notice.message) {
+        NoticeText::Rich(runs) => rich(typography::BODY, color::TEXT, runs).into_any_element(),
+        NoticeText::Plain(text) => div().child(text).into_any_element(),
     };
     let view = cx.entity().downgrade();
     let dismiss = view.clone();

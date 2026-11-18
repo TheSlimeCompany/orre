@@ -27,6 +27,8 @@
 pub mod backups;
 pub mod clients;
 pub mod data;
+#[cfg(test)]
+mod describe;
 pub mod enable;
 pub mod export;
 pub mod fixture;
@@ -74,6 +76,15 @@ pub enum Section {
 
 impl Section {
     pub const ALL: [Section; 3] = [Section::Clients, Section::Log, Section::Backups];
+
+    /// What the panel calls it.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Section::Clients => "Clients",
+            Section::Log => "Access log",
+            Section::Backups => "Backups",
+        }
+    }
 }
 
 /// What a dialog restores: a listed backup, or a file the user chose.

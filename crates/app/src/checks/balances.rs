@@ -82,6 +82,15 @@ fn difference(row: &CheckRow) -> Option<Money> {
     Some(Money::new(-minor, row.check.stated.currency()))
 }
 
+/// "Locked through 31 Oct": an account's lock, over its rows and in the
+/// inspector.
+pub(super) fn locked_through(through: NaiveDate, today: NaiveDate) -> Vec<Part> {
+    vec![
+        Part::text("Locked through "),
+        Part::mono(text::date(through, today)),
+    ]
+}
+
 fn group_header(account: &AccountReview, today: NaiveDate, window: &Window) -> impl IntoElement {
     let lock = account.locked_through.map(|through| {
         div()
@@ -93,10 +102,7 @@ fn group_header(account: &AccountReview, today: NaiveDate, window: &Window) -> i
                 window,
                 typography::CAPTION,
                 color::TEXT_MUTED,
-                vec![
-                    Part::text("Locked through "),
-                    Part::mono(text::date(through, today)),
-                ],
+                locked_through(through, today),
             ))
     });
     div()
@@ -151,6 +157,33 @@ fn amount(value: String, tone: Rgba, strong: bool) -> impl IntoElement {
         .child(value)
 }
 
+/// A balance's source lane: "Entered by you", "Opening balance · starting
+/// point".
+pub(super) fn source_text(row: &CheckRow) -> String {
+    let check = &row.check;
+    match check.outcome {
+        Outcome::StartingPoint => format!("{} · starting point", text::source(check.source)),
+        Outcome::Valuation => format!("{} · sets the balance", text::source(check.source)),
+        _ => text::source(check.source).to_owned(),
+    }
+}
+
+/// The COFFER lane: what Coffer counts on the day, or "—".
+pub(super) fn coffer_text(row: &CheckRow) -> String {
+    counted(row).map_or_else(|| "—".to_owned(), text::balance)
+}
+
+/// The DIFFERENCE lane: Coffer less the balance for a failed check, £0.00
+/// for a passed one, "—" otherwise.
+pub(super) fn difference_text(row: &CheckRow) -> String {
+    let check = &row.check;
+    match check.outcome {
+        Outcome::Failed { .. } => difference(row).map_or_else(|| "—".to_owned(), text::signed),
+        Outcome::Passed { .. } => text::balance(Money::new(0, check.stated.currency())),
+        _ => "—".to_owned(),
+    }
+}
+
 fn check_row(
     account: &AccountReview,
     row: &CheckRow,
@@ -160,28 +193,12 @@ fn check_row(
     today: NaiveDate,
 ) -> AnyElement {
     let check = &row.check;
-    let (status, source, source_tone): (Option<(Glyph, Rgba)>, String, Rgba) = match check.outcome {
-        Outcome::Failed { .. } => (
-            Some((Glyph::Alert, color::DANGER)),
-            text::source(check.source).to_owned(),
-            color::TEXT,
-        ),
-        Outcome::Passed { .. } => (
-            Some((Glyph::Check, color::TEXT_MUTED)),
-            text::source(check.source).to_owned(),
-            color::TEXT,
-        ),
-        Outcome::StartingPoint => (
-            None,
-            format!("{} · starting point", text::source(check.source)),
-            color::TEXT_MUTED,
-        ),
-        Outcome::Valuation => (
-            None,
-            format!("{} · sets the balance", text::source(check.source)),
-            color::TEXT_MUTED,
-        ),
+    let (status, source_tone): (Option<(Glyph, Rgba)>, Rgba) = match check.outcome {
+        Outcome::Failed { .. } => (Some((Glyph::Alert, color::DANGER)), color::TEXT),
+        Outcome::Passed { .. } => (Some((Glyph::Check, color::TEXT_MUTED)), color::TEXT),
+        Outcome::StartingPoint | Outcome::Valuation => (None, color::TEXT_MUTED),
     };
+    let source = source_text(row);
     let lifted = |tone: Rgba| {
         if selected && tone == color::TEXT {
             color::WHITE
@@ -190,22 +207,15 @@ fn check_row(
         }
     };
     let coffer: (String, Rgba) = match counted(row) {
-        Some(value) if value.is_negative() => (text::balance(value), color::DANGER),
-        Some(value) => (text::balance(value), lifted(color::TEXT)),
-        None => ("—".to_owned(), color::TEXT_MUTED),
+        Some(value) if value.is_negative() => (coffer_text(row), color::DANGER),
+        Some(_) => (coffer_text(row), lifted(color::TEXT)),
+        None => (coffer_text(row), color::TEXT_MUTED),
     };
-    let (gap, gap_tone, gap_strong) = match check.outcome {
-        Outcome::Failed { .. } => match difference(row) {
-            Some(value) => (text::signed(value), color::DANGER, true),
-            None => ("—".to_owned(), color::DANGER, true),
-        },
-        Outcome::Passed { .. } => (
-            text::balance(Money::new(0, check.stated.currency())),
-            color::TEXT_MUTED,
-            false,
-        ),
-        _ => ("—".to_owned(), color::TEXT_MUTED, false),
+    let (gap_tone, gap_strong) = match check.outcome {
+        Outcome::Failed { .. } => (color::DANGER, true),
+        _ => (color::TEXT_MUTED, false),
     };
+    let gap = difference_text(row);
     let (account_id, balance) = (account.account, check.balance);
     let (select, focus) = (handle.clone(), focus.clone());
     div()
@@ -292,15 +302,13 @@ fn from_start(account: &AccountReview, since: NaiveDate) -> bool {
         .is_some_and(|row| !row.check.outcome.is_passed())
 }
 
-/// The window under a failed row.
-fn failing_window(
-    checks: &Checks,
+/// The words under a failed row, and the pair that explains its gap.
+pub(super) fn window_words<'a>(
+    checks: &'a Checks,
     account: &AccountReview,
     row: &CheckRow,
-    handle: &Entity<Checks>,
     today: NaiveDate,
-    window: &Window,
-) -> Option<AnyElement> {
+) -> Option<(Vec<Part>, Option<&'a coffer_core::checks::Pair>)> {
     let since = row.since()?;
     let mut parts = vec![
         Part::text("The gap opened after "),
@@ -322,9 +330,22 @@ fn failing_window(
         parts.push(Part::mono(text::signed(pair.rows[1].amount)).color(color::TEXT_SECONDARY));
         parts.push(Part::text(" explains all of it.").color(color::TEXT_SECONDARY));
     }
+    Some((parts, pair))
+}
+
+/// The window under a failed row.
+fn failing_window(
+    checks: &Checks,
+    account: &AccountReview,
+    row: &CheckRow,
+    handle: &Entity<Checks>,
+    today: NaiveDate,
+    window: &Window,
+) -> Option<AnyElement> {
+    let (parts, pair) = window_words(checks, account, row, today)?;
     let review = pair.map(|pair| {
         let (handle, id) = (handle.clone(), pair.candidate);
-        Button::new("checks-review-pair", "Review pair")
+        Button::new("checks-review-pair", REVIEW_PAIR)
             .with_variant(ButtonVariant::Outline)
             .on_click(click(move |_, _, cx| {
                 handle.update(cx, |checks, cx| checks.review_pair(id, cx))
@@ -352,6 +373,48 @@ fn failing_window(
     )
 }
 
+/// An account's foot: what it says, its button's label, and whether the
+/// button locks (else it adds a balance).
+pub(super) struct Foot {
+    pub words: Vec<Part>,
+    pub button: String,
+    pub lock: bool,
+}
+
+/// The account's foot: the lock prompt, or "nothing to check yet".
+pub(super) fn foot(account: &AccountReview, today: NaiveDate) -> Option<Foot> {
+    if !account.has_checks() {
+        let mut words = vec![Part::text(
+            "One balance so far, so there’s nothing to check against yet.",
+        )];
+        words.push(Part::text(if account.preset.as_deref() == Some(MONZO) {
+            " Monzo exports carry no balances: add today’s from the Monzo app."
+        } else {
+            " Add a later one, or import a file that has balances."
+        }));
+        return Some(Foot {
+            words,
+            button: "Add balance…".to_owned(),
+            lock: false,
+        });
+    }
+    let through = *account.lockable.first()?;
+    Some(Foot {
+        words: vec![
+            Part::text("Every check passes through "),
+            Part::mono(text::date(through, today)),
+            Part::text(". Lock it so a later import or edit can’t quietly change that history."),
+        ],
+        button: lock_label(through, today),
+        lock: true,
+    })
+}
+
+/// "Lock through 31 Oct…".
+pub(super) fn lock_label(through: NaiveDate, today: NaiveDate) -> String {
+    format!("Lock through {}…", text::date(through, today))
+}
+
 /// The account's foot: the lock prompt, or "nothing to check yet".
 fn account_foot(
     account: &AccountReview,
@@ -361,46 +424,27 @@ fn account_foot(
 ) -> Option<AnyElement> {
     let id = account.account;
     let handle = handle.clone();
-    let (words, button): (Vec<Part>, Button) = if !account.has_checks() {
-        let mut words = vec![Part::text(
-            "One balance so far, so there’s nothing to check against yet.",
-        )];
-        words.push(Part::text(if account.preset.as_deref() == Some(MONZO) {
-            " Monzo exports carry no balances: add today’s from the Monzo app."
-        } else {
-            " Add a later one, or import a file that has balances."
-        }));
-        (
-            words,
-            Button::new(
-                SharedString::from(format!("checks-add-balance-{id}")),
-                "Add balance…",
-            )
-            .with_variant(ButtonVariant::Outline)
-            .on_click(click(move |_, _, cx| {
-                handle.update(cx, |checks, cx| checks.request_add_balance(id, cx))
-            })),
-        )
-    } else {
-        let through = *account.lockable.first()?;
-        (
-            vec![
-                Part::text("Every check passes through "),
-                Part::mono(text::date(through, today)),
-                Part::text(
-                    ". Lock it so a later import or edit can’t quietly change that history.",
-                ),
-            ],
-            Button::new(
-                SharedString::from(format!("checks-lock-{id}")),
-                format!("Lock through {}…", text::date(through, today)),
-            )
+    let Foot {
+        words,
+        button,
+        lock,
+    } = foot(account, today)?;
+    let button = if lock {
+        Button::new(SharedString::from(format!("checks-lock-{id}")), button)
             .with_variant(ButtonVariant::Outline)
             .icon(Glyph::Lock)
             .on_click(click(move |_, _, cx| {
                 handle.update(cx, |checks, cx| checks.request_lock(id, cx))
-            })),
+            }))
+    } else {
+        Button::new(
+            SharedString::from(format!("checks-add-balance-{id}")),
+            button,
         )
+        .with_variant(ButtonVariant::Outline)
+        .on_click(click(move |_, _, cx| {
+            handle.update(cx, |checks, cx| checks.request_add_balance(id, cx))
+        }))
     };
     Some(
         div()
@@ -423,6 +467,36 @@ fn account_foot(
     )
 }
 
+/// The caption naming the accounts that aren't checked, if any.
+pub(super) fn not_checked(checks: &Checks) -> Option<String> {
+    let review = &checks.data().review;
+    text::not_checked(
+        &review.not_checked.no_balance,
+        &review.not_checked.valued,
+        review.not_checked.pots,
+    )
+}
+
+/// What the canvas says instead of accounts: why they couldn't be read, or
+/// that none has a balance.
+pub(super) fn empty(checks: &Checks) -> Option<(&'static str, SharedString)> {
+    if let Some(error) = checks.load_error() {
+        return Some(("Balance checks couldn’t be read", error.clone()));
+    }
+    checks.accounts().is_empty().then(|| {
+        (
+            "No balances to check",
+            SharedString::from(format!(
+                "Add a balance to an account, or import a file that has balances, and Coffer \
+                 checks each one against the transactions.{}",
+                not_checked(checks)
+                    .map(|words| format!(" {words}"))
+                    .unwrap_or_default()
+            )),
+        )
+    })
+}
+
 /// The canvas under the toolbar.
 pub fn render_body(
     handle: &Entity<Checks>,
@@ -432,34 +506,10 @@ pub fn render_body(
 ) -> AnyElement {
     let today = checks.today();
     let review = &checks.data().review;
-    if let Some(error) = checks.load_error() {
-        return empty_queue(
-            Glyph::BalanceLarge,
-            "Balance checks couldn’t be read",
-            error.clone(),
-        )
-        .into_any_element();
+    if let Some((title, body)) = empty(checks) {
+        return empty_queue(Glyph::BalanceLarge, title, body).into_any_element();
     }
-    let not_checked = text::not_checked(
-        &review.not_checked.no_balance,
-        &review.not_checked.valued,
-        review.not_checked.pots,
-    );
-    if review.accounts.is_empty() {
-        return empty_queue(
-            Glyph::BalanceLarge,
-            "No balances to check",
-            SharedString::from(format!(
-                "Add a balance to an account, or import a file that has balances, and Coffer \
-                 checks each one against the transactions.{}",
-                not_checked
-                    .as_ref()
-                    .map(|words| format!(" {words}"))
-                    .unwrap_or_default()
-            )),
-        )
-        .into_any_element();
-    }
+    let not_checked = not_checked(checks);
 
     let mut sections: Vec<AnyElement> = Vec::new();
     for (index, account) in review.accounts.iter().enumerate() {
@@ -548,28 +598,35 @@ fn value(window: &Window, parts: Vec<Part>) -> AnyElement {
         .into_any_element()
 }
 
-fn this_check(row: &CheckRow, today: NaiveDate, window: &Window) -> AnyElement {
+/// What a section's caption says: a fixed sentence, or one with the
+/// balance's figures in it.
+pub(super) enum Caption {
+    Fixed(&'static str),
+    Rich(Vec<Part>),
+}
+
+/// "This check" (or "This balance", for a starting point or a valuation):
+/// its rows and its caption.
+pub(super) struct ThisCheck {
+    pub title: &'static str,
+    pub rows: Vec<(&'static str, Vec<Part>)>,
+    pub caption: Caption,
+}
+
+pub(super) fn this_check_text(row: &CheckRow, today: NaiveDate) -> ThisCheck {
     let check = &row.check;
-    let mut rows: Vec<AnyElement> = vec![
-        FieldRow::new(
-            "Balance",
-            value(
-                window,
-                vec![
-                    Part::mono(text::balance(check.stated)),
-                    Part::text(format!(" {}", text::source_after(check.source)))
-                        .color(color::TEXT_MUTED),
-                ],
-            ),
-        )
-        .into_any_element(),
-    ];
+    let mut rows = vec![(
+        "Balance",
+        vec![
+            Part::mono(text::balance(check.stated)),
+            Part::text(format!(" {}", text::source_after(check.source))).color(color::TEXT_MUTED),
+        ],
+    )];
     if !check.outcome.is_check() {
-        return section(true)
-            .gap(spacing::S2)
-            .child(section_title("This balance"))
-            .children(rows)
-            .child(caption(match check.outcome {
+        return ThisCheck {
+            title: "This balance",
+            rows,
+            caption: Caption::Fixed(match check.outcome {
                 Outcome::Valuation => {
                     "A valuation sets the balance: Coffer counts the balances after it from here."
                 }
@@ -577,59 +634,41 @@ fn this_check(row: &CheckRow, today: NaiveDate, window: &Window) -> AnyElement {
                     "Coffer starts counting from here: every later balance is checked against \
                      it plus the transactions since."
                 }
-            }))
-            .into_any_element();
+            }),
+        };
     }
     if let Some(counted) = counted(row) {
-        rows.push(
-            FieldRow::new(
-                "Coffer",
-                value(
-                    window,
-                    vec![
-                        Part::mono(text::balance(counted)).color(if counted.is_negative() {
-                            color::DANGER
-                        } else {
-                            color::TEXT
-                        }),
-                        Part::text(" from transactions").color(color::TEXT_MUTED),
-                    ],
-                ),
-            )
-            .into_any_element(),
-        );
+        rows.push((
+            "Coffer",
+            vec![
+                Part::mono(text::balance(counted)).color(if counted.is_negative() {
+                    color::DANGER
+                } else {
+                    color::TEXT
+                }),
+                Part::text(" from transactions").color(color::TEXT_MUTED),
+            ],
+        ));
     }
     if let (Some(base), Some(since)) = (row.base, row.since()) {
-        rows.push(
-            FieldRow::new(
-                "Matched",
-                value(
-                    window,
-                    vec![
-                        Part::mono(text::balance(base)),
-                        Part::text(" on ").color(color::TEXT_MUTED),
-                        Part::mono(text::date(since, today)),
-                    ],
-                ),
-            )
-            .into_any_element(),
-        );
+        rows.push((
+            "Matched",
+            vec![
+                Part::mono(text::balance(base)),
+                Part::text(" on ").color(color::TEXT_MUTED),
+                Part::mono(text::date(since, today)),
+            ],
+        ));
     }
     if let Some((from, to)) = row.days() {
-        rows.push(
-            FieldRow::new(
-                "Window",
-                value(
-                    window,
-                    vec![Part::mono(format!(
-                        "{} – {}",
-                        text::date(from, today),
-                        text::date(to, today)
-                    ))],
-                ),
-            )
-            .into_any_element(),
-        );
+        rows.push((
+            "Window",
+            vec![Part::mono(format!(
+                "{} – {}",
+                text::date(from, today),
+                text::date(to, today)
+            ))],
+        ));
     }
     let mut words = vec![Part::text(
         "Coffer starts from the last balance that matched and adds every transaction since.",
@@ -648,12 +687,70 @@ fn this_check(row: &CheckRow, today: NaiveDate, window: &Window) -> AnyElement {
             text::count(row.transactions, "transaction", "transactions")
         ))),
     }
+    ThisCheck {
+        title: "This check",
+        rows,
+        caption: Caption::Rich(words),
+    }
+}
+
+fn this_check(row: &CheckRow, today: NaiveDate, window: &Window) -> AnyElement {
+    let ThisCheck {
+        title,
+        rows,
+        caption: words,
+    } = this_check_text(row, today);
     section(true)
         .gap(spacing::S2)
-        .child(section_title("This check"))
-        .children(rows)
-        .child(rich_caption(window, words))
+        .child(section_title(title))
+        .children(
+            rows.into_iter()
+                .map(|(label, parts)| FieldRow::new(label, value(window, parts))),
+        )
+        .child(match words {
+            Caption::Fixed(words) => caption(words),
+            Caption::Rich(words) => rich_caption(window, words),
+        })
         .into_any_element()
+}
+
+/// "What could explain it"'s title.
+pub(super) const EXPLAIN_TITLE: &str = "What could explain it";
+
+/// The possible duplicate that explains a failed check: its amount and
+/// what the card says, with the pair.
+pub(super) fn explained_by<'a>(
+    checks: &'a Checks,
+    row: &CheckRow,
+    today: NaiveDate,
+) -> Option<(String, Vec<Part>, &'a coffer_core::checks::Pair)> {
+    let pair = row
+        .explained_by
+        .and_then(|id| checks.data().review.pair(id))?;
+    Some((
+        text::signed(pair.rows[1].amount),
+        vec![
+            Part::text(format!("{} on ", text::name(&pair.rows[0]))),
+            Part::mono(text::date(pair.rows[0].date, today)),
+            Part::text(format!(" and {} on ", text::name(&pair.rows[1]))),
+            Part::mono(text::date(pair.rows[1].date, today)),
+            Part::text(". Merging it closes the gap exactly."),
+        ],
+        pair,
+    ))
+}
+
+/// What else could explain a failed check.
+pub(super) fn explain_lead(explained: bool, row: &CheckRow, today: NaiveDate) -> Vec<Part> {
+    vec![
+        Part::text(if explained {
+            "Otherwise: a transaction missing from an import, one dated on the other side of "
+        } else {
+            "Usually a transaction missing from an import, one dated on the other side of "
+        }),
+        Part::mono(text::date(row.check.date, today)),
+        Part::text(", or a balance typed wrong."),
+    ]
 }
 
 fn what_could_explain(
@@ -663,10 +760,9 @@ fn what_could_explain(
     today: NaiveDate,
     window: &Window,
 ) -> AnyElement {
-    let pair = row
-        .explained_by
-        .and_then(|id| checks.data().review.pair(id));
-    let card = pair.map(|pair| {
+    let explained = explained_by(checks, row, today);
+    let lead = explain_lead(explained.is_some(), row, today);
+    let card = explained.map(|(amount, words, pair)| {
         let (handle, id) = (handle.clone(), pair.candidate);
         div()
             .flex()
@@ -690,28 +786,19 @@ fn what_could_explain(
                             .text_role(typography::BODY)
                             .font_weight(weight::MEDIUM)
                             .text_color(color::TEXT)
-                            .child("Possible duplicate"),
+                            .child(POSSIBLE_DUPLICATE),
                     )
                     .child(
                         div()
                             .text_role(typography::MONO_AMOUNT)
                             .text_color(color::TEXT)
-                            .child(text::signed(pair.rows[1].amount)),
+                            .child(amount),
                     ),
             )
-            .child(div().pl(spacing::S5).child(rich_caption(
-                window,
-                vec![
-                    Part::text(format!("{} on ", text::name(&pair.rows[0]))),
-                    Part::mono(text::date(pair.rows[0].date, today)),
-                    Part::text(format!(" and {} on ", text::name(&pair.rows[1]))),
-                    Part::mono(text::date(pair.rows[1].date, today)),
-                    Part::text(". Merging it closes the gap exactly."),
-                ],
-            )))
+            .child(div().pl(spacing::S5).child(rich_caption(window, words)))
             .child(
                 div().flex().pl(spacing::S5).pt(spacing::S1).child(
-                    Button::new("checks-explain-review", "Review pair")
+                    Button::new("checks-explain-review", REVIEW_PAIR)
                         .with_variant(ButtonVariant::Outline)
                         .on_click(click(move |_, _, cx| {
                             handle.update(cx, |checks, cx| checks.review_pair(id, cx))
@@ -719,62 +806,42 @@ fn what_could_explain(
                 ),
             )
     });
-    let lead = if pair.is_some() {
-        "Otherwise: a transaction missing from an import, one dated on the other side of "
-    } else {
-        "Usually a transaction missing from an import, one dated on the other side of "
-    };
     section(true)
         .gap(spacing::S2)
-        .child(section_title("What could explain it"))
+        .child(section_title(EXPLAIN_TITLE))
         .children(card)
-        .child(rich_caption(
-            window,
-            vec![
-                Part::text(lead),
-                Part::mono(text::date(row.check.date, today)),
-                Part::text(", or a balance typed wrong."),
-            ],
-        ))
+        .child(rich_caption(window, lead))
         .into_any_element()
 }
 
-fn lock_section(
+/// The explaining pair's card title, and its button's.
+pub(super) const POSSIBLE_DUPLICATE: &str = "Possible duplicate";
+pub(super) const REVIEW_PAIR: &str = "Review pair";
+
+/// The lock section: its title, its button (label, and whether it
+/// unlocks), and what it says.
+pub(super) struct LockText {
+    pub title: Vec<Part>,
+    pub button: Option<(String, bool)>,
+    pub words: Vec<Part>,
+}
+
+pub(super) fn lock_text(
     account: &AccountReview,
     row: Option<&CheckRow>,
-    handle: &Entity<Checks>,
     today: NaiveDate,
-    window: &Window,
-) -> AnyElement {
-    let id = account.account;
-    let handle = handle.clone();
-    let (title, button): (Vec<Part>, Option<Button>) = match account.locked_through {
+) -> LockText {
+    let (title, button) = match account.locked_through {
         Some(through) => (
-            vec![
-                Part::text("Locked through "),
-                Part::mono(text::date(through, today)),
-            ],
-            Some(
-                Button::new("checks-unlock", "Unlock…")
-                    .with_variant(ButtonVariant::Outline)
-                    .on_click(click(move |_, _, cx| {
-                        handle.update(cx, |checks, cx| checks.request_unlock(id, cx))
-                    })),
-            ),
+            locked_through(through, today),
+            Some(("Unlock…".to_owned(), true)),
         ),
         None => (
             vec![Part::text("Not locked")],
-            account.lockable.first().map(|through| {
-                Button::new(
-                    "checks-lock",
-                    format!("Lock through {}…", text::date(*through, today)),
-                )
-                .with_variant(ButtonVariant::Outline)
-                .icon(Glyph::Lock)
-                .on_click(click(move |_, _, cx| {
-                    handle.update(cx, |checks, cx| checks.request_lock(id, cx))
-                }))
-            }),
+            account
+                .lockable
+                .first()
+                .map(|through| (lock_label(*through, today), false)),
         ),
     };
     let mut words: Vec<Part> = match account.locked_through {
@@ -807,6 +874,43 @@ fn lock_section(
         }
         _ => {}
     }
+    LockText {
+        title,
+        button,
+        words,
+    }
+}
+
+fn lock_section(
+    account: &AccountReview,
+    row: Option<&CheckRow>,
+    handle: &Entity<Checks>,
+    today: NaiveDate,
+    window: &Window,
+) -> AnyElement {
+    let id = account.account;
+    let LockText {
+        title,
+        button,
+        words,
+    } = lock_text(account, row, today);
+    let button = button.map(|(label, unlock)| {
+        let handle = handle.clone();
+        if unlock {
+            Button::new("checks-unlock", label)
+                .with_variant(ButtonVariant::Outline)
+                .on_click(click(move |_, _, cx| {
+                    handle.update(cx, |checks, cx| checks.request_unlock(id, cx))
+                }))
+        } else {
+            Button::new("checks-lock", label)
+                .with_variant(ButtonVariant::Outline)
+                .icon(Glyph::Lock)
+                .on_click(click(move |_, _, cx| {
+                    handle.update(cx, |checks, cx| checks.request_lock(id, cx))
+                }))
+        }
+    });
     section(true)
         .gap(spacing::S2)
         .child(
@@ -832,6 +936,48 @@ fn lock_section(
         .into_any_element()
 }
 
+/// The inspector's header for a balance: the account, the figure, and
+/// what the balance is ("Check on 9 Nov failed · Coffer is short").
+pub(super) fn header_text(
+    account: &AccountReview,
+    row: &CheckRow,
+    today: NaiveDate,
+) -> (String, Option<String>, String) {
+    let check = &row.check;
+    let name = plain(&account.name, NAME_SHOWN);
+    let (figure, words) = match check.outcome {
+        Outcome::Failed { .. } => {
+            let gap = difference(row);
+            let short = gap.is_some_and(|gap| gap.is_negative());
+            (
+                gap.map(text::signed),
+                format!(
+                    "Check on {} failed · Coffer is {}",
+                    text::date(check.date, today),
+                    if short { "short" } else { "over" }
+                ),
+            )
+        }
+        Outcome::Passed { .. } => (
+            Some(text::balance(check.stated)),
+            format!("Check on {} passed", text::date(check.date, today)),
+        ),
+        Outcome::StartingPoint => (
+            Some(text::balance(check.stated)),
+            format!("Starting point on {}", text::date(check.date, today)),
+        ),
+        Outcome::Valuation => (
+            Some(text::balance(check.stated)),
+            format!("Valuation on {}", text::date(check.date, today)),
+        ),
+    };
+    (name, figure, words)
+}
+
+/// The inspector with nothing selected.
+pub(super) const NOTHING_SELECTED: &str = "Select a balance to see how Coffer counted it, and \
+                                           lock the account once its checks pass.";
+
 /// The inspector.
 pub fn render_inspector(handle: &Entity<Checks>, checks: &Checks, window: &Window) -> AnyElement {
     let today = checks.today();
@@ -839,33 +985,7 @@ pub fn render_inspector(handle: &Entity<Checks>, checks: &Checks, window: &Windo
     match checks.selected_check() {
         Some((account, row)) => {
             let check = &row.check;
-            let name = plain(&account.name, NAME_SHOWN);
-            let (figure, words) = match check.outcome {
-                Outcome::Failed { .. } => {
-                    let gap = difference(row);
-                    let short = gap.is_some_and(|gap| gap.is_negative());
-                    (
-                        gap.map(text::signed),
-                        format!(
-                            "Check on {} failed · Coffer is {}",
-                            text::date(check.date, today),
-                            if short { "short" } else { "over" }
-                        ),
-                    )
-                }
-                Outcome::Passed { .. } => (
-                    Some(text::balance(check.stated)),
-                    format!("Check on {} passed", text::date(check.date, today)),
-                ),
-                Outcome::StartingPoint => (
-                    Some(text::balance(check.stated)),
-                    format!("Starting point on {}", text::date(check.date, today)),
-                ),
-                Outcome::Valuation => (
-                    Some(text::balance(check.stated)),
-                    format!("Valuation on {}", text::date(check.date, today)),
-                ),
-            };
+            let (name, figure, words) = header_text(account, row, today);
             sections.push(header(name, figure, Some(caption(words))).into_any_element());
             sections.push(this_check(row, today, window));
             if check.outcome.is_failed() {
@@ -875,10 +995,7 @@ pub fn render_inspector(handle: &Entity<Checks>, checks: &Checks, window: &Windo
         }
         None => sections.push(
             section(false)
-                .child(caption(
-                    "Select a balance to see how Coffer counted it, and lock the account once \
-                     its checks pass.",
-                ))
+                .child(caption(NOTHING_SELECTED))
                 .into_any_element(),
         ),
     }

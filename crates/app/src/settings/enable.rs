@@ -148,14 +148,34 @@ impl EnableDialog {
     }
 }
 
+impl EnableDialog {
+    /// "Enable `my-agent`?"
+    fn title(&self) -> Vec<super::table::Run> {
+        vec![plain("Enable "), mono(self.name.to_string()), plain("?")]
+    }
+
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3).
+    #[cfg(test)]
+    pub fn describe(&self) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        Dialog {
+            title: super::table::Run::joined(&self.title()),
+            fields: vec![(
+                "Level".to_owned(),
+                format!("{} · {}", level_label(self.level), level_hint(self.level)),
+            )],
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![
+                Action::button("Cancel", true),
+                Action::button("Enable", true),
+            ],
+        }
+    }
+}
+
 impl Render for EnableDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = rich(
-            typography::TITLE,
-            color::TEXT,
-            vec![plain("Enable "), mono(self.name.to_string()), plain("?")],
-        )
-        .whitespace_nowrap();
+        let title = rich(typography::TITLE, color::TEXT, self.title()).whitespace_nowrap();
         let asked = match self.asked {
             Some(time) if time.date() == self.today => vec![
                 plain("It asked to connect today at "),

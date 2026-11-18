@@ -39,13 +39,23 @@ fn list_section(label: &'static str) -> gpui_kit::Div {
         .child(SectionLabelRow::new(label))
 }
 
+/// The panel's last row, which opens the export dialog.
+pub const EXPORT: &str = "Export…";
+
 impl SettingsView {
+    /// The count after a section's row: clients, calls in 7 days, backups.
+    pub(super) fn panel_count(&self, section: Section) -> String {
+        match section {
+            Section::Clients => self.ai.clients.len().to_string(),
+            Section::Log => count(self.ai.calls_week),
+            Section::Backups => self.backups.rows.len().to_string(),
+        }
+    }
+
     fn section_row(
         &self,
         section: Section,
         glyph: Glyph,
-        label: &'static str,
-        trailing: String,
         ring: bool,
         cx: &mut Context<Self>,
     ) -> ListRow {
@@ -56,11 +66,11 @@ impl SettingsView {
             Section::Log => "settings-log",
             Section::Backups => "settings-backups",
         };
-        ListRow::new(id, label)
+        ListRow::new(id, section.label())
             .icon(glyph)
             .selected(selected)
             .focus_visible(selected && ring)
-            .trailing(trailing)
+            .trailing(self.panel_count(section))
             // Paper `BPZ-0`: the selected row's count lifts to
             // `text-secondary`, which the row does for a muted value.
             .trailing_tone(if selected {
@@ -81,33 +91,12 @@ impl SettingsView {
     ) -> AnyElement {
         let ring = self.panel_focus.is_focused(window) && window.last_input_was_keyboard();
         let ai = list_section("AI access")
-            .child(self.section_row(
-                Section::Clients,
-                Glyph::Plug,
-                "Clients",
-                self.ai.clients.len().to_string(),
-                ring,
-                cx,
-            ))
-            .child(self.section_row(
-                Section::Log,
-                Glyph::Log,
-                "Access log",
-                count(self.ai.calls_week),
-                ring,
-                cx,
-            ));
+            .child(self.section_row(Section::Clients, Glyph::Plug, ring, cx))
+            .child(self.section_row(Section::Log, Glyph::Log, ring, cx));
         let data = list_section("Data")
-            .child(self.section_row(
-                Section::Backups,
-                Glyph::Backup,
-                "Backups",
-                self.backups.rows.len().to_string(),
-                ring,
-                cx,
-            ))
+            .child(self.section_row(Section::Backups, Glyph::Backup, ring, cx))
             .child(
-                ListRow::new("settings-export", "Export…")
+                ListRow::new("settings-export", EXPORT)
                     .icon(Glyph::Export)
                     .on_click(cx.listener(|this, _, _, cx| this.request_export(cx))),
             );
