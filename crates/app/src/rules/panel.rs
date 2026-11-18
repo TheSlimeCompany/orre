@@ -83,6 +83,65 @@ impl PanelRow {
             .collect()
     }
 
+    /// What the row says.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Section(Section::Rules) => "Rules",
+            Self::Section(Section::Names) => "Merchant names",
+            Self::Section(Section::History) => "Change history",
+            Self::Section(Section::Categories) => "Categories",
+            Self::Action(kind) => text::action_filter_label(kind),
+            Self::Match(kind) => text::alias_kind(kind),
+            Self::Kind(kind) => text::change_kind(kind),
+            Self::Category(CategoryFilter::Kind(kind)) => text::category_kind_filter(kind),
+            Self::Category(CategoryFilter::Hidden) => "Hidden",
+        }
+    }
+
+    /// The row's element ID.
+    pub fn id(self) -> SharedString {
+        match self {
+            Self::Section(Section::Rules) => "rules-section-rules".into(),
+            Self::Section(Section::Names) => "rules-section-names".into(),
+            Self::Section(Section::History) => "rules-section-history".into(),
+            Self::Section(Section::Categories) => "rules-section-categories".into(),
+            Self::Action(kind) => format!("rules-action-{}", kind.as_str()).into(),
+            Self::Match(kind) => format!("rules-match-{}", kind.as_str()).into(),
+            Self::Kind(kind) => format!("rules-kind-{}", kind.as_str()).into(),
+            Self::Category(CategoryFilter::Kind(kind)) => {
+                format!("rules-category-kind-{}", kind.as_str()).into()
+            }
+            Self::Category(CategoryFilter::Hidden) => "rules-category-hidden".into(),
+        }
+    }
+
+    /// The count after its label: a section's rows, or the rows a filter
+    /// keeps.
+    pub fn count(self, rules: &Rules) -> usize {
+        let data = rules.data();
+        match self {
+            Self::Section(Section::Rules) => data.rules.len(),
+            Self::Section(Section::Names) => data.names.len(),
+            Self::Section(Section::History) => data.history.len(),
+            Self::Section(Section::Categories) => data.categories.len(),
+            Self::Action(kind) => rules.count_with_action(kind),
+            Self::Match(kind) => rules.count_names(kind),
+            Self::Kind(kind) => rules.count_history(kind),
+            Self::Category(filter) => rules.count_categories(filter),
+        }
+    }
+
+    /// Whether it's selected: the open section, or a filter that's on.
+    pub fn selected(self, rules: &Rules) -> bool {
+        match self {
+            Self::Section(section) => rules.section() == section,
+            Self::Action(kind) => rules.action_filter() == Some(kind),
+            Self::Match(kind) => rules.match_filter() == Some(kind),
+            Self::Kind(kind) => rules.kind_filter() == Some(kind),
+            Self::Category(filter) => rules.category_filter() == Some(filter),
+        }
+    }
+
     /// Does what clicking the row does.
     pub fn act(self, rules: &mut Rules, cx: &mut gpui_kit::Context<Rules>) {
         match self {
@@ -92,6 +151,15 @@ impl PanelRow {
             Self::Kind(kind) => rules.toggle_kind_filter(kind, cx),
             Self::Category(filter) => rules.toggle_category_filter(filter, cx),
         }
+    }
+}
+
+/// The title of `open`'s filters.
+pub fn filter_title(open: Section) -> &'static str {
+    match open {
+        Section::Rules => "Action",
+        Section::Names => "Match",
+        Section::History | Section::Categories => "Kind",
     }
 }
 
@@ -125,7 +193,6 @@ impl RenderOnce for RulesPanel {
         let cursor = PanelCursor::<PanelRow>::keyed("rules-panel-cursor", window, cx);
         let rules = &self.rules;
         let state = rules.read(cx);
-        let data = state.data();
         let open = state.section();
         let rows = PanelRow::all(open);
         let home = Some(PanelRow::Section(open));
@@ -141,101 +208,50 @@ impl RenderOnce for RulesPanel {
         };
 
         let lists = SECTIONS.map(|section| {
-            let (id, label, glyph, count) = match section {
-                Section::Rules => (
-                    "rules-section-rules",
-                    "Rules",
-                    Glyph::Arrow,
-                    data.rules.len(),
-                ),
-                Section::Names => (
-                    "rules-section-names",
-                    "Merchant names",
-                    Glyph::NameTag,
-                    data.names.len(),
-                ),
-                Section::History => (
-                    "rules-section-history",
-                    "Change history",
-                    Glyph::History,
-                    data.history.len(),
-                ),
-                Section::Categories => (
-                    "rules-section-categories",
-                    "Categories",
-                    Glyph::SetCategory,
-                    data.categories.len(),
-                ),
+            let glyph = match section {
+                Section::Rules => Glyph::Arrow,
+                Section::Names => Glyph::NameTag,
+                Section::History => Glyph::History,
+                Section::Categories => Glyph::SetCategory,
             };
+            let key = PanelRow::Section(section);
             row(
-                PanelRow::Section(section),
-                ListRow::new(id, label)
+                key,
+                ListRow::new(key.id(), key.label())
                     .icon(glyph)
-                    .trailing(count.to_string()),
-                open == section,
+                    .trailing(key.count(state).to_string()),
+                key.selected(state),
             )
         });
 
-        let filters = match open {
-            Section::Rules => section(false, "Action").children(text::PANEL_ACTIONS.map(|kind| {
-                row(
-                    PanelRow::Action(kind),
-                    ListRow::new(
-                        SharedString::from(format!("rules-action-{}", kind.as_str())),
-                        text::action_filter_label(kind),
-                    )
-                    .icon(text::action_glyph(kind))
-                    .trailing(state.count_with_action(kind).to_string()),
-                    state.action_filter() == Some(kind),
-                )
-            })),
-            Section::Names => section(false, "Match").children(text::ALIAS_KINDS.map(|kind| {
-                row(
-                    PanelRow::Match(kind),
-                    ListRow::new(
-                        SharedString::from(format!("rules-match-{}", kind.as_str())),
-                        text::alias_kind(kind),
-                    )
-                    .icon(text::alias_glyph(kind))
-                    .trailing(state.count_names(kind).to_string()),
-                    state.match_filter() == Some(kind),
-                )
-            })),
-            Section::History => section(false, "Kind").children(text::CHANGE_KINDS.map(|kind| {
-                row(
-                    PanelRow::Kind(kind),
-                    ListRow::new(
-                        SharedString::from(format!("rules-kind-{}", kind.as_str())),
-                        text::change_kind(kind),
-                    )
-                    .icon(text::change_glyph(kind))
-                    .trailing(state.count_history(kind).to_string()),
-                    state.kind_filter() == Some(kind),
-                )
-            })),
-            // Composed: the kinds have no icon of their own, so their rows
-            // keep the icon's slot empty; Hidden is the categories pickers
-            // leave out.
-            Section::Categories => {
-                section(false, "Kind").children(category_filters().map(|filter| {
-                    let (id, label) = match filter {
-                        CategoryFilter::Kind(kind) => (
-                            format!("rules-category-kind-{}", kind.as_str()),
-                            text::category_kind_filter(kind),
-                        ),
-                        CategoryFilter::Hidden => ("rules-category-hidden".to_owned(), "Hidden"),
-                    };
-                    row(
-                        PanelRow::Category(filter),
-                        ListRow::new(SharedString::from(id), label)
-                            .blank_slot()
-                            .dimmed(filter == CategoryFilter::Hidden)
-                            .trailing(state.count_categories(filter).to_string()),
-                        state.category_filter() == Some(filter),
-                    )
-                }))
-            }
+        // A filter row: its icon, or (Categories' KIND) an empty slot, with
+        // Hidden dimmed.
+        let filter = |key: PanelRow| {
+            let list_row = ListRow::new(key.id(), key.label());
+            let list_row = match key {
+                PanelRow::Action(kind) => list_row.icon(text::action_glyph(kind)),
+                PanelRow::Match(kind) => list_row.icon(text::alias_glyph(kind)),
+                PanelRow::Kind(kind) => list_row.icon(text::change_glyph(kind)),
+                // Composed: the kinds have no icon of their own, so their
+                // rows keep the icon's slot empty; Hidden is the categories
+                // pickers leave out.
+                PanelRow::Category(filter) => list_row
+                    .blank_slot()
+                    .dimmed(filter == CategoryFilter::Hidden),
+                PanelRow::Section(_) => list_row,
+            };
+            row(
+                key,
+                list_row.trailing(key.count(state).to_string()),
+                key.selected(state),
+            )
         };
+        let filters = section(false, filter_title(open)).children(
+            rows.iter()
+                .copied()
+                .filter(|key| !matches!(key, PanelRow::Section(_)))
+                .map(filter),
+        );
 
         let load_error = state.load_error().cloned();
         let act = rules.clone();

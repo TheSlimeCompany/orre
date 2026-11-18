@@ -2,25 +2,26 @@
 //! "Keyboard paths"): Tab reaches the panel, ↑↓ move the cursor through the
 //! sections and the open section's filters without changing what's open,
 //! and Enter or Space act on the cursor row as a click does. On the scratch
-//! database from [`super::tests`], with the keys pressed as the user would.
+//! database from [`super::tests`], with the keys pressed as the user would;
+//! the cursor and what's open are read through the test-only `describe()`.
 
-use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{
-    AppContext as _, Entity, SharedString, TestAppContext, VisualTestContext, WindowOptions,
-};
+use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext, WindowOptions};
 
+use super::describe::{PanelDescription, describe_window};
 use super::store::RulesStore;
 use super::tests::{Scratch, redraw};
 use super::*;
 use crate::accounts::{Accounts, fixture as accounts_fixture};
 use crate::inbox::Inbox;
 use crate::shell::{ShellView, View};
-use crate::theme::focus::RING_SELECTOR;
 use crate::transactions::{self, store::TransactionStore};
 
 /// The shell on Rules, as [`super::tests::open`] opens it, but in a real
 /// window with `Root` (which binds Tab), focus on the Rules canvas.
-fn open(cx: &mut TestAppContext, scratch: &Scratch) -> (Entity<Rules>, VisualTestContext) {
+fn open(
+    cx: &mut TestAppContext,
+    scratch: &Scratch,
+) -> (Entity<ShellView>, Entity<Rules>, VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::component::install(cx);
@@ -58,7 +59,7 @@ fn open(cx: &mut TestAppContext, scratch: &Scratch) -> (Entity<Rules>, VisualTes
         shell.read(cx).rules().clone()
     });
     redraw(&mut cx);
-    (rules, cx)
+    (shell, rules, cx)
 }
 
 fn press(keys: &str, cx: &mut VisualTestContext) {
@@ -66,20 +67,21 @@ fn press(keys: &str, cx: &mut VisualTestContext) {
     redraw(cx);
 }
 
-/// Whether the focus ring is drawn on the row `id`.
-fn ring_on(id: &str, cx: &mut VisualTestContext) -> bool {
-    let Some(ring) = cx.debug_bounds(RING_SELECTOR) else {
-        return false;
-    };
-    let id = SharedString::from(id.to_owned());
-    cx.update(move |window, _| window.try_find(id).map(|row| row.bounds())) == Some(ring)
+/// The panel as `describe()` shows it, its keyboard cursor included.
+fn panel(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> PanelDescription {
+    describe_window(shell, cx).panel
+}
+
+/// The row the panel's keyboard cursor is on, if it has keyboard focus.
+fn cursor(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> Option<&'static str> {
+    panel(shell, cx).cursor
 }
 
 /// Presses Tab until the panel has focus: the cursor starts on the open
 /// section, Rules.
-fn tab_to_panel(cx: &mut VisualTestContext) {
+fn tab_to_panel(shell: &Entity<ShellView>, cx: &mut VisualTestContext) {
     for _ in 0..40 {
-        if ring_on("rules-section-rules", cx) {
+        if cursor(shell, cx) == Some("Rules") {
             return;
         }
         press("tab", cx);
@@ -87,50 +89,53 @@ fn tab_to_panel(cx: &mut VisualTestContext) {
     panic!("Tab never reached the Rules panel");
 }
 
-/// What's open, filtered and selected: what ↑↓ mustn't change.
+/// What's open and on (sections and filters), and the selected row: what
+/// ↑↓ mustn't change.
 fn opened(
-    rules: &Entity<Rules>,
+    shell: &Entity<ShellView>,
     cx: &mut VisualTestContext,
-) -> (
-    Section,
-    Option<ActionKind>,
-    Option<CategoryFilter>,
-    Option<RuleId>,
-) {
-    cx.update(|_, cx| {
-        let rules = rules.read(cx);
-        (
-            rules.section(),
-            rules.action_filter(),
-            rules.category_filter(),
-            rules.selected_rule_id(),
-        )
-    })
+) -> (Vec<&'static str>, Option<String>) {
+    let shown = describe_window(shell, cx);
+    let on = shown
+        .panel
+        .sections
+        .iter()
+        .chain(&shown.panel.filters)
+        .filter(|row| row.selected)
+        .map(|row| row.label)
+        .collect();
+    (on, shown.selected)
+}
+
+/// The labels of the rows that are on: the open section, then any filter.
+fn on(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> Vec<&'static str> {
+    opened(shell, cx).0
 }
 
 #[gpui_kit::test]
 fn tab_reaches_the_panel_and_the_arrows_move_the_cursor_across_sections(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (rules, mut cx) = open(cx, &scratch);
+    let (shell, _, mut cx) = open(cx, &scratch);
     let cx = &mut cx;
-    let before = opened(&rules, cx);
-    assert!(before.3.is_some(), "a rule is selected");
-    assert!(
-        !ring_on("rules-section-rules", cx),
-        "no cursor until focused"
-    );
+    let before = opened(&shell, cx);
+    assert_eq!(before.0, ["Rules"]);
+    assert!(before.1.is_some(), "a rule is selected");
+    assert_eq!(cursor(&shell, cx), None, "no cursor until focused");
 
-    tab_to_panel(cx);
+    tab_to_panel(&shell, cx);
     press("down down down", cx);
-    assert!(ring_on("rules-section-categories", cx));
+    assert_eq!(cursor(&shell, cx), Some("Categories"));
     // On past the ACTION label to its first filter.
     press("down", cx);
-    let first = format!("rules-action-{}", text::PANEL_ACTIONS[0].as_str());
-    assert!(ring_on(&first, cx), "the label is skipped");
-    press("up up", cx);
-    assert!(ring_on("rules-section-history", cx));
     assert_eq!(
-        opened(&rules, cx),
+        cursor(&shell, cx),
+        Some(text::action_filter_label(text::PANEL_ACTIONS[0])),
+        "the label is skipped"
+    );
+    press("up up", cx);
+    assert_eq!(cursor(&shell, cx), Some("Change history"));
+    assert_eq!(
+        opened(&shell, cx),
         before,
         "the arrows change nothing that's open, filtered or selected"
     );
@@ -139,47 +144,64 @@ fn tab_reaches_the_panel_and_the_arrows_move_the_cursor_across_sections(cx: &mut
 #[gpui_kit::test]
 fn enter_opens_a_section_and_space_toggles_a_filter(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (rules, mut cx) = open(cx, &scratch);
+    let (shell, rules, mut cx) = open(cx, &scratch);
     let cx = &mut cx;
-    tab_to_panel(cx);
+    tab_to_panel(&shell, cx);
 
     // Enter on Merchant names opens it, as a click does; the cursor stays.
     press("down enter", cx);
-    assert_eq!(opened(&rules, cx).0, Section::Names);
-    assert!(ring_on("rules-section-names", cx));
+    assert_eq!(on(&shell, cx), ["Merchant names"]);
+    assert_eq!(cursor(&shell, cx), Some("Merchant names"));
 
     // On Categories, its KIND filters follow it.
     press("down down space", cx);
-    assert_eq!(opened(&rules, cx).0, Section::Categories);
+    let shown = panel(&shell, cx);
+    assert_eq!(on(&shell, cx), ["Categories"]);
+    assert_eq!(shown.filter_title, "Kind");
     press("down", cx);
-    let kind = text::CATEGORY_KINDS[0];
-    let id = format!("rules-category-kind-{}", kind.as_str());
-    assert!(ring_on(&id, cx));
+    assert_eq!(cursor(&shell, cx), Some("Spending"));
     press("space", cx);
     assert_eq!(
-        opened(&rules, cx).2,
-        Some(CategoryFilter::Kind(kind)),
+        on(&shell, cx),
+        ["Categories", "Spending"],
         "Space turns the filter on"
     );
-    assert!(ring_on(&id, cx), "the cursor stays on the filter");
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).category_filter()),
+        Some(CategoryFilter::Kind(text::CATEGORY_KINDS[0]))
+    );
+    assert_eq!(
+        cursor(&shell, cx),
+        Some("Spending"),
+        "the cursor stays on the filter"
+    );
     press("enter", cx);
-    assert_eq!(opened(&rules, cx).2, None, "and Enter turns it off again");
+    assert_eq!(
+        on(&shell, cx),
+        ["Categories"],
+        "and Enter turns it off again"
+    );
 
     // The last row is Hidden: the cursor stops there.
     press("down down down down down", cx);
-    assert!(ring_on("rules-category-hidden", cx));
-    assert_eq!(opened(&rules, cx).2, None, "moving toggles nothing");
+    assert_eq!(cursor(&shell, cx), Some("Hidden"));
+    assert_eq!(on(&shell, cx), ["Categories"], "moving toggles nothing");
 }
 
 #[gpui_kit::test]
 fn an_action_filter_toggles_from_the_keyboard(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
-    let (rules, mut cx) = open(cx, &scratch);
+    let (shell, rules, mut cx) = open(cx, &scratch);
     let cx = &mut cx;
-    tab_to_panel(cx);
+    tab_to_panel(&shell, cx);
     press("down down down down", cx);
     press("enter", cx);
-    assert_eq!(opened(&rules, cx).1, Some(text::PANEL_ACTIONS[0]));
+    let first = text::action_filter_label(text::PANEL_ACTIONS[0]);
+    assert_eq!(on(&shell, cx), ["Rules", first]);
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).action_filter()),
+        Some(text::PANEL_ACTIONS[0])
+    );
     press("space", cx);
-    assert_eq!(opened(&rules, cx).1, None);
+    assert_eq!(on(&shell, cx), ["Rules"]);
 }

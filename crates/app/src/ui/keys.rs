@@ -3,12 +3,14 @@
 //! and a test-only `describe()` all read the same entry and can't drift.
 //!
 //! - [`Key`] is one decision key ("a" approves, hinted "A Approve"), or a
-//!   key the toolbar doesn't hint (Escape clears the selection).
+//!   key the toolbar doesn't hint (Escape clears the selection). A pair of
+//!   keys with one hint is one [`Key`] too ([`Key::and`]: ⌥↑ and ⌥↓,
+//!   hinted "⌥↑↓ Reorder").
 //! - [`ViewKeys`] is a view's whole set: its list's movement keys
 //!   ([`Keys`], hinted "↑↓ Select") and its [`Key`]s, in one key context.
 //!   [`ViewKeys::bind`] binds them all, [`ViewKeys::hints`] lists the hints
-//!   in the toolbar's order (the hinted keys, then ↑↓), and [`hints`] draws
-//!   them.
+//!   in the toolbar's order (the hinted keys, then ↑↓, unless the view puts
+//!   ↑↓ first with [`ViewKeys::select_first`]), and [`hints`] draws them.
 //!
 //! A view declares its keys as a constant next to its key context, calls
 //! `KEYS.bind(cx)` from its `init`, and draws its toolbar's hints with
@@ -44,8 +46,14 @@ pub struct Key {
     /// Whether the toolbar hints it.
     hinted: bool,
     /// Binds one of `keys` to the action in a context.
-    binding: fn(&'static str, &'static str) -> KeyBinding,
+    binding: Binding,
+    /// The keystrokes of a second action under the same hint, and their
+    /// binding ([`Key::and`]); none for most keys.
+    and: Option<(&'static [&'static str], Binding)>,
 }
+
+/// Binds a keystroke to a key's action in a context.
+type Binding = fn(&'static str, &'static str) -> KeyBinding;
 
 /// A binding of `key` to a fresh `A` in `context`: what [`Key`] keeps of
 /// its action, so a table of keys with different actions can be a
@@ -67,7 +75,16 @@ impl Key {
             label,
             hinted: true,
             binding: binding::<A>,
+            and: None,
         }
+    }
+
+    /// `keys` dispatch `B` too, under the same hint: the other half of a
+    /// pair ("alt-up" moves a rule up, "alt-down" down, both hinted "⌥↑↓
+    /// Reorder").
+    pub const fn and<B: Action + Default>(mut self, keys: &'static [&'static str]) -> Self {
+        self.and = Some((keys, binding::<B>));
+        self
     }
 
     /// Not hinted in the toolbar (Escape, which clears the selection).
@@ -76,9 +93,28 @@ impl Key {
         self
     }
 
-    /// The keystrokes, in GPUI's syntax.
+    /// The keystrokes, in GPUI's syntax: of the first action, for a pair.
     pub const fn keys(&self) -> &'static [&'static str] {
         self.keys
+    }
+
+    /// The keystrokes of a pair's second action ([`Key::and`]); none for a
+    /// single key.
+    pub const fn and_keys(&self) -> &'static [&'static str] {
+        match self.and {
+            Some((keys, _)) => keys,
+            None => &[],
+        }
+    }
+
+    /// The bindings of every keystroke, in `context`.
+    fn bindings(&self, context: &'static str) -> impl Iterator<Item = KeyBinding> + '_ {
+        let first = self.keys.iter().map(move |k| (self.binding)(k, context));
+        let second = self
+            .and
+            .into_iter()
+            .flat_map(move |(keys, binding)| keys.iter().map(move |k| binding(k, context)));
+        first.chain(second)
     }
 
     pub const fn label(&self) -> &'static str {
@@ -102,6 +138,7 @@ impl std::fmt::Debug for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Key")
             .field("keys", &self.keys)
+            .field("and_keys", &self.and_keys())
             .field("cap", &self.cap)
             .field("label", &self.label)
             .field("hinted", &self.hinted)
@@ -115,12 +152,25 @@ impl std::fmt::Debug for Key {
 pub struct ViewKeys {
     list: Keys,
     keys: &'static [Key],
+    /// Whether the list's "↑↓ Select" leads the hints.
+    select_first: bool,
 }
 
 impl ViewKeys {
     /// `list`'s movement keys and `keys`, in `list`'s context.
     pub const fn new(list: Keys, keys: &'static [Key]) -> Self {
-        Self { list, keys }
+        Self {
+            list,
+            keys,
+            select_first: false,
+        }
+    }
+
+    /// The list's "↑↓ Select" leads the hints (Rules: ↑↓ Select, then ⌥↑↓
+    /// Reorder).
+    pub const fn select_first(mut self) -> Self {
+        self.select_first = true;
+        self
     }
 
     /// The list's movement keys, for [`crate::ui::list::ListKeysExt::on_list_move`].
@@ -149,17 +199,20 @@ impl ViewKeys {
         let context = self.context();
         self.keys
             .iter()
-            .flat_map(|key| key.keys.iter().map(|k| (key.binding)(k, context)))
+            .flat_map(|key| key.bindings(context))
             .collect()
     }
 
-    /// The toolbar's hints, in order: the hinted keys, then the list's ↑↓.
+    /// The toolbar's hints, in order: the hinted keys, then the list's ↑↓
+    /// (first, with [`ViewKeys::select_first`]).
     pub fn hints(&self) -> Vec<Hint> {
-        self.keys
-            .iter()
-            .filter_map(Key::hint)
-            .chain([self.list.hint()])
-            .collect()
+        let own = self.keys.iter().filter_map(Key::hint);
+        let select = [self.list.hint()];
+        if self.select_first {
+            select.into_iter().chain(own).collect()
+        } else {
+            own.chain(select).collect()
+        }
     }
 }
 
@@ -235,7 +288,7 @@ impl ViewKeys {
 mod tests {
     use super::*;
 
-    gpui_kit::actions!(coffer_keys_test, [Yes, No]);
+    gpui_kit::actions!(coffer_keys_test, [Yes, No, Up, Down]);
 
     const KEYS: ViewKeys = ViewKeys::new(
         Keys::new("KeysTest"),
@@ -245,6 +298,48 @@ mod tests {
             Key::new::<Yes>(&["escape"], "Esc", "Never mind").unhinted(),
         ],
     );
+
+    /// A pair under one hint, with ↑↓ hinted first.
+    const PAIRED: ViewKeys = ViewKeys::new(
+        Keys::new("PairTest"),
+        &[Key::new::<Up>(&["alt-up"], "⌥↑↓", "Reorder").and::<Down>(&["alt-down"])],
+    )
+    .select_first();
+
+    #[test]
+    fn a_pair_is_one_hint_after_select_and_binds_both_actions() {
+        assert_eq!(
+            PAIRED.hints(),
+            [
+                Hint {
+                    cap: "↑↓",
+                    label: "Select"
+                },
+                Hint {
+                    cap: "⌥↑↓",
+                    label: "Reorder"
+                },
+            ]
+        );
+        let pair = &PAIRED.keys()[0];
+        assert_eq!(
+            (pair.keys(), pair.and_keys()),
+            (&["alt-up"][..], &["alt-down"][..])
+        );
+        let bindings = PAIRED.own_bindings();
+        assert_eq!(bindings.len(), 2);
+        assert!(bindings[0].action().partial_eq(&Up));
+        assert!(bindings[1].action().partial_eq(&Down));
+        assert!(KEYS.keys()[0].and_keys().is_empty());
+    }
+
+    #[gpui_kit::test]
+    fn both_keys_of_a_pair_are_bound(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            PAIRED.bind(cx);
+            PAIRED.assert_bound(cx);
+        });
+    }
 
     #[test]
     fn hints_list_the_hinted_keys_then_the_list() {

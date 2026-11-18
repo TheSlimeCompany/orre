@@ -82,13 +82,34 @@ pub fn render(
         .into_any_element()
 }
 
+/// What the inspector says with nothing selected, by section.
+pub const NO_RULE: &str =
+    "Select a rule to see what it does and edit it, or start one with New rule.";
+pub const NO_NAME: &str = "Select a name to edit it, or start one with New name.";
+pub const NO_CHANGE: &str = "Select a change to see what it did and undo it.";
+pub const NO_CATEGORY: &str =
+    "Select a category to rename, hide or delete it, or add one with New category.";
+/// A stored category selected but gone.
+pub const CATEGORY_GONE: &str = "Select a category to rename, hide or delete it.";
+
+/// What the header says: what `header` draws and the test-only
+/// `describe()` reads.
+pub struct HeaderText {
+    /// The title, with mono parts.
+    pub title: Vec<Part>,
+    /// The figure, and whether it's faint.
+    pub figure: Option<(String, bool)>,
+    pub caption: Option<String>,
+}
+
 /// The header: a title with mono parts, the figure and a caption.
-fn header(
-    window: &Window,
-    title: Vec<Part>,
-    figure: Option<(String, bool)>,
-    caption_text: Option<AnyElement>,
-) -> AnyElement {
+fn header(window: &Window, text: HeaderText) -> AnyElement {
+    let HeaderText {
+        title,
+        figure,
+        caption: caption_text,
+    } = text;
+    let caption_text = caption_text.map(caption_line);
     section(false)
         .gap(spacing::S1)
         .child(
@@ -115,8 +136,8 @@ fn header(
         .into_any_element()
 }
 
-fn caption_line(words: impl Into<SharedString>) -> AnyElement {
-    caption(div().child(words.into())).into_any_element()
+fn caption_line(words: String) -> AnyElement {
+    caption(div().child(SharedString::from(words))).into_any_element()
 }
 
 /// Nothing selected: one caption.
@@ -245,10 +266,9 @@ fn rule_sections(
 ) -> Vec<AnyElement> {
     let rules = entity.read(cx);
     let Some(form) = rules.form().cloned() else {
-        return nothing(
-            "Select a rule to see what it does and edit it, or start one with New rule.",
-        );
+        return nothing(NO_RULE);
     };
+    let head = rule_header(rules);
     let data = rules.data().clone();
     let is_new = rules.is_new();
     let summary = rules.selected_rule().cloned();
@@ -256,65 +276,14 @@ fn rule_sections(
     let error = rules.form_error();
     let touching = rules.touching().to_vec();
     let new_position = rules.new_position();
-    let origin = rules.new_origin();
     let today = rules.today();
     let total = data.rules.len();
 
-    // Header.
-    let title = match form.definition(data.currency(form.account)) {
-        Ok(rule) => vec![
-            Part::text(format!("{} ", text::condition(&rule))),
-            Part::mono(text::pattern(&rule)).weight(weight::MEDIUM),
-        ],
-        Err(_) if form.text.is_empty() => vec![Part::text("New rule")],
-        Err(_) => vec![
-            Part::text(format!(
-                "{} {} ",
-                text::field(form.field),
-                text::test(form.kind)
-            )),
-            Part::mono(text::plain(&form.text, text::PATTERN_SHOWN)).weight(weight::MEDIUM),
-        ],
-    };
-    let mut sections = Vec::new();
-    if is_new {
-        let rows = apply.as_ref().map_or(0, |apply| apply.rows.len());
-        let lead = if origin == RuleOrigin::Edit {
-            "earlier transactions match"
-        } else {
-            "transactions match"
-        };
-        sections.push(header(
-            window,
-            title,
-            Some((rows.to_string(), false)),
-            Some(caption_line(format!("{lead} · new rule, not saved yet"))),
-        ));
-    } else if let Some(summary) = &summary {
-        let position = data.position(summary.rule.id()).map_or(0, |at| at + 1);
-        let words = if summary.never_reached() {
-            format!("transactions decided by this rule · rule {position} of {total}")
-        } else {
-            let last = summary
-                .last
-                .map(|date| format!(" · last on {}", text::date(date, today)))
-                .unwrap_or_default();
-            format!("transactions match{last} · rule {position} of {total}")
-        };
-        sections.push(header(
-            window,
-            title,
-            Some((summary.decides.to_string(), summary.never_reached())),
-            Some(caption_line(words)),
-        ));
-        if let Some(catch) = summary.caught_by
-            && summary.never_reached()
-            && let Some(above) = data.rule(catch.rule)
-        {
-            sections.push(never_reached(
-                entity, &data, summary, above, catch.rows, window,
-            ));
-        }
+    let mut sections: Vec<AnyElement> = head.map(|head| header(window, head)).into_iter().collect();
+    if let Some(summary) = &summary
+        && let Some(card) = NeverReachedText::of(&data, summary)
+    {
+        sections.push(never_reached(entity, summary, card, window));
     }
 
     sections.push(when_section(view, &form, &data, error.as_ref(), cx));
@@ -363,26 +332,131 @@ fn rule_sections(
     sections
 }
 
+/// The rule's header: the rule as title (what's typed, while it isn't
+/// valid), what it decides as the figure, and the caption. `None` with no
+/// rule in the inspector.
+pub fn rule_header(rules: &Rules) -> Option<HeaderText> {
+    let form = rules.form()?;
+    let data = rules.data();
+    let title = match form.definition(data.currency(form.account)) {
+        Ok(rule) => vec![
+            Part::text(format!("{} ", text::condition(&rule))),
+            Part::mono(text::pattern(&rule)).weight(weight::MEDIUM),
+        ],
+        Err(_) if form.text.is_empty() => vec![Part::text("New rule")],
+        Err(_) => vec![
+            Part::text(format!(
+                "{} {} ",
+                text::field(form.field),
+                text::test(form.kind)
+            )),
+            Part::mono(text::plain(&form.text, text::PATTERN_SHOWN)).weight(weight::MEDIUM),
+        ],
+    };
+    let total = data.rules.len();
+    if rules.is_new() {
+        let rows = rules.apply().map_or(0, |apply| apply.rows.len());
+        let lead = if rules.new_origin() == RuleOrigin::Edit {
+            "earlier transactions match"
+        } else {
+            "transactions match"
+        };
+        return Some(HeaderText {
+            title,
+            figure: Some((rows.to_string(), false)),
+            caption: Some(format!("{lead} · new rule, not saved yet")),
+        });
+    }
+    let summary = rules.selected_rule()?;
+    let position = data.position(summary.rule.id()).map_or(0, |at| at + 1);
+    let caption = if summary.never_reached() {
+        format!("transactions decided by this rule · rule {position} of {total}")
+    } else {
+        let last = summary
+            .last
+            .map(|date| format!(" · last on {}", text::date(date, rules.today())))
+            .unwrap_or_default();
+        format!("transactions match{last} · rule {position} of {total}")
+    };
+    Some(HeaderText {
+        title,
+        figure: Some((summary.decides.to_string(), summary.never_reached())),
+        caption: Some(caption),
+    })
+}
+
+/// The Never reached card in words: what `never_reached` draws and the
+/// test-only `describe()` reads.
+pub struct NeverReachedText {
+    /// "Rule 2, Merchant contains `UBER`, comes first and catches all 9
+    /// transactions this rule would match."
+    pub body: Vec<Part>,
+    pub caption: String,
+    /// The rule above it, 1 first, and its ID.
+    pub position: usize,
+    pub above: coffer_core::id::RuleId,
+}
+
+/// The card's buttons.
+pub fn move_above(position: usize) -> String {
+    format!("Move above rule {position}")
+}
+
+pub fn show_rule(position: usize) -> String {
+    format!("Show rule {position}")
+}
+
+impl NeverReachedText {
+    /// The card for `summary`, if it's never reached and the rule that
+    /// catches its matches is there.
+    pub fn of(
+        data: &super::store::RulesData,
+        summary: &coffer_core::rule::RuleSummary,
+    ) -> Option<Self> {
+        let catch = summary.caught_by.filter(|_| summary.never_reached())?;
+        let above = data.rule(catch.rule)?;
+        let rows = catch.rows;
+        let above_rule = above.rule.definition();
+        let position = data.position(above.rule.id()).map_or(0, |at| at + 1);
+        let all = if rows >= summary.matches {
+            format!(
+                "all {}",
+                text::count(summary.matches, "transaction", "transactions")
+            )
+        } else {
+            format!("{rows} of the {} transactions", summary.matches)
+        };
+        Some(Self {
+            body: vec![
+                Part::text(format!("Rule {position}, {} ", text::condition(above_rule))),
+                Part::mono(text::pattern(above_rule)),
+                Part::text(format!(
+                    ", comes first and catches {all} this rule would match."
+                )),
+            ],
+            caption: format!(
+                "Move this rule above rule {position} to let it decide them, or delete it."
+            ),
+            position,
+            above: above.rule.id(),
+        })
+    }
+}
+
 fn never_reached(
     entity: &Entity<Rules>,
-    data: &super::store::RulesData,
     summary: &coffer_core::rule::RuleSummary,
-    above: &coffer_core::rule::RuleSummary,
-    rows: usize,
+    card: NeverReachedText,
     window: &Window,
 ) -> AnyElement {
-    let above_rule = above.rule.definition();
-    let position = data.position(above.rule.id()).map_or(0, |at| at + 1);
-    let all = if rows >= summary.matches {
-        format!(
-            "all {}",
-            text::count(summary.matches, "transaction", "transactions")
-        )
-    } else {
-        format!("{rows} of the {} transactions", summary.matches)
-    };
+    let NeverReachedText {
+        body,
+        caption: card_caption,
+        position,
+        above: above_id,
+    } = card;
     let (moved, shown) = (entity.clone(), entity.clone());
-    let (id, above_id, target) = (summary.rule.id(), above.rule.id(), position - 1);
+    let (id, target) = (summary.rule.id(), position - 1);
     section(true)
         .child(
             div()
@@ -411,17 +485,9 @@ fn never_reached(
                     window,
                     typography::BODY,
                     color::TEXT_STRONG,
-                    vec![
-                        Part::text(format!("Rule {position}, {} ", text::condition(above_rule))),
-                        Part::mono(text::pattern(above_rule)),
-                        Part::text(format!(
-                            ", comes first and catches {all} this rule would match."
-                        )),
-                    ],
+                    body,
                 )))
-                .child(fields::caption(format!(
-                    "Move this rule above rule {position} to let it decide them, or delete it."
-                )))
+                .child(fields::caption(card_caption))
                 .child(
                     div()
                         .flex()
@@ -429,14 +495,14 @@ fn never_reached(
                         .gap(spacing::S1_5)
                         .pt(spacing::S1)
                         .child(
-                            Button::new("rules-move-above", format!("Move above rule {position}"))
+                            Button::new("rules-move-above", move_above(position))
                                 .with_variant(ButtonVariant::Outline)
                                 .on_click(move |_, _, cx| {
                                     moved.update(cx, |rules, cx| rules.move_rule(id, target, cx))
                                 }),
                         )
                         .child(
-                            Button::new("rules-show-above", format!("Show rule {position}"))
+                            Button::new("rules-show-above", show_rule(position))
                                 .with_variant(ButtonVariant::Outline)
                                 .on_click(move |_, _, cx| {
                                     shown.update(cx, |rules, cx| {
@@ -940,7 +1006,7 @@ fn past_section(
 ) -> AnyElement {
     let apply = {
         let entity = entity.clone();
-        Button::new("rules-apply", "Apply to past transactions…")
+        Button::new("rules-apply", APPLY_TO_PAST)
             .with_variant(ButtonVariant::Outline)
             .disabled(applying)
             .on_click(move |_, _, cx| entity.update(cx, |rules, cx| rules.apply_selected(cx)))
@@ -961,11 +1027,6 @@ fn past_section(
                 .child(apply),
         );
     if let Some(suggestion) = touching.first() {
-        let pattern = match &suggestion.payload {
-            coffer_core::inbox::Payload::Rule(rule) => text::pattern(rule),
-            _ => String::new(),
-        };
-        let (client, _) = crate::inbox::text::source_name(&suggestion.source_client);
         let id = suggestion.id;
         let review = entity.clone();
         section = section.child(
@@ -1001,12 +1062,7 @@ fn past_section(
                             window,
                             typography::CAPTION,
                             color::MOLDAVITE_TEXT_MUTED,
-                            vec![
-                                Part::text(format!("{client} suggests a rule for ")),
-                                Part::mono(pattern).color(color::MOLDAVITE_TEXT),
-                                Part::text(" above this one. "),
-                                Part::text("Review in the Inbox").color(color::MOLDAVITE_TEXT),
-                            ],
+                            touching_parts(suggestion),
                         )),
                 ),
         );
@@ -1014,12 +1070,38 @@ fn past_section(
     section.into_any_element()
 }
 
-fn rule_footer(
-    entity: &Entity<Rules>,
+/// The Past transactions section's button.
+pub const APPLY_TO_PAST: &str = "Apply to past transactions…";
+/// The footers' and the change's buttons.
+pub const DELETE_RULE: &str = "Delete rule…";
+pub const DELETE_NAME: &str = "Delete name…";
+pub const UNDO_CHANGE: &str = "Undo this change…";
+pub const DELETE_CATEGORY: &str = "Delete category…";
+pub const CREATE_CATEGORY: &str = "Create category";
+
+/// The line under Apply when an agent's pending rule would take over this
+/// rule's rows: "claude-code suggests a rule for `UBER` above this one.
+/// Review in the Inbox". The pattern goes through [`text::pattern`].
+pub fn touching_parts(suggestion: &coffer_core::inbox::Suggestion) -> Vec<Part> {
+    let pattern = match &suggestion.payload {
+        coffer_core::inbox::Payload::Rule(rule) => text::pattern(rule),
+        _ => String::new(),
+    };
+    let (client, _) = crate::inbox::text::source_name(&suggestion.source_client);
+    vec![
+        Part::text(format!("{client} suggests a rule for ")),
+        Part::mono(pattern).color(color::MOLDAVITE_TEXT),
+        Part::text(" above this one. "),
+        Part::text("Review in the Inbox").color(color::MOLDAVITE_TEXT),
+    ]
+}
+
+/// The rule's footer: "Created on " and the date, if it's known.
+pub fn rule_created(
     summary: &coffer_core::rule::RuleSummary,
     data: &super::store::RulesData,
     today: chrono::NaiveDate,
-) -> AnyElement {
+) -> (&'static str, Option<String>) {
     let lead = match summary.rule.origin() {
         Some(RuleOrigin::Edit) => "Created from an edit on ",
         Some(RuleOrigin::Inbox) => "Created from a suggestion on ",
@@ -1029,9 +1111,19 @@ fn rule_footer(
         .rule_created
         .get(&summary.rule.id())
         .map(|date| text::date(*date, today));
+    (lead, created)
+}
+
+fn rule_footer(
+    entity: &Entity<Rules>,
+    summary: &coffer_core::rule::RuleSummary,
+    data: &super::store::RulesData,
+    today: chrono::NaiveDate,
+) -> AnyElement {
+    let (lead, created) = rule_created(summary, data, today);
     let delete = {
         let entity = entity.clone();
-        Button::new("rules-delete", "Delete rule…")
+        Button::new("rules-delete", DELETE_RULE)
             .with_variant(ButtonVariant::DestructiveCompact)
             .on_click(move |_, _, cx| entity.update(cx, |rules, cx| rules.request_delete_rule(cx)))
     };
@@ -1063,6 +1155,51 @@ fn footer(lead: &'static str, date: Option<String>, action: AnyElement) -> AnyEl
 
 // A merchant name ----------------------------------------------------------------
 
+/// The name's header: the name it shows as title, its matches as the
+/// figure. `None` with no name in the inspector.
+pub fn name_header(rules: &Rules) -> Option<HeaderText> {
+    let selection = rules.selected_name()?;
+    let form = rules.name_form()?;
+    let title = vec![Part::text(if form.name.trim().is_empty() {
+        "New name".to_owned()
+    } else {
+        text::plain(&form.name, text::NAME_SHOWN)
+    })];
+    let summary = match selection {
+        NameSelection::Stored(id) => rules.data().name(id),
+        NameSelection::New => None,
+    };
+    Some(match summary {
+        Some(summary) => {
+            let last = summary
+                .last
+                .map(|date| format!(" · last on {}", text::date(date, rules.today())))
+                .unwrap_or_default();
+            HeaderText {
+                title,
+                figure: Some((summary.matches.to_string(), false)),
+                caption: Some(format!("transactions show this name{last}")),
+            }
+        }
+        None => HeaderText {
+            title,
+            figure: None,
+            caption: Some("new name, saved once both fields are filled in".to_owned()),
+        },
+    })
+}
+
+/// The name's footer date: "Added on " it.
+pub fn name_added(
+    data: &super::store::RulesData,
+    summary: &coffer_core::merchant::AliasSummary,
+    today: chrono::NaiveDate,
+) -> Option<String> {
+    data.name_added
+        .get(&summary.alias.id())
+        .map(|date| text::date(*date, today))
+}
+
 fn name_sections(
     view: &RulesView,
     entity: &Entity<Rules>,
@@ -1070,8 +1207,12 @@ fn name_sections(
     cx: &mut Context<RulesView>,
 ) -> Vec<AnyElement> {
     let rules = entity.read(cx);
-    let (Some(selection), Some(form)) = (rules.selected_name(), rules.name_form().cloned()) else {
-        return nothing("Select a name to edit it, or start one with New name.");
+    let (Some(selection), Some(form), Some(head)) = (
+        rules.selected_name(),
+        rules.name_form().cloned(),
+        name_header(rules),
+    ) else {
+        return nothing(NO_NAME);
     };
     let data = rules.data().clone();
     let today = rules.today();
@@ -1080,34 +1221,7 @@ fn name_sections(
         NameSelection::Stored(id) => data.name(id).cloned(),
         NameSelection::New => None,
     };
-    let mut sections = Vec::new();
-    let title = if form.name.trim().is_empty() {
-        "New name".to_owned()
-    } else {
-        text::plain(&form.name, text::NAME_SHOWN)
-    };
-    sections.push(match &summary {
-        Some(summary) => {
-            let last = summary
-                .last
-                .map(|date| format!(" · last on {}", text::date(date, today)))
-                .unwrap_or_default();
-            header(
-                window,
-                vec![Part::text(title)],
-                Some((summary.matches.to_string(), false)),
-                Some(caption_line(format!("transactions show this name{last}"))),
-            )
-        }
-        None => header(
-            window,
-            vec![Part::text(title)],
-            None,
-            Some(caption_line(
-                "new name, saved once both fields are filled in",
-            )),
-        ),
-    });
+    let mut sections = vec![header(window, head)];
     let pattern_error = match &error {
         Some(NameError::Pattern(Some(problem))) if !form.pattern.is_empty() => {
             Some(problem.clone())
@@ -1211,13 +1325,10 @@ fn name_sections(
             );
         }
         sections.push(catches.into_any_element());
-        let added = data
-            .name_added
-            .get(&summary.alias.id())
-            .map(|date| text::date(*date, today));
+        let added = name_added(&data, summary, today);
         let delete = {
             let entity = entity.clone();
-            Button::new("rules-delete-name", "Delete name…")
+            Button::new("rules-delete-name", DELETE_NAME)
                 .with_variant(ButtonVariant::DestructiveCompact)
                 .on_click(move |_, _, cx| {
                     entity.update(cx, |rules, cx| rules.request_delete_name(cx))
@@ -1230,34 +1341,43 @@ fn name_sections(
 
 // A change -----------------------------------------------------------------------
 
+/// The change's header: what it did as title, the transactions it changed
+/// as the figure, and when (wall-clock time). `None` with no change
+/// selected.
+pub fn change_header(rules: &Rules) -> Option<HeaderText> {
+    let entry = rules.selected_batch()?;
+    let data = rules.data();
+    let made = data.history_at.get(&entry.batch.id).map(|(made, _)| *made);
+    Some(HeaderText {
+        title: text::change_parts(entry, data),
+        figure: Some((entry.batch.transactions.to_string(), false)),
+        caption: Some(match made {
+            Some(at) => format!(
+                "transactions changed · {}",
+                text::when_at(at, rules.today())
+            ),
+            None => "transactions changed".to_owned(),
+        }),
+    })
+}
+
 fn change_sections(
     entity: &Entity<Rules>,
     window: &mut Window,
     cx: &mut Context<RulesView>,
 ) -> Vec<AnyElement> {
     let rules = entity.read(cx);
-    let Some(entry) = rules.selected_batch() else {
-        return nothing("Select a change to see what it did and undo it.");
+    let (Some(entry), Some(head)) = (rules.selected_batch(), change_header(rules)) else {
+        return nothing(NO_CHANGE);
     };
     let data = rules.data();
     let today = rules.today();
     let undone = entry.batch.status == BatchStatus::Undone;
-    let (made, undone_at) = data
+    let undone_at = data
         .history_at
         .get(&entry.batch.id)
-        .copied()
-        .map_or((None, None), |(made, undone)| (Some(made), undone));
-    let title = text::change_parts(entry, data);
-    let caption_words = match made {
-        Some(at) => format!("transactions changed · {}", text::when_at(at, today)),
-        None => "transactions changed".to_owned(),
-    };
-    let mut sections = vec![header(
-        window,
-        title,
-        Some((entry.batch.transactions.to_string(), false)),
-        Some(caption_line(caption_words)),
-    )];
+        .and_then(|(_, undone)| *undone);
+    let mut sections = vec![header(window, head)];
     const SHOWN: usize = 12;
     let currency = data.currency(None);
     let items: Vec<AnyElement> = rules
@@ -1332,7 +1452,7 @@ fn change_sections(
         };
         let undo = {
             let entity = entity.clone();
-            Button::new("rules-undo-change", "Undo this change…")
+            Button::new("rules-undo-change", UNDO_CHANGE)
                 .with_variant(ButtonVariant::Outline)
                 .on_click(move |_, _, cx| entity.update(cx, |rules, cx| rules.request_undo(cx)))
         };
@@ -1387,11 +1507,66 @@ fn category_sections(
     cx: &mut Context<RulesView>,
 ) -> Vec<AnyElement> {
     match entity.read(cx).selected_category() {
-        None => {
-            nothing("Select a category to rename, hide or delete it, or add one with New category.")
-        }
+        None => nothing(NO_CATEGORY),
         Some(CategorySelection::New) => new_category_sections(view, entity, window, cx),
         Some(CategorySelection::Stored(_)) => stored_category_sections(view, entity, window, cx),
+    }
+}
+
+/// The stored category's header: its label as title, what's filed under
+/// it as the figure (faint at 0), where it is and whether it's hidden.
+/// `None` unless a stored category is selected.
+pub fn stored_category_header(rules: &Rules) -> Option<HeaderText> {
+    let (summary, group) = rules.selected_category_entry()?;
+    let group = &group.group.category;
+    let category = &summary.category;
+    let is_group = category.is_group();
+    let group_hidden = !is_group && group.is_hidden();
+    let rows = super::table::filed(&summary.usage);
+    let place = if is_group {
+        format!(
+            "transactions · a group of {}",
+            text::count(
+                subcategories(rules, summary),
+                "subcategory",
+                "subcategories"
+            )
+        )
+    } else {
+        format!("transactions · in {}", group.label())
+    };
+    let hidden_words = if category.is_hidden() || group_hidden {
+        " · hidden"
+    } else {
+        ""
+    };
+    Some(HeaderText {
+        title: vec![Part::text(category.label().to_owned())],
+        figure: Some((rows.to_string(), rows == 0)),
+        caption: Some(format!("{place}{hidden_words}")),
+    })
+}
+
+fn subcategories(rules: &Rules, summary: &coffer_core::category::CategorySummary) -> usize {
+    rules
+        .data()
+        .category_group(summary.category.key())
+        .map_or(0, |group| group.children.len())
+}
+
+/// Whether "Delete category…" is offered: nothing uses it and it has no
+/// subcategories.
+pub fn deletable(rules: &Rules, summary: &coffer_core::category::CategorySummary) -> bool {
+    summary.usage.is_unused() && subcategories(rules, summary) == 0
+}
+
+/// The In pickers button: "Hide category", or "Show category" for a hidden
+/// one.
+pub fn hide_label(category: &coffer_core::category::Category) -> &'static str {
+    if category.is_hidden() {
+        "Show category"
+    } else {
+        "Hide category"
     }
 }
 
@@ -1402,41 +1577,20 @@ fn stored_category_sections(
     cx: &mut Context<RulesView>,
 ) -> Vec<AnyElement> {
     let rules = entity.read(cx);
-    let Some((summary, group)) = rules.selected_category_entry() else {
-        return nothing("Select a category to rename, hide or delete it.");
+    let (Some((summary, group)), Some(head)) = (
+        rules.selected_category_entry(),
+        stored_category_header(rules),
+    ) else {
+        return nothing(CATEGORY_GONE);
     };
     let (summary, group) = (summary.clone(), group.group.category.clone());
-    let subcategories = rules
-        .data()
-        .category_group(summary.category.key())
-        .map_or(0, |group| group.children.len());
     let error = rules.category_error();
     let category = &summary.category;
     let usage = summary.usage;
     let is_group = category.is_group();
     let group_hidden = !is_group && group.is_hidden();
-
-    // Header.
-    let rows = usage.transactions + usage.split_lines;
-    let place = if is_group {
-        format!(
-            "transactions · a group of {}",
-            text::count(subcategories, "subcategory", "subcategories")
-        )
-    } else {
-        format!("transactions · in {}", group.label())
-    };
-    let hidden_words = if category.is_hidden() || group_hidden {
-        " · hidden"
-    } else {
-        ""
-    };
-    let mut sections = vec![header(
-        window,
-        vec![Part::text(category.label().to_owned())],
-        Some((rows.to_string(), rows == 0)),
-        Some(caption_line(format!("{place}{hidden_words}"))),
-    )];
+    let deletable = deletable(rules, &summary);
+    let mut sections = vec![header(window, head)];
 
     // Category.
     let mut fields_section = section(true)
@@ -1495,7 +1649,6 @@ fn stored_category_sections(
                     .child(count.to_string()),
             )
     };
-    let deletable = usage.is_unused() && subcategories == 0;
     let use_words = if deletable {
         "Nothing uses it, so it can be deleted."
     } else if usage.only_suggestions() {
@@ -1529,6 +1682,7 @@ fn stored_category_sections(
 
     // In pickers.
     let hidden = category.is_hidden();
+    let toggle_label = hide_label(category);
     let picker_words = match (hidden, group_hidden) {
         (_, true) => format!(
             "Hidden with its group, {}: it isn’t offered when you choose a category. Show the \
@@ -1548,18 +1702,11 @@ fn stored_category_sections(
     };
     let toggle = {
         let entity = entity.clone();
-        Button::new(
-            "rules-category-hide",
-            if hidden {
-                "Show category"
-            } else {
-                "Hide category"
-            },
-        )
-        .with_variant(ButtonVariant::Outline)
-        .on_click(move |_, _, cx| {
-            entity.update(cx, |rules, cx| rules.set_category_hidden(!hidden, cx))
-        })
+        Button::new("rules-category-hide", toggle_label)
+            .with_variant(ButtonVariant::Outline)
+            .on_click(move |_, _, cx| {
+                entity.update(cx, |rules, cx| rules.set_category_hidden(!hidden, cx))
+            })
     };
     sections.push(
         section(true)
@@ -1579,7 +1726,7 @@ fn stored_category_sections(
 
     // Footer.
     let action = if deletable {
-        Button::new("rules-delete-category", "Delete category…")
+        Button::new("rules-delete-category", DELETE_CATEGORY)
             .with_variant(ButtonVariant::DestructiveCompact)
             .on_click(cx.listener(|this, _, window, cx| this.request_delete_category(window, cx)))
             .into_any_element()
@@ -1592,6 +1739,20 @@ fn stored_category_sections(
         action,
     ));
     sections
+}
+
+/// The new category's header: the name typed, or "New category".
+pub fn new_category_header(form: &super::form::CategoryForm) -> HeaderText {
+    let title = if form.name.trim().is_empty() {
+        "New category".to_owned()
+    } else {
+        form.name.trim().to_owned()
+    };
+    HeaderText {
+        title: vec![Part::text(title)],
+        figure: None,
+        caption: Some("new category, not added yet".to_owned()),
+    }
 }
 
 fn new_category_sections(
@@ -1616,17 +1777,7 @@ fn new_category_sections(
             data.category(key).is_some()
         })
     });
-    let title = if form.name.trim().is_empty() {
-        "New category".to_owned()
-    } else {
-        form.name.trim().to_owned()
-    };
-    let mut sections = vec![header(
-        window,
-        vec![Part::text(title)],
-        None,
-        Some(caption_line("new category, not added yet")),
-    )];
+    let mut sections = vec![header(window, new_category_header(&form))];
 
     // A blank name only disables Create; a taken one says so.
     let taken = error == Some(CategoryError::Taken);
@@ -1682,7 +1833,7 @@ fn new_category_sections(
 
     let create = {
         let entity = entity.clone();
-        Button::new("rules-create-category", "Create category")
+        Button::new("rules-create-category", CREATE_CATEGORY)
             .with_variant(ButtonVariant::Primary)
             .disabled(error.is_some())
             .on_click(move |_, _, cx| entity.update(cx, |rules, cx| rules.create_category(cx)))

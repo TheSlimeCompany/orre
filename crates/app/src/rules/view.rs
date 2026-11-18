@@ -29,6 +29,7 @@ use gpui_kit::{
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
+use crate::ui::keys::{Key, ViewKeys};
 use crate::ui::list::{Keys, ListKeysExt as _, Move};
 use crate::ui::menu::{MenuGroup, MenuList, MenuOption, SelectState, filter_groups};
 use crate::ui::text::TextRoleExt as _;
@@ -45,8 +46,21 @@ use super::{MoveRuleDown, MoveRuleUp, Outcome, Rules};
 /// The key context of the Rules canvas, where ↑↓, ⌥↑⌥↓ and Escape work.
 pub const CONTEXT: &str = "CofferRules";
 
-/// The canvas's movement keys: ↑↓ through the open section's rows.
-pub const KEYS: Keys = Keys::new(CONTEXT);
+/// ⌥↑ and ⌥↓ (Alt on Linux and Windows): move the selected rule one place
+/// (`DESIGN.md` → "Rules" → "Keyboard reorder"), hinted as one "⌥↑↓
+/// Reorder".
+pub const REORDER: Key =
+    Key::new::<MoveRuleUp>(&["alt-up"], "⌥↑↓", "Reorder").and::<MoveRuleDown>(&["alt-down"]);
+
+/// Escape: back from the preview, else clears the selection. Not hinted.
+pub const BACK: Key =
+    Key::new::<Cancel>(&["escape"], "Esc", "Back, or clear the selection").unhinted();
+
+/// The canvas's keys, declared once (ROADMAP U.7): ↑↓ through the open
+/// section's rows, [`REORDER`] and [`BACK`]. `init` binds them, the
+/// toolbar hints them ("↑↓ Select", then "⌥↑↓ Reorder") and the test-only
+/// `describe()` lists them.
+pub const KEYS: ViewKeys = ViewKeys::new(Keys::new(CONTEXT), &[REORDER, BACK]).select_first();
 
 /// The most rows a menu shows before it scrolls.
 pub const MENU_ROWS: f32 = 12.;
@@ -1149,7 +1163,7 @@ impl Render for RulesView {
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_list_move(
-                &KEYS,
+                KEYS.list(),
                 cx.listener(|this, to: &Move, _, cx| {
                     this.rules
                         .update(cx, |rules, cx| rules.select_next(*to, cx))

@@ -28,6 +28,8 @@
 //! fields. Rule patterns, names and bank text are untrusted and shown plain
 //! ([`text`]).
 
+#[cfg(test)]
+mod describe;
 pub mod dialogs;
 pub mod fixture;
 pub mod form;
@@ -70,20 +72,14 @@ gpui_kit::actions!(
     ]
 );
 
-/// Binds the view's keys: ↑↓ move the selection, ⌥↑⌥↓ move the selected
-/// rule, Escape clears the selection or goes back from the preview; in the
-/// panel, ↑↓ move its cursor and Enter or Space act on it. Call once,
-/// before the first [`view::RulesView`].
+/// Binds the view's keys ([`view::KEYS`]): ↑↓ move the selection, ⌥↑⌥↓
+/// move the selected rule, Escape clears the selection or goes back from
+/// the preview; in the panel ([`panel::KEYS`]), ↑↓ move its cursor and
+/// Enter or Space act on it. Call once, before the first
+/// [`view::RulesView`].
 pub fn init(cx: &mut gpui_kit::App) {
-    use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::Cancel;
     view::KEYS.bind(cx);
     panel::KEYS.bind(cx);
-    cx.bind_keys([
-        KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
-        KeyBinding::new("alt-up", MoveRuleUp, Some(view::CONTEXT)),
-        KeyBinding::new("alt-down", MoveRuleDown, Some(view::CONTEXT)),
-    ]);
 }
 
 /// The lists under RULES in the panel.
