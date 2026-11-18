@@ -29,6 +29,9 @@
 //! - `coffer categorize <ID>... <CATEGORY>`: set transactions' category as
 //!   the user, as one change batch ([`categorize`]).
 //!
+//! Commands that act as the user refuse to run without an interactive
+//! terminal ([`terminal`], R.1); [`run_with`] applies that in one place.
+//!
 //! Output is what the user asked for and nothing else. Errors are returned
 //! (as `anyhow` errors: this is the binary's layer) for `main` to print on
 //! stderr. Nothing is logged; transaction text never reaches a log.
@@ -43,6 +46,7 @@ pub mod import;
 pub mod inbox;
 pub mod mcp;
 pub mod schedules;
+pub mod terminal;
 pub mod undo;
 
 #[cfg(test)]
@@ -59,6 +63,8 @@ mod export_tests;
 mod inbox_tests;
 #[cfg(test)]
 mod schedules_tests;
+#[cfg(test)]
+mod terminal_tests;
 #[cfg(test)]
 mod tests;
 
@@ -84,6 +90,7 @@ pub use inbox::{
 };
 pub use mcp::McpArgs;
 pub use schedules::{SchedulesArgs, SchedulesCommand};
+pub use terminal::Terminal;
 pub use undo::UndoImportArgs;
 
 /// Coffer: a local-first personal finance dashboard.
@@ -152,18 +159,40 @@ fn presets(database: &Path) -> anyhow::Result<Presets> {
     Ok(presets)
 }
 
+/// Runs `command` as [`run_with`] does, with no terminal check: for callers
+/// that stand in for the user (the tests). The binary uses [`run_with`].
+pub fn run(command: Command, database: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
+    run_with(command, database, out, Terminal::Interactive)
+}
+
 /// Runs `command` against the database at `database` (the data dir's
 /// `coffer.db` in the binary), writing its output to `out`.
+///
+/// A command that acts as the user is refused unless `terminal` is
+/// interactive ([`terminal::require_terminal_for`]); the binary passes
+/// [`Terminal::detect`].
 ///
 /// `accounts add` and `import` create the database if there is none;
 /// `restore` creates it from the backup; `backup --list` reads only the
 /// backups directory. The other commands need the database to exist
 /// already; `mcp` also needs it up to date and never migrates it.
-pub fn run(command: Command, database: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
+pub fn run_with(
+    command: Command,
+    database: &Path,
+    out: &mut dyn Write,
+    terminal: Terminal,
+) -> anyhow::Result<()> {
+    terminal::require_terminal_for(&command, database, terminal)?;
     match command {
         Command::Import(args) => {
             let presets = presets(database)?;
-            let mut db = open_or_create(database)?;
+            // A dry run writes nothing, so it doesn't create the database
+            // either; it needs no terminal (`terminal`).
+            let mut db = if args.dry_run {
+                open_existing(database)?
+            } else {
+                open_or_create(database)?
+            };
             import::run(&mut db, &presets, &args, out)
         }
         Command::Accounts(AccountsArgs {

@@ -191,7 +191,8 @@ fn importing_the_same_file_again_adds_nothing() {
         PreviewCounts {
             new: 3,
             already_imported: 0,
-            flagged: 0
+            flagged: 0,
+            corrections: 0,
         }
     );
     assert_eq!(first.needs_confirmation(), Confirmations::default());
@@ -205,7 +206,8 @@ fn importing_the_same_file_again_adds_nothing() {
         PreviewCounts {
             new: 0,
             already_imported: 3,
-            flagged: 0
+            flagged: 0,
+            corrections: 0,
         }
     );
     let matched: Vec<_> = outcomes(&again).iter().map(already).collect();
@@ -332,7 +334,7 @@ fn source_ids_come_first_and_never_match_by_fingerprint() {
             // The same ID, date and amount: a bank re-wording the
             // description doesn't make it new.
             with_id(line(1, -500, "COFFEE SHOP LTD"), "tx_1"),
-            // The same ID for a different amount: flagged, not skipped.
+            // The same ID for a different amount: the bank's correction.
             with_id(line(2, -950, "Lunch"), "tx_2"),
             // A new ID on a row identical to tx_1: a second coffee.
             with_id(line(1, -500, "Coffee"), "tx_3"),
@@ -350,7 +352,13 @@ fn source_ids_come_first_and_never_match_by_fingerprint() {
                 transaction: ids[0],
                 matched_by: MatchedBy::SourceId,
             },
-            RowOutcome::Flagged(Flag::SourceIdConflict { existing: ids[1] }),
+            RowOutcome::Corrects(Correction {
+                existing: ids[1],
+                was_date: day(2),
+                was_amount: gbp(-900),
+                fingerprint: "v1|2026-11-02|-950|GBP|0|LUNCH".into(),
+                not_carried: vec![],
+            }),
             RowOutcome::New {
                 fingerprint: "v1|2026-11-01|-500|GBP|0|COFFEE".into()
             },
@@ -366,25 +374,30 @@ fn source_ids_come_first_and_never_match_by_fingerprint() {
         ]
     );
     assert!(preview.needs_confirmation().flagged_rows);
+    assert!(preview.needs_confirmation().corrections);
 
     let summary = match commit(&mut fixture.db, &preview, preview.needs_confirmation()).unwrap() {
         Committed::Batch(summary) => summary,
         other => panic!("{other:?}"),
     };
-    assert_eq!((summary.transactions, summary.flags), (2, 2));
+    assert_eq!(
+        (
+            summary.transactions,
+            summary.flags,
+            summary.corrections.len()
+        ),
+        (3, 1, 1)
+    );
     let flags = batch_flags(&fixture.db, summary.batch).unwrap();
     assert_eq!(
         flags
             .iter()
             .map(|flag| (flag.location, flag.kind))
             .collect::<Vec<_>>(),
-        [
-            (SourceLocation::Line(3), FlagKind::SourceIdConflict),
-            (SourceLocation::Line(7), FlagKind::SourceIdConflict),
-        ]
+        [(SourceLocation::Line(7), FlagKind::SourceIdConflict)]
     );
     assert_eq!(
-        flags[1].detail,
+        flags[0].detail,
         "line 4 has the same ID, on another date or for another amount"
     );
 }
@@ -438,7 +451,8 @@ fn unreadable_rows_need_confirmation_and_are_recorded() {
         PreviewCounts {
             new: 2,
             already_imported: 0,
-            flagged: 1
+            flagged: 1,
+            corrections: 0,
         }
     );
     let row = preview.rows().nth(1).unwrap();
@@ -452,6 +466,7 @@ fn unreadable_rows_need_confirmation_and_are_recorded() {
     let needed = Confirmations {
         flagged_rows: true,
         balance_mismatch: false,
+        corrections: false,
     };
     assert_eq!(preview.needs_confirmation(), needed);
     let refused = commit(&mut fixture.db, &preview, Confirmations::default());
@@ -827,7 +842,8 @@ fn a_running_balance_mismatch_is_flagged_not_committed_silently() {
         needed,
         Confirmations {
             flagged_rows: false,
-            balance_mismatch: true
+            balance_mismatch: true,
+            corrections: false,
         }
     );
     assert!(matches!(

@@ -110,6 +110,29 @@ fn write_counts(out: &mut dyn Write, preview: &UndoPreview) -> std::io::Result<(
             }
         )?;
     }
+    if !preview.restored.is_empty() {
+        let one = preview.restored.len() == 1;
+        writeln!(
+            out,
+            "{} replaced by this import's corrections {} back as {} {}.",
+            plural(preview.restored.len(), "earlier transaction"),
+            if one { "comes" } else { "come" },
+            if one { "it" } else { "they" },
+            if one { "was" } else { "were" },
+        )?;
+    }
+    if preview.superseded > 0 {
+        writeln!(
+            out,
+            "{} a later import corrected {} too; the corrections stay as ordinary transactions.",
+            plural(preview.superseded, "row"),
+            if preview.superseded == 1 {
+                "goes"
+            } else {
+                "go"
+            }
+        )?;
+    }
     if !preview.later_batches.is_empty() {
         let ids: Vec<String> = preview
             .later_batches

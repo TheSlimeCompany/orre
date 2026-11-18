@@ -1,0 +1,22 @@
+# Golden file: the dedupe identity of every row in the preset's fixture, in file
+# order: `row <n>`, the row's external ID (or `-`), and its fingerprint, tab
+# separated. The test in crates/import/tests/preset_golden.rs checks them.
+#
+# Rule: a preset change that moves a row's external ID or fingerprint needs a
+# new preset ID (a new preset), not an edited golden file. Imports already in
+# users' databases were deduplicated under the old identity, and the next
+# overlapping import would duplicate rows. See presets/README.md, "Changing a preset".
+row 1	tx_0000FAKE000000000000001	v1|2026-10-01|215000|GBP|0|EXAMPLE EMPLOYER LTD SALARY OCT
+row 2	tx_0000FAKE000000000000002	v1|2026-10-01|-20000|GBP|0|
+row 3	tx_0000FAKE000000000000003	v1|2026-10-02|-340|GBP|0|BEAN THERE TESTVILLE GBR
+row 4	tx_0000FAKE000000000000004	v1|2026-10-02|-340|GBP|1|BEAN THERE TESTVILLE GBR
+row 5	tx_0000FAKE000000000000005	v1|2026-10-03|-862|GBP|0|CAFE LUMIERE PARIS FRA
+row 6	tx_0000FAKE000000000000006	v1|2026-10-04|-2400|GBP|0|FAKE PIZZA CO TESTVILLE GBR
+row 7	tx_0000FAKE000000000000007	v1|2026-10-06|340|GBP|0|BEAN THERE TESTVILLE GBR
+row 8	tx_0000FAKE000000000000008	v1|2026-10-07|0|GBP|0|EXAMPLE STREAMING CARD CHECK
+row 9	tx_0000FAKE000000000000009	v1|2026-10-08|-6125|GBP|0|EXAMPLE ENERGY LTD
+row 10	tx_0000FAKE000000000000010	v1|2026-10-09|5000|GBP|0|
+row 11	tx_0000FAKE000000000000011	v1|2026-10-10|-415|GBP|0|BACKEREI GROSS TESTVILLE GBR
+row 12	tx_0000FAKE000000000000012	v1|2026-10-11|1200|GBP|0|
+row 13	tx_0000FAKE000000000000013	v1|2026-10-12|-7500|GBP|0|
+row 14	tx_0000FAKE000000000000014	v1|2026-10-13|-2500|GBP|0|

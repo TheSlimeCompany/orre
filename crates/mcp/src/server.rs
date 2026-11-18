@@ -486,7 +486,7 @@ fn run(
              run `coffer ai-access enable <client>` again, which creates it.",
         )]);
     }
-    let call = Call::new(reader, level, inbox, pseudonym_key);
+    let call = Call::new(reader, store.client(), level, inbox, pseudonym_key);
     match tool.run(&call, args) {
         Ok(handled) => {
             entry.row_count = handled.rows;

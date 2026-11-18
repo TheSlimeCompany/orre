@@ -11,6 +11,11 @@
 //!
 //! An OFX file can hold several statements (one per account); then
 //! `--statement N` picks one, and without it the command lists them.
+//!
+//! The bank's corrections (a source ID the account holds, on another date or
+//! for another amount: R.4) are listed in the preview and, like flagged rows
+//! and a balance mismatch, need `--yes`: each replaces a stored row, which
+//! stays excluded as superseded.
 
 use std::io::Write;
 use std::num::NonZeroUsize;
@@ -23,7 +28,7 @@ use coffer_core::balance::CheckResult;
 use coffer_core::db::Database;
 use coffer_core::import::{
     self, BalanceCheck, CheckedBalance, Committed, Confirmations, FileBalanceKind,
-    FileBalanceStatus, FileOrder, ImportPreview, ReconciliationStatus, RowOutcome,
+    FileBalanceStatus, FileOrder, ImportPreview, NotCarried, ReconciliationStatus, RowOutcome,
 };
 use coffer_core::money::Currency;
 use coffer_core::statement::Statement;
@@ -60,9 +65,10 @@ pub struct ImportArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Import even with flagged rows or a balance mismatch. Flagged rows
-    /// aren't imported but are recorded with the import; a mismatch stays
-    /// flagged.
+    /// Import even with flagged rows, a balance mismatch or the bank's
+    /// corrections of stored rows. Flagged rows aren't imported but are
+    /// recorded with the import; a mismatch stays flagged; a correction
+    /// replaces the stored row, which stays excluded as superseded.
     #[arg(long, short = 'y')]
     pub yes: bool,
 }
@@ -184,6 +190,22 @@ pub fn run(
                     plural(summary.pots_created, "pot")
                 )?;
             }
+            if !summary.corrections.is_empty() {
+                writeln!(
+                    out,
+                    "Corrections: {} replaced by the bank's new version, excluded as superseded.",
+                    plural(summary.corrections.len(), "stored row")
+                )?;
+                for correction in &summary.corrections {
+                    if let Some(kept) = kept_back(&correction.not_carried) {
+                        writeln!(
+                            out,
+                            "  transaction {} keeps its {kept}, which transaction {} couldn't take",
+                            correction.replaced, correction.by
+                        )?;
+                    }
+                }
+            }
             writeln!(out, "To undo it: coffer undo-import {}", summary.batch)?;
             Ok(())
         }
@@ -201,25 +223,61 @@ pub fn run(
 }
 
 fn needs_any(needed: Confirmations) -> bool {
-    needed.flagged_rows || needed.balance_mismatch
+    needed.flagged_rows || needed.balance_mismatch || needed.corrections
 }
 
-fn accepting(needed: Confirmations) -> &'static str {
-    match (needed.flagged_rows, needed.balance_mismatch) {
-        (true, true) => "flagged rows and a balance mismatch",
-        (true, false) => "flagged rows",
-        _ => "a balance mismatch",
+/// What `needed` asks `--yes` to accept, e.g. "flagged rows and a balance
+/// mismatch".
+fn accepting(needed: Confirmations) -> String {
+    let parts: Vec<&str> = [
+        (needed.flagged_rows, "flagged rows"),
+        (needed.balance_mismatch, "a balance mismatch"),
+        (needed.corrections, "the bank's corrections of stored rows"),
+    ]
+    .into_iter()
+    .filter_map(|(needed, what)| needed.then_some(what))
+    .collect();
+    match parts.as_slice() {
+        [rest @ .., last] if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => parts.concat(),
     }
 }
 
-fn yes_explained(needed: Confirmations) -> &'static str {
-    match (needed.flagged_rows, needed.balance_mismatch) {
-        (true, true) => {
-            "the flagged rows stay out and are recorded with the import, and the mismatch \
-             stays flagged on the account"
-        }
-        (true, false) => "the flagged rows stay out and are recorded with the import",
-        _ => "the mismatch stays flagged on the account",
+/// What accepting `needed` does.
+fn yes_explained(needed: Confirmations) -> String {
+    let parts: Vec<&str> = [
+        (
+            needed.flagged_rows,
+            "the flagged rows stay out and are recorded with the import",
+        ),
+        (
+            needed.balance_mismatch,
+            "the mismatch stays flagged on the account",
+        ),
+        (
+            needed.corrections,
+            "each correction replaces its stored row, which stays excluded as superseded until \
+             the import is undone",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(needed, what)| needed.then_some(what))
+    .collect();
+    match parts.as_slice() {
+        [first, second] => format!("{first}, and {second}"),
+        [rest @ .., last] if !rest.is_empty() => format!("{}, and {last}", rest.join(", ")),
+        _ => parts.concat(),
+    }
+}
+
+/// "split and share", for what a corrected row keeps; `None` when it kept
+/// nothing back.
+fn kept_back(not_carried: &[NotCarried]) -> Option<String> {
+    let names: Vec<String> = not_carried.iter().map(ToString::to_string).collect();
+    match names.as_slice() {
+        [] => None,
+        [one] => Some(one.clone()),
+        [rest @ .., last] => Some(format!("{} and {last}", rest.join(", "))),
     }
 }
 
@@ -423,11 +481,15 @@ fn write_preview(
     writeln!(out, "File:      {}", preview.source_file())?;
     writeln!(out, "Format:    {format}")?;
     writeln!(out, "Account:   {}", accounts::describe(preview.account()))?;
-    writeln!(
+    write!(
         out,
         "Rows:      {} new, {} already imported, {} flagged",
         counts.new, counts.already_imported, counts.flagged
     )?;
+    if counts.corrections > 0 {
+        write!(out, ", {}", plural(counts.corrections, "correction"))?;
+    }
+    writeln!(out)?;
 
     let balances = preview.balances();
     if balances.is_empty() {
@@ -515,6 +577,28 @@ fn write_preview(
         }
     }
 
+    let corrections: Vec<_> = preview.corrections().collect();
+    if !corrections.is_empty() {
+        writeln!(
+            out,
+            "Corrections (the bank's new version of a stored row, which is excluded as superseded):"
+        )?;
+        for (location, correction) in corrections {
+            writeln!(
+                out,
+                "  {location}: replaces transaction {} ({}, {})",
+                correction.existing, correction.was_date, correction.was_amount
+            )?;
+            if let Some(kept) = kept_back(&correction.not_carried) {
+                writeln!(
+                    out,
+                    "    its {kept} stays on transaction {}: the new amount doesn't fit",
+                    correction.existing
+                )?;
+            }
+        }
+    }
+
     let flagged: Vec<_> = preview
         .rows()
         .filter_map(|row| match row.outcome {
@@ -593,3 +677,7 @@ pub(super) fn plural(count: usize, noun: &str) -> String {
         format!("{count} {noun}s")
     }
 }
+
+#[cfg(test)]
+#[path = "import_tests.rs"]
+mod tests;

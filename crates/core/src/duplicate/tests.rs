@@ -126,7 +126,8 @@ impl Fixture {
     ) -> (Vec<TransactionId>, Vec<NewCandidate>) {
         let (batch, rows) = self.import(format, lines);
         let tx = self.db.conn_mut().transaction().unwrap();
-        let found = detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT).unwrap();
+        let found =
+            detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT, &HashSet::new()).unwrap();
         tx.commit().unwrap();
         (rows, found)
     }
@@ -242,7 +243,15 @@ fn assert_refused<T: std::fmt::Debug>(result: rusqlite::Result<T>) {
 
 #[test]
 fn reason_and_status_keys_match_the_schema() {
-    let schema = include_str!("../../migrations/V10__duplicate_candidate.sql");
+    let f = Fixture::new();
+    let schema: String =
+        f.db.conn()
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE name = 'duplicate_candidate'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
     for reason in CandidateReason::ALL {
         assert!(
             schema.contains(&format!("'{}'", reason.as_str())),
@@ -626,25 +635,31 @@ fn detect_for_batch_runs_in_the_callers_transaction() {
     let (batch, _) = f.import(SourceFormat::Ofx, &[with_id(5, -500, "Shop a ltd", "F")]);
     {
         let tx = f.db.conn_mut().transaction().unwrap();
-        let found = detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT).unwrap();
+        let found =
+            detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT, &HashSet::new()).unwrap();
         assert_eq!(found.len(), 1);
         tx.rollback().unwrap();
     }
     assert!(f.pairs().is_empty());
     let tx = f.db.conn_mut().transaction().unwrap();
     assert!(matches!(
-        detect_for_batch(&tx, BatchId::new(99), DuplicateWindow::DEFAULT),
+        detect_for_batch(
+            &tx,
+            BatchId::new(99),
+            DuplicateWindow::DEFAULT,
+            &HashSet::new()
+        ),
         Err(Error::BatchNotFound(_))
     ));
     assert_eq!(
-        detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT)
+        detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT, &HashSet::new())
             .unwrap()
             .len(),
         1
     );
     // Running it again finds nothing new.
     assert!(
-        detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT)
+        detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT, &HashSet::new())
             .unwrap()
             .is_empty()
     );
@@ -1145,4 +1160,411 @@ fn removing_an_import_clears_the_candidates_of_its_rows() {
     crate::removal::remove(&tx, crate::removal::Scope::Import(batch)).unwrap();
     tx.commit().unwrap();
     assert!(f.pairs().is_empty());
+}
+
+// Unmatched source IDs ----------------------------------------------------------
+
+impl Fixture {
+    /// Imports `lines` with the real commit, which detects duplicates itself
+    /// (with the guard for rows matched by source ID), and keeps what it
+    /// found.
+    fn commit(&mut self, format: SourceFormat, lines: &[Line]) -> import::CommitSummary {
+        let mut statement = Statement::new(format, Currency::GBP);
+        for (index, row) in lines.iter().enumerate() {
+            let mut line = StatementLine::new(day(row.day), gbp(row.minor), row.text);
+            line.external_id = row.id.map(str::to_owned);
+            statement.push(SourceLocation::Line(index as u64 + 2), Ok(line));
+        }
+        let preview = import::preview(&self.db, self.account, "s.csv", statement).unwrap();
+        let Committed::Batch(summary) =
+            import::commit(&mut self.db, &preview, preview.needs_confirmation()).unwrap()
+        else {
+            panic!("expected a batch");
+        };
+        summary
+    }
+}
+
+fn reasons(found: &[NewCandidate]) -> Vec<(TransactionId, TransactionId, CandidateReason)> {
+    found
+        .iter()
+        .map(|c| (c.transaction_a, c.transaction_b, c.reason))
+        .collect()
+}
+
+#[test]
+fn regenerated_source_ids_pair_rows_with_the_same_day_amount_and_text() {
+    let mut f = Fixture::new();
+    let (first, _) = f.import_and_detect(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "Coffee  shop", "a1"),
+            with_id(6, -1200, "Grocer", "a2"),
+        ],
+    );
+    let (second, found) = f.import_and_detect(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "COFFEE SHOP", "b1"),
+            with_id(6, -1200, "Grocer", "b2"),
+            with_id(7, -800, "Brand new", "b3"),
+        ],
+    );
+    assert_eq!(
+        reasons(&found),
+        [
+            (first[0], second[0], CandidateReason::UnmatchedSourceId),
+            (first[1], second[1], CandidateReason::UnmatchedSourceId),
+        ]
+    );
+    assert_eq!(
+        get(&f.db, found[0].id).unwrap().reason,
+        CandidateReason::UnmatchedSourceId
+    );
+}
+
+#[test]
+fn a_row_without_an_id_pairs_with_one_with_an_id_either_way_round() {
+    let mut f = Fixture::new();
+    let (with, _) = f.import_and_detect(SourceFormat::Csv, &[with_id(5, -350, "Coffee", "a1")]);
+    let (without, found) = f.import_and_detect(SourceFormat::Csv, &[line(5, -350, "Coffee")]);
+    assert_eq!(
+        reasons(&found),
+        [(with[0], without[0], CandidateReason::UnmatchedSourceId)]
+    );
+
+    let mut f = Fixture::new();
+    let (without, _) = f.import_and_detect(SourceFormat::Csv, &[line(5, -350, "Coffee")]);
+    let (with, found) = f.import_and_detect(SourceFormat::Csv, &[with_id(5, -350, "Coffee", "a1")]);
+    assert_eq!(
+        reasons(&found),
+        [(without[0], with[0], CandidateReason::UnmatchedSourceId)]
+    );
+}
+
+#[test]
+fn rows_without_ids_on_both_sides_are_left_to_the_occurrence_index() {
+    let mut f = Fixture::new();
+    f.import_and_detect(
+        SourceFormat::Csv,
+        &[line(5, -350, "Coffee"), line(5, -350, "Coffee")],
+    );
+    // The fingerprint finds both again; the third coffee of the day is new.
+    let (rows, found) = f.import_and_detect(
+        SourceFormat::Csv,
+        &[
+            line(5, -350, "Coffee"),
+            line(5, -350, "Coffee"),
+            line(5, -350, "Coffee"),
+        ],
+    );
+    assert_eq!(rows.len(), 1);
+    assert!(found.is_empty());
+}
+
+#[test]
+fn unmatched_source_ids_need_the_same_day_amount_account_and_import() {
+    let mut f = Fixture::new();
+    let savings = f.other_account("Savings");
+    f.import(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "a1")]);
+    // Another day or amount: not this rule's business.
+    let (_, found) = f.import_and_detect(
+        SourceFormat::Ofx,
+        &[
+            with_id(6, -350, "Coffee", "b1"),
+            with_id(5, -351, "Coffee", "b2"),
+        ],
+    );
+    assert!(found.is_empty());
+    // Another account.
+    let (batch, _) = f.import_into(
+        savings,
+        SourceFormat::Ofx,
+        &[with_id(5, -350, "Coffee", "c1")],
+    );
+    let tx = f.db.conn_mut().transaction().unwrap();
+    assert!(
+        detect_for_batch(&tx, batch, DuplicateWindow::DEFAULT, &HashSet::new())
+            .unwrap()
+            .is_empty()
+    );
+    drop(tx);
+
+    // One file never holds a transaction twice: rows of one import don't
+    // pair, even with different IDs.
+    let mut f = Fixture::new();
+    let (_, found) = f.import_and_detect(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "Coffee", "a1"),
+            with_id(5, -350, "Coffee", "a2"),
+        ],
+    );
+    assert!(found.is_empty());
+}
+
+#[test]
+fn an_excluded_row_is_no_counterpart_and_a_manual_row_pairs_as_before() {
+    let mut f = Fixture::new();
+    let (_, first) = f.import(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "a1")]);
+    f.db.conn()
+        .execute(
+            "UPDATE \"transaction\" SET excluded_reason = 'bank_error', \
+             excluded_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
+            [first[0]],
+        )
+        .unwrap();
+    let (_, found) = f.import_and_detect(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "b1")]);
+    assert!(found.is_empty());
+
+    let mut f = Fixture::new();
+    let cash = f.manual(5, -350, "Coffee");
+    let (rows, found) = f.import_and_detect(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "a1")]);
+    assert_eq!(
+        reasons(&found),
+        [(cash, rows[0], CandidateReason::ManualEntry)]
+    );
+}
+
+#[test]
+fn several_regenerated_rows_pair_first_with_first() {
+    let mut f = Fixture::new();
+    let (first, _) = f.import_and_detect(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "Coffee", "a1"),
+            with_id(5, -350, "Coffee", "a2"),
+        ],
+    );
+    let (second, found) = f.import_and_detect(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "Coffee", "b1"),
+            with_id(5, -350, "Coffee", "b2"),
+        ],
+    );
+    assert_eq!(
+        reasons(&found),
+        [
+            (first[0], second[0], CandidateReason::UnmatchedSourceId),
+            (first[1], second[1], CandidateReason::UnmatchedSourceId),
+        ]
+    );
+}
+
+#[test]
+fn a_dismissed_unmatched_source_id_pair_is_not_raised_again() {
+    let mut f = Fixture::new();
+    f.import_and_detect(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "a1")]);
+    let (_, found) = f.import_and_detect(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "b1")]);
+    dismiss(&mut f.db, found[0].id).unwrap();
+    assert!(f.scan().is_empty());
+}
+
+#[test]
+fn the_import_commit_guards_rows_it_matched_by_source_id() {
+    // The next download repeats X under its own ID and has a new coffee Z.
+    let mut f = Fixture::new();
+    f.commit(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "x1")]);
+    let summary = f.commit(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "Coffee", "x1"),
+            with_id(5, -350, "Coffee", "z1"),
+        ],
+    );
+    assert_eq!(summary.transactions, 1);
+    assert_eq!(summary.duplicates, 0, "X matched by its ID; Z is a coffee");
+    assert!(f.pairs().is_empty());
+
+    // The same file with regenerated IDs: nothing matches, so it pairs.
+    let mut f = Fixture::new();
+    f.commit(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "x1")]);
+    let summary = f.commit(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "y1")]);
+    assert_eq!((summary.transactions, summary.duplicates), (1, 1));
+    assert_eq!(
+        pending(&f.db, None).unwrap()[0].reason,
+        CandidateReason::UnmatchedSourceId
+    );
+
+    // One row matched by ID and one regenerated in the same file: only the
+    // regenerated one pairs.
+    let mut f = Fixture::new();
+    f.commit(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "Coffee", "x1"),
+            with_id(6, -900, "Lunch", "x2"),
+        ],
+    );
+    let summary = f.commit(
+        SourceFormat::Ofx,
+        &[
+            with_id(5, -350, "Coffee", "x1"),
+            with_id(6, -900, "Lunch", "y2"),
+        ],
+    );
+    assert_eq!((summary.transactions, summary.duplicates), (1, 1));
+}
+
+#[test]
+fn a_scan_has_no_import_to_guard_against() {
+    let mut f = Fixture::new();
+    let (_, first) = f.import(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "x1")]);
+    let (_, second) = f.import(SourceFormat::Ofx, &[with_id(5, -350, "Coffee", "z1")]);
+    assert_eq!(
+        reasons(&f.scan()),
+        [(first[0], second[0], CandidateReason::UnmatchedSourceId)]
+    );
+}
+
+// Migration ---------------------------------------------------------------------
+
+/// The migration files as `(version, name, SQL)`, in version order.
+fn migration_files() -> Vec<(u32, String, String)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let mut files: Vec<(u32, String, String)> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|entry| {
+            let path = entry.unwrap().path();
+            let name = path.file_name()?.to_str()?.to_owned();
+            let version = name.strip_prefix('V')?.split("__").next()?.parse().ok()?;
+            Some((version, name, std::fs::read_to_string(&path).unwrap()))
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// What the schema says about `duplicate_candidate`: its columns, indexes
+/// and triggers.
+fn candidate_schema(conn: &Connection) -> (Vec<String>, Vec<String>, Vec<(String, String)>) {
+    let strings = |sql: &str| -> Vec<String> {
+        let mut statement = conn.prepare(sql).unwrap();
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let columns = strings(
+        "SELECT name || ' ' || type || ' ' || \"notnull\" || ' ' || COALESCE(dflt_value, '') \
+         || ' ' || pk FROM pragma_table_info('duplicate_candidate') ORDER BY cid",
+    );
+    let indexes = strings(
+        "SELECT name || ' ' || \"unique\" || ' ' || origin \
+         FROM pragma_index_list('duplicate_candidate') ORDER BY name",
+    );
+    let mut statement = conn
+        .prepare(
+            "SELECT name, sql FROM sqlite_master \
+             WHERE type = 'trigger' AND tbl_name = 'duplicate_candidate' ORDER BY name",
+        )
+        .unwrap();
+    let triggers = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    (columns, indexes, triggers)
+}
+
+fn candidate_rows(conn: &Connection) -> Vec<String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id || '|' || transaction_a || '|' || transaction_b || '|' || reason || '|' \
+             || status || '|' || COALESCE(kept, '') || '|' || COALESCE(change_batch_id, '') \
+             || '|' || created_at FROM duplicate_candidate ORDER BY id",
+        )
+        .unwrap();
+    statement
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+#[test]
+fn the_rebuilt_table_keeps_its_rows_columns_indexes_and_triggers() {
+    let files = migration_files();
+    let (target, _, rebuild) = files
+        .iter()
+        .find(|(_, name, _)| name.ends_with("__duplicate_unmatched_source_id.sql"))
+        .expect("the unmatched_source_id migration");
+    let conn = Connection::open_in_memory().unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    for (version, _, sql) in &files {
+        if version < target {
+            conn.execute_batch(sql).unwrap();
+        }
+    }
+
+    // A database before the migration, with a candidate in each status and
+    // a deleted one, so the ID counter is ahead of the rows.
+    conn.execute_batch(
+        "INSERT INTO account (name, kind, currency) VALUES ('Current', 'current', 'GBP');
+         INSERT INTO import_batch (account_id, source_file, format) VALUES (1, 'a.csv', 'csv');
+         INSERT INTO import_batch (account_id, source_file, format) VALUES (1, 'b.csv', 'csv');
+         INSERT INTO change_batch (kind) VALUES ('duplicate_merge');",
+    )
+    .unwrap();
+    for (n, batch) in [(1, 1), (2, 1), (3, 2), (4, 2)] {
+        conn.execute(
+            "INSERT INTO \"transaction\" (account_id, batch_id, date, amount_minor, currency, \
+             description_raw, description_normalized, fingerprint, origin) \
+             VALUES (1, ?1, '2026-11-05', -100, 'GBP', ?2, ?2, ?2, 'imported')",
+            params![batch, format!("row {n}")],
+        )
+        .unwrap();
+    }
+    conn.execute_batch(
+        "INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason)
+             VALUES (1, 3, 'overlapping_import');
+         INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason)
+             VALUES (1, 4, 'manual_entry');
+         INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason)
+             VALUES (2, 3, 'overlapping_import');
+         INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason)
+             VALUES (2, 4, 'overlapping_import');
+         UPDATE duplicate_candidate SET status = 'dismissed' WHERE id = 2;
+         UPDATE duplicate_candidate SET status = 'merged', kept = 'b', change_batch_id = 1
+             WHERE id = 3;
+         DELETE FROM duplicate_candidate WHERE id = 4;",
+    )
+    .unwrap();
+    let new_candidate = "INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason) \
+                         VALUES (3, 4, 'unmatched_source_id')";
+    let rows_before = candidate_rows(&conn);
+    assert_eq!(rows_before.len(), 3);
+    let schema_before = candidate_schema(&conn);
+    assert_refused(conn.execute(new_candidate, []));
+
+    conn.execute_batch(rebuild).unwrap();
+
+    assert_eq!(candidate_rows(&conn), rows_before);
+    assert_eq!(candidate_schema(&conn), schema_before);
+    conn.execute(new_candidate, []).unwrap();
+    // The ID counter kept its place: the deleted candidate's ID isn't reused.
+    assert_eq!(conn.last_insert_rowid(), 5);
+    // The triggers and checks still guard the new table.
+    assert_refused(conn.execute(
+        "UPDATE duplicate_candidate SET reason = 'manual_entry' WHERE id = 5",
+        [],
+    ));
+    assert_refused(conn.execute(
+        "INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason, status) \
+         VALUES (2, 3, 'manual_entry', 'dismissed')",
+        [],
+    ));
+    assert_refused(conn.execute(
+        "INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason) \
+         VALUES (1, 2, 'something_else')",
+        [],
+    ));
+    let problems: i64 = conn
+        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(problems, 0);
 }

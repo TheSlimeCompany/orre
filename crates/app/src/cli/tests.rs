@@ -386,6 +386,16 @@ fn accounts_add_checks_pots_and_parents() {
 
 // Import -----------------------------------------------------------------------
 
+/// A dry run writes nothing, not even a new database: it needs no terminal
+/// (`cli::terminal`), so it mustn't create one in a mistyped data directory.
+#[test]
+fn a_dry_run_without_a_database_creates_none() {
+    let scratch = Scratch::new();
+    let error = scratch.err(&["import", &fixture("presets/uk/monzo.csv"), "--dry-run"]);
+    assert!(error.contains("there is no Coffer database"), "{error}");
+    assert!(!scratch.db.exists());
+}
+
 #[test]
 fn dry_run_writes_nothing() {
     let scratch = Scratch::with_accounts();

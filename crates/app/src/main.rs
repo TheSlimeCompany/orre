@@ -26,7 +26,7 @@ fn run_command(command: cli::Command) -> ExitCode {
             // Not locked for the whole command: `coffer mcp` writes stdout
             // from the async runtime's threads, which would wait forever.
             let mut stdout = std::io::stdout();
-            let result = cli::run(command, &database, &mut stdout);
+            let result = cli::run_with(command, &database, &mut stdout, cli::Terminal::detect());
             stdout.flush()?;
             result
         });

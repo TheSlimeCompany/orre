@@ -685,7 +685,8 @@ fn account_review(
 ) -> Result<AccountReview, Error> {
     let mut count = conn.prepare_cached(
         "SELECT COUNT(*) FROM \"transaction\" WHERE account_id = ?1 AND date > ?2 \
-         AND date <= ?3 AND excluded_reason IS NOT 'duplicate'",
+         AND date <= ?3 AND excluded_reason IS NOT 'duplicate' \
+         AND excluded_reason IS NOT 'superseded'",
     )?;
     let mut rows = Vec::with_capacity(checks.checks.len());
     for check in &checks.checks {

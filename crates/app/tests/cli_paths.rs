@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use coffer_app::cli::{self, Cli, Command};
 use coffer_core::db::Database;
+use coffer_core::export;
 use coffer_import::ofx::OfxImporter;
 use coffer_import::preset::Presets;
 use coffer_import::{AnyImporter, SourceFile};
@@ -387,17 +388,21 @@ fn an_ofx_balance_against_the_next_file_reconciles() {
     scratch.ok(&["import", &fixture("ofx/bank-sgml.ofx")]);
     let next = fixture("ofx/bank-sgml-next.ofx");
     let out = scratch.ok(&["import", &next, "--dry-run"]);
-    assert_has(&out, "Rows:      3 new, 2 already imported, 1 flagged\n");
+    assert_has(
+        &out,
+        "Rows:      3 new, 2 already imported, 0 flagged, 1 correction\n",
+    );
     assert_has(
         &out,
         "  2026-12-31  3806.98 GBP (from this file): passes, counting from 2026-11-30\n",
     );
+    // EX-0005 for another amount: the bank's correction of transaction 5.
     assert_has(
         &out,
-        "  entry 1: the account already has transaction 5 with this ID, on another date or for another amount\n",
+        "  entry 1: replaces transaction 5 (2026-11-12, -50.00 GBP)\n",
     );
     let out = scratch.ok(&["import", &next, "--yes"]);
-    assert_has(&out, "as batch 2: 3 transactions, 1 balance, 1 flag.\n");
+    assert_has(&out, "as batch 2: 4 transactions, 1 balance, 0 flags.\n");
 }
 
 // Undo -------------------------------------------------------------------------
@@ -608,4 +613,70 @@ fn no_output_contains_a_fixtures_transaction_text() {
             assert!(!out.contains(text.as_str()), "{text:?} in:\n{out}");
         }
     }
+}
+
+// The terminal check on the real binary (R.1) ------------------------------------
+
+/// The transactions in the scratch database.
+fn transactions_in(scratch: &Scratch) -> usize {
+    let db = Database::open(&scratch.db).unwrap();
+    export::count(&db, &export::Options::default())
+        .unwrap()
+        .transactions
+}
+
+/// `coffer <args>` as an AI client's shell runs it: stdin closed, so no
+/// terminal. Returns whether it succeeded, with stdout and stderr.
+fn run_without_terminal(scratch: &Scratch, args: &[&str]) -> (bool, String, String) {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_coffer"))
+        .args(args)
+        .env(
+            coffer_core::paths::DATA_DIR_ENV,
+            scratch.db.parent().unwrap(),
+        )
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    (
+        output.status.success(),
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+    )
+}
+
+#[test]
+fn previews_run_without_a_terminal_and_write_nothing_but_commits_are_refused() {
+    let scratch = Scratch::new();
+    scratch.add("Girokonto", "current", "EUR");
+    let file = fixture("ofx/edge-cases.ofx");
+
+    let (ok, stdout, stderr) = run_without_terminal(&scratch, &["import", &file, "--dry-run"]);
+    assert!(ok, "{stderr}");
+    assert_has(&stdout, "Dry run: nothing was written.");
+    assert_eq!(transactions_in(&scratch), 0);
+
+    let (ok, _, stderr) = run_without_terminal(&scratch, &["import", &file, "--yes"]);
+    assert!(!ok);
+    assert_has(&stderr, "`coffer import` needs an interactive terminal");
+    let (ok, _, stderr) = run_without_terminal(&scratch, &["import", &file]);
+    assert!(!ok);
+    assert_has(&stderr, "`coffer import` needs an interactive terminal");
+    assert_eq!(transactions_in(&scratch), 0);
+
+    scratch.ok(&["import", &file, "--yes"]);
+    let imported = transactions_in(&scratch);
+    assert!(imported > 0);
+
+    let (ok, stdout, stderr) = run_without_terminal(&scratch, &["undo-import", "1"]);
+    assert!(ok, "{stderr}");
+    assert_has(&stdout, "Nothing was undone.");
+    assert_eq!(transactions_in(&scratch), imported);
+
+    let (ok, _, stderr) = run_without_terminal(&scratch, &["undo-import", "1", "--yes"]);
+    assert!(!ok);
+    assert_has(
+        &stderr,
+        "`coffer undo-import` needs an interactive terminal",
+    );
+    assert_eq!(transactions_in(&scratch), imported);
 }

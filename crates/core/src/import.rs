@@ -15,8 +15,8 @@
 //!    ([`crate::transfer`]).
 //!    It first plans again inside that transaction and refuses with
 //!    [`Error::Stale`] if anything differs from the preview, so what the
-//!    user saw is what is stored. Flagged rows and a failed reconciliation
-//!    need the user's [`Confirmations`].
+//!    user saw is what is stored. Flagged rows, a failed reconciliation and
+//!    the bank's corrections need the user's [`Confirmations`].
 //!
 //! [`undo`] removes a batch again (after [`undo_preview`] has said what goes
 //! with it).
@@ -27,9 +27,14 @@
 //! - **Dedupe**: a row with a source ID matches the account's row with that
 //!   ID, and never by fingerprint; one without matches the account's row
 //!   without an ID that has its fingerprint ([`fingerprint`]). A source ID
-//!   already stored for a different date or amount is flagged
-//!   ([`Flag::SourceIdConflict`]), not skipped as a duplicate. Excluded rows
-//!   still count as imported.
+//!   already stored for a different date or amount is the bank's correction
+//!   of that row ([`RowOutcome::Corrects`]): the commit excludes the stored
+//!   row as `superseded` and imports the new version, carrying the user's
+//!   fields across (`supersede`; decision record "a bank's correction
+//!   supersedes the stored row"). When the stored row can't be replaced, the
+//!   row is flagged ([`Flag::SourceIdConflict`]) instead, never skipped as a
+//!   duplicate. Excluded rows still count as imported, and a row equal to a
+//!   version the account already replaced is already imported.
 //! - **Nothing is dropped silently**: a row that isn't committed is either
 //!   already in the account (it is shown as such) or flagged, and the batch
 //!   keeps a record of each flag (`import_flag`).
@@ -39,8 +44,11 @@
 //!
 //! Nothing here logs transaction contents; logs carry counts and IDs only.
 
+#[cfg(test)]
+mod correction_tests;
 mod dedupe;
 mod reconcile;
+mod supersede;
 #[cfg(test)]
 mod tests;
 
@@ -73,6 +81,9 @@ pub use dedupe::{FINGERPRINT_VERSION, fingerprint};
 pub use reconcile::{
     BalanceCheck, CheckedBalance, FileOrder, Reconciliation, ReconciliationStatus, RunningBalances,
     RunningMismatch,
+};
+pub use supersede::{
+    AppliedCorrection, CORRECTION_WINDOW_DAYS, Correction, CorrectionBlocked, NotCarried,
 };
 
 /// Why an import, or undoing one, failed. Messages never contain
@@ -115,6 +126,15 @@ pub enum Error {
     )]
     Locked { through: NaiveDate },
 
+    /// A row this import corrected was corrected again by a later import:
+    /// restoring the row it replaced would put two live rows under one
+    /// source ID.
+    #[error(
+        "import batch {later} corrected rows that this import corrected; undo import {later} \
+         first"
+    )]
+    CorrectedAgain { later: BatchId },
+
     #[error("an amount is too large to represent")]
     Overflow,
 
@@ -139,6 +159,9 @@ pub enum Error {
     #[error("scheduled payments: {0}")]
     Schedules(#[from] schedule::Error),
 
+    #[error("the bank's corrections: {0}")]
+    Corrections(#[from] change::Error),
+
     /// The backup taken before the commit failed, so nothing was imported
     /// (M1.28).
     #[error("couldn't back up the database before importing, so nothing was imported: {0}")]
@@ -148,12 +171,21 @@ pub enum Error {
     Database(#[from] rusqlite::Error),
 }
 
-fn not_confirmed(needed: &Confirmations) -> &'static str {
-    match (needed.flagged_rows, needed.balance_mismatch) {
-        (true, true) => "the import has flagged rows and a balance mismatch to confirm",
-        (true, false) => "the import has flagged rows to confirm",
-        _ => "the import has a balance mismatch to confirm",
-    }
+fn not_confirmed(needed: &Confirmations) -> String {
+    let parts: Vec<&str> = [
+        (needed.flagged_rows, "flagged rows"),
+        (needed.balance_mismatch, "a balance mismatch"),
+        (needed.corrections, "the bank's corrections of stored rows"),
+    ]
+    .into_iter()
+    .filter_map(|(needed, what)| needed.then_some(what))
+    .collect();
+    let list = match parts.as_slice() {
+        [] => "nothing".to_owned(),
+        [one] => (*one).to_owned(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    format!("the import has {list} to confirm")
 }
 
 fn load_account(conn: &Connection, id: AccountId) -> Result<Account, Error> {
@@ -176,11 +208,17 @@ pub enum Flag {
     Unreadable(RowProblem),
 
     /// The account already has this source ID for a transaction with a
-    /// different date or amount.
+    /// different date or amount, and the import can't replace that
+    /// transaction with this version ([`RowOutcome::Corrects`]): `blocked`
+    /// says why.
     #[error(
-        "the account already has transaction {existing} with this ID, on another date or for another amount"
+        "the account already has transaction {existing} with this ID, on another date or for \
+         another amount, and can't replace it with this version: {blocked}"
     )]
-    SourceIdConflict { existing: TransactionId },
+    SourceIdConflict {
+        existing: TransactionId,
+        blocked: CorrectionBlocked,
+    },
 
     /// An earlier row in the file has this source ID with a different date
     /// or amount.
@@ -250,6 +288,11 @@ pub enum RowOutcome {
     /// An earlier row in the file has the same source ID, date and amount:
     /// the file repeats it.
     RepeatedInFile { first: SourceLocation },
+    /// The bank's new version of a stored row with this source ID (another
+    /// date or amount): committed as a new row, and the stored row is
+    /// excluded as `superseded` by it. Needs
+    /// [`Confirmations::corrections`].
+    Corrects(Correction),
     /// Not committed; shown to the user and recorded with the batch.
     Flagged(Flag),
 }
@@ -305,6 +348,8 @@ pub struct Confirmations {
     /// [`ReconciliationStatus::Mismatch`]: the batch is committed and the
     /// failure stays visible ("Import and flag the mismatch").
     pub balance_mismatch: bool,
+    /// Rows that replace stored rows ([`RowOutcome::Corrects`]).
+    pub corrections: bool,
 }
 
 /// The Review screen's figures.
@@ -314,6 +359,8 @@ pub struct PreviewCounts {
     /// Already in the account, or repeated in the file.
     pub already_imported: usize,
     pub flagged: usize,
+    /// The bank's corrections of stored rows ([`RowOutcome::Corrects`]).
+    pub corrections: usize,
 }
 
 /// What importing a statement into an account would do. Made by
@@ -372,6 +419,7 @@ impl ImportPreview {
                     counts.already_imported += 1;
                 }
                 RowOutcome::Flagged(_) => counts.flagged += 1,
+                RowOutcome::Corrects(_) => counts.corrections += 1,
             }
         }
         counts
@@ -403,17 +451,31 @@ impl ImportPreview {
                 .iter()
                 .any(|outcome| matches!(outcome, RowOutcome::Flagged(_))),
             balance_mismatch: self.plan.reconciliation.status() == ReconciliationStatus::Mismatch,
+            corrections: self
+                .plan
+                .outcomes
+                .iter()
+                .any(|outcome| matches!(outcome, RowOutcome::Corrects(_))),
         }
     }
 
-    /// Whether a commit would store nothing: no new transaction and no new
-    /// balance. Re-importing a file is then a no-op.
+    /// The rows that are the bank's corrections of stored rows, in file
+    /// order.
+    pub fn corrections(&self) -> impl Iterator<Item = (SourceLocation, &Correction)> {
+        self.rows().filter_map(|row| match row.outcome {
+            RowOutcome::Corrects(correction) => Some((row.location, correction)),
+            _ => None,
+        })
+    }
+
+    /// Whether a commit would store nothing: no new transaction, no
+    /// correction and no new balance. Re-importing a file is then a no-op.
     pub fn is_nothing_new(&self) -> bool {
         !self
             .plan
             .outcomes
             .iter()
-            .any(|outcome| matches!(outcome, RowOutcome::New { .. }))
+            .any(|outcome| matches!(outcome, RowOutcome::New { .. } | RowOutcome::Corrects(_)))
             && !self
                 .plan
                 .balances
@@ -423,7 +485,7 @@ impl ImportPreview {
 }
 
 /// What [`commit`] did.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Committed {
     /// A new batch.
     Batch(CommitSummary),
@@ -431,9 +493,10 @@ pub enum Committed {
     NothingNew,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitSummary {
     pub batch: BatchId,
+    /// Rows stored, the bank's corrections included.
     pub transactions: usize,
     pub balances: usize,
     pub flags: usize,
@@ -467,6 +530,10 @@ pub struct CommitSummary {
     /// Scheduled payments the new rows fulfilled, each a `schedule_match`
     /// (M2.10).
     pub schedule_matches: usize,
+    /// The bank's corrections, in file order: each stored row now excluded
+    /// as `superseded`, the row that replaced it, and what stayed on the
+    /// stored row.
+    pub corrections: Vec<AppliedCorrection>,
 }
 
 /// Plans importing `statement` into `account`. Reads only.
@@ -534,6 +601,14 @@ pub fn preview(
 ///    refund and reimbursement links suggested for its money in
 ///    ([`link::suggest_for_batch`]).
 ///
+/// A correction ([`RowOutcome::Corrects`]) is stored like a new row, under
+/// the ID the stored row it replaces is first pointed at (excluded as
+/// `superseded`); right after the rules (step 4), what the user set on the
+/// stored row moves to it, so a field the user set wins over a rule's
+/// (`supersede::carry_over`), and so does the stored row's schedule match
+/// (`schedule::move_match`); the schedule matching at the end of the commit
+/// then takes a correction that has no match like any new row.
+///
 /// A failure in any step rolls the whole import back.
 ///
 /// Before its DB transaction (`VACUUM INTO` can't run inside one), the
@@ -548,7 +623,8 @@ pub fn commit(
 ) -> Result<Committed, Error> {
     let needed = preview.needs_confirmation();
     let is_confirmed = (!needed.flagged_rows || confirmed.flagged_rows)
-        && (!needed.balance_mismatch || confirmed.balance_mismatch);
+        && (!needed.balance_mismatch || confirmed.balance_mismatch)
+        && (!needed.corrections || confirmed.corrections);
     if !preview.is_nothing_new() && is_confirmed {
         backup::create(db, backup::Reason::Import)
             .map_err(|error| Error::Backup(Box::new(error)))?;
@@ -586,6 +662,7 @@ pub fn commit(
         duplicates = summary.duplicates,
         link_suggestions = summary.link_suggestions,
         schedule_matches = summary.schedule_matches,
+        corrections = summary.corrections.len(),
         "committed an import"
     );
     Ok(Committed::Batch(summary))
@@ -658,18 +735,23 @@ fn write_batch(
         duplicates: 0,
         link_suggestions: 0,
         schedule_matches: 0,
+        corrections: Vec::new(),
     };
     // The new rows that are sub-account transfers, for the mirror below.
     let mut pot_rows: Vec<(TransactionId, SubAccountRef)> = Vec::new();
+    // The corrections' (stored row, new row) pairs, in file order.
+    let mut corrected: Vec<(TransactionId, TransactionId)> = Vec::new();
     {
         let categories = category_ids(tx)?;
+        // `?20` is the ID: a correction's is chosen first, a new row's is
+        // left to SQLite (NULL).
         let mut insert_row = tx.prepare(
             "INSERT INTO \"transaction\" (account_id, batch_id, date, time, amount_minor, \
              currency, merchant, description_raw, description_normalized, external_id, \
              fingerprint, source_category, source_type, original_amount_minor, \
-             original_currency, note, origin, created_at, category_id, category_source) \
+             original_currency, note, origin, created_at, category_id, category_source, id) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-             'imported', ?17, ?18, ?19)",
+             'imported', ?17, ?18, ?19, ?20)",
         )?;
         let mut insert_flag = tx.prepare(
             "INSERT INTO import_flag (batch_id, location_kind, location, kind, detail) \
@@ -681,8 +763,22 @@ fn write_batch(
         };
 
         for row in preview.rows() {
-            match (row.outcome, row.line) {
-                (RowOutcome::New { fingerprint }, Some(line)) => {
+            let stored = match (row.outcome, row.line) {
+                (RowOutcome::New { fingerprint }, Some(line)) => Some((line, fingerprint, None)),
+                (RowOutcome::Corrects(correction), Some(line)) => {
+                    // The stored row steps aside first: the source ID index
+                    // holds one live row per ID.
+                    let id = supersede::next_transaction_id(tx)?;
+                    if supersede::mark_superseded(tx, correction.existing, id)? != 1 {
+                        return Err(Error::Stale);
+                    }
+                    corrected.push((correction.existing, id));
+                    Some((line, &correction.fingerprint, Some(id)))
+                }
+                _ => None,
+            };
+            match (row.outcome, stored) {
+                (_, Some((line, fingerprint, id))) => {
                     let category = line.category.as_ref().and_then(|key| categories.get(key));
                     insert_row.execute(params![
                         account.id,
@@ -704,6 +800,7 @@ fn write_batch(
                         imported_at,
                         category,
                         category.map(|_| "preset_map"),
+                        id,
                     ])?;
                     if let Some(sub_account) = &line.sub_account {
                         pot_rows.push((
@@ -713,11 +810,11 @@ fn write_batch(
                     }
                     summary.transactions += 1;
                 }
-                (RowOutcome::Flagged(problem), _) => {
+                (RowOutcome::Flagged(problem), None) => {
                     flag(row.location, problem.kind(), problem.to_string())?;
                     summary.flags += 1;
                 }
-                _ => {}
+                (_, None) => {}
             }
         }
         if let Some(running) = &plan.reconciliation.running {
@@ -773,6 +870,20 @@ fn write_batch(
     // are stored with them. The counts are of the imported rows: a mirrored
     // row is the same transfer seen from the pot.
     summary.splits_skipped = rule::apply_to_batch(tx, batch)?.splits_skipped;
+    // What the user set on the rows the corrections replace, over what the
+    // rules just gave the new rows. A scheduled payment the replaced row
+    // fulfilled is the same payment, so its match moves too; before
+    // `schedule::match_batch` below, which skips matched rows, so a moved
+    // match isn't counted as a new one.
+    for (replaced, by) in corrected {
+        let not_carried = supersede::carry_over(tx, replaced, by)?;
+        schedule::move_match(tx, replaced, by)?;
+        summary.corrections.push(AppliedCorrection {
+            replaced,
+            by,
+            not_carried,
+        });
+    }
     let categorized = |source: &str| -> Result<usize, Error> {
         let n: i64 = tx.query_row(
             "SELECT COUNT(*) FROM \"transaction\" \
@@ -788,11 +899,25 @@ fn write_batch(
     // Review queues, after pairing: possible duplicates (overlapping
     // exports, a manual row entered ahead of the bank's), and refunds and
     // reimbursements for new money in, which skip rows in a transfer.
-    summary.duplicates = duplicate::detect_for_batch(tx, batch, DuplicateWindow::DEFAULT)?.len();
+    let matched_by_source_id: HashSet<TransactionId> = plan
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RowOutcome::AlreadyImported {
+                transaction,
+                matched_by: MatchedBy::SourceId,
+            } => Some(*transaction),
+            _ => None,
+        })
+        .collect();
+    summary.duplicates =
+        duplicate::detect_for_batch(tx, batch, DuplicateWindow::DEFAULT, &matched_by_source_id)?
+            .len();
     summary.link_suggestions = link::suggest_for_batch(tx, batch)?;
     // Scheduled payments the new rows fulfil (M2.10), last: rules may have
     // excluded a row or named its merchant, and pairing may have made it a
-    // transfer.
+    // transfer. A correction holding its replaced row's match is skipped;
+    // one without (a pending row for 0 that posts) can match here.
     summary.schedule_matches = schedule::match_batch(tx, batch)?;
     summary.uncategorized = uncategorized(tx, batch)?;
     Ok(summary)
@@ -883,10 +1008,20 @@ fn plan(conn: &Connection, account: &Account, statement: &Statement) -> Result<P
         });
     }
 
+    // What the commit changes in the balance: the new rows, and each
+    // correction's new row in place of the row it replaces.
     let mut new_movements = DailyMovements::new();
     for (row, outcome) in statement.rows().iter().zip(&outcomes) {
-        if let (Ok(line), RowOutcome::New { .. }) = (&row.outcome, outcome) {
-            *new_movements.entry(line.date).or_default() += i128::from(line.amount.minor());
+        match (&row.outcome, outcome) {
+            (Ok(line), RowOutcome::New { .. }) => {
+                *new_movements.entry(line.date).or_default() += i128::from(line.amount.minor());
+            }
+            (Ok(line), RowOutcome::Corrects(correction)) => {
+                *new_movements.entry(line.date).or_default() += i128::from(line.amount.minor());
+                *new_movements.entry(correction.was_date).or_default() -=
+                    i128::from(correction.was_amount.minor());
+            }
+            _ => {}
         }
     }
     let added: Vec<(usize, Assertion)> = balances
@@ -918,7 +1053,8 @@ fn plan(conn: &Connection, account: &Account, statement: &Statement) -> Result<P
         account.currency,
     );
 
-    // Only new rows are mirrored: a row already imported has its pot side.
+    // Only new rows (corrections included) are mirrored: a row already
+    // imported has its pot side.
     let sub_accounts = sub_account::plan(
         conn,
         account,
@@ -926,7 +1062,9 @@ fn plan(conn: &Connection, account: &Account, statement: &Statement) -> Result<P
             .rows()
             .iter()
             .zip(&outcomes)
-            .filter(|(_, outcome)| matches!(outcome, RowOutcome::New { .. }))
+            .filter(|(_, outcome)| {
+                matches!(outcome, RowOutcome::New { .. } | RowOutcome::Corrects(_))
+            })
             .filter_map(|(row, _)| row.outcome.as_ref().ok()),
     )?;
 
@@ -947,10 +1085,6 @@ fn classify_rows(
     account: &Account,
     statement: &Statement,
 ) -> Result<Vec<RowOutcome>, Error> {
-    let mut by_source_id = conn.prepare_cached(
-        "SELECT id, date, amount_minor FROM \"transaction\" \
-         WHERE account_id = ?1 AND external_id = ?2",
-    )?;
     let mut by_fingerprint = conn.prepare_cached(
         "SELECT id FROM \"transaction\" \
          WHERE account_id = ?1 AND external_id IS NULL AND fingerprint = ?2",
@@ -981,25 +1115,16 @@ fn classify_rows(
                 continue;
             }
             first_with_id.insert(source_id, (row.location, line));
-            by_source_id
-                .query_row(params![account.id, source_id], |row| {
-                    Ok((
-                        row.get::<_, TransactionId>("id")?,
-                        account::date(row, "date")?,
-                        row.get::<_, i64>("amount_minor")?,
-                    ))
-                })
-                .optional()?
-                .map(|(existing, date, minor)| {
-                    if same_movement(date, minor) {
-                        RowOutcome::AlreadyImported {
-                            transaction: existing,
-                            matched_by: MatchedBy::SourceId,
-                        }
-                    } else {
-                        RowOutcome::Flagged(Flag::SourceIdConflict { existing })
-                    }
-                })
+            match supersede::live_row(conn, account.id, source_id)? {
+                None => None,
+                Some(stored) if same_movement(stored.date, stored.amount_minor) => {
+                    Some(RowOutcome::AlreadyImported {
+                        transaction: stored.id,
+                        matched_by: MatchedBy::SourceId,
+                    })
+                }
+                Some(stored) => Some(correction_of(conn, account, &stored, line, &fingerprint)?),
+            }
         } else {
             by_fingerprint
                 .query_row(params![account.id, fingerprint], |row| row.get(0))
@@ -1022,8 +1147,44 @@ fn classify_rows(
     Ok(outcomes)
 }
 
+/// What a row whose source ID the account holds for `stored`, on another
+/// date or for another amount, is: an older version the account already
+/// replaced, the bank's correction of `stored`, or flagged when `stored`
+/// can't be replaced (`supersede`).
+fn correction_of(
+    conn: &Connection,
+    account: &Account,
+    stored: &supersede::Stored,
+    line: &StatementLine,
+    fingerprint: &str,
+) -> Result<RowOutcome, Error> {
+    let amount = line.amount.minor();
+    if let Some(earlier) = supersede::earlier_version(conn, stored.id, line.date, amount)? {
+        return Ok(RowOutcome::AlreadyImported {
+            transaction: earlier,
+            matched_by: MatchedBy::SourceId,
+        });
+    }
+    Ok(
+        match supersede::blocked(stored, line.date, amount, account.reconciled_through) {
+            Some(blocked) => RowOutcome::Flagged(Flag::SourceIdConflict {
+                existing: stored.id,
+                blocked,
+            }),
+            None => RowOutcome::Corrects(Correction {
+                existing: stored.id,
+                was_date: stored.date,
+                was_amount: Money::new(stored.amount_minor, account.currency),
+                fingerprint: fingerprint.to_owned(),
+                not_carried: supersede::predicted_not_carried(stored, amount),
+            }),
+        },
+    )
+}
+
 /// The account's balances and transactions before the import. Rows
-/// excluded as `duplicate` never happened at the bank, so they leave the
+/// excluded as `duplicate` never happened at the bank, and rows excluded
+/// as `superseded` are replaced by the bank's correction, so they leave the
 /// balance; every other row counts (decision record "Transactions
 /// additions", point 1).
 fn history(conn: &Connection, account: &Account) -> Result<reconcile::History, Error> {
@@ -1060,7 +1221,8 @@ fn history(conn: &Connection, account: &Account) -> Result<reconcile::History, E
 
     let mut movements = conn.prepare_cached(
         "SELECT date, SUM(amount_minor) AS moved FROM \"transaction\" \
-         WHERE account_id = ?1 AND excluded_reason IS NOT 'duplicate' GROUP BY date",
+         WHERE account_id = ?1 AND excluded_reason IS NOT 'duplicate' \
+           AND excluded_reason IS NOT 'superseded' GROUP BY date",
     )?;
     let days = movements.query_map([account.id], |row| {
         Ok((account::date(row, "date")?, row.get::<_, i64>("moved")?))
@@ -1255,10 +1417,19 @@ pub struct UndoPreview {
     /// skipped as already imported came from this batch and go with it;
     /// importing those files again brings them back.
     pub later_batches: Vec<BatchId>,
+    /// Rows of earlier imports that this batch's corrections replaced
+    /// (excluded as `superseded`). Undoing it clears their exclusion, so
+    /// they count again exactly as they were.
+    pub restored: Vec<TransactionId>,
+    /// This batch's rows that a later import's correction replaced. They
+    /// go with the batch; the corrections stay, as ordinary rows.
+    pub superseded: usize,
 }
 
 /// What [`undo`] would remove. Fails like `undo` would: the batch must
-/// exist, not be undone, and have nothing in a locked period.
+/// exist, not be undone, have nothing in a locked period, and have no
+/// correction of its own corrected again by a later import
+/// ([`Error::CorrectedAgain`]).
 pub fn undo_preview(db: &Database, batch: BatchId) -> Result<UndoPreview, Error> {
     let tx = Transaction::new_unchecked(db.conn(), TransactionBehavior::Deferred)?;
     plan_undo(&tx, batch)
@@ -1266,8 +1437,10 @@ pub fn undo_preview(db: &Database, batch: BatchId) -> Result<UndoPreview, Error>
 
 /// Undoes an import in one DB transaction: removes its transactions
 /// (mirrored pot rows included) with everything that refers
-/// to them, deletes its balances and its flags, and marks it `undone`. The
-/// batch row stays, so the account's import history still lists it.
+/// to them, restores the rows its corrections replaced
+/// ([`UndoPreview::restored`]), deletes its balances and its flags, and
+/// marks it `undone`. The batch row stays, so the account's import history
+/// still lists it.
 pub fn undo(db: &mut Database, batch: BatchId) -> Result<UndoPreview, Error> {
     let tx = db.conn_mut().transaction()?;
     let undone = plan_undo(&tx, batch)?;
@@ -1297,12 +1470,18 @@ fn plan_undo(conn: &Connection, batch: BatchId) -> Result<UndoPreview, Error> {
     }
 
     // Anything on or before its account's lock date (the pot's own lock
-    // for a mirrored row) stays until the user unlocks.
+    // for a mirrored row) stays until the user unlocks, and so does a row
+    // its corrections replaced, which would count again.
     let locked = conn
         .query_row(
             "SELECT a.reconciled_through FROM \"transaction\" t \
              JOIN account a ON a.id = t.account_id \
              WHERE t.batch_id = ?1 AND t.date <= a.reconciled_through \
+             UNION ALL \
+             SELECT a.reconciled_through FROM \"transaction\" t \
+             JOIN \"transaction\" n ON n.id = t.superseded_by \
+             JOIN account a ON a.id = t.account_id \
+             WHERE n.batch_id = ?1 AND t.date <= a.reconciled_through \
              UNION ALL \
              SELECT a.reconciled_through FROM balance_snapshot s \
              JOIN account a ON a.id = s.account_id \
@@ -1314,6 +1493,24 @@ fn plan_undo(conn: &Connection, batch: BatchId) -> Result<UndoPreview, Error> {
         .optional()?;
     if let Some(through) = locked {
         return Err(Error::Locked { through });
+    }
+    // A row of this batch that replaced an earlier row and was itself
+    // replaced by a later import: undoing this batch would bring the
+    // earliest version back beside the latest. The later import goes first.
+    let corrected_again = conn
+        .query_row(
+            "SELECT later.batch_id FROM \"transaction\" t \
+             JOIN \"transaction\" later ON later.id = t.superseded_by \
+             WHERE t.batch_id = ?1 AND later.batch_id IS NOT ?1 \
+               AND EXISTS (SELECT 1 FROM \"transaction\" e \
+                           WHERE e.superseded_by = t.id AND e.batch_id IS NOT ?1) \
+             ORDER BY later.batch_id LIMIT 1",
+            [batch],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(later) = corrected_again {
+        return Err(Error::CorrectedAgain { later });
     }
 
     let count = |sql: &str| -> Result<usize, Error> {
@@ -1329,6 +1526,16 @@ fn plan_undo(conn: &Connection, batch: BatchId) -> Result<UndoPreview, Error> {
             .query_map(params![info.account, batch], |row| row.get(0))?
             .collect::<Result<_, _>>()?
     };
+    let restored = {
+        let mut statement = conn.prepare(
+            "SELECT t.id FROM \"transaction\" t \
+             JOIN \"transaction\" n ON n.id = t.superseded_by \
+             WHERE n.batch_id = ?1 AND t.batch_id IS NOT ?1 ORDER BY t.id",
+        )?;
+        statement
+            .query_map([batch], |row| row.get(0))?
+            .collect::<Result<_, _>>()?
+    };
     Ok(UndoPreview {
         transactions: count(
             "SELECT COUNT(*) FROM \"transaction\" WHERE batch_id = ?1 AND origin = 'imported'",
@@ -1342,7 +1549,8 @@ fn plan_undo(conn: &Connection, batch: BatchId) -> Result<UndoPreview, Error> {
             "SELECT COUNT(*) FROM \"transaction\" WHERE batch_id = ?1 AND ( \
              category_source IN ('user', 'ai_approved') OR user_note IS NOT NULL \
              OR my_share_minor IS NOT NULL OR share_label IS NOT NULL OR reimbursable = 1 \
-             OR excluded_reason IS NOT NULL OR merchant_display_source = 'user' \
+             OR (excluded_reason IS NOT NULL AND excluded_reason <> 'superseded') \
+             OR merchant_display_source = 'user' \
              OR EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = \"transaction\".id) \
              OR EXISTS (SELECT 1 FROM transaction_tag g WHERE g.transaction_id = \"transaction\".id) \
              OR EXISTS (SELECT 1 FROM transaction_link l WHERE l.status = 'confirmed' \
@@ -1366,7 +1574,12 @@ fn plan_undo(conn: &Connection, batch: BatchId) -> Result<UndoPreview, Error> {
                                                           ELSE d.transaction_a END \
              WHERE d.status = 'merged' AND k.batch_id = ?1 AND x.batch_id IS NOT ?1",
         )?,
+        superseded: count(
+            "SELECT COUNT(*) FROM \"transaction\" WHERE batch_id = ?1 \
+             AND superseded_by IS NOT NULL",
+        )?,
         later_batches,
+        restored,
         batch: info,
     })
 }

@@ -516,6 +516,60 @@ pub fn locked(preview: &ImportPreview) -> Option<Block> {
     })
 }
 
+/// The corrections block (R.4), when the file has the bank's new version
+/// of rows the account holds: how many, and what importing does to them. A
+/// neutral block with words only (the figures row has no room for a fourth
+/// figure without a design); the Import button names them and accepts
+/// them, as it does a mismatch.
+pub fn corrections(preview: &ImportPreview) -> Option<Block> {
+    let corrections: Vec<_> = preview.corrections().collect();
+    let rows = corrections.len();
+    if rows == 0 {
+        return None;
+    }
+    let kept_back = corrections
+        .iter()
+        .filter(|(_, correction)| !correction.not_carried.is_empty())
+        .count();
+    let mut body = vec![plain(format!(
+        "The bank sent a new date or amount for {} you already have. Importing replaces {}: \
+         {} under the Excluded filter as replaced, and what you set (category, notes, tags) \
+         moves to the new {} where it fits.",
+        if rows == 1 {
+            "a transaction"
+        } else {
+            "transactions"
+        },
+        if rows == 1 { "it" } else { "each" },
+        if rows == 1 {
+            "the old one stays"
+        } else {
+            "the old ones stay"
+        },
+        if rows == 1 { "one" } else { "ones" },
+    ))];
+    if kept_back > 0 {
+        body.extend([
+            plain(" "),
+            mono(count(kept_back)),
+            plain(format!(
+                " {} a split or share that doesn’t fit the new amount; it stays on the old {}.",
+                if kept_back == 1 { "has" } else { "have" },
+                if kept_back == 1 { "one" } else { "ones" },
+            )),
+        ]);
+    }
+    Some(Block {
+        tone: Tone::Neutral,
+        title: if rows == 1 {
+            "1 row is the bank’s correction".to_owned()
+        } else {
+            format!("{} rows are the bank’s corrections", count(rows))
+        },
+        body,
+    })
+}
+
 /// The Review step's primary button.
 pub fn primary_label(preview: &ImportPreview) -> String {
     if preview.is_nothing_new() {
@@ -524,9 +578,23 @@ pub fn primary_label(preview: &ImportPreview) -> String {
     if preview.needs_confirmation().balance_mismatch {
         return "Import and flag the mismatch".to_owned();
     }
-    match preview.counts().new {
-        0 => "Import the balance".to_owned(),
-        n => format!("Import {} {}", count(n), plural(n, "transaction")),
+    let counts = preview.counts();
+    let corrections = (counts.corrections > 0).then(|| {
+        format!(
+            "{} {}",
+            count(counts.corrections),
+            plural(counts.corrections, "correction")
+        )
+    });
+    match (counts.new, corrections) {
+        (0, None) => "Import the balance".to_owned(),
+        (0, Some(corrections)) => format!("Import {corrections}"),
+        (n, None) => format!("Import {} {}", count(n), plural(n, "transaction")),
+        (n, Some(corrections)) => format!(
+            "Import {} {} and {corrections}",
+            count(n),
+            plural(n, "transaction")
+        ),
     }
 }
 

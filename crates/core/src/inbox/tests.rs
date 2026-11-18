@@ -497,6 +497,33 @@ fn saves_reports_within_their_caps() {
 }
 
 #[test]
+fn a_saved_report_records_the_level_it_was_saved_at() {
+    let mut f = Fixture::new();
+    let client = ClientName::new("claude-code").unwrap();
+    let report = NewReport {
+        period: "2026-10".to_owned(),
+        title: "October".to_owned(),
+        body_markdown: String::new(),
+    };
+    let level_of = |f: &Fixture, id: i64| -> Option<String> {
+        f.conn()
+            .query_row(
+                "SELECT access_level FROM report WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    for level in AccessLevel::ALL {
+        let id = insert_report_at(&mut f.db, &client, *level, &report).unwrap();
+        assert_eq!(level_of(&f, id).as_deref(), Some(level.as_str()));
+    }
+    // Without a client level: the strictest.
+    let id = insert_report(&mut f.db, &client, &report).unwrap();
+    assert_eq!(level_of(&f, id).as_deref(), Some("standard"));
+}
+
+#[test]
 fn caps_the_saved_reports_per_source() {
     let mut f = Fixture::new();
     let client = ClientName::new("claude-code").unwrap();

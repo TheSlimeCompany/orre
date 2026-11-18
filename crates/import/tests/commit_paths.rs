@@ -153,6 +153,16 @@ fn undo_removes_balances_and_flags_and_a_reimport_restores_them() {
     let mut scratch = Scratch::new();
     let current = scratch.current("Current", Currency::GBP);
     let first = scratch.import_batch(current, "bank-sgml.ofx", read_ofx("bank-sgml.ofx"));
+    // The next file has EX-0005 for another amount. Excluded, the stored row
+    // can't take the bank's correction, so that row is flagged.
+    let cash = scratch.by_external_id(current, "EX-0005").unwrap();
+    coffer_core::exclusion::exclude(
+        &mut scratch.db,
+        coffer_core::id::TransactionId::new(cash.id),
+        coffer_core::exclusion::ExclusionReason::Disputed,
+        None,
+    )
+    .unwrap();
     let next = scratch.import_batch(
         current,
         "bank-sgml-next.ofx",
@@ -215,7 +225,8 @@ fn undo_removes_balances_and_flags_and_a_reimport_restores_them() {
         PreviewCounts {
             new: 3,
             already_imported: 2,
-            flagged: 1
+            flagged: 1,
+            corrections: 0,
         }
     );
     let restored = scratch.import_batch(

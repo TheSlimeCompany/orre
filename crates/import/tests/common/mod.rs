@@ -217,12 +217,14 @@ impl Scratch {
             .unwrap()
     }
 
-    /// The stored row with this external ID in the account, if any.
+    /// The live row with this external ID in the account (not one a
+    /// correction superseded), if any.
     pub fn by_external_id(&self, account: AccountId, id: &str) -> Option<Stored> {
         let found: Option<i64> = self
             .reader()
             .query_row(
-                "SELECT id FROM \"transaction\" WHERE account_id = ?1 AND external_id = ?2",
+                "SELECT id FROM \"transaction\" WHERE account_id = ?1 AND external_id = ?2 \
+                 AND superseded_by IS NULL",
                 rusqlite::params![account.get(), id],
                 |row| row.get(0),
             )
@@ -282,8 +284,8 @@ pub fn outcomes(preview: &ImportPreview) -> Vec<(SourceLocation, RowOutcome)> {
 }
 
 /// A short name for an outcome, for compact assertions: `new`,
-/// `already:source_id`, `already:fingerprint`, `repeated`, or the flag's
-/// kind (`flag:unreadable`, …).
+/// `already:source_id`, `already:fingerprint`, `repeated`, `corrects`, or
+/// the flag's kind (`flag:unreadable`, …).
 pub fn outcome_kind(outcome: &RowOutcome) -> String {
     match outcome {
         RowOutcome::New { .. } => "new".to_owned(),
@@ -292,6 +294,7 @@ pub fn outcome_kind(outcome: &RowOutcome) -> String {
             import::MatchedBy::Fingerprint => "already:fingerprint".to_owned(),
         },
         RowOutcome::RepeatedInFile { .. } => "repeated".to_owned(),
+        RowOutcome::Corrects(_) => "corrects".to_owned(),
         RowOutcome::Flagged(flag) => format!("flag:{}", flag.kind().as_str()),
     }
 }

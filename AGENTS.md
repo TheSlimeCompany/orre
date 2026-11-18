@@ -115,7 +115,10 @@ Changing any of these needs an explicit decision recorded in the topic's file un
   only through user action in the app or CLI. The server's own `mcp_access_log` audit
   record is not a tool write (decision record in `docs/ARCHITECTURE.md`, 2026-11-09).
   Approval happens only in Coffer's own UI or CLI, never through MCP elicitation,
-  sampling, or MCP Apps.
+  sampling, or MCP Apps. CLI commands that act as the user need an interactive terminal
+  (2026-11-18), but that is a speed bump: a client with a shell can fake one or open the
+  database, so containment holds only while the client has no shell, or a sandbox denies
+  it the data dir.
 - **No PII in MCP output.** No account numbers, sort codes, IBANs, names, or addresses.
   Merchant addresses and user notes are excluded by default; share labels, private tags,
   and attachments are never exposed. Per-client access levels (`aggregate`,

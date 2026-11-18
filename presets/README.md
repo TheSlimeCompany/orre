@@ -12,9 +12,35 @@ letters (`uk`, `us`, `eu`); file names are lowercase letters, digits and hyphens
 (`monzo.toml`, `nationwide-credit-card.toml`).
 
 Every preset needs a redacted fixture at `fixtures/presets/<region>/<bank>.csv` (same
-name, any extension) that it recognises and imports, plus a test that checks the rows.
-Fixtures must be synthetic or fully redacted: see [`fixtures/README.md`](../fixtures/README.md)
-and `AGENTS.md` → "Personal financial data". Never commit a real export.
+name, any extension) that it recognises and imports, plus a test that checks the rows,
+and a golden file, `crates/import/tests/golden/<region>/<bank>.txt`, that freezes each
+fixture row's dedupe identity (see "Changing a preset"). Fixtures must be synthetic or
+fully redacted: see [`fixtures/README.md`](../fixtures/README.md) and `AGENTS.md` →
+"Personal financial data". Never commit a real export.
+
+## Changing a preset
+
+A row's identity for deduplication is its bank ID (`external_id`), else a fingerprint of
+its date, amount, currency and description. Editing a preset can move either: which
+columns `description` joins, the `date` format, whether `external_id` is mapped (or which
+column), `amount` and its sign handling, `decimal`, `row_currency`, and which rows are
+read at all (`skip_rows`, `ignore`), since identical rows on one day are numbered in file
+order. Rows already in a user's
+database were deduplicated under the old identity, so after such an edit the next import
+of an overlapping file adds every moved row a second time.
+
+The golden test, `crates/import/tests/preset_golden.rs`, imports every bundled preset's
+fixture and compares each row's external ID and fingerprint, in file order, with its
+golden file. A change that moves either **needs a new preset ID** (a new preset, with its
+own file, fixture and golden file) rather than an edited golden file. Changes that leave
+every identity alone (a category map entry, a name, a pot rule) keep the ID and
+the golden file as they are. Don't regenerate or edit a golden file to make a failure go
+away.
+
+To create the golden file of a new preset, add its fixture, then run
+`COFFER_BLESS_GOLDEN=1 cargo test -p coffer-import --test preset_golden`. It writes only
+the golden files that are missing and never overwrites one. Check the file, and commit it
+with the preset. A preset with no golden file fails the test.
 
 ## Presets saved from the app
 

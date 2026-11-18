@@ -650,6 +650,7 @@ fn exclusion(reason: coffer_core::exclusion::ExclusionReason) -> &'static str {
         ExclusionReason::BankError => "Bank error",
         ExclusionReason::Disputed => "Disputed",
         ExclusionReason::Other => "Other",
+        ExclusionReason::Superseded => "Replaced by correction",
     }
 }
 

@@ -6,8 +6,9 @@
 //! - [`rules`]: every rule in evaluation order, with what its actions do,
 //!   minus what never leaves the app ([`ActionSummary`]): private tag
 //!   names, note text and share labels.
-//! - [`reports`]: the saved reports, newest first, capped; [`report`]: one
-//!   by ID.
+//! - [`reports`]: every saved report, newest first, capped; [`report`]: one
+//!   by ID (the user's view, for the app and the CLI);
+//!   [`reports_visible_to`]: the reports one MCP client may read back.
 //!
 //! Account names, rule patterns, merchant names and report text are the
 //! user's (or an AI client's) own text: nothing here logs them.
@@ -21,6 +22,7 @@ use crate::account::{self, AccountKind};
 use crate::category::CategoryKey;
 use crate::db::Reader;
 use crate::id::{AccountId, RuleId};
+use crate::mcp_client::{AccessLevel, ClientName};
 use crate::money::Currency;
 use crate::rule::{
     ActionKind, AmountBounds, ExcludeReason, InvalidRule, MatchField, MatchKind, Pattern,
@@ -303,6 +305,38 @@ pub fn reports(reader: &Reader, limit: Limit) -> Result<Capped<SavedReport>, Err
     let fetch = i64::try_from(limit.get() + 1).unwrap_or(i64::MAX);
     let rows = statement
         .query_map([fetch], saved_report)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Capped::new(rows, limit))
+}
+
+/// The reports `client` may read back, newest first, at most `limit`: its
+/// own, saved at a level no higher than `level`, its current one. A report
+/// saved before `report.access_level` existed (NULL) counts as `standard`.
+/// Filtered in the query, so the limit counts only these.
+pub fn reports_visible_to(
+    reader: &Reader,
+    client: &ClientName,
+    level: AccessLevel,
+    limit: Limit,
+) -> Result<Capped<SavedReport>, Error> {
+    let rank = AccessLevel::ALL
+        .iter()
+        .position(|candidate| *candidate == level)
+        .unwrap_or(AccessLevel::ALL.len());
+    let mut statement = reader.conn().prepare_cached(
+        "SELECT id, period, title, body_markdown, source_client, created_at FROM report \
+         WHERE source_client = ?1 \
+           AND CASE COALESCE(access_level, 'standard') \
+                 WHEN 'aggregate' THEN 0 WHEN 'pseudonymous' THEN 1 ELSE 2 END <= ?2 \
+         ORDER BY created_at DESC, id DESC LIMIT ?3",
+    )?;
+    // One more than the limit, to tell whether the list was cut.
+    let fetch = i64::try_from(limit.get() + 1).unwrap_or(i64::MAX);
+    let rows = statement
+        .query_map(
+            rusqlite::params![client.as_str(), rank as i64, fetch],
+            saved_report,
+        )?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Capped::new(rows, limit))
 }

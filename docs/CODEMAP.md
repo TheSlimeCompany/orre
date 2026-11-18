@@ -14,8 +14,11 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
 ### Database, schema and basics
 
 - `db`, `paths`: data dir, WAL, permissions, migrations (M1.3); `paths::presets_dir`.
+  `db::migrations::run` turns foreign keys off for a migration whose first line is
+  `-- coffer: foreign_keys=off` and checks them before it commits (R.4);
+  `db/superseded_tests.rs` covers V21.
 - Migrations in `crates/core/migrations/`: `V1__initial_schema.sql` (M1.4) to
-  `V18__category_hidden.sql`. Each feature below names the migration it added.
+  `V21__superseded.sql`. Each feature below names the migration it added.
 - `money`: `Currency`, `Money`, exact decimal parsing (M1.5).
 - `statement`: the normalized import output, `Statement`, `StatementLine`, flagged rows
   (M1.6).
@@ -39,9 +42,13 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
   categories, the pot mirror, merchant names, rules and transfer pairing in the same DB
   transaction. The commit also detects possible duplicates and suggests links.
   `import::rehearse`, `CommitSummary::uncategorized` (M3.4).
+- `import/supersede.rs`: the bank's corrections (R.4, `V21__superseded.sql`): which stored
+  row a file row corrects or why it can't, superseding it in the commit and carrying the
+  user's fields across; `import/correction_tests.rs`.
 - `removal` (crate-private): undo and manual deletes go through it. It dissolves transfer
   groups, clears every row that refers to a transaction (checked against the schema's
-  foreign keys by a test), then deletes.
+  foreign keys by a test), then deletes. A row a removed row superseded is restored
+  rather than deleted.
 
 ### Categories
 
@@ -90,7 +97,9 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
 - `link`: refunds, reimbursements and shared costs (M1.25, `V9__transaction_link.sql`,
   which redefines `ledger_line`); `link::owed`, claims, matched payments, people with
   their outstanding costs.
-- `duplicate`: the possible-duplicates queue (M1.26, `V10__duplicate_candidate.sql`).
+- `duplicate`: the possible-duplicates queue (M1.26, `V10__duplicate_candidate.sql`);
+  `unmatched_source_id` candidates, the same day, amount and text under another source ID
+  (R.3, `V20__duplicate_unmatched_source_id.sql`).
 - `reconciliation`: balance checks and lock dates (M1.27).
 - `checks`: the review queues' read model: a pair's merge planned by `duplicate`'s own
   code and rolled back; each check's base, window and the pair that explains it;
@@ -102,7 +111,8 @@ M1.20–M1.27 have no CLI commands yet.
 
 - `reporting` (M2.2): the `Ledger` over `ledger_line`, `Period`, per-currency `Totals`,
   `Limit`; `summary`, `spending`, `budget_status`, `net_worth`, `balance`, `rows`,
-  `catalog`. App read models: `account_tree` (the accounts panel, M3.2), `register` (the
+  `catalog` (`reports_visible_to`: a client's own reports at its level or below, R.2,
+  `V19__report_access_level.sql`). App read models: `account_tree` (the accounts panel, M3.2), `register` (the
   Transactions table: every transaction, filtered, grouped by day and sorted in memory,
   category colours ranked at read time; rows carry tags, notes, links, share, `pair`,
   `RowSource` and exclusion details; M3.3), `palette` (category colours ranked at read
@@ -150,6 +160,9 @@ M1.20–M1.27 have no CLI commands yet.
 - Presets: `presets/<region>/<bank>.toml`, all compiled in by `build.rs`;
   `presets/uk/monzo.toml` is the reference (M1.9, `[sub_account_transfer]` for pots since
   M1.17).
+- `tests/preset_golden.rs`: freezes every bundled preset's fixture row external IDs and
+  fingerprints against `tests/golden/<region>/<bank>.txt` (R.5); `COFFER_BLESS_GOLDEN=1`
+  writes missing files.
 
 ## `crates/mcp`
 
@@ -296,7 +309,8 @@ per call through its own store and changes data only through core.
 `remove`), `schedules` (`detect`, `list`, `show`, `confirm`, …), `inbox` (`list`,
 `show`, `approve`, `reject`, and saved reports: `reports`, `report`, `delete-report`, the
 user's way under the 500-report cap) and `categorize <transaction-id>...
-<category-key>`.
+<category-key>`. `cli::terminal`: the commands that act as the user need an interactive
+stdin (R.1), checked by `cli::run_with`.
 
 ## Fixtures and end-to-end tests
 

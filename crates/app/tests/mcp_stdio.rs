@@ -11,6 +11,7 @@ use std::process::{Command, Stdio};
 
 use coffer_core::access_log::{self, Outcome};
 use coffer_core::db::Database;
+use coffer_core::mcp_client::{self, ClientName};
 use coffer_core::paths::{DATA_DIR_ENV, DATABASE_FILE};
 use serde_json::{Value, json};
 
@@ -51,14 +52,21 @@ fn a_bad_client_name_is_refused() {
 #[test]
 fn serves_tools_over_stdio() {
     let dir = tempfile::tempdir().unwrap();
-    drop(Database::open(&dir.path().join(DATABASE_FILE)).unwrap());
-    // MCP access is off until the user enables the client.
-    let enabled = coffer()
+    let mut db = Database::open(&dir.path().join(DATABASE_FILE)).unwrap();
+    // MCP access is off until the user enables the client, which the real
+    // binary refuses to do without a terminal (R.1): a test's stdin isn't one.
+    let refused = coffer()
         .args(["ai-access", "enable", "claude-code"])
         .env(DATA_DIR_ENV, dir.path())
+        .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert!(enabled.status.success(), "{enabled:?}");
+    assert!(!refused.status.success(), "{refused:?}");
+    let stderr = String::from_utf8(refused.stderr).unwrap();
+    assert!(stderr.contains("needs an interactive terminal"), "{stderr}");
+    // So the test enables it as the app would.
+    mcp_client::enable(&mut db, &ClientName::new("claude-code").unwrap()).unwrap();
+    drop(db);
 
     let mut child = coffer()
         .args(["mcp", "--client", "claude-code"])

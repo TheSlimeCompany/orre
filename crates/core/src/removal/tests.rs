@@ -265,6 +265,7 @@ fn the_list_matches_every_foreign_key_to_a_transaction_in_the_schema() {
     in_schema.sort();
     let mut listed: Vec<(String, String)> = REFERENCES
         .iter()
+        .chain([&SUPERSEDED_BY])
         .map(|(table, column)| (table.to_string(), column.to_string()))
         .collect();
     listed.sort();

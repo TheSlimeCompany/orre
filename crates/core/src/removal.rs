@@ -12,7 +12,13 @@
 //! stay); change items go (the batches stay, with what is left); a link goes
 //! whichever side the row is on, so money in from another import is unlinked
 //! again; a duplicate candidate naming the row goes, whatever its status; a
-//! schedule match goes, which reopens its occurrence.
+//! schedule match goes, which reopens its occurrence. A row that one of the
+//! removed rows superseded (`superseded_by`, the bank's correction of it)
+//! isn't deleted: its `superseded` exclusion is cleared, which restores it
+//! exactly as it was before the correction came in, and the correction's
+//! schedule match (usually the one it took from that row) moves to it
+//! (`schedule::move_match`) rather than going, so its occurrence stays
+//! fulfilled.
 //!
 //! Nothing here opens a DB transaction: the caller's wraps the whole removal,
 //! so a failure leaves everything as it was. Nothing is logged.
@@ -21,6 +27,7 @@ use rusqlite::types::ToSql;
 use rusqlite::{Connection, params_from_iter};
 
 use crate::id::{BatchId, TransactionId, TransferGroupId};
+use crate::schedule;
 
 /// Every column that references `"transaction"`, as `(table, column)`; each
 /// is cleared by [`remove`] before the transactions go.
@@ -34,6 +41,11 @@ const REFERENCES: [(&str, &str); 8] = [
     ("duplicate_candidate", "transaction_b"),
     ("schedule_match", "transaction_id"),
 ];
+
+/// The one column of `"transaction"` itself that references a transaction:
+/// the row that superseded it. [`remove`] restores such a row rather than
+/// clearing a reference to it.
+const SUPERSEDED_BY: (&str, &str) = ("transaction", "superseded_by");
 
 /// Which transactions [`remove`] removes.
 #[derive(Debug, Clone, Copy)]
@@ -83,6 +95,27 @@ pub(crate) fn remove(conn: &Connection, scope: Scope) -> rusqlite::Result<Remove
         dissolve_transfer_group(conn, *group)?;
     }
 
+    // The rows the removed ones superseded, which count again once they
+    // are gone (and not before: one live row per source ID), with the row
+    // that superseded each.
+    let (table, column) = SUPERSEDED_BY;
+    let restored: Vec<(TransactionId, TransactionId)> = {
+        let mut statement = conn.prepare(&format!(
+            "SELECT id, {column} FROM \"{table}\" WHERE {column} IN ({rows}) AND id NOT IN ({rows})"
+        ))?;
+        statement
+            .query_map([parameter], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
+    // A correction's schedule match goes back to the row it replaced,
+    // before the matches of removed rows are deleted. It is the one the
+    // correction took from that row, one the import made for it, or one
+    // the user made on it since; each names the same payment, so it
+    // belongs on the restored row and the occurrence stays fulfilled.
+    for &(id, by) in &restored {
+        schedule::move_match(conn, by, id)?;
+    }
+
     for (table, column) in REFERENCES {
         conn.execute(
             &format!("DELETE FROM {table} WHERE {column} IN ({rows})"),
@@ -93,6 +126,13 @@ pub(crate) fn remove(conn: &Connection, scope: Scope) -> rusqlite::Result<Remove
         &format!("DELETE FROM \"transaction\" WHERE id IN ({rows})"),
         params_from_iter([parameter]),
     )?;
+    let mut restore = conn.prepare(&format!(
+        "UPDATE \"{table}\" SET excluded_reason = NULL, excluded_note = NULL, \
+         excluded_at = NULL, {column} = NULL WHERE id = ?1"
+    ))?;
+    for (id, _) in restored {
+        restore.execute([id])?;
+    }
     Ok(Removed { dissolved_groups })
 }
 

@@ -90,7 +90,10 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   `recurring_dismissal` (V12, M2.6/M2.10), the inbox's decision columns (V13, M2.3) and
   `mcp_access_log` rebuilt with two outcomes, `pending_id` and `summarised_calls` (V14),
   `account.preset_id` (V15, M3.2), and `rule.origin`, `change_batch.rule_id` and
-  `rule_prompt_dismissed` (V16, M3.13).
+  `rule_prompt_dismissed` (V16, M3.13); after V18, `report.access_level` (V19, R.2),
+  `duplicate_candidate` rebuilt with the `unmatched_source_id` reason (V20, R.3), and
+  `"transaction"` rebuilt with `superseded` and `superseded_by` (V21, R.4: the first
+  migration run with foreign keys off, marked by its first line).
 - refinery embeds migrations in file-name order (`V10__` before `V1__`);
   `db::migrations::embedded` sorts them by version.
 
@@ -123,14 +126,18 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   source_category?, source_type?, original_amount_minor?, original_currency?, category_id?,
   category_source [rule|preset_map|user|ai_approved], rule_id?, transfer_group_id?, note?,
   user_note?, my_share_minor?, share_label?, reimbursable,
-  excluded_reason? [duplicate|bank_error|disputed|other], excluded_note?, excluded_at?,
+  excluded_reason? [duplicate|bank_error|disputed|other|superseded], excluded_note?,
+  excluded_at?, superseded_by? (V21: the row that replaced it, set exactly when the reason
+  is `superseded`),
   origin [imported|mirrored|manual], created_at)` — `mirrored` rows are the generated
   pot-side half of a sub-account transfer, and undoing their import batch removes them too;
   `manual` rows have no batch and no `external_id` or `fingerprint`; `note` is the imported note (read-only), `user_note` the
   user's; `category_id` is empty when the transaction is split; `merchant_display_source`
   (V7) is empty while the name is derived and set when a rule or the user named the
   merchant, which recomputes leave alone. The three `excluded_*`
-  fields are set and cleared together (`excluded_note` is required for `other`);
+  fields are set and cleared together (`excluded_note` is required for `other`); a
+  superseded row keeps its source ID, and the unique source ID index counts only rows that
+  aren't superseded;
   `created_at` is when the row entered the database (the batch commit for imported rows)
 - `transaction_split(id, transaction_id, line_no, amount_minor, category_id?,
   my_share_minor?, share_label?, user_note?)` — lines sum exactly to the parent amount
@@ -154,7 +161,7 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   gains `link_id`, `link_kind`, `target_id`, `target_split_id`, `in_reports` and
   `personal_minor` (see "Decision record: M1 wave 4", section B)
 - `duplicate_candidate(id, transaction_a, transaction_b, reason [overlapping_import|
-  manual_entry], status [pending|merged|dismissed], kept? [a|b], change_batch_id?,
+  manual_entry|unmatched_source_id (V20)], status [pending|merged|dismissed], kept? [a|b], change_batch_id?,
   created_at)` — a pair once, `transaction_a < transaction_b`, on one account; `kept` and
   the `duplicate_merge` batch are set exactly when merged (V10)
 - `balance_snapshot(id, account_id, batch_id?, date, balance_minor,
@@ -207,7 +214,9 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   fields are read-only, a suggestion is filed pending, a decided one stays decided and has
   `decided_at`, only a rejection has a reason (≤ 500 characters), and only an approval has
   a change batch or `applied_json` (a record of what it created, with no foreign keys)
-- `report(id, period, title, body_markdown, source_client, created_at)`
+- `report(id, period, title, body_markdown, source_client, created_at, access_level?
+  [aggregate|pseudonymous|standard])` — the level it was saved at (V19); NULL, saved
+  before V19, reads as `standard`
 - `mcp_client(name, enabled, access_level [aggregate|pseudonymous|standard],
   status [requested|known|ignored], created_at, last_seen_at?)` (V11) — keyed by the name
   `coffer mcp --client` was given (1–64 of `A–Z a–z 0–9 . _ -`, never `coffer`); an

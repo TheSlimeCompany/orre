@@ -26,17 +26,12 @@ async fn a_call_refused_with_migrations_pending_is_logged_after_migrating() {
     let client = fixture.connect("codex", AccessLevel::Aggregate).await;
     client.call_ok("list_categories", json!({})).await;
 
-    // As an older Coffer left it: the last migration not applied. V18 only
-    // adds `category.hidden`, so undoing it is dropping the column and its
-    // history row.
+    // As an older Coffer left it: the last migration not applied. Only its
+    // history row is removed, so the server sees it as pending; applying it
+    // again must work on its own result, which holds for the latest one
+    // (V21 rebuilds `"transaction"` from whatever the table holds). A later
+    // migration that can't run twice needs its effect undone here too.
     let conn = rusqlite::Connection::open(fixture.path()).unwrap();
-    assert_eq!(
-        Database::supported_schema_version(),
-        18,
-        "undo the latest migration here"
-    );
-    conn.execute_batch("ALTER TABLE category DROP COLUMN hidden")
-        .unwrap();
     conn.execute(
         "DELETE FROM refinery_schema_history WHERE version = ?1",
         [Database::supported_schema_version()],

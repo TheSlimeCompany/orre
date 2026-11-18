@@ -23,7 +23,7 @@ use std::sync::{Mutex, MutexGuard};
 use coffer_core::access_log::{self, NewEntry, pending};
 use coffer_core::db::Database;
 use coffer_core::inbox::{self, Filed, NewReport, NewSuggestion};
-use coffer_core::mcp_client::{self, ClientName};
+use coffer_core::mcp_client::{self, AccessLevel, ClientName};
 
 use crate::registry::ToolError;
 
@@ -121,13 +121,13 @@ impl Inbox<'_> {
         inbox::file_suggestion(&mut db, &self.store.client, suggestion).map_err(refusal)
     }
 
-    /// Saves a report and returns its ID.
-    pub fn save_report(&self, report: &NewReport) -> Result<i64, ToolError> {
+    /// Saves a report, recording the caller's `level`, and returns its ID.
+    pub fn save_report(&self, level: AccessLevel, report: &NewReport) -> Result<i64, ToolError> {
         let mut db = self
             .store
             .lock()
             .map_err(|_| ToolError::Internal("the database connection is unusable"))?;
-        inbox::insert_report(&mut db, &self.store.client, report).map_err(refusal)
+        inbox::insert_report_at(&mut db, &self.store.client, level, report).map_err(refusal)
     }
 }
 

@@ -7,10 +7,17 @@
 //! exclusion fields are user-facing, so an imported row's source fields stay
 //! as they are.
 //!
-//! - Every excluded row leaves spending, income, budgets and reports. Only
-//!   [`ExclusionReason::Duplicate`] also leaves the account's computed
-//!   balance, because a duplicate never happened at the bank; the other
-//!   reasons record money that really moved.
+//! - Every excluded row leaves spending, income, budgets and reports.
+//!   [`ExclusionReason::Duplicate`] and [`ExclusionReason::Superseded`] also
+//!   leave the account's computed balance: a duplicate never happened at the
+//!   bank, and a superseded row is replaced by the bank's correction of it.
+//!   The other reasons record money that really moved.
+//! - `superseded` is the import's, never the user's
+//!   ([`ExclusionReason::CHOOSABLE`] leaves it out): an import that takes a
+//!   bank's correction sets it, with the row that replaced it
+//!   ([`Exclusion::superseded_by`]), and only undoing that import clears it.
+//!   [`exclude`] and [`include_again`] refuse a superseded row
+//!   ([`Error::Superseded`]).
 //! - So only a change to whether a row counts in the balance meets the
 //!   account's lock: excluding a row as `duplicate`, including a `duplicate`
 //!   row again, or changing a reason to or from `duplicate`, on a row dated
@@ -43,10 +50,26 @@ pub enum ExclusionReason {
     Disputed,
     /// Anything else; needs a note saying what.
     Other,
+    /// Replaced by the bank's correction of it: a later import brought the
+    /// same source ID with another date or amount. It leaves the balance,
+    /// since the new row counts instead. Set only by an import, and cleared
+    /// only by undoing it.
+    Superseded,
 }
 
 impl ExclusionReason {
-    pub const ALL: [ExclusionReason; 4] = [
+    /// Every key `transaction.excluded_reason` takes.
+    pub const ALL: [ExclusionReason; 5] = [
+        ExclusionReason::Duplicate,
+        ExclusionReason::BankError,
+        ExclusionReason::Disputed,
+        ExclusionReason::Other,
+        ExclusionReason::Superseded,
+    ];
+
+    /// The reasons a user (or a rule) can choose: all but
+    /// [`ExclusionReason::Superseded`], which only an import sets.
+    pub const CHOOSABLE: [ExclusionReason; 4] = [
         ExclusionReason::Duplicate,
         ExclusionReason::BankError,
         ExclusionReason::Disputed,
@@ -60,6 +83,7 @@ impl ExclusionReason {
             ExclusionReason::BankError => "bank_error",
             ExclusionReason::Disputed => "disputed",
             ExclusionReason::Other => "other",
+            ExclusionReason::Superseded => "superseded",
         }
     }
 
@@ -68,9 +92,17 @@ impl ExclusionReason {
     }
 
     /// Whether a row excluded for this reason leaves the account's computed
-    /// balance. Only a duplicate does.
+    /// balance: a duplicate and a superseded row do.
     pub const fn leaves_balance(self) -> bool {
-        matches!(self, ExclusionReason::Duplicate)
+        matches!(
+            self,
+            ExclusionReason::Duplicate | ExclusionReason::Superseded
+        )
+    }
+
+    /// Whether a user (or a rule) can choose this reason.
+    pub const fn is_choosable(self) -> bool {
+        !matches!(self, ExclusionReason::Superseded)
     }
 
     /// Whether the reason needs a note.
@@ -87,6 +119,9 @@ pub struct Exclusion {
     pub note: Option<String>,
     /// When it was excluded: a UTC timestamp, `YYYY-MM-DDTHH:MM:SS.SSSZ`.
     pub excluded_at: String,
+    /// The row that replaced it, when it is
+    /// [`ExclusionReason::Superseded`].
+    pub superseded_by: Option<TransactionId>,
 }
 
 /// Why excluding or including a transaction failed. Messages never contain
@@ -101,6 +136,18 @@ pub enum Error {
 
     #[error("transaction {0} isn't excluded")]
     NotExcluded(TransactionId),
+
+    #[error("\"superseded\" is set only by importing the bank's correction")]
+    NotChoosable,
+
+    #[error(
+        "transaction {id} was replaced by the bank's correction, transaction {by}; undo that \
+         import to bring it back"
+    )]
+    Superseded {
+        id: TransactionId,
+        by: TransactionId,
+    },
 
     #[error(
         "transaction {id} is dated {date}, on or before {through}, which is locked, and this \
@@ -126,11 +173,15 @@ pub fn exclude(
     note: Option<&str>,
 ) -> Result<Exclusion, Error> {
     let note = note.filter(|note| !note.trim().is_empty());
+    if !reason.is_choosable() {
+        return Err(Error::NotChoosable);
+    }
     if reason.needs_note() && note.is_none() {
         return Err(Error::NoteRequired);
     }
     let tx = db.conn_mut().transaction()?;
     let stored = load(&tx, id)?;
+    stored.check_not_superseded(id)?;
     let was_out = stored.reason.is_some_and(ExclusionReason::leaves_balance);
     check_lock(&stored, id, was_out != reason.leaves_balance())?;
     tx.execute(
@@ -152,6 +203,7 @@ pub fn include_again(db: &mut Database, id: TransactionId) -> Result<(), Error> 
     let Some(reason) = stored.reason else {
         return Err(Error::NotExcluded(id));
     };
+    stored.check_not_superseded(id)?;
     check_lock(&stored, id, reason.leaves_balance())?;
     tx.execute(
         "UPDATE \"transaction\" SET excluded_reason = NULL, excluded_note = NULL, \
@@ -175,18 +227,31 @@ struct Stored {
     date: NaiveDate,
     /// Its account's lock date.
     locked_through: Option<NaiveDate>,
+    superseded_by: Option<TransactionId>,
+}
+
+impl Stored {
+    /// Refuses a change to a superseded row's exclusion: only undoing the
+    /// import that superseded it clears it.
+    fn check_not_superseded(&self, id: TransactionId) -> Result<(), Error> {
+        match self.superseded_by {
+            Some(by) => Err(Error::Superseded { id, by }),
+            None => Ok(()),
+        }
+    }
 }
 
 fn load(conn: &Connection, id: TransactionId) -> Result<Stored, Error> {
     conn.query_row(
-        "SELECT t.excluded_reason, t.date, a.reconciled_through FROM \"transaction\" t \
-         JOIN account a ON a.id = t.account_id WHERE t.id = ?1",
+        "SELECT t.excluded_reason, t.date, a.reconciled_through, t.superseded_by \
+         FROM \"transaction\" t JOIN account a ON a.id = t.account_id WHERE t.id = ?1",
         [id],
         |row| {
             Ok(Stored {
                 reason: reason(row)?,
                 date: account::date(row, "date")?,
                 locked_through: account::optional_date(row, "reconciled_through")?,
+                superseded_by: row.get("superseded_by")?,
             })
         },
     )
@@ -209,7 +274,8 @@ fn check_lock(stored: &Stored, id: TransactionId, changes_balance: bool) -> Resu
 
 fn exclusion_of(conn: &Connection, id: TransactionId) -> Result<Option<Exclusion>, Error> {
     let exclusion = conn.query_row(
-        "SELECT excluded_reason, excluded_note, excluded_at FROM \"transaction\" WHERE id = ?1",
+        "SELECT excluded_reason, excluded_note, excluded_at, superseded_by FROM \"transaction\" \
+         WHERE id = ?1",
         [id],
         |row| {
             let Some(reason) = reason(row)? else {
@@ -219,6 +285,7 @@ fn exclusion_of(conn: &Connection, id: TransactionId) -> Result<Option<Exclusion
                 reason,
                 note: row.get("excluded_note")?,
                 excluded_at: row.get("excluded_at")?,
+                superseded_by: row.get("superseded_by")?,
             }))
         },
     )?;

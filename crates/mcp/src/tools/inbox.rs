@@ -526,11 +526,14 @@ pub struct ReportArgs {
 }
 
 fn save_report(call: &Call<'_>, args: ReportArgs) -> Result<Reply<Saved>, ToolError> {
-    let id = call.inbox()?.save_report(&NewReport {
-        period: args.period,
-        title: args.title,
-        body_markdown: args.body_markdown,
-    })?;
+    let id = call.inbox()?.save_report(
+        call.level(),
+        &NewReport {
+            period: args.period,
+            title: args.title,
+            body_markdown: args.body_markdown,
+        },
+    )?;
     Ok(Reply::new(
         Saved {
             report_id: id,

@@ -656,7 +656,22 @@ fn unwritable(
             |row| row.get(0),
         )
     };
+    let superseded = || -> rusqlite::Result<bool> {
+        conn.query_row(
+            "SELECT superseded_by IS NOT NULL FROM \"transaction\" WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+    };
     let reason = match value {
+        // `superseded` is the import's own: only taking a bank's
+        // correction sets it, and only undoing that import clears it.
+        Value::Exclusion(Some(exclusion)) if !exclusion.reason.is_choosable() => {
+            Some("only an import of the bank's correction supersedes a transaction")
+        }
+        Value::Exclusion(_) if superseded()? => {
+            Some("the transaction was replaced by the bank's correction")
+        }
         Value::Links(links) if !links_fit(conn, id, links)? => {
             Some("the links no longer fit the transactions")
         }
@@ -1017,6 +1032,62 @@ impl Change {
     }
 }
 
+/// Sets a field of `transaction` to `value` with [`Recorder::set`]'s checks,
+/// without recording it. For a row the caller's own step is still making,
+/// whose undo removes the row (the bank's correction an import inserts:
+/// `import::supersede`). Returns whether the field changed.
+pub(crate) fn write(
+    conn: &Connection,
+    transaction: TransactionId,
+    value: Value,
+) -> Result<bool, Error> {
+    Ok(apply(conn, transaction, value)?.is_some())
+}
+
+/// Checks and writes `value` ([`Recorder::set`]), and returns the field's
+/// value before and after; `None` when nothing changed.
+fn apply(
+    conn: &Connection,
+    transaction: TransactionId,
+    value: Value,
+) -> Result<Option<(Value, Value)>, Error> {
+    let row = load_row(conn, transaction)?;
+    let field = value.field();
+    let old = read_field(conn, transaction, field)?;
+    if old == value {
+        return Ok(None);
+    }
+    // Excluding again for the same reason and note keeps the date.
+    if let (Value::Exclusion(Some(now)), Value::Exclusion(Some(new))) = (&old, &value)
+        && new.at.is_none()
+        && now.reason == new.reason
+        && now.note == new.note
+    {
+        return Ok(None);
+    }
+    if field.guarded_by_lock()
+        && let Some(through) = row.locked()
+    {
+        return Err(Error::Locked {
+            transaction,
+            date: row.date,
+            through,
+        });
+    }
+    if let Some(reason) = unwritable(conn, transaction, &row, &value)? {
+        return Err(Error::Unwritable {
+            transaction,
+            field,
+            reason,
+        });
+    }
+    write_field(conn, transaction, &value)?;
+    // What the database now holds: a timestamp filled in, tags sorted, a
+    // derived name recomputed.
+    let new = read_field(conn, transaction, field)?;
+    Ok((new != old).then_some((old, new)))
+}
+
 /// Makes changes to existing transactions and records them as one change
 /// batch. Runs inside the caller's DB transaction; nothing is recorded until
 /// [`Recorder::finish`].
@@ -1068,43 +1139,10 @@ impl Recorder {
         transaction: TransactionId,
         value: Value,
     ) -> Result<bool, Error> {
-        let row = load_row(conn, transaction)?;
         let field = value.field();
-        let old = read_field(conn, transaction, field)?;
-        if old == value {
+        let Some((old, new)) = apply(conn, transaction, value)? else {
             return Ok(false);
-        }
-        // Excluding again for the same reason and note keeps the date.
-        if let (Value::Exclusion(Some(now)), Value::Exclusion(Some(new))) = (&old, &value)
-            && new.at.is_none()
-            && now.reason == new.reason
-            && now.note == new.note
-        {
-            return Ok(false);
-        }
-        if field.guarded_by_lock()
-            && let Some(through) = row.locked()
-        {
-            return Err(Error::Locked {
-                transaction,
-                date: row.date,
-                through,
-            });
-        }
-        if let Some(reason) = unwritable(conn, transaction, &row, &value)? {
-            return Err(Error::Unwritable {
-                transaction,
-                field,
-                reason,
-            });
-        }
-        write_field(conn, transaction, &value)?;
-        // What the database now holds: a timestamp filled in, tags sorted, a
-        // derived name recomputed.
-        let new = read_field(conn, transaction, field)?;
-        if new == old {
-            return Ok(false);
-        }
+        };
         match self.index.get(&(transaction, field)) {
             Some(&at) => self.changes[at].new = new,
             None => {

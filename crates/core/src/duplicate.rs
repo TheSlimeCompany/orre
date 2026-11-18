@@ -4,10 +4,12 @@
 //! The import refuses exact duplicates by source ID, then fingerprint. What
 //! gets past it is the same payment told two ways: overlapping CSV and OFX
 //! exports of one account (different source-ID schemes, different wording),
-//! or a manual row entered ahead of the bank's export (a manual row has no
-//! dedupe keys). Such pairs are recorded as `pending` candidates
-//! (`migrations/V10__duplicate_candidate.sql`) for the user to merge or
-//! dismiss.
+//! a manual row entered ahead of the bank's export (a manual row has no
+//! dedupe keys), or the same row under another source ID (a bank that
+//! regenerates its IDs on each download, a file imported again through a
+//! mapping without its ID column). Such pairs are recorded as `pending`
+//! candidates (`migrations/V10__duplicate_candidate.sql`) for the user to
+//! merge or dismiss.
 //!
 //! # Detection
 //!
@@ -26,14 +28,37 @@
 //!   by the dedupe's occurrence index;
 //! - at least one was imported (`imported` or `mirrored`). Two manual rows
 //!   were both typed by the user, who can see them;
-//! - when both were imported, their `description_normalized` differs. Two
-//!   imported rows with the same text are the exact dedupe's business, or a
-//!   genuine repeat (the same coffee two days running). A manual row and an
-//!   imported row pair whatever their text: nothing else ever matches a
-//!   manual row against the bank's;
+//! - when both were imported, either their `description_normalized` differs
+//!   ([`CandidateReason::OverlappingImport`]) or the pair is an
+//!   [`CandidateReason::UnmatchedSourceId`] (below). Two imported rows with
+//!   the same text are otherwise the exact dedupe's business, or a genuine
+//!   repeat (the same coffee two days running). A manual row and an imported
+//!   row pair whatever their text: nothing else ever matches a manual row
+//!   against the bank's;
 //! - the pair isn't recorded already, in any status: a dismissed pair stays
 //!   dismissed (review queues decision point 5), and a merged one is done.
 //!   A third matching row makes a new pair with one of the two.
+//!
+//! # Unmatched source IDs
+//!
+//! A source ID is trusted without a look at the row, so a row whose ID the
+//! account has never seen is new even when an identical row is stored under
+//! another ID. Two rows are an `unmatched_source_id` pair when both are
+//! `imported` (a mirrored row follows its main row, which pairs on its own),
+//! on one account, from different imports, dated the same day (exactly, not
+//! within the window), with the same currency, amount and
+//! `description_normalized`, and at least one has a source ID while the two
+//! differ (a missing one differs from any). Pairs where neither has an ID stay
+//! out: the fingerprint's occurrence index owns them, and two coffees on one
+//! day are two rows.
+//!
+//! One guard keeps a genuine second coffee out: a stored row that the same
+//! import matched by source ID (`matched_by_source_id`, from the import's plan)
+//! is the very row the file repeats, so it is no counterpart of a new row with
+//! the same text and date. With regenerated IDs nothing matches, so every
+//! overlapping row pairs. [`scan`] has no import to guard against, so it pairs
+//! every such row it finds; a genuine pair it raises is dismissed once and
+//! stays dismissed.
 //!
 //! The merchant decides nothing on its own; it orders. Each transaction is
 //! in at most one *new* pair per run (a row in an earlier, pending pair can
@@ -245,12 +270,17 @@ pub enum CandidateReason {
     /// A manual row and an imported one: a row entered ahead of the
     /// bank's export.
     ManualEntry,
+    /// Two imported rows from different imports with the same date, amount
+    /// and text, whose source IDs differ (or one has none): a bank that
+    /// regenerates its IDs, or a file imported again without its ID column.
+    UnmatchedSourceId,
 }
 
 impl CandidateReason {
-    pub const ALL: [CandidateReason; 2] = [
+    pub const ALL: [CandidateReason; 3] = [
         CandidateReason::OverlappingImport,
         CandidateReason::ManualEntry,
+        CandidateReason::UnmatchedSourceId,
     ];
 
     /// The key stored in `duplicate_candidate.reason`.
@@ -258,6 +288,7 @@ impl CandidateReason {
         match self {
             CandidateReason::OverlappingImport => "overlapping_import",
             CandidateReason::ManualEntry => "manual_entry",
+            CandidateReason::UnmatchedSourceId => "unmatched_source_id",
         }
     }
 
@@ -354,6 +385,9 @@ pub struct NewCandidate {
 /// records them as `pending` candidates. Returns the new candidates in the
 /// order they were recorded: by lower, then higher transaction ID.
 ///
+/// `matched_by_source_id` is the stored transactions the import matched by
+/// source ID (module docs, "Unmatched source IDs").
+///
 /// Writes through `conn` without opening a transaction of its own, so it
 /// runs inside the import's commit. An undone batch has no transactions
 /// left and gets no candidates.
@@ -361,6 +395,7 @@ pub fn detect_for_batch(
     conn: &Connection,
     batch: BatchId,
     window: DuplicateWindow,
+    matched_by_source_id: &HashSet<TransactionId>,
 ) -> Result<Vec<NewCandidate>, Error> {
     let exists = conn
         .query_row("SELECT 1 FROM import_batch WHERE id = ?1", [batch], |_| {
@@ -376,7 +411,7 @@ pub fn detect_for_batch(
         "SELECT id FROM \"transaction\" WHERE batch_id = ?1 ORDER BY id",
         [batch.get()],
     )?;
-    let found = detect(conn, &transactions, window)?;
+    let found = detect(conn, &transactions, window, matched_by_source_id)?;
     tracing::debug!(
         batch = %batch,
         transactions = transactions.len(),
@@ -415,7 +450,7 @@ pub fn scan(
         }
         None => ids(&tx, "SELECT id FROM \"transaction\" ORDER BY id", params![])?,
     };
-    let found = detect(&tx, &transactions, window)?;
+    let found = detect(&tx, &transactions, window, &HashSet::new())?;
     tx.commit()?;
     tracing::info!(
         transactions = transactions.len(),
@@ -445,10 +480,10 @@ pub fn detect(
     conn: &Connection,
     transactions: &[TransactionId],
     window: DuplicateWindow,
+    matched_by_source_id: &HashSet<TransactionId>,
 ) -> Result<Vec<NewCandidate>, Error> {
     let sources: BTreeSet<TransactionId> = transactions.iter().copied().collect();
-    let mut rows: BTreeMap<TransactionId, Twin> = BTreeMap::new();
-    let mut edges: BTreeSet<Edge> = BTreeSet::new();
+    let mut edges: BTreeMap<Edge, CandidateReason> = BTreeMap::new();
 
     let mut load = conn.prepare(&format!(
         "SELECT {COLUMNS}, t.excluded_reason IS NULL AS eligible \
@@ -493,46 +528,38 @@ pub fn detect(
             )?
             .collect::<Result<Vec<_>, _>>()?;
         for candidate in found {
-            if !source.may_pair(&candidate) {
+            let Some(reason) = source.pairing(&candidate, matched_by_source_id) else {
                 continue;
-            }
+            };
             let edge = Edge::new(&source, &candidate);
             if recorded.query_row(params![edge.lower, edge.higher], |row| {
                 row.get::<_, bool>(0)
             })? {
                 continue;
             }
-            edges.insert(edge);
-            rows.insert(candidate.id, candidate);
+            edges.insert(edge, reason);
         }
-        rows.insert(source.id, source);
     }
 
     // Closest first; each row in at most one new pair.
     let mut taken: HashSet<TransactionId> = HashSet::new();
-    let mut chosen: Vec<(TransactionId, TransactionId)> = Vec::new();
-    for edge in edges {
+    let mut chosen: Vec<(TransactionId, TransactionId, CandidateReason)> = Vec::new();
+    for (edge, reason) in edges {
         if taken.contains(&edge.lower) || taken.contains(&edge.higher) {
             continue;
         }
         taken.insert(edge.lower);
         taken.insert(edge.higher);
-        chosen.push((edge.lower, edge.higher));
+        chosen.push((edge.lower, edge.higher, reason));
     }
-    chosen.sort_unstable();
+    chosen.sort_unstable_by_key(|&(lower, higher, _)| (lower, higher));
 
     let mut insert = conn.prepare(
         "INSERT INTO duplicate_candidate (transaction_a, transaction_b, reason) \
          VALUES (?1, ?2, ?3)",
     )?;
     let mut found = Vec::with_capacity(chosen.len());
-    for (lower, higher) in chosen {
-        let reason =
-            if rows[&lower].origin == Origin::Manual || rows[&higher].origin == Origin::Manual {
-                CandidateReason::ManualEntry
-            } else {
-                CandidateReason::OverlappingImport
-            };
+    for (lower, higher, reason) in chosen {
         insert.execute(params![lower, higher, reason.as_str()])?;
         found.push(NewCandidate {
             id: DuplicateCandidateId::new(conn.last_insert_rowid()),
@@ -546,7 +573,8 @@ pub fn detect(
 
 /// The columns [`Twin::from_row`] reads, from `"transaction" t`.
 const COLUMNS: &str = "t.id, t.account_id, t.batch_id, t.date, t.amount_minor, t.currency, \
-                       t.origin, t.description_normalized, t.merchant_display";
+                       t.origin, t.description_normalized, t.merchant_display, \
+                       t.external_id";
 
 /// What detection needs of a transaction: one possible copy.
 #[derive(Clone, Debug)]
@@ -560,6 +588,7 @@ struct Twin {
     origin: Origin,
     description: String,
     merchant: Option<String>,
+    source_id: Option<String>,
 }
 
 impl Twin {
@@ -575,21 +604,51 @@ impl Twin {
             origin: Origin::from_key(&origin).ok_or_else(|| account::invalid(row, "origin"))?,
             description: row.get("description_normalized")?,
             merchant: row.get("merchant_display")?,
+            source_id: row.get("external_id")?,
         })
     }
 
-    /// The rules beyond account, amount, date and exclusion, which the
-    /// query checks (module docs, "Detection").
-    fn may_pair(&self, other: &Twin) -> bool {
+    /// Whether the two are a candidate pair, and which kind: the rules
+    /// beyond account, amount, date window and exclusion, which the query
+    /// checks (module docs, "Detection").
+    fn pairing(
+        &self,
+        other: &Twin,
+        matched_by_source_id: &HashSet<TransactionId>,
+    ) -> Option<CandidateReason> {
         let manual = (
             self.origin == Origin::Manual,
             other.origin == Origin::Manual,
         );
         match manual {
-            (true, true) => false,
-            (false, false) => self.batch != other.batch && self.description != other.description,
-            _ => true,
+            (true, true) => None,
+            (false, false) if self.batch == other.batch => None,
+            (false, false) if self.description != other.description => {
+                Some(CandidateReason::OverlappingImport)
+            }
+            (false, false) if self.is_unmatched_source_id(other, matched_by_source_id) => {
+                Some(CandidateReason::UnmatchedSourceId)
+            }
+            (false, false) => None,
+            _ => Some(CandidateReason::ManualEntry),
         }
+    }
+
+    /// Same text (the caller checked), imported both, the same day, and
+    /// source IDs that differ, neither row being one the import matched by
+    /// source ID (module docs, "Unmatched source IDs").
+    fn is_unmatched_source_id(
+        &self,
+        other: &Twin,
+        matched_by_source_id: &HashSet<TransactionId>,
+    ) -> bool {
+        self.origin == Origin::Imported
+            && other.origin == Origin::Imported
+            && self.date == other.date
+            && (self.source_id.is_some() || other.source_id.is_some())
+            && self.source_id != other.source_id
+            && !matched_by_source_id.contains(&self.id)
+            && !matched_by_source_id.contains(&other.id)
     }
 }
 

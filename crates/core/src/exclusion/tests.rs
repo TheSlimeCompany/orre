@@ -113,6 +113,10 @@ fn gbp(minor: i64) -> Money {
 fn reason_keys_match_the_schema() {
     assert_eq!(
         ExclusionReason::ALL.map(ExclusionReason::as_str),
+        ["duplicate", "bank_error", "disputed", "other", "superseded"]
+    );
+    assert_eq!(
+        ExclusionReason::CHOOSABLE.map(ExclusionReason::as_str),
         ["duplicate", "bank_error", "disputed", "other"]
     );
     for reason in ExclusionReason::ALL {
@@ -124,7 +128,7 @@ fn reason_keys_match_the_schema() {
     let mut f = Fixture::new();
     let account = f.account(AccountKind::Cash);
     let id = f.manual(account, 3, -100);
-    for reason in ExclusionReason::ALL {
+    for reason in ExclusionReason::CHOOSABLE {
         exclude(&mut f.db, id, reason, Some("why")).unwrap();
         assert_eq!(get(&f.db, id).unwrap().unwrap().reason, reason);
     }
