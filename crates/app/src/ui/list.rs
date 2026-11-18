@@ -3,7 +3,8 @@
 //!
 //! - [`Keys`] says which keys a list answers to in its key context (↑↓
 //!   always; Home/End and ⇧↑⇧↓ where the list takes them) and binds them.
-//!   Its [`Keys::moves`] lists them as data, for a test-only `describe()`.
+//!   Its [`Keys::moves`] lists them as data, for a test-only `describe()`,
+//!   and [`Keys::hint`] is the toolbar's "↑↓ Select" ([`crate::ui::keys`]).
 //! - [`Move`] is one press of those keys. [`step`] (by id) and [`target`]
 //!   (by index) find the row it reaches, with the rule every list uses: stop
 //!   at the ends; with no row selected, or one that has gone, down and Home
@@ -22,6 +23,8 @@ use std::rc::Rc;
 
 use gpui_kit::base::actions::{SelectDown, SelectFirst, SelectLast, SelectUp};
 use gpui_kit::{App, InteractiveElement, KeyBinding, ListState, ScrollHandle, Window};
+
+use crate::ui::keys::Hint;
 
 gpui_kit::actions!(
     coffer_list,
@@ -57,6 +60,19 @@ impl Move {
     /// replacing it.
     pub fn extends(self) -> bool {
         matches!(self, Self::Extend(_))
+    }
+
+    /// What the move is called in a test-only `describe()`.
+    #[cfg(test)]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::By(step) if step < 0 => "Move up",
+            Self::By(_) => "Move down",
+            Self::Extend(step) if step < 0 => "Extend the selection up",
+            Self::Extend(_) => "Extend the selection down",
+            Self::First => "Move to the first row",
+            Self::Last => "Move to the last row",
+        }
     }
 }
 
@@ -150,12 +166,25 @@ impl Keys {
         moves
     }
 
+    /// The toolbar's hint for the keys: "↑↓ Select" (ROADMAP U.7). Home,
+    /// End and ⇧↑⇧↓ aren't hinted.
+    pub const fn hint(&self) -> Hint {
+        Hint {
+            cap: "↑↓",
+            label: "Select",
+        }
+    }
+
     /// Binds the keys in the list's context. Call once, from the view's
     /// `init`.
     pub fn bind(&self, cx: &mut App) {
+        cx.bind_keys(self.bindings());
+    }
+
+    /// The bindings [`Keys::bind`] makes.
+    pub fn bindings(&self) -> Vec<KeyBinding> {
         let context = Some(self.context);
-        let bindings: Vec<KeyBinding> = self
-            .moves()
+        self.moves()
             .into_iter()
             .map(|(key, to)| match to {
                 Move::By(step) if step < 0 => KeyBinding::new(key, SelectUp, context),
@@ -165,8 +194,7 @@ impl Keys {
                 Move::First => KeyBinding::new(key, SelectFirst, context),
                 Move::Last => KeyBinding::new(key, SelectLast, context),
             })
-            .collect();
-        cx.bind_keys(bindings);
+            .collect()
     }
 }
 

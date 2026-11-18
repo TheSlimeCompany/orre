@@ -318,6 +318,45 @@ fn keys_move_approve_and_reject(cx: &mut TestAppContext) {
     assert!(!key_works(&shown, "escape"));
 }
 
+/// U.7: the keys bound in the Inbox's context are exactly [`view::KEYS`],
+/// every hinted key is bound, and every bound key but Escape is hinted, so
+/// the toolbar, the keymap and `describe()` can't drift.
+#[gpui_kit::test]
+fn the_toolbar_hints_every_bound_key(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let (_shell, inbox, cx) = open(cx, &scratch);
+    cx.update(|_, cx| view::KEYS.assert_bound(cx));
+    let shown = describe(&inbox, cx);
+    let hinted: Vec<&str> = shown.toolbar_keys.iter().map(|(_, label)| *label).collect();
+    assert_eq!(hinted, ["Approve", "Reject", "Select"]);
+    // Each hint's keys are among the keys `describe()` lists (bound,
+    // above), and the only key listed without a hint is Escape.
+    for key in view::KEYS.keys() {
+        for stroke in key.keys() {
+            assert!(
+                shown
+                    .actions
+                    .iter()
+                    .any(|action| action.key == Some(*stroke)),
+                "{stroke} isn't listed"
+            );
+        }
+        assert_eq!(key.hint().is_none(), key.keys() == ["escape"], "{key:?}");
+    }
+    let moves: Vec<Option<&str>> = view::KEYS
+        .list()
+        .moves()
+        .iter()
+        .map(|(stroke, _)| Some(*stroke))
+        .collect();
+    assert_eq!(moves, [Some("up"), Some("down")]);
+    assert!(
+        moves
+            .iter()
+            .all(|stroke| shown.actions.iter().any(|action| action.key == *stroke))
+    );
+}
+
 #[gpui_kit::test]
 fn approve_all_leaves_a_wide_rule_out(cx: &mut TestAppContext) {
     let scratch = Scratch::new(true);
@@ -435,7 +474,7 @@ fn a_filtered_group_is_described_in_full(cx: &mut TestAppContext) {
         InboxDescription {
             title: "Pending",
             caption: "1 suggestion · nothing changes until you approve".to_owned(),
-            toolbar_keys: vec![("A", "Approve"), ("R", "Reject"), ("↑↓", "Move")],
+            toolbar_keys: vec![("A", "Approve"), ("R", "Reject"), ("↑↓", "Select")],
             empty: None,
             groups: vec![GroupDescription {
                 kind: "Merchant names",
@@ -465,9 +504,9 @@ fn a_filtered_group_is_described_in_full(cx: &mut TestAppContext) {
             actions: vec![
                 key("Approve", "a", false),
                 key("Reject", "r", false),
+                key("Clear the selection", "escape", false),
                 key("Move up", "up", true),
                 key("Move down", "down", true),
-                key("Clear the selection", "escape", false),
             ],
         }
     );

@@ -2,8 +2,9 @@
 //! CHECKS row is selected (`docs/DESIGN.md` → "Review queues"; Paper
 //! `8SE-0`, `98K-0`, `9MQ-0`).
 //!
-//! The toolbar (52px) names the queue, with its keys for Possible
-//! duplicates (M merge, N not duplicates, ←→ keep, ↑↓ move); the body is
+//! The toolbar (52px) names the queue, with the hints of its keys
+//! ([`KEYS`]) for Possible duplicates (M Merge, N Not duplicates, ←→ Keep,
+//! ↑↓ Select); the body is
 //! [`super::duplicates`] or [`super::balances`]; after a merge or a
 //! dismissal the D6.3 undo bar floats at the foot of the canvas. A change
 //! core refuses is said under the toolbar in caption type, `danger`.
@@ -19,7 +20,7 @@ use gpui_kit::{
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
-use crate::ui::kbd::Kbd;
+use crate::ui::keys::{Key, ViewKeys, hints};
 use crate::ui::list::{Keys, ListKeysExt as _, Move};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
@@ -31,8 +32,19 @@ use super::{Checks, Outcome, Queue};
 /// The key context of the queues' canvas, where M, N, ←→ and ↑↓ work.
 pub const CONTEXT: &str = "CofferChecks";
 
-/// The queues' movement keys: ↑↓ through the open queue's rows.
-pub const KEYS: Keys = Keys::new(CONTEXT);
+/// The queues' keys, declared once (ROADMAP U.7): [`super::init`] binds
+/// them and the toolbar hints them. ↑↓ move through the open queue's rows;
+/// M, N and ←→ decide the selected pair in Possible duplicates; Escape
+/// (not hinted) clears the selection.
+pub const KEYS: ViewKeys = ViewKeys::new(
+    Keys::new(CONTEXT),
+    &[
+        Key::new::<MergeSelected>(&["m"], "M", "Merge"),
+        Key::new::<DismissSelected>(&["n"], "N", "Not duplicates"),
+        Key::new::<KeepOther>(&["left", "right"], "←→", "Keep"),
+        Key::new::<Cancel>(&["escape"], "Esc", "Clear the selection").unhinted(),
+    ],
+);
 
 gpui_kit::actions!(
     coffer_checks,
@@ -194,19 +206,6 @@ impl ChecksView {
                 ),
             ),
         };
-        let key = |keys: &'static str, label: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(spacing::S1_5)
-                .child(Kbd::new(keys))
-                .child(
-                    div()
-                        .text_role(typography::CAPTION)
-                        .text_color(color::TEXT_MUTED)
-                        .child(label),
-                )
-        };
         div()
             .flex()
             .flex_none()
@@ -235,19 +234,7 @@ impl ChecksView {
             )
             .when(
                 checks.queue() == Some(Queue::Duplicates) && checks.pending_pairs() > 0,
-                |this| {
-                    this.child(
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(spacing::S3)
-                            .child(key("M", "Merge"))
-                            .child(key("N", "Not duplicates"))
-                            .child(key("←→", "Keep"))
-                            .child(key("↑↓", "Move")),
-                    )
-                },
+                |this| this.child(hints(KEYS.hints())),
             )
     }
 
@@ -351,7 +338,7 @@ impl Render for ChecksView {
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_list_move(
-                &KEYS,
+                KEYS.list(),
                 cx.listener(|this, to: &Move, _, cx| {
                     this.update(cx, |checks, cx| match checks.queue() {
                         Some(Queue::Balances) => checks.select_next_check(*to, cx),

@@ -20,6 +20,7 @@ pub mod field;
 pub mod icon;
 pub mod inspector;
 pub mod kbd;
+pub mod keys;
 pub mod list;
 pub mod list_row;
 pub mod marker;

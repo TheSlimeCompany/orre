@@ -183,6 +183,12 @@ per call through its own store and changes data only through core.
   them in its `init`; `on_list_move` hands it one `list::Move` per key; `list::step`
   (by id) and `list::target` (by index) find the row reached, stopping at the ends;
   `list::Reveal` scrolls it into view. The view keeps its selection and its look.
+  `Keys::hint` is the toolbar's "↑↓ Select".
+- `ui::keys` (U.7): a view's keys as data. A `keys::ViewKeys` constant holds its
+  `list::Keys` and its decision keys (`keys::Key`: keystrokes, action, key cap, label;
+  Escape `unhinted`). `bind` binds them, `keys::hints(KEYS.hints())` draws the toolbar's
+  hints, a test-only `describe()` lists them, and `ViewKeys::assert_bound` (tests) checks
+  the keymap holds exactly them. Used by the Inbox and the review queues (Checks).
 - `format`: writes and reads money and dates.
 - `showcase`: the component showcase, `coffer --showcase`.
 

@@ -31,7 +31,7 @@ use super::view::{
     self, AmountText, FooterText, ItemText, LineText, MerchantCell, MerchantText, NowText,
     OpenLine, OpenText, RowText, SEVERAL, after_label, category_now_words, now_words,
 };
-use super::{Inbox, KEY_APPROVE, KEY_CLEAR, KEY_DOWN, KEY_REJECT, KEY_UP, Outcome};
+use super::{Inbox, Outcome};
 
 /// What the Inbox shows ([`Inbox::describe`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub struct InboxDescription {
     /// The toolbar's caption: "15 suggestions · nothing changes until you
     /// approve".
     pub caption: String,
-    /// The keys the toolbar lists, with what they do.
+    /// The keys the toolbar lists, with what they do ([`view::KEYS`]).
     pub toolbar_keys: Vec<(&'static str, &'static str)>,
     /// The empty state's title and body, when no group is listed.
     pub empty: Option<(&'static str, String)>,
@@ -53,7 +53,8 @@ pub struct InboxDescription {
     pub inspector: InspectorDescription,
     /// The bar after an approval: what changed.
     pub confirmation: Option<String>,
-    /// The canvas's keys, and whether each does anything now.
+    /// The canvas's keys ([`view::KEYS`]: its own, then ↑↓), and whether
+    /// each does anything now.
     pub actions: Vec<Action>,
 }
 
@@ -277,6 +278,33 @@ fn inspector(inbox: &Inbox) -> InspectorDescription {
     }))
 }
 
+/// The canvas's keys, from [`view::KEYS`]: A and R work on a pending
+/// suggestion that's selected, Escape while one is selected, ↑↓ while
+/// there are rows.
+fn actions(pending: bool, selected: bool, has_rows: bool) -> Vec<Action> {
+    let own = view::KEYS.keys().iter().flat_map(|key| {
+        let enabled = if key.label() == view::CLEAR.label() {
+            selected
+        } else {
+            assert!(
+                [view::APPROVE.label(), view::REJECT.label()].contains(&key.label()),
+                "say when the Inbox's new key {:?} works",
+                key.label()
+            );
+            pending && selected
+        };
+        key.keys()
+            .iter()
+            .map(move |stroke| Action::keyed(key.label(), stroke, enabled))
+    });
+    let moves = view::KEYS
+        .list()
+        .moves()
+        .into_iter()
+        .map(|(stroke, to)| Action::keyed(to.label(), stroke, has_rows));
+    own.chain(moves).collect()
+}
+
 impl Inbox {
     /// What the Inbox shows now, as plain data (module docs).
     pub fn describe(&self) -> InboxDescription {
@@ -317,7 +345,11 @@ impl Inbox {
             title,
             caption,
             toolbar_keys: if pending {
-                view::TOOLBAR_KEYS.to_vec()
+                view::KEYS
+                    .hints()
+                    .into_iter()
+                    .map(|hint| (hint.cap, hint.label))
+                    .collect()
             } else {
                 Vec::new()
             },
@@ -335,13 +367,7 @@ impl Inbox {
                 Some(Outcome::Done(message)) => Some(message.to_string()),
                 _ => None,
             },
-            actions: vec![
-                Action::keyed("Approve", KEY_APPROVE, pending && selected.is_some()),
-                Action::keyed("Reject", KEY_REJECT, pending && selected.is_some()),
-                Action::keyed("Move up", KEY_UP, has_rows),
-                Action::keyed("Move down", KEY_DOWN, has_rows),
-                Action::keyed("Clear the selection", KEY_CLEAR, selected.is_some()),
-            ],
+            actions: actions(pending, selected.is_some(), has_rows),
             groups,
         }
     }

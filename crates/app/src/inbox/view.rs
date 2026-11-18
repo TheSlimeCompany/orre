@@ -2,7 +2,7 @@
 //! impact preview"; Paper `564-0`, `ABK-0`, `DL8-0`, `EWZ-0`).
 //!
 //! - **Toolbar** (52px): the status in title type, a caption, and the
-//!   keys: A approve, R reject, ↑↓ move.
+//!   keys' hints, from [`KEYS`]: A Approve, R Reject, ↑↓ Select.
 //! - **Groups** are table sections, one per kind and source, widest reach
 //!   first: a 28px header with the kind's lanes, 28px rows, and a footer
 //!   with "Approve all (n)" / "Reject all" and the source. Approve and
@@ -28,7 +28,7 @@ use coffer_core::inbox::{
 };
 use coffer_core::link::LinkKind;
 use coffer_core::reporting::palette::Palette;
-use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -41,7 +41,8 @@ use crate::theme::tokens::{color, radius, shadow, size, spacing, typography, wei
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
 use crate::ui::empty_state::EmptyState;
 use crate::ui::icon::Glyph;
-use crate::ui::kbd::Kbd;
+use crate::ui::keys::{Key, ViewKeys, hints};
+use crate::ui::list::{Keys, ListKeysExt as _, Move};
 use crate::ui::marker::Marker;
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
@@ -55,6 +56,18 @@ use super::{GroupKey, Inbox, Outcome, Scope};
 
 /// The key context of the Inbox's canvas, where A, R and ↑↓ work.
 pub const CONTEXT: &str = "CofferInbox";
+
+/// A: approve the selected suggestion.
+pub(super) const APPROVE: Key = Key::new::<ApproveSelected>(&["a"], "A", "Approve");
+/// R: reject it.
+pub(super) const REJECT: Key = Key::new::<RejectSelected>(&["r"], "R", "Reject");
+/// Escape: clear the selection. Not hinted.
+pub(super) const CLEAR: Key =
+    Key::new::<Cancel>(&["escape"], "Esc", "Clear the selection").unhinted();
+
+/// The Inbox's keys, declared once (ROADMAP U.7): [`super::init`] binds
+/// them, the toolbar hints them and the test-only `describe()` lists them.
+pub const KEYS: ViewKeys = ViewKeys::new(Keys::new(CONTEXT), &[APPROVE, REJECT, CLEAR]);
 
 gpui_kit::actions!(
     coffer_inbox,
@@ -78,11 +91,6 @@ fn action_lane() -> gpui_kit::Pixels {
 fn open_indent() -> gpui_kit::Pixels {
     spacing::S2 + spacing::S4
 }
-
-/// The keys the toolbar lists while suggestions are pending, with what
-/// they do.
-pub(super) const TOOLBAR_KEYS: [(&str, &str); 3] =
-    [("A", "Approve"), ("R", "Reject"), ("↑↓", "Move")];
 
 /// The toolbar's title (the status) and caption.
 pub(super) fn toolbar_text(inbox: &Inbox) -> (&'static str, String) {
@@ -155,19 +163,6 @@ impl InboxView {
 
     fn render_toolbar(&self, inbox: &Inbox) -> impl IntoElement {
         let (title, caption) = toolbar_text(inbox);
-        let key = |keys: &'static str, label: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(spacing::S1_5)
-                .child(Kbd::new(keys))
-                .child(
-                    div()
-                        .text_role(typography::CAPTION)
-                        .text_color(color::TEXT_MUTED)
-                        .child(label),
-                )
-        };
         div()
             .flex()
             .flex_none()
@@ -195,14 +190,7 @@ impl InboxView {
                     .child(caption),
             )
             .when(inbox.status() == SuggestionStatus::Pending, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(spacing::S3)
-                        .children(TOOLBAR_KEYS.map(|(keys, label)| key(keys, label))),
-                )
+                this.child(hints(KEYS.hints()))
             })
     }
 
@@ -1818,12 +1806,12 @@ impl Render for InboxView {
         let root = div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &SelectUp, _, cx| {
-                this.update_inbox(cx, |inbox, cx| inbox.select_next(-1, cx))
-            }))
-            .on_action(cx.listener(|this, _: &SelectDown, _, cx| {
-                this.update_inbox(cx, |inbox, cx| inbox.select_next(1, cx))
-            }))
+            .on_list_move(
+                KEYS.list(),
+                cx.listener(|this, to: &Move, _, cx| {
+                    this.update_inbox(cx, |inbox, cx| inbox.select_next(*to, cx))
+                }),
+            )
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 this.update_inbox(cx, |inbox, cx| inbox.select(None, cx))
             }))

@@ -419,3 +419,33 @@ fn owed_to_you_links_a_matched_payment_and_renames_a_person(cx: &mut TestAppCont
             .is_err()
     );
 }
+
+/// U.7: the keys bound in the queues' context are exactly [`view::KEYS`],
+/// every hinted key is bound, and every bound key but Escape is hinted, so
+/// the toolbar and the keymap can't drift.
+#[gpui_kit::test]
+fn the_toolbar_hints_every_bound_key(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+        view::KEYS.assert_bound(cx);
+    });
+    let hints: Vec<(&str, &str)> = view::KEYS
+        .hints()
+        .into_iter()
+        .map(|hint| (hint.cap, hint.label))
+        .collect();
+    assert_eq!(
+        hints,
+        [
+            ("M", "Merge"),
+            ("N", "Not duplicates"),
+            ("←→", "Keep"),
+            ("↑↓", "Select"),
+        ]
+    );
+    for key in view::KEYS.keys() {
+        assert_eq!(key.hint().is_none(), key.keys() == ["escape"], "{key:?}");
+    }
+}

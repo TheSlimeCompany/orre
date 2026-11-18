@@ -1122,7 +1122,8 @@ replaced by filters:
   suggestions). D6.4 adds a CHECKS section between INBOX and KIND: see "Review queues".
 - Toolbar (52px, bottom hairline): "Pending" in title type, caption "12 suggestions ·
   nothing changes until you approve", and kbd hints on the right: A Approve, R Reject, ↑↓
-  Move.
+  Select ("Move" until U.7; ↑↓ reads "Select" in every toolbar, user 2026-11-18). Each
+  hint comes from the same entry as its key binding (`ui::keys`), so they can't drift.
 - **Groups are table sections, not agent cards** (changed from the proposal). With a dozen
   rows a moldavite card per group was heavy, and the table language lines up with
   Transactions. Each group: a 28px header with the group name (11/14 600
@@ -1427,7 +1428,7 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
   reimbursements and shared costs").
 - **Possible duplicates** (`8SE-0`). Toolbar: "Possible duplicates", caption "3 pairs ·
   nothing changes until you merge", kbd hints M Merge, N Not duplicates, ←→ Keep, ↑↓
-  Move. A table (header and 28px rows like the Inbox's, no action lane): PAIR (flex: the
+  Select (was "Move", as in the Inbox). A table (header and 28px rows like the Inbox's, no action lane): PAIR (flex: the
   two merchant names joined by a `text-muted` "and") · ACCOUNT (140) · WHY FLAGGED (180:
   "1 day apart, text differs") · DATES (72, mono, `text-muted`) · AMOUNT (96, mono).
   - **The selected pair opens in place** into a side-by-side comparison below its row.

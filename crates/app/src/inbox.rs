@@ -33,6 +33,7 @@ use coffer_core::inbox::preview::Covered;
 use coffer_core::inbox::{COFFER_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
 use gpui_kit::{Context, SharedString};
 
+use crate::ui::list::{self, Move};
 use store::{Entry, InboxData, InboxStore};
 
 /// The order the kinds are listed in, widest reach first (`DESIGN.md` →
@@ -45,26 +46,12 @@ pub const KIND_ORDER: [SuggestionKind; 5] = [
     SuggestionKind::Categorization,
 ];
 
-/// Binds the Inbox's keys: A approve, R reject, ↑↓ move, Escape clears the
-/// selection. Call once, before the first [`view::InboxView`].
+/// Binds the Inbox's keys ([`view::KEYS`]): A approve, R reject, ↑↓
+/// select, Escape clears the selection. Call once, before the first
+/// [`view::InboxView`].
 pub fn init(cx: &mut gpui_kit::App) {
-    use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
-    cx.bind_keys([
-        KeyBinding::new(KEY_UP, SelectUp, Some(view::CONTEXT)),
-        KeyBinding::new(KEY_DOWN, SelectDown, Some(view::CONTEXT)),
-        KeyBinding::new(KEY_CLEAR, Cancel, Some(view::CONTEXT)),
-        KeyBinding::new(KEY_APPROVE, view::ApproveSelected, Some(view::CONTEXT)),
-        KeyBinding::new(KEY_REJECT, view::RejectSelected, Some(view::CONTEXT)),
-    ]);
+    view::KEYS.bind(cx);
 }
-
-/// The keys [`init`] binds.
-const KEY_UP: &str = "up";
-const KEY_DOWN: &str = "down";
-const KEY_CLEAR: &str = "escape";
-const KEY_APPROVE: &str = "a";
-const KEY_REJECT: &str = "r";
 
 /// Where the suggestions come from.
 enum Source {
@@ -300,22 +287,12 @@ impl Inbox {
         self.select(next, cx);
     }
 
-    /// Moves the selection `step` rows (↑↓), stopping at the ends; with
-    /// nothing selected, down selects the first and up the last.
-    pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
-        let order = self.order();
-        if order.is_empty() {
-            return;
+    /// Moves the selection (↑↓, [`list::step`]): stopping at the ends;
+    /// with nothing selected, down selects the first and up the last.
+    pub fn select_next(&mut self, to: Move, cx: &mut Context<Self>) {
+        if let Some(next) = list::step(&self.order(), self.selected.as_ref(), to) {
+            self.select(Some(next), cx);
         }
-        let next = match self
-            .selected
-            .and_then(|id| order.iter().position(|row| *row == id))
-        {
-            Some(at) => at.saturating_add_signed(step).min(order.len() - 1),
-            None if step < 0 => order.len() - 1,
-            None => 0,
-        };
-        self.select(Some(order[next]), cx);
     }
 
     /// Looks up the rule that would cover the selected categorisation.

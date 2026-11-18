@@ -44,20 +44,11 @@ use crate::accounts::store::StoreError;
 use crate::ui::list::{self, Move};
 use store::{ChecksData, ChecksStore};
 
-/// Binds the queues' keys: M merge, N not duplicates, ←→ keep the other
-/// row, ↑↓ move, Escape clears the selection. Call once, before the first
-/// [`view::ChecksView`].
+/// Binds the queues' keys ([`view::KEYS`]): M merge, N not duplicates,
+/// ←→ keep the other row, ↑↓ select, Escape clears the selection. Call
+/// once, before the first [`view::ChecksView`].
 pub fn init(cx: &mut gpui_kit::App) {
-    use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::Cancel;
     view::KEYS.bind(cx);
-    cx.bind_keys([
-        KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
-        KeyBinding::new("m", view::MergeSelected, Some(view::CONTEXT)),
-        KeyBinding::new("n", view::DismissSelected, Some(view::CONTEXT)),
-        KeyBinding::new("left", view::KeepOther, Some(view::CONTEXT)),
-        KeyBinding::new("right", view::KeepOther, Some(view::CONTEXT)),
-    ]);
 }
 
 /// The queues under CHECKS.
