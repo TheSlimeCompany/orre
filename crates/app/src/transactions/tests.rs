@@ -1151,6 +1151,41 @@ fn tab_reaches_the_column_titles_in_order_after_the_toolbar(cx: &mut TestAppCont
 }
 
 #[gpui_kit::test]
+fn clicking_a_column_title_sorts_and_leaves_the_keys_with_the_table(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let id = fixture::id;
+    let pret = id("txn-pret-09");
+    click(row_id(pret), cx);
+    click(TransactionColumn::Amount.element_id(), cx);
+    assert_eq!(
+        focused_column(&view, cx),
+        None,
+        "a click doesn't focus the title"
+    );
+    // Enter edits the keyboard row's category, as before titles took focus,
+    // rather than sorting again.
+    press("enter", cx);
+    assert_eq!(open_menu(&view, cx), Some(Menu::Row(pret)));
+}
+
+#[gpui_kit::test]
+fn tab_reaches_add_tag_in_the_inspector(cx: &mut TestAppContext) {
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    click(row_id(fixture::id("txn-pret-09")), cx);
+    let tag_focus = view.read_with(cx, |view, _| view.editor.tag_focus.clone());
+    let reached = (0..60).any(|_| {
+        press("tab", cx);
+        cx.update(|window, _| tag_focus.is_focused(window))
+    });
+    assert!(
+        reached,
+        "\"+ Tag\" is a Tab stop, so a tag can be removed from the keyboard"
+    );
+}
+
+#[gpui_kit::test]
 fn enter_and_space_on_a_focused_title_sort_and_cycle(cx: &mut TestAppContext) {
     let (view, mut cx) = open_rooted(cx);
     let cx = &mut cx;

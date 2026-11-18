@@ -44,7 +44,17 @@ use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
-type SortHandler = Rc<dyn Fn(TransactionColumn, &mut Window, &mut App)>;
+type SortHandler = Rc<dyn Fn(TransactionColumn, SortedBy, &mut Window, &mut App)>;
+
+/// How a column title was asked to sort.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortedBy {
+    /// A click. The title took focus on the mouse-down, so the view puts it
+    /// back where it belongs (the table).
+    Click,
+    /// Enter or Space on the focused title, which keeps focus.
+    Key,
+}
 
 /// A table column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,10 +211,11 @@ impl TransactionHeader {
         self
     }
 
-    /// Runs `handler` with the column whose title was clicked.
+    /// Runs `handler` with the column whose title was clicked, or sorted
+    /// from the keyboard, and which of the two it was.
     pub fn on_sort(
         mut self,
-        handler: impl Fn(TransactionColumn, &mut Window, &mut App) + 'static,
+        handler: impl Fn(TransactionColumn, SortedBy, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_sort = Some(Rc::new(handler));
         self
@@ -301,13 +312,13 @@ impl RenderOnce for TransactionHeader {
                 .when_some(handler, |this, handler| {
                     let keyed = handler.clone();
                     this.cursor_pointer()
-                        .on_click(move |_, window, cx| handler(column, window, cx))
+                        .on_click(move |_, window, cx| handler(column, SortedBy::Click, window, cx))
                         .when_some(focus.clone(), |this, focus| {
                             this.track_focus(&focus)
                                 .key_context(TITLE_CONTEXT)
                                 .on_action(move |_: &Confirm, window, cx| {
                                     cx.stop_propagation();
-                                    keyed(column, window, cx)
+                                    keyed(column, SortedBy::Key, window, cx)
                                 })
                         })
                 })

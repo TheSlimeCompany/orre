@@ -1104,7 +1104,7 @@ stays as it is.
 
 ---
 
-## UI review — agent-readable views and keyboard paths ✅
+## UI review — agent-readable views and keyboard paths ✅ (U.5 deferred)
 
 From reviewing Vercel's UI SDK against Coffer on 2026-11-17 (UI SDK itself is web-only
 and isn't used). Three ideas apply: views that state their contents and actions as data

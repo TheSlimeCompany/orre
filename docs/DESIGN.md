@@ -2566,8 +2566,8 @@ and ⌥ is Alt on Linux and Windows. No new tokens or components.
 - **Already have a keyboard path** (hover only styles them, or a key exists): Inbox
   approve ✓ / reject ✕ (shown on hover or selection; A and R act on the selected row);
   agent-card rows (Tab stops that reveal their buttons on focus too); the tag pill's ✕
-  (shown on hover; the "+ Tag" menu removes a tag too, so "+ Tag" must be a Tab stop:
-  its focus handle wasn't marked as one at `a2fd70d`); the category cell's double-click
+  (shown on hover; the "+ Tag" menu removes a tag too, so "+ Tag" is a Tab stop, in
+  Transactions' inspector and in Rules' Add tag action, since U.9); the category cell's double-click
   (Enter); dropping a file on the window (⌘I) or on Import's drop zone ("Choose file…");
   closing a menu by clicking outside (Escape); a rule's "Never reached" fix ("Move above
   rule 2" is a button).

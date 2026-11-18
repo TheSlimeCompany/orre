@@ -242,6 +242,11 @@ pub struct Rules {
     history: HistoryPane,
     categories: CategoriesPane,
     outcome: Option<Outcome>,
+    /// The rules' order right after the last keyboard move, while its bar
+    /// is up: a reload that finds another order (a rule added or moved
+    /// elsewhere) drops the bar, so Undo can't put the rule back at a stale
+    /// place.
+    moved_order: Option<Vec<RuleId>>,
     load_error: Option<SharedString>,
 }
 
@@ -283,6 +288,7 @@ impl Rules {
             history: HistoryPane::default(),
             categories: CategoriesPane::default(),
             outcome: None,
+            moved_order: None,
             load_error: None,
         }
     }
@@ -345,6 +351,15 @@ impl Rules {
     /// asks.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         self.load();
+        if let Some(order) = self.moved_order.take()
+            && matches!(self.outcome, Some(Outcome::Moved(_)))
+        {
+            if order == self.rule_order() {
+                self.moved_order = Some(order);
+            } else {
+                self.outcome = None;
+            }
+        }
         self.reload_rule();
         self.reload_name();
         self.reload_batch();
@@ -883,8 +898,18 @@ impl Rules {
         };
         if self.move_to(id, to, cx).is_ok() {
             self.outcome = Some(Outcome::Moved(Moved { rule: id, from }));
+            self.moved_order = Some(self.rule_order());
             cx.notify();
         }
+    }
+
+    /// Every stored rule, in order.
+    fn rule_order(&self) -> Vec<RuleId> {
+        self.data
+            .rules
+            .iter()
+            .map(|summary| summary.rule.id())
+            .collect()
     }
 
     /// The undo bar's line for a keyboard move: "Moved “Merchant contains

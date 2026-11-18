@@ -348,3 +348,26 @@ fn a_refused_move_is_said_as_a_drops_is(cx: &mut TestAppContext) {
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.move_rule(trip, 0, cx)));
     assert_eq!(outcome(&rules, cx), said);
 }
+
+#[gpui_kit::test]
+fn a_reload_that_finds_another_order_drops_the_bar(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    let trip = rule(&scratch, 2);
+    select(&shell, &rules, trip, cx);
+    press("alt-up", cx);
+    assert!(matches!(outcome(&rules, cx), Some(Outcome::Moved(_))));
+
+    // Read again with nothing changed (back from another view): the bar
+    // stays, and Undo still knows where the rule began.
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reload(cx)));
+    assert!(matches!(outcome(&rules, cx), Some(Outcome::Moved(_))));
+
+    // Moved elsewhere (another rule put first, as an approved suggestion
+    // could): the place Undo would use is stale, so the bar goes.
+    let last = rule(&scratch, 13);
+    core_rule::move_to(&mut scratch.db(), last, 0).unwrap();
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reload(cx)));
+    assert_eq!(outcome(&rules, cx), None);
+    assert_eq!(describe(&shell, cx).bar, None);
+}

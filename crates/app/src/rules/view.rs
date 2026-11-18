@@ -164,7 +164,7 @@ impl RulesView {
             menu: None,
             menu_filter,
             add_action_focus: cx.focus_handle(),
-            tag_focus: cx.focus_handle(),
+            tag_focus: cx.focus_handle().tab_stop(true),
             filled_for: None,
             delete_category: None,
             _subscriptions: Vec::new(),

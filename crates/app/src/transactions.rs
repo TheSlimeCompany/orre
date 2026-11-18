@@ -113,7 +113,7 @@ use crate::ui::list::{Keys, ListKeysExt as _, Move, Reveal as _};
 use crate::ui::menu::{self, MenuGroup, MenuList, SelectState, filter_groups};
 use crate::ui::notification::NotificationBar;
 use crate::ui::transaction_row::{
-    DayHeader, TITLE_CONTEXT, TransactionColumn, TransactionHeader, TransactionRow,
+    DayHeader, SortedBy, TITLE_CONTEXT, TransactionColumn, TransactionHeader, TransactionRow,
 };
 use crate::ui::undo_bar::UndoBar;
 
@@ -540,7 +540,9 @@ pub struct TransactionsView {
     /// The column titles' focus handles, in [`TransactionColumn::ALL`]'s
     /// order: Tab stops after the toolbar's.
     column_focus: [FocusHandle; 4],
-    /// The column title that had focus when the view was last drawn.
+    /// The column title that had focus when the view was last drawn, for
+    /// the test-only `describe()`.
+    #[cfg(test)]
     focused_column: Option<TransactionColumn>,
     /// Why the last change wasn't saved, said under the inspector's Category.
     edit_error: Option<SharedString>,
@@ -620,6 +622,7 @@ impl TransactionsView {
             inspector_select: SelectState::new(cx),
             chip_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
             column_focus: std::array::from_fn(|_| cx.focus_handle().tab_stop(true)),
+            #[cfg(test)]
             focused_column: None,
             focus,
             search,
@@ -1906,8 +1909,16 @@ impl TransactionsView {
         let header = TransactionHeader::new()
             .full_bleed(true)
             .show_account(self.filter.account.is_none())
-            .on_sort(move |column, _, cx| {
-                view.update(cx, |this, cx| this.sort_by(column, cx)).ok();
+            .on_sort(move |column, by, window, cx| {
+                view.update(cx, |this, cx| {
+                    this.sort_by(column, cx);
+                    // A click leaves the keys with the table, as before the
+                    // titles could take focus; only Tab focuses a title.
+                    if by == SortedBy::Click {
+                        this.focus.clone().focus(window, cx);
+                    }
+                })
+                .ok();
             })
             .focus(self.column_focus.clone());
         match self.sort {
@@ -2055,11 +2066,14 @@ impl Render for TransactionsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_search(window, cx);
         self.sync_editor(window, cx);
-        self.focused_column = TransactionColumn::ALL
-            .into_iter()
-            .zip(&self.column_focus)
-            .find(|(_, focus)| focus.is_focused(window))
-            .map(|(column, _)| column);
+        #[cfg(test)]
+        {
+            self.focused_column = TransactionColumn::ALL
+                .into_iter()
+                .zip(&self.column_focus)
+                .find(|(_, focus)| focus.is_focused(window))
+                .map(|(column, _)| column);
+        }
         div()
             .flex()
             .flex_1()
