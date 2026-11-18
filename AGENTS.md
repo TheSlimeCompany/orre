@@ -127,6 +127,9 @@ Changing any of these needs an explicit decision recorded in the topic's file un
 - **The only network call is the opt-in ECB rate fetch.** No telemetry, no other
   outbound requests. Saved reports render without HTML, images, or live links, so they
   can't trigger a request.
+- **A view's `describe()` and anything that runs its actions are test-only or dev-feature
+  only.** Never in a release build, never reachable from `coffer mcp` (decision record
+  in `docs/ARCHITECTURE.md`, 2026-11-18).
 - **Schema changes are new migrations.** Never edit a migration that has shipped.
 
 ## Personal financial data

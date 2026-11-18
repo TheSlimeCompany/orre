@@ -125,6 +125,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 - Decision record: the app shell and window state (2026-11-14)
 - Decision record: one gate for opening the database, and the Transactions edit pipeline (2026-11-15)
 - Decision record: the status bar reads the database (2026-11-17)
+- Decision record: views that describe themselves stay out of the release binary (2026-11-18)
 
 ### In this file
 

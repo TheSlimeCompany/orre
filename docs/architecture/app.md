@@ -123,3 +123,30 @@ reloads and adds no database reads.
    badge already counts pending suggestions). **The currency shows when every open
    account shares one**, until a home currency exists (M4.6).
 6. The sample data (`Counts::sample`) keeps Paper's artboard (`1CU-0`) for snapshots.
+
+### Decision record: views that describe themselves stay out of the release binary (2026-11-18)
+
+U.4, from the UI review (ROADMAP → "UI review — agent-readable views and keyboard
+paths"). U.1–U.3 give views a `describe()`: their rows, selection, open dialog and the
+actions available, as plain data, so tests assert on what the view shows. U.5 may later
+let an agent drive a dev build through it. Both are a way to press a view's buttons
+without a person at the window.
+
+1. **`describe()` and anything that runs a view's actions from outside the window exist
+   only in tests or a dev feature.** In U.1–U.3 they are `#[cfg(test)]`. If U.5 is built,
+   its driver goes behind a Cargo feature that is off by default, never enabled in a
+   release build, and not depended on by any other feature. A release binary contains
+   neither.
+2. **Never reachable from `coffer mcp`.** No MCP tool, resource or prompt calls
+   `describe()` or a view's actions, in any build. A tool that could press Approve would
+   get round "MCP writes go to the inbox only" and "approval happens only in Coffer's own
+   UI or CLI" (`AGENTS.md` → Invariants).
+3. **A dev driver works only against a scratch `COFFER_DATA_DIR`,** never the platform
+   data dir, and listens only on a local socket.
+4. **`describe()` shows what the view shows.** It is built from the same functions the
+   view renders with, and untrusted text goes through the same sanitising
+   (`envelope::shown`, the view's `text::plain`), so a test reading it sees what a
+   person would, and no raw bank text or rationale escapes the envelope.
+5. **L.7's in-GUI MCP falls under this record.** An MCP server inside the running GUI may
+   read what the MCP surface already allows, and file suggestions to the inbox; it may
+   not call `describe()` or run a view's actions.
