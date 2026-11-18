@@ -223,6 +223,30 @@ pub fn seed(db: &mut Database, variant: Variant) -> Seeded {
     }
 }
 
+/// Adds `count` more purchases on `account` (the "Market stall" rows, from
+/// 1 Oct, a day apart), each half owed by a person of its own ("Stallholder
+/// 1", …), so the link dialog's candidates and people run past the eight
+/// rows it shows before scrolling. Invented like the rest; not on any
+/// artboard. `count` is at most 31, a day each in October.
+pub fn crowd(db: &mut Database, account: AccountId, count: u32) -> Vec<TransactionId> {
+    (1..=count)
+        .map(|n| {
+            let minor = -1_000 - i64::from(n) * 100;
+            let merchant = format!("Market stall {n}");
+            let id = row(
+                db,
+                account,
+                (10, n),
+                minor,
+                &merchant,
+                Some("food.eating_out"),
+            );
+            share(db, id, minor / 2, &format!("Stallholder {n}"));
+            id
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use coffer_core::link::owed;

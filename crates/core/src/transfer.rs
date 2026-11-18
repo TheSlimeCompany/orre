@@ -6,7 +6,8 @@
 //! transaction: for each of the batch's transactions it looks for a
 //! counterpart among all stored transactions (the batch's own included), and
 //! records each pair it finds as a `transfer_group` with status `suggested`.
-//! Confirming, rejecting and unpairing is the user's (`decision`, M3.8).
+//! Confirming, rejecting and unpairing is the user's (`decision`, M3.8);
+//! so is marking two rows as a transfer by hand (`mark`).
 //!
 //! Two transactions pair when:
 //!
@@ -40,12 +41,18 @@
 mod decision;
 #[cfg(test)]
 mod decision_tests;
+mod mark;
+#[cfg(test)]
+mod mark_tests;
 #[cfg(test)]
 mod tests;
 
 pub use decision::{
     Action, Availability, Blocked, Decision, PairRow, PairView, Partner, availability, confirm,
     confirm_in, pair_of, reject, reject_in, undo, undo_in, unpair, unpair_in,
+};
+pub use mark::{
+    MarkSide, Marked, NotMarkable, Previous, mark, mark_in, markable, unmark, unmark_in,
 };
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -85,6 +92,9 @@ pub enum Error {
 
     #[error("the pair can't be changed: {0}")]
     Blocked(#[from] Blocked),
+
+    #[error("the two can't be marked as a transfer: {0}")]
+    NotMarkable(#[from] NotMarkable),
 
     #[error("transfer group {0} has changed since, so the change can't be undone")]
     Changed(TransferGroupId),

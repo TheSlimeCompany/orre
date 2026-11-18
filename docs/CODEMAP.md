@@ -81,7 +81,9 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
   with `Recorder::track` (M3.11), recorded on the money in's `links` field
   (`V17__change_item_links.sql`).
 - `transfer`: transfer-pair detection (M1.16); `transfer/decision.rs`:
-  `transfer::{confirm, reject, unpair, undo, pair_of, availability}` (M3.8).
+  `transfer::{confirm, reject, unpair, undo, pair_of, availability}` (M3.8);
+  `transfer/mark.rs`: `transfer::{markable, mark, unmark}`, two rows marked as a transfer
+  by hand (the bulk-action bar; `inbox::mark_transfer` settles an agent's suggestion).
 
 ### Links, duplicates and reconciliation
 
@@ -220,7 +222,8 @@ per call through its own store and changes data only through core.
   `link_fixture.rs` (D6.5's sample data; M3.11), `transfer.rs` (the Transfer section,
   M3.8), `source.rs` (the exclusion card and the Source section), `rule_prompt.rs`
   ("Create a rule from this edit?" and the Rule section; emits
-  `TransactionsEvent::CreateRule`/`OpenRule`).
+  `TransactionsEvent::CreateRule`/`OpenRule`), `bulk.rs` (the bulk-action bar's Mark as
+  transfer and Create rule).
 - M3.10: the Excluded chip and excluded rows; the `exclude_dialog.rs`, `confirm.rs`
   (undo-import, delete) and `new_transaction.rs` dialogs; `manual_edit.rs` (a manual
   row's Date, Amount and Account).

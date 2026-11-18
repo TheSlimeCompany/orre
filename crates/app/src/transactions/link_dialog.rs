@@ -20,6 +20,11 @@
 //! - "Link a payment…" on Owed to you opens it for that person, Kind fixed
 //!   to Settlement, listing money in.
 //!
+//! The rows, candidates or people, show at most eight 28px rows and the
+//! 4px gaps between them, and scroll inside the dialog past that (the
+//! Transactions screen's `MENU_ROWS`: menus "scroll after 8 rows"), so a
+//! long list doesn't grow the dialog.
+//!
 //! Keyboard (`DESIGN.md` → "Keyboard paths"): from the search field, ↑↓
 //! move the chosen row (its `molten-soft` look), skipping the rows at
 //! `opacity-disabled` and stopping at the ends, and scroll it into view;
@@ -34,12 +39,13 @@ use coffer_core::link::{LinkKind, LinkTarget, NewLink, ShareLabel};
 use coffer_core::money::{Currency, Money};
 use coffer_core::reporting::linking::{self as core_linking, Blocked, Candidate};
 use coffer_core::reporting::register::{Register, RegisterRow};
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{self, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
+    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, ScrollHandle,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
 };
 
 use crate::accounts::DialogClosed;
@@ -474,6 +480,7 @@ impl LinkDialog {
         Some(
             div()
                 .id(SharedString::from(format!("link-candidate-{id}")))
+                .test_support()
                 .flex()
                 .flex_none()
                 .items_center()
@@ -544,6 +551,7 @@ impl LinkDialog {
                 "link-person-{}",
                 label.as_str()
             )))
+            .test_support()
             .flex()
             .flex_none()
             .items_center()
@@ -613,6 +621,12 @@ impl LinkDialog {
     }
 }
 
+/// The most the rows grow to: eight rows and the gaps between them, so
+/// eight show whole and a ninth scrolls.
+pub(super) fn rows_height() -> Pixels {
+    size::CONTROL * super::MENU_ROWS + spacing::S1 * (super::MENU_ROWS - 1.)
+}
+
 impl Render for LinkDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let today = self.transactions.read(cx).today();
@@ -651,13 +665,16 @@ impl Render for LinkDialog {
                 .text_color(color::TEXT_MUTED)
                 .child(self.nothing())
         });
-        // The rows scroll as one, so ↑↓ can bring the chosen one into view.
+        // The rows scroll as one after eight, so ↑↓ can bring the chosen
+        // one into view.
         let rows = (!rows.is_empty()).then(|| {
             div()
                 .id("link-rows")
+                .test_support()
                 .flex()
                 .flex_col()
                 .gap(spacing::S1)
+                .max_h(rows_height())
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll)
                 .children(rows)

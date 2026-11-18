@@ -59,6 +59,7 @@ The Transactions view and what the user can do to a row: splits, tags, notes, me
 - Decision record: excluding, the Source section and manual transactions (built) (2026-11-15)
 - Decision record: transfer-pair confirmation (built) (2026-11-15)
 - Decision record: removing transactions, and which rows need a category (2026-11-16)
+- Decision record: Mark as transfer and Create rule from the bulk-action bar (2026-11-18)
 
 ### [Categories](architecture/categories.md)
 

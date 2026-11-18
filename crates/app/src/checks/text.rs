@@ -40,6 +40,12 @@ pub fn name(row: &PairRow) -> String {
     plain(row.name(), NAME_SHOWN)
 }
 
+/// An account's name as the queues show it: the user's, through [`plain`]
+/// all the same.
+pub fn account(name: &str) -> String {
+    plain(name, NAME_SHOWN)
+}
+
 /// "Same day", "1 day apart", "3 days apart".
 pub fn gap(days: u32) -> String {
     match days {

@@ -215,9 +215,9 @@ impl AddBalanceDialog {
             |node| {
                 let wording = Wording::of(node.account.kind);
                 let title = if node.account.kind == AccountKind::Cash {
-                    format!("Count cash for {}", node.account.name)
+                    format!("Count cash for {}", super::name(&node.account.name))
                 } else {
-                    format!("{} {}", wording.title, node.account.name)
+                    format!("{} {}", wording.title, super::name(&node.account.name))
                 };
                 (title.into(), node.account.kind, node.account.currency)
             },

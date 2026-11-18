@@ -227,6 +227,8 @@ pub struct SeveralDescription {
     pub caption: Option<String>,
     /// The Category select's value, while any of them can take one.
     pub category: Option<String>,
+    /// The error said under the Category select (or where it would be):
+    /// Categorise's, Mark as transfer's or Create rule's.
     pub category_error: Option<String>,
     /// Each one's date, merchant and amount.
     pub rows: Vec<(String, String, String)>,
@@ -511,10 +513,7 @@ impl TransactionsView {
                     title,
                     figure,
                     caption,
-                    category_error: category
-                        .as_ref()
-                        .and(self.edit_error.as_ref())
-                        .map(|error| error.to_string()),
+                    category_error: self.edit_error.as_ref().map(|error| error.to_string()),
                     category: category.map(|value| {
                         value.map_or_else(|| CHOOSE_CATEGORY.to_owned(), |(label, _)| label)
                     }),
@@ -536,15 +535,14 @@ impl TransactionsView {
             },
             BarText::Undo(message) => BarDescription::Undo {
                 message: message.to_string(),
-                actions: vec![Action::button("Undo", true), dismiss()],
+                actions: vec![Action::button(crate::ui::undo_bar::UNDO, true), dismiss()],
             },
             BarText::Bulk(count) => BarDescription::Bulk {
                 count,
                 actions: vec![
                     Action::button(CATEGORISE, true),
-                    // Drawn, but nothing is wired to them yet.
-                    Action::button(MARK_AS_TRANSFER, false),
-                    Action::button(CREATE_RULE, false),
+                    Action::button(MARK_AS_TRANSFER, self.markable_selection().is_some()),
+                    Action::button(CREATE_RULE, true),
                     Action::button("Clear selection", true),
                 ],
             },

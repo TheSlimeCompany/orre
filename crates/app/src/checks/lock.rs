@@ -31,7 +31,13 @@ use crate::ui::menu::{MenuGroup, MenuOption, Select, SelectState};
 use crate::ui::text::TextRoleExt as _;
 
 use super::Checks;
-use super::text::{self, NAME_SHOWN, Part, plain, rich};
+use super::text::{self, Part, rich};
+
+/// The dialogs' buttons, and the lock dialog's field.
+const CANCEL: &str = "Cancel";
+const LOCK: &str = "Lock";
+const UNLOCK: &str = "Unlock";
+const THROUGH: &str = "Through";
 
 /// The lock dialog.
 pub struct LockDialog {
@@ -144,44 +150,42 @@ impl LockDialog {
         let open_chosen = chosen.clone();
         let groups = self.groups();
         let moved = groups.clone();
-        let label = self.through.map(format::field_date).unwrap_or_default();
+        let label = self.through_label();
         let mut field = SelectField::new("lock-through-field", label).mono(true);
         if self.through.is_some() && self.through == self.dates.first().copied() {
             field = field.hint("latest passing check");
         }
-        Select::new(
-            "lock-through",
-            "Through",
-            field,
-            groups,
-            chosen,
-            &self.select,
-        )
-        .menu_width(size::DIALOG - spacing::S4 * 2. - size::FIELD_LABEL - spacing::S2)
-        .on_toggle(move |open, window, cx| {
-            let _ = view.update(cx, |this, cx| {
-                this.select.set_open(open, open_chosen.as_ref(), window, cx);
-                cx.notify();
-            });
-        })
-        .on_choose(move |key, window, cx| {
-            let _ = choose.update(cx, |this, cx| {
-                this.select.set_open(false, None, window, cx);
-                if let Ok(date) = key.parse() {
-                    this.choose(date, cx);
-                }
-            });
-        })
-        .on_move(move |delta, _, cx| {
-            let _ = step.update(cx, |this, cx| {
-                this.select.move_highlight(&moved, delta);
-                cx.notify();
-            });
-        })
+        Select::new("lock-through", THROUGH, field, groups, chosen, &self.select)
+            .menu_width(size::DIALOG - spacing::S4 * 2. - size::FIELD_LABEL - spacing::S2)
+            .on_toggle(move |open, window, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    this.select.set_open(open, open_chosen.as_ref(), window, cx);
+                    cx.notify();
+                });
+            })
+            .on_choose(move |key, window, cx| {
+                let _ = choose.update(cx, |this, cx| {
+                    this.select.set_open(false, None, window, cx);
+                    if let Ok(date) = key.parse() {
+                        this.choose(date, cx);
+                    }
+                });
+            })
+            .on_move(move |delta, _, cx| {
+                let _ = step.update(cx, |this, cx| {
+                    this.select.move_highlight(&moved, delta);
+                    cx.notify();
+                });
+            })
     }
 }
 
 impl LockDialog {
+    /// The chosen date, as the Through field shows it.
+    fn through_label(&self) -> String {
+        self.through.map(format::field_date).unwrap_or_default()
+    }
+
     /// The chosen date, as the title and the body name it.
     fn date(&self) -> String {
         self.through
@@ -193,7 +197,7 @@ impl LockDialog {
     fn title(&self) -> String {
         format!(
             "Lock {} through {}?",
-            plain(&self.name, NAME_SHOWN),
+            text::account(&self.name),
             self.date()
         )
     }
@@ -204,12 +208,9 @@ impl LockDialog {
         use crate::ui::describe::{Action, Dialog};
         Dialog {
             title: self.title(),
-            fields: vec![(
-                "Through".to_owned(),
-                self.through.map(format::field_date).unwrap_or_default(),
-            )],
+            fields: vec![(THROUGH.to_owned(), self.through_label())],
             error: self.error.as_ref().map(ToString::to_string),
-            actions: vec![Action::button("Cancel", true), Action::button("Lock", true)],
+            actions: vec![Action::button(CANCEL, true), Action::button(LOCK, true)],
         }
     }
 }
@@ -238,7 +239,7 @@ impl Render for LockDialog {
             .flex()
             .flex_col()
             .gap(spacing::S2)
-            .child(FieldRow::new("Through", self.render_select(cx)))
+            .child(FieldRow::new(THROUGH, self.render_select(cx)))
             .when_some(self.error.clone(), |this, error| {
                 this.child(error_caption(error))
             });
@@ -247,13 +248,13 @@ impl Render for LockDialog {
             .body(body)
             .body(fields)
             .action(
-                Button::new("lock-cancel", "Cancel")
+                Button::new("lock-cancel", CANCEL)
                     .with_variant(ButtonVariant::Secondary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
             )
             .action(
-                Button::new("lock-confirm", "Lock")
+                Button::new("lock-confirm", LOCK)
                     .with_variant(ButtonVariant::Primary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
@@ -333,7 +334,7 @@ impl UnlockDialog {
 impl UnlockDialog {
     /// "Unlock Joint account?"
     fn title(&self) -> String {
-        format!("Unlock {}?", plain(&self.name, NAME_SHOWN))
+        format!("Unlock {}?", text::account(&self.name))
     }
 
     /// What the dialog shows, as plain data (test-only, ROADMAP U.3).
@@ -344,10 +345,7 @@ impl UnlockDialog {
             title: self.title(),
             fields: Vec::new(),
             error: self.error.as_ref().map(ToString::to_string),
-            actions: vec![
-                Action::button("Cancel", true),
-                Action::button("Unlock", true),
-            ],
+            actions: vec![Action::button(CANCEL, true), Action::button(UNLOCK, true)],
         }
     }
 }
@@ -382,13 +380,13 @@ impl Render for UnlockDialog {
                 this.body(error_caption(error))
             })
             .action(
-                Button::new("unlock-cancel", "Cancel")
+                Button::new("unlock-cancel", CANCEL)
                     .with_variant(ButtonVariant::Secondary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
             )
             .action(
-                Button::new("unlock-confirm", "Unlock")
+                Button::new("unlock-confirm", UNLOCK)
                     .with_variant(ButtonVariant::Primary)
                     .with_surface(color::FLOAT)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),

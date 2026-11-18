@@ -37,6 +37,16 @@ pub mod panel;
 pub mod store;
 pub mod valuations;
 
+/// An account's or pot's name as it's shown: rows, titles, captions,
+/// dialogs and `describe()` (untrusted text made plain, as every view shows
+/// names: [`crate::inbox::text::plain`]). A name can come from an import or
+/// a preset, so its control, bidi and other invisible characters are
+/// stripped and it's cut to [`NAME_SHOWN`](crate::inbox::text::NAME_SHOWN).
+/// The Name field holds the stored name as typed, so an edit round-trips.
+pub fn name(raw: &str) -> String {
+    crate::inbox::text::plain(raw, crate::inbox::text::NAME_SHOWN)
+}
+
 gpui_kit::actions!(
     coffer_accounts,
     [
@@ -427,7 +437,7 @@ impl Accounts {
         let name = self
             .data
             .node(account)
-            .map(|node| node.account.name.clone())
+            .map(|node| name(&node.account.name))
             .unwrap_or_default();
         self.store()?
             .close(account, on)

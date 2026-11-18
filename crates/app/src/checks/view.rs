@@ -39,8 +39,8 @@ pub const CONTEXT: &str = "CofferChecks";
 pub const KEYS: ViewKeys = ViewKeys::new(
     Keys::new(CONTEXT),
     &[
-        Key::new::<MergeSelected>(&["m"], "M", "Merge"),
-        Key::new::<DismissSelected>(&["n"], "N", "Not duplicates"),
+        Key::new::<MergeSelected>(&["m"], "M", super::duplicates::MERGE),
+        Key::new::<DismissSelected>(&["n"], "N", super::duplicates::NOT_DUPLICATES),
         Key::new::<KeepOther>(&["left", "right"], "←→", "Keep"),
         Key::new::<Cancel>(&["escape"], "Esc", "Clear the selection").unhinted(),
     ],
@@ -91,7 +91,7 @@ impl ChecksView {
             .checks
             .read(cx)
             .selected_person()
-            .map(|person| person.label.as_str().to_owned());
+            .map(super::owed::name_value);
         let Some(person) = person else {
             self.name_for = None;
             return;

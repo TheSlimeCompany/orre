@@ -222,7 +222,7 @@ pub(super) fn header_caption(node: &AccountNode, data: &AccountsData) -> HeaderC
         Some(" · pots not included".to_owned())
     } else {
         data.parent_of(node.account.id)
-            .map(|parent| format!(" · in {}", parent.account.name))
+            .map(|parent| format!(" · in {}", super::name(&parent.account.name)))
     };
     HeaderCaption::Dated {
         verb,
@@ -633,7 +633,7 @@ impl AccountInspector {
             HeaderCaption::Missing(words) => caption(words),
         };
         header(
-            node.account.name.clone(),
+            super::name(&node.account.name),
             header_figure(node),
             Some(when.into_any_element()),
         )
@@ -895,7 +895,7 @@ impl AccountInspector {
                         .text_ellipsis()
                         .text_role(typography::BODY)
                         .text_color(color::TEXT_SECONDARY)
-                        .child(pot.account.name.clone()),
+                        .child(super::name(&pot.account.name)),
                 )
                 .child(
                     div()

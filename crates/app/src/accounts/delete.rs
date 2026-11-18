@@ -67,7 +67,7 @@ impl DeleteAccountDialog {
         let data = accounts.read(cx).data();
         let (title, body) = match data.node(account) {
             Some(node) => (
-                format!("Delete {}?", node.account.name).into(),
+                format!("Delete {}?", super::name(&node.account.name)).into(),
                 body(
                     node.account.kind,
                     data.detail(account)

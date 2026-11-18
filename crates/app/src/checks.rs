@@ -215,6 +215,21 @@ impl Checks {
         self.data.review.failing()
     }
 
+    /// `queue`'s count on its row in the Inbox panel's CHECKS.
+    pub fn queue_count(&self, queue: Queue) -> usize {
+        match queue {
+            Queue::Duplicates => self.pending_pairs(),
+            Queue::Balances => self.failing(),
+            Queue::Owed => self.owed_open(),
+        }
+    }
+
+    /// Whether `queue`'s row in the panel is flagged: Balance checks, while
+    /// a check fails.
+    pub fn queue_flagged(&self, queue: Queue) -> bool {
+        queue == Queue::Balances && self.failing() > 0
+    }
+
     /// Whether any account has a balance check yet: the status bar's
     /// "Reconciled" needs one.
     pub fn has_checks(&self) -> bool {
@@ -418,8 +433,7 @@ impl Checks {
     /// Whether Merge can go ahead for the selected pair: it has a plan and
     /// the row it excludes isn't locked.
     pub fn can_merge(&self) -> bool {
-        self.selected_pair()
-            .is_some_and(|pair| pair.effect.as_ref().is_ok_and(|e| e.locked.is_none()))
+        self.selected_pair().is_some_and(duplicates::can_merge)
     }
 
     /// Merges the selected pair (Merge, M), keeping the row shown as kept.

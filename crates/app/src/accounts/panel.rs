@@ -230,7 +230,7 @@ fn account_row(
     let accounts = accounts.clone();
     let focus = focus.clone();
     let flagged = accounts.clone();
-    let row = ListRow::new(row_id(node), node.account.name.clone())
+    let row = ListRow::new(row_id(node), super::name(&node.account.name))
         .icon(glyph(node.account.kind))
         .nested(nested)
         .selected(selected)

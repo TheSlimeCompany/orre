@@ -56,13 +56,13 @@ impl CloseFacts {
     pub fn of(data: &AccountsData, account: AccountId) -> Option<CloseFacts> {
         let node = data.node(account)?;
         Some(CloseFacts {
-            name: node.account.name.clone(),
+            name: super::name(&node.account.name),
             kind: node.account.kind,
             balance: node.latest.map(|latest| latest.balance),
             pots: node
                 .pots
                 .iter()
-                .map(|pot| pot.account.name.clone())
+                .map(|pot| super::name(&pot.account.name))
                 .collect(),
             earliest: data.detail(account).and_then(|detail| detail.close_from),
         })

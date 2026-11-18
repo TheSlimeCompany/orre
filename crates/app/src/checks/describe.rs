@@ -10,10 +10,13 @@
 //!
 //! Every string comes from the code the queues draw with ([`super::view`],
 //! [`super::duplicates`], [`super::balances`], [`super::owed`],
-//! [`super::text`]), so names, bank text, bank IDs and account names are
-//! described exactly as shown: through [`super::text::plain`]. Styling
-//! (tones, markers, icons) is left out, but for the ✓ or ≠ of a criterion
-//! and whether a check failed; mixed runs are joined into one string.
+//! [`super::text`]): a row's lanes from its `…RowText`, labels from the
+//! constants the buttons are made with, so names, bank text, bank IDs and
+//! account names are described exactly as shown: through
+//! [`super::text::plain`]. Styling (tones, markers, icons) is left out, but
+//! for the ✓ or ≠ of a criterion and whether a check failed; mixed runs are
+//! joined into one string, and an inspector row's name and amount into its
+//! value.
 //!
 //! What it leaves out: the lanes' headings, the inspector's fixed
 //! explanatory captions (sentences with figures in them are kept, as rows
@@ -27,12 +30,14 @@ use gpui_kit::{AnyView, App};
 
 pub use crate::ui::describe::{Action, Dialog, Header, Inspector, PanelRow, Section};
 
-use super::balances::{self, Caption, Foot, LockText, ThisCheck};
-use super::duplicates::{self, Compared, Criterion, Field, MergeRow};
+use super::balances::{self, Caption, CheckRowText, Foot, LockText, ThisCheck};
+use super::duplicates::{self, Compared, Criterion, Field, MergeRow, PairRowText};
 use super::lock::{LockDialog, UnlockDialog};
-use super::text::{self, NAME_SHOWN, Part, plain, unsigned};
+use super::owed::{ClaimRowText, ListRowText, PersonRowText};
+use super::text::{self, Part};
 use super::view::{self, KEYS};
 use super::{Checks, Outcome, Queue, owed};
+use crate::theme::tokens::color;
 
 /// What the review queues show ([`Checks::describe`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -197,6 +202,12 @@ fn joined(parts: &[Part]) -> String {
     parts.iter().map(|part| part.text.as_str()).collect()
 }
 
+/// An inspector row of Costs or Payments: its date, then its name and
+/// amount as one value.
+fn list_row(ListRowText { date, name, amount }: ListRowText) -> (String, String) {
+    (date, format!("{name} {amount}"))
+}
+
 /// A [`Section`] with sentences that carry figures, as `rows` labelled "".
 fn with_lines(mut section: Section, lines: impl IntoIterator<Item = String>) -> Section {
     section
@@ -208,21 +219,24 @@ fn with_lines(mut section: Section, lines: impl IntoIterator<Item = String>) -> 
 // Possible duplicates ------------------------------------------------------------
 
 fn pair_row(pair: &Pair, selected: bool, today: chrono::NaiveDate) -> PairDescription {
+    let PairRowText {
+        names,
+        account,
+        why,
+        dates,
+        amount,
+    } = duplicates::pair_row_text(pair, color::TEXT_MUTED, today);
     PairDescription {
-        names: format!(
-            "{} and {}",
-            text::name(&pair.rows[0]),
-            text::name(&pair.rows[1])
-        ),
-        account: plain(&pair.account_name, NAME_SHOWN),
-        why: text::why(&pair.why),
-        dates: duplicates::dates(pair.rows[0].date, pair.rows[1].date, today),
-        amount: text::signed(pair.rows[0].amount),
+        names: joined(&names),
+        account,
+        why,
+        dates,
+        amount,
         selected,
     }
 }
 
-fn comparison(checks: &Checks, pair: &Pair, today: chrono::NaiveDate) -> ComparisonDescription {
+fn comparison(pair: &Pair, today: chrono::NaiveDate) -> ComparisonDescription {
     let fields = duplicates::fields(&pair.rows)
         .into_iter()
         .map(|field| match field {
@@ -237,7 +251,7 @@ fn comparison(checks: &Checks, pair: &Pair, today: chrono::NaiveDate) -> Compari
                 other.unwrap_or_else(|| other_missing.to_owned()),
             ),
             Field::Category => (
-                "Category",
+                duplicates::CATEGORY,
                 duplicates::category_label(&pair.rows[0]),
                 duplicates::category_label(&pair.rows[1]),
             ),
@@ -247,12 +261,15 @@ fn comparison(checks: &Checks, pair: &Pair, today: chrono::NaiveDate) -> Compari
         duplicates::locked_words(pair, effect, today)
             .map(|words| (duplicates::LOCKED_TITLE, joined(&words)))
     });
-    let mut actions = vec![Action::button("Keep this instead", true)];
+    let mut actions = vec![Action::button(duplicates::KEEP_OTHER, true)];
     if locked.is_some() {
-        actions.push(Action::button("Unlock…", true));
+        actions.push(Action::button(duplicates::UNLOCK, true));
     }
-    actions.push(Action::button("Merge", checks.can_merge()));
-    actions.push(Action::button("Not duplicates", true));
+    actions.push(Action::button(
+        duplicates::MERGE,
+        duplicates::can_merge(pair),
+    ));
+    actions.push(Action::button(duplicates::NOT_DUPLICATES, true));
     ComparisonDescription {
         keep: text::added(&pair.rows[0], today),
         exclude: text::added(&pair.rows[1], today),
@@ -271,9 +288,7 @@ fn duplicates_body(checks: &Checks, today: chrono::NaiveDate) -> Body {
             .iter()
             .map(|pair| pair_row(pair, selected == Some(pair.candidate), today))
             .collect(),
-        open: checks
-            .selected_pair()
-            .map(|pair| comparison(checks, pair, today)),
+        open: checks.selected_pair().map(|pair| comparison(pair, today)),
         footnote: duplicates::footnote(),
     }
     .into()
@@ -329,17 +344,24 @@ fn check_row(
     today: chrono::NaiveDate,
 ) -> CheckDescription {
     let check = &row.check;
+    let CheckRowText {
+        source,
+        date,
+        balance,
+        coffer,
+        difference,
+    } = balances::check_row_text(row, today);
     CheckDescription {
         status: match check.outcome {
             CheckOutcome::Failed { .. } => Some(CheckStatus::Failed),
             CheckOutcome::Passed { .. } => Some(CheckStatus::Passed),
             _ => None,
         },
-        source: balances::source_text(row),
-        date: text::date(check.date, today),
-        balance: text::balance(check.stated),
-        coffer: balances::coffer_text(row),
-        difference: balances::difference_text(row),
+        source,
+        date,
+        balance,
+        coffer,
+        difference,
         selected: checks.is_check_selected(account.account, check.balance),
         window: check
             .outcome
@@ -360,7 +382,7 @@ fn balances_body(checks: &Checks, today: chrono::NaiveDate) -> Body {
         .accounts()
         .iter()
         .map(|account| AccountDescription {
-            name: plain(&account.name, NAME_SHOWN),
+            name: text::account(&account.name),
             locked: account
                 .locked_through
                 .map(|through| joined(&balances::locked_through(through, today))),
@@ -445,12 +467,20 @@ fn owed_body(checks: &Checks, today: chrono::NaiveDate) -> Body {
         claims: queue
             .claims
             .iter()
-            .map(|claim| ClaimDescription {
-                merchant: plain(&claim.merchant, NAME_SHOWN),
-                account: plain(&claim.account_name, NAME_SHOWN),
-                date: text::date(claim.date, today),
-                owed: unsigned(claim.owed),
-                matched: claim.matched,
+            .map(|claim| {
+                let ClaimRowText {
+                    merchant,
+                    account,
+                    date,
+                    owed,
+                } = owed::claim_row_text(claim, today);
+                ClaimDescription {
+                    merchant,
+                    account,
+                    date,
+                    owed,
+                    matched: claim.matched,
+                }
             })
             .collect(),
         matches: queue
@@ -470,12 +500,20 @@ fn owed_body(checks: &Checks, today: chrono::NaiveDate) -> Body {
         people: queue
             .people
             .iter()
-            .map(|person| PersonDescription {
-                name: plain(person.label.as_str(), NAME_SHOWN),
-                costs: joined(&owed::costs_parts(person, today)),
-                last_paid: owed::last_paid(person, today),
-                owed: unsigned(person.owed),
-                selected: checks.is_person_selected(person),
+            .map(|person| {
+                let PersonRowText {
+                    name,
+                    costs,
+                    last_paid,
+                    owed,
+                } = owed::person_row_text(person, today);
+                PersonDescription {
+                    name,
+                    costs: joined(&costs),
+                    last_paid,
+                    owed,
+                    selected: checks.is_person_selected(person),
+                }
             })
             .collect(),
     }
@@ -490,31 +528,19 @@ fn person_inspector(
     let costs = person
         .costs
         .iter()
-        .fold(Section::titled("Costs"), |section, cost| {
-            section.row(
-                text::date(cost.date, today),
-                format!(
-                    "{} {}",
-                    plain(&cost.merchant, NAME_SHOWN),
-                    unsigned(cost.part)
-                ),
-            )
+        .fold(Section::titled(owed::COSTS), |section, cost| {
+            let (date, value) = list_row(owed::cost_row_text(cost, today));
+            section.row(date, value)
         });
     let payments = person.payments.iter().fold(
-        Section::titled(format!("Payments from {title}"))
-            .action(Action::button("Link a payment…", true)),
+        Section::titled(owed::payments_title(person))
+            .action(Action::button(owed::LINK_PAYMENT, true)),
         |section, payment| {
-            section.row(
-                text::date(payment.date, today),
-                format!(
-                    "{} {}",
-                    owed::payment_what(payment),
-                    text::signed(payment.amount)
-                ),
-            )
+            let (date, value) = list_row(owed::payment_row_text(payment, today));
+            section.row(date, value)
         },
     );
-    let name = Section::default().row("Name", title.clone());
+    let name = Section::default().row(owed::NAME, owed::name_value(person));
     Inspector {
         header: Header {
             title,
@@ -594,15 +620,8 @@ impl Checks {
             .into_iter()
             .map(|row| PanelRow {
                 label: row.title(),
-                count: Some(
-                    match row {
-                        Queue::Duplicates => self.pending_pairs(),
-                        Queue::Balances => self.failing(),
-                        Queue::Owed => self.owed_open(),
-                    }
-                    .to_string(),
-                ),
-                flagged: row == Queue::Balances && self.failing() > 0,
+                count: Some(self.queue_count(row).to_string()),
+                flagged: self.queue_flagged(row),
                 selected: self.queue() == Some(row),
             })
             .collect();
@@ -662,7 +681,7 @@ impl Checks {
             undo_bar: match self.outcome() {
                 Some(Outcome::Done { message, undo }) => Some((
                     message.to_string(),
-                    undo.map(|_| Action::button("Undo", true))
+                    undo.map(|_| Action::button(crate::ui::undo_bar::UNDO, true))
                         .into_iter()
                         .collect(),
                 )),

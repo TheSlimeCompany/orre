@@ -11,9 +11,10 @@
 //!
 //! Every string comes from the code the panel, the inspector, the canvas
 //! and the dialogs draw with ([`super::panel`], [`super::inspector`],
-//! [`super::valuations`], each dialog's `describe()`). Account names are
-//! the user's own words (a pot's from the bank's export), shown as typed,
-//! so they are described as typed too. Styling (icons, tones, mono runs) is
+//! [`super::valuations`], each dialog's `describe()`). Account and pot
+//! names are described as they're shown, through [`super::name`] (made
+//! plain: a name can come from an import or a preset); the inspector's Name
+//! field holds the stored name as typed. Styling (icons, tones, mono runs) is
 //! left out, but for an overdrawn balance's `danger`; runs are joined into
 //! one string.
 //!
@@ -130,7 +131,7 @@ fn account_row(node: &AccountNode, nested: bool, selected: bool, ring: bool) -> 
     let (balance, overdrawn) =
         panel::latest(node).unwrap_or_else(|| (panel::NO_BALANCE.to_owned(), false));
     AccountRow {
-        name: node.account.name.clone(),
+        name: super::name(&node.account.name),
         balance,
         overdrawn,
         nested,
@@ -199,7 +200,7 @@ fn describe_inspector(
             .pots
             .iter()
             .fold(Section::titled("Pots"), |section, pot| {
-                section.row(pot.account.name.clone(), pot_balance(pot))
+                section.row(super::name(&pot.account.name), pot_balance(pot))
             });
         if let Some(total) = pots_total(node) {
             pots = pots.row("Total", total);
@@ -229,7 +230,7 @@ fn describe_inspector(
 
     Inspector {
         header: Header {
-            title: node.account.name.clone(),
+            title: super::name(&node.account.name),
             figure: header_figure(node),
             caption: Some(caption),
         },
@@ -334,7 +335,10 @@ impl Accounts {
             valuations: valued_node.map(|node| describe_valuations(self, node)),
             undo_bar: self.closed().map(|closed| {
                 let message = self.closed_error().unwrap_or(&closed.message);
-                (message.to_string(), vec![Action::button("Undo", true)])
+                (
+                    message.to_string(),
+                    vec![Action::button(crate::ui::undo_bar::UNDO, true)],
+                )
             }),
             dialog: None,
             keys: Action::moves(&panel::KEYS, !panel::order(data).is_empty())

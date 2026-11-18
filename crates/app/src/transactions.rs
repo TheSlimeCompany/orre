@@ -31,7 +31,8 @@
 //!   the category menu in place; the inspector's Category select and the
 //!   bulk-action bar's Categorise set it for every selected row. Each goes
 //!   through core as one undoable change batch; after a change to several
-//!   rows the undo bar offers to revert it.
+//!   rows the undo bar offers to revert it. The bar's Mark as transfer and
+//!   Create rule are `transactions::bulk`'s.
 //! - **Splits, tags, notes and names** (M3.9) are edited in the inspector
 //!   (`transactions::editor`): each change is one undoable change batch too, and the
 //!   register is read again so the table shows it.
@@ -52,6 +53,7 @@
 //! view owns the selection (by transaction id, so it survives filtering)
 //! and the list's scroll state; rows only present (`ui::transaction_row`).
 
+mod bulk;
 pub mod confirm;
 #[cfg(test)]
 mod describe;
@@ -89,6 +91,7 @@ use coffer_core::reporting::register::{
 };
 use coffer_core::transfer as core_transfer;
 use gpui_kit::base::actions::{Cancel, Confirm};
+use gpui_kit::component::Disableable as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -472,6 +475,9 @@ enum UndoAction {
     /// Reverses a transfer-pair decision: a status change, not a change
     /// batch (M3.8).
     Transfer(core_transfer::Decision),
+    /// Unmarks a pair "Mark as transfer" recorded: not a change batch
+    /// either.
+    Marked(core_transfer::Marked),
 }
 
 /// A change the undo bar can revert.
@@ -1492,6 +1498,7 @@ impl TransactionsView {
                 self.include(id, true, cx);
             }
             UndoAction::Transfer(decision) => self.undo_transfer(decision, cx),
+            UndoAction::Marked(marked) => self.unmark_transfer(marked, cx),
         }
         cx.notify();
     }
@@ -1976,6 +1983,45 @@ impl TransactionsView {
             .child(body)
     }
 
+    /// The bulk-action bar for `count` selected rows, with Categorise's
+    /// menu above it while open.
+    fn render_bulk_bar(&self, count: String, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .relative()
+            .child(
+                BulkActionBar::new(count)
+                    .action(
+                        self.menu_trigger(
+                            Menu::Bulk,
+                            Button::new("bulk-categorise", CATEGORISE)
+                                .with_variant(ButtonVariant::Toolbar)
+                                .on_click(cx.listener(Self::keyboard_toggle(Menu::Bulk))),
+                            cx,
+                        ),
+                    )
+                    .action(
+                        Button::new("bulk-transfer", MARK_AS_TRANSFER)
+                            .with_variant(ButtonVariant::Toolbar)
+                            .disabled(self.markable_selection().is_none())
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.mark_selected_as_transfer(cx)),
+                            ),
+                    )
+                    .action(
+                        Button::new("bulk-rule", CREATE_RULE)
+                            .with_variant(ButtonVariant::Toolbar)
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.create_rule_from_selection(cx)),
+                            ),
+                    )
+                    .on_clear(cx.listener(|this, _, _, cx| this.clear_selection(cx))),
+            )
+            .when(self.menu == Some(Menu::Bulk), |this| {
+                this.child(menu::above(spacing::S1, self.menu_list(Menu::Bulk, cx)))
+            })
+            .into_any_element()
+    }
+
     fn render_floating(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let bar = match self.bar_text()? {
             BarText::Failed(message) => NotificationBar::new(message)
@@ -1997,33 +2043,7 @@ impl TransactionsView {
                     cx.notify();
                 }))
                 .into_any_element(),
-            BarText::Bulk(count) => div()
-                .relative()
-                .child(
-                    BulkActionBar::new(count)
-                        .action(
-                            self.menu_trigger(
-                                Menu::Bulk,
-                                Button::new("bulk-categorise", CATEGORISE)
-                                    .with_variant(ButtonVariant::Toolbar)
-                                    .on_click(cx.listener(Self::keyboard_toggle(Menu::Bulk))),
-                                cx,
-                            ),
-                        )
-                        .action(
-                            Button::new("bulk-transfer", MARK_AS_TRANSFER)
-                                .with_variant(ButtonVariant::Toolbar),
-                        )
-                        .action(
-                            Button::new("bulk-rule", CREATE_RULE)
-                                .with_variant(ButtonVariant::Toolbar),
-                        )
-                        .on_clear(cx.listener(|this, _, _, cx| this.clear_selection(cx))),
-                )
-                .when(self.menu == Some(Menu::Bulk), |this| {
-                    this.child(menu::above(spacing::S1, self.menu_list(Menu::Bulk, cx)))
-                })
-                .into_any_element(),
+            BarText::Bulk(count) => self.render_bulk_bar(count, cx),
         };
         Some(
             div()
@@ -2087,6 +2107,8 @@ impl Render for TransactionsView {
     }
 }
 
+#[cfg(test)]
+mod bulk_tests;
 #[cfg(test)]
 mod link_tests;
 #[cfg(test)]

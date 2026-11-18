@@ -653,7 +653,7 @@ bar `112-0`.
 | Row | 28px, radius 6, 8px inline padding, 12px column gap; no row dividers (hairlines only between day groups) |
 | Columns | Merchant (12/16 `text`, truncates, flexible) · Category (8×8 marker + 12/16 `text-secondary`, 180px) · Account (12/16 `text-muted`, 140px; hidden when filtered to one account) · Amount (mono 12/16, right-aligned, min 96px). The date lives in the day header |
 | Hover / selected | `hover` fill / `molten-soft` fill with `text` labels; multi-select with ⇧/⌘ |
-| Bulk actions | Floating toolbar centred 24px above the bottom edge: "3 selected · Categorise · Mark as transfer · Create rule · ✕" |
+| Bulk actions | Floating toolbar centred 24px above the bottom edge: "3 selected · Categorise · Mark as transfer · Create rule · ✕". Mark as transfer is enabled for exactly two rows that make one transfer and shows the undo bar; Create rule opens Rules on the rule the rows share, or says why there isn't one under the selection's Category select (`ARCHITECTURE.md` → "Mark as transfer and Create rule from the bulk-action bar") |
 | Uncategorised | Dashed 1px `text-muted` marker + "Uncategorised" in `text-muted` |
 | AI-suggested category | 10px sparkle + label in `moldavite-text`, 6px gap (`spacing-1_5`) so the label stays in the lane of the 8px markers (10 + 6 = 8 + 8); approve/reject from the inspector or the inbox |
 | Transfer | ⇄ icon, merchant and amount in `text-muted`, category "Transfer · Savings pot" |
@@ -1614,7 +1614,8 @@ suggestions are neutral (no moldavite); the AI's `refund_link` suggestions are I
   prefix, mono) defaults to the smaller of the money in and what the purchase can still
   take, so one refund can be split across purchases. Cancel / "Link refund" (neutral
   primary: linking is undoable). Reimbursement lists purchases marked to claim back;
-  Settlement lists people with what each owes.
+  Settlement lists people with what each owes. The rows show at most eight, with the
+  gaps between them, and scroll inside the dialog past that, as menus do.
 - **Shared cost** (`BAT-0`). Odeon is selected with Share on "Shared":
   - Yours: a mono `£` field, "15.90", with "of £31.80" as a caption suffix
     (`my_share_minor`);

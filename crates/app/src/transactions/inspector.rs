@@ -855,8 +855,10 @@ fn multiple(
             .gap(spacing::S2)
             .when_some(category, |this, value| {
                 this.child(FieldRow::new("Category", category_select(view, value, cx)))
-                    .children(edit_error(view))
             })
+            // Also the bulk-action bar's: said here when no row can take a
+            // category, too.
+            .children(edit_error(view))
             .into_any_element(),
         section(true)
             .gap(spacing::S2)

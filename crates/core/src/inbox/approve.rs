@@ -764,6 +764,40 @@ pub fn decide_transfer(
     Ok(TransferDecided { decision, settled })
 }
 
+/// Two rows the user marked as a transfer in Transactions, with the Inbox
+/// suggestions that settled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransferMarked {
+    /// What changed, kept for [`transfer::unmark`].
+    pub marked: transfer::Marked,
+    /// Pending `transfer_pair` suggestions for the same two rows, approved
+    /// as the pair is confirmed.
+    pub settled: Vec<SuggestionId>,
+}
+
+/// Marks `a` and `b` as one confirmed transfer ([`transfer::mark_in`]) and,
+/// in the same DB transaction, settles any pending agent suggestion for
+/// exactly that pair, as [`decide_transfer`]'s Confirm does. Undoing the
+/// mark later leaves settled suggestions as they are.
+pub fn mark_transfer(
+    db: &mut Database,
+    a: TransactionId,
+    b: TransactionId,
+) -> Result<TransferMarked, ApproveError> {
+    let tx = db
+        .conn_mut()
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let marked = transfer::mark_in(&tx, a, b)?;
+    let confirmed = transfer::Decision {
+        group: marked.group,
+        action: transfer::Action::Confirm,
+        transactions: marked.transactions,
+    };
+    let settled = settle_transfer_pair(&tx, &confirmed)?;
+    tx.commit()?;
+    Ok(TransferMarked { marked, settled })
+}
+
 /// Settles the pending `transfer_pair` suggestions naming `decision`'s two
 /// rows (kept lower ID first, so the payload's pair is sorted to compare).
 fn settle_transfer_pair(

@@ -36,8 +36,8 @@ use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
 
 use super::Checks;
-use super::duplicates::DATES_LANE;
-use super::text::{self, NAME_SHOWN, Part, plain, rich};
+use super::duplicates::{DATES_LANE, UNLOCK};
+use super::text::{self, Part, rich};
 use super::view::{click, empty_queue};
 
 /// The preset whose exports carry no balances.
@@ -126,7 +126,7 @@ fn group_header(account: &AccountReview, today: NaiveDate, window: &Window) -> i
                         .text_role(typography::CAPTION)
                         .font_weight(weight::STRONG)
                         .text_color(color::TEXT_SECONDARY)
-                        .child(plain(&account.name, NAME_SHOWN)),
+                        .child(text::account(&account.name)),
                 )
                 .children(lock),
         )
@@ -184,6 +184,25 @@ pub(super) fn difference_text(row: &CheckRow) -> String {
     }
 }
 
+/// What a balance's row says, lane by lane.
+pub(super) struct CheckRowText {
+    pub source: String,
+    pub date: String,
+    pub balance: String,
+    pub coffer: String,
+    pub difference: String,
+}
+
+pub(super) fn check_row_text(row: &CheckRow, today: NaiveDate) -> CheckRowText {
+    CheckRowText {
+        source: source_text(row),
+        date: text::date(row.check.date, today),
+        balance: text::balance(row.check.stated),
+        coffer: coffer_text(row),
+        difference: difference_text(row),
+    }
+}
+
 fn check_row(
     account: &AccountReview,
     row: &CheckRow,
@@ -198,7 +217,13 @@ fn check_row(
         Outcome::Passed { .. } => (Some((Glyph::Check, color::TEXT_MUTED)), color::TEXT),
         Outcome::StartingPoint | Outcome::Valuation => (None, color::TEXT_MUTED),
     };
-    let source = source_text(row);
+    let CheckRowText {
+        source,
+        date,
+        balance: stated,
+        coffer,
+        difference: gap,
+    } = check_row_text(row, today);
     let lifted = |tone: Rgba| {
         if selected && tone == color::TEXT {
             color::WHITE
@@ -206,16 +231,15 @@ fn check_row(
             tone
         }
     };
-    let coffer: (String, Rgba) = match counted(row) {
-        Some(value) if value.is_negative() => (coffer_text(row), color::DANGER),
-        Some(_) => (coffer_text(row), lifted(color::TEXT)),
-        None => (coffer_text(row), color::TEXT_MUTED),
+    let coffer_tone = match counted(row) {
+        Some(value) if value.is_negative() => color::DANGER,
+        Some(_) => lifted(color::TEXT),
+        None => color::TEXT_MUTED,
     };
     let (gap_tone, gap_strong) = match check.outcome {
         Outcome::Failed { .. } => (color::DANGER, true),
         _ => (color::TEXT_MUTED, false),
     };
-    let gap = difference_text(row);
     let (account_id, balance) = (account.account, check.balance);
     let (select, focus) = (handle.clone(), focus.clone());
     div()
@@ -271,14 +295,10 @@ fn check_row(
                 } else {
                     color::TEXT_MUTED
                 })
-                .child(text::date(check.date, today)),
+                .child(date),
         )
-        .child(amount(
-            text::balance(check.stated),
-            lifted(color::TEXT),
-            false,
-        ))
-        .child(amount(coffer.0, coffer.1, false))
+        .child(amount(stated, lifted(color::TEXT), false))
+        .child(amount(coffer, coffer_tone, false))
         .child(amount(gap, gap_tone, gap_strong))
         .into_any_element()
 }
@@ -834,7 +854,7 @@ pub(super) fn lock_text(
     let (title, button) = match account.locked_through {
         Some(through) => (
             locked_through(through, today),
-            Some(("Unlock…".to_owned(), true)),
+            Some((UNLOCK.to_owned(), true)),
         ),
         None => (
             vec![Part::text("Not locked")],
@@ -944,7 +964,7 @@ pub(super) fn header_text(
     today: NaiveDate,
 ) -> (String, Option<String>, String) {
     let check = &row.check;
-    let name = plain(&account.name, NAME_SHOWN);
+    let name = text::account(&account.name);
     let (figure, words) = match check.outcome {
         Outcome::Failed { .. } => {
             let gap = difference(row);

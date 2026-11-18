@@ -168,7 +168,7 @@ pub(super) fn table_note(node: &AccountNode, rows: &[ValuationRow]) -> String {
     let first = rows
         .last()
         .map(|row| row.date.format("%-d %b %Y").to_string());
-    let name = &node.account.name;
+    let name = super::name(&node.account.name);
     match (node.account.kind, first) {
         (AccountKind::Liability, Some(first)) => format!(
             "A balance here sets what you owe on its date, so it isn't checked against transactions. {name} counts toward net worth from its first balance, {first}. Payments toward it stay spending on the account they leave."
@@ -189,7 +189,7 @@ pub(super) fn empty_title(words: Words) -> String {
 pub(super) fn empty_body(node: &AccountNode) -> String {
     format!(
         "Add what {} is {}, and Coffer holds it until the next one.",
-        node.account.name,
+        super::name(&node.account.name),
         if node.account.kind == AccountKind::Liability {
             "owed"
         } else {

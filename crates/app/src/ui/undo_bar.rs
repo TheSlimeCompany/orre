@@ -15,6 +15,9 @@ use crate::ui::text::TextRoleExt as _;
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
+/// The undo bar's button, also what views' `describe()` report.
+pub const UNDO: &str = "Undo";
+
 /// The bar: `float`, 1px `border`, `radius-lg`, the Toolbar shadow; 8px
 /// block, 12px left and 8px right padding, 12px gaps. A 14px `check` in
 /// `text`, the change in body text, outline "Undo", and a 24px dismiss
@@ -68,7 +71,7 @@ impl UndoBar {
 
 impl RenderOnce for UndoBar {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let mut undo = Button::new("undo-change", "Undo").with_variant(ButtonVariant::Outline);
+        let mut undo = Button::new("undo-change", UNDO).with_variant(ButtonVariant::Outline);
         if let Some(handler) = self.on_undo {
             undo = undo.on_click(handler);
         }

@@ -98,6 +98,30 @@ pub fn dates(a: NaiveDate, b: NaiveDate, today: NaiveDate) -> String {
     }
 }
 
+/// What a pair's row says, lane by lane.
+pub(super) struct PairRowText {
+    /// "OCADO RETAIL LTD and Ocado", the " and " in `joiner`.
+    pub names: Vec<Part>,
+    pub account: String,
+    pub why: String,
+    pub dates: String,
+    pub amount: String,
+}
+
+pub(super) fn pair_row_text(pair: &Pair, joiner: Rgba, today: NaiveDate) -> PairRowText {
+    PairRowText {
+        names: vec![
+            Part::text(text::name(&pair.rows[0])),
+            Part::text(" and ").color(joiner),
+            Part::text(text::name(&pair.rows[1])),
+        ],
+        account: text::account(&pair.account_name),
+        why: text::why(&pair.why),
+        dates: dates(pair.rows[0].date, pair.rows[1].date, today),
+        amount: text::signed(pair.rows[0].amount),
+    }
+}
+
 fn pair_row(
     pair: &Pair,
     selected: bool,
@@ -122,16 +146,14 @@ fn pair_row(
             color::TEXT_MUTED,
         )
     };
-    let names = rich(
-        window,
-        typography::BODY,
-        name,
-        vec![
-            Part::text(text::name(&pair.rows[0])),
-            Part::text(" and ").color(joiner),
-            Part::text(text::name(&pair.rows[1])),
-        ],
-    );
+    let PairRowText {
+        names,
+        account,
+        why,
+        dates,
+        amount,
+    } = pair_row_text(pair, joiner, today);
+    let names = rich(window, typography::BODY, name, names);
     let (select, focus) = (handle.clone(), focus.clone());
     div()
         .id(SharedString::from(format!("checks-pair-{id}")))
@@ -168,27 +190,27 @@ fn pair_row(
             lane(size::COLUMN_ACCOUNT)
                 .text_role(typography::BODY)
                 .text_color(lanes)
-                .child(plain(&pair.account_name, NAME_SHOWN)),
+                .child(account),
         )
         .child(
             lane(size::COLUMN_CATEGORY)
                 .text_role(typography::BODY)
                 .text_color(lanes)
-                .child(text::why(&pair.why)),
+                .child(why),
         )
         .child(
             lane(DATES_LANE)
                 .justify_end()
                 .text_role(typography::MONO_VALUE)
                 .text_color(dates_tone)
-                .child(dates(pair.rows[0].date, pair.rows[1].date, today)),
+                .child(dates),
         )
         .child(
             lane(size::COLUMN_AMOUNT)
                 .justify_end()
                 .text_role(typography::MONO_AMOUNT)
                 .text_color(name)
-                .child(text::signed(pair.rows[0].amount)),
+                .child(amount),
         )
         .into_any_element()
 }
@@ -271,6 +293,9 @@ pub(super) enum Field {
     /// The categories, each with its marker ([`category_label`]).
     Category,
 }
+
+/// The label of the comparison's [`Field::Category`].
+pub(super) const CATEGORY: &str = "Category";
 
 /// The comparison's fields, top to bottom.
 pub(super) fn fields(rows: &[PairRow; 2]) -> Vec<Field> {
@@ -458,7 +483,7 @@ pub(super) fn locked_words(
     Some(vec![
         Part::text(format!(
             "{} is locked through ",
-            plain(&pair.account_name, NAME_SHOWN)
+            text::account(&pair.account_name)
         )),
         Part::mono(text::date(locked.through, today)),
         Part::text(", and this merge would exclude a row dated "),
@@ -519,7 +544,7 @@ fn locked_block(
                     ))),
             )
             .child(
-                Button::new("checks-pair-unlock", "Unlock…")
+                Button::new("checks-pair-unlock", UNLOCK)
                     .with_variant(ButtonVariant::Outline)
                     .on_click(click(move |_, _, cx| {
                         unlock.update(cx, |checks, cx| checks.request_unlock(account, cx))
@@ -527,6 +552,21 @@ fn locked_block(
             )
             .into_any_element(),
     )
+}
+
+/// The comparison's buttons, and the keys that do what they do
+/// ([`super::view::KEYS`]). Unlock… is the lock section's too.
+pub(super) const KEEP_OTHER: &str = "Keep this instead";
+pub(super) const UNLOCK: &str = "Unlock…";
+pub(super) const MERGE: &str = "Merge";
+pub(super) const NOT_DUPLICATES: &str = "Not duplicates";
+
+/// Whether Merge works on `pair`: core could plan it and the row it
+/// excludes isn't locked.
+pub(super) fn can_merge(pair: &Pair) -> bool {
+    pair.effect
+        .as_ref()
+        .is_ok_and(|effect| effect.locked.is_none())
 }
 
 /// Why a pair can't merge, as the canvas and the inspector say it.
@@ -582,7 +622,7 @@ fn comparison(
                 text::added(&rows[1], today),
             )
             .child(
-                Button::new("checks-keep-other", "Keep this instead")
+                Button::new("checks-keep-other", KEEP_OTHER)
                     .with_variant(ButtonVariant::Outline)
                     .on_click(click(move |_, _, cx| {
                         keep.update(cx, |checks, cx| checks.keep_other(cx))
@@ -603,16 +643,13 @@ fn comparison(
         .into_iter()
         .map(|field| match field {
             Field::Compared(field) => compared(field).into_any_element(),
-            Field::Category => {
-                field_row("Category", categories.take().expect("one Category field"))
-                    .into_any_element()
-            }
+            Field::Category => field_row(CATEGORY, categories.take().expect("one Category field"))
+                .into_any_element(),
         })
         .collect();
 
     let effect = pair.effect.as_ref();
-    let locked = effect.ok().and_then(|effect| effect.locked).is_some();
-    let can_merge = effect.is_ok() && !locked;
+    let mergeable = can_merge(pair);
     let (merge, dismiss) = (handle.clone(), handle.clone());
     let (words, refused) = footer_caption(pair);
     let caption: AnyElement = div()
@@ -631,15 +668,15 @@ fn comparison(
         .pl(footer_indent())
         .pt(spacing::S3)
         .child(
-            Button::new("checks-merge", "Merge")
+            Button::new("checks-merge", MERGE)
                 .with_variant(ButtonVariant::Primary)
-                .disabled(!can_merge)
+                .disabled(!mergeable)
                 .on_click(click(move |_, _, cx| {
                     merge.update(cx, |checks, cx| checks.merge(cx))
                 })),
         )
         .child(
-            Button::new("checks-dismiss", "Not duplicates")
+            Button::new("checks-dismiss", NOT_DUPLICATES)
                 .with_variant(ButtonVariant::Secondary)
                 .on_click(click(move |_, _, cx| {
                     dismiss.update(cx, |checks, cx| checks.dismiss(cx))
@@ -826,7 +863,7 @@ pub(super) fn criteria(pair: &Pair) -> Vec<Criterion> {
     let mut rows = vec![
         met(
             "Same account".to_owned(),
-            plain(&pair.account_name, NAME_SHOWN),
+            text::account(&pair.account_name),
             false,
         ),
         met(
@@ -1004,7 +1041,7 @@ pub(super) fn merge_captions(
                     Part::text(format!(
                         "{} for {} on ",
                         text::stated_by(change.source),
-                        plain(&pair.account_name, NAME_SHOWN)
+                        text::account(&pair.account_name)
                     )),
                     Part::mono(text::date(change.date, today)),
                     Part::text(" is "),
@@ -1096,10 +1133,7 @@ pub(super) fn header_text(pair: &Pair) -> (String, String, String) {
     (
         text::name(&pair.rows[0]),
         text::signed(pair.rows[0].amount),
-        format!(
-            "{} · possible duplicate",
-            plain(&pair.account_name, NAME_SHOWN)
-        ),
+        format!("{} · possible duplicate", text::account(&pair.account_name)),
     )
 }
 

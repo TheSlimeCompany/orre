@@ -122,14 +122,10 @@ impl InboxPanelRow {
                 queue.is_none() && inbox.status() == *status,
             ),
             Self::Queue(row) => RowText {
-                flagged: *row == Queue::Balances && checks.failing() > 0,
+                flagged: checks.queue_flagged(*row),
                 ..plain(
                     row.title().to_owned(),
-                    match row {
-                        Queue::Duplicates => checks.pending_pairs(),
-                        Queue::Balances => checks.failing(),
-                        Queue::Owed => checks.owed_open(),
-                    },
+                    checks.queue_count(*row),
                     queue == Some(*row),
                 )
             },

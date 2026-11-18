@@ -7,11 +7,11 @@ use coffer_core::link::{LinkKind, LinkStatus};
 use coffer_core::money::{Currency, Money};
 use coffer_core::reporting::register::LinkSide;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
+use gpui_kit::{Bounds, Pixels, SharedString, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
 use super::describe::{FieldDescription, TransactionsDescription};
-use super::link_dialog::{Choice, LinkDialog};
+use super::link_dialog::{self, Choice, LinkDialog};
 use super::link_fixture::{self, Seeded, Variant};
 use super::links::LinkFrom;
 use super::*;
@@ -337,5 +337,114 @@ fn the_arrows_choose_a_candidate_past_blocked_ones_and_enter_links(cx: &mut Test
         statuses(&view, candidates[1].transaction, cx),
         [(LinkKind::Refund, LinkStatus::Confirmed)],
         "Enter linked the chosen purchase"
+    );
+}
+
+/// Opens the link dialog from `from` as its own window, for the keyboard.
+fn open_dialog<'a>(
+    cx: &'a mut VisualTestContext,
+    view: &Entity<TransactionsView>,
+    from: LinkFrom,
+) -> (Entity<LinkDialog>, &'a mut VisualTestContext) {
+    let transactions = view.clone();
+    let (dialog, cx) =
+        cx.add_window_view(move |window, cx| LinkDialog::new(transactions, from, window, cx));
+    redraw(cx);
+    (dialog, cx)
+}
+
+/// The bounds of `id` in the last frame.
+fn bounds(id: impl Into<SharedString>, cx: &mut VisualTestContext) -> Bounds<Pixels> {
+    let id = id.into();
+    cx.update(move |window, _| window.find(id).bounds())
+}
+
+/// The rows are eight rows tall at most, and `chosen`'s row shows whole
+/// inside them while `first`'s has scrolled out above.
+fn assert_scrolled_to(first: &str, chosen: &str, cx: &mut VisualTestContext) {
+    redraw(cx);
+    let list = bounds("link-rows", cx);
+    assert_eq!(
+        list.size.height,
+        link_dialog::rows_height(),
+        "the rows stop growing at eight"
+    );
+    let row = bounds(chosen.to_owned(), cx);
+    assert!(
+        row.top() >= list.top() && row.bottom() <= list.bottom(),
+        "the chosen row {row:?} shows inside the rows {list:?}"
+    );
+    assert!(
+        bounds(first.to_owned(), cx).bottom() <= list.top(),
+        "the first row has scrolled out above"
+    );
+}
+
+#[gpui_kit::test]
+fn the_arrows_scroll_the_chosen_candidate_into_view(cx: &mut TestAppContext) {
+    let scratch = scratch(Variant::Suggested);
+    {
+        let mut db = Database::open(&scratch.path).unwrap();
+        link_fixture::crowd(&mut db, scratch.seeded.current, 12);
+    }
+    let (view, cx) = open(cx, &scratch);
+    let (dialog, cx) = open_dialog(cx, &view, LinkFrom::Transaction(scratch.seeded.asos_refund));
+    for _ in 0.."ASOS.com".len() {
+        cx.simulate_keystrokes("backspace");
+    }
+    redraw(cx);
+    let candidates = cx.update(|_, cx| dialog.read(cx).candidates(cx));
+    assert!(candidates.len() > 10, "{}", candidates.len());
+    let row = |index: usize| format!("link-candidate-{}", candidates[index].transaction);
+    let last = candidates.len() - 1;
+    assert!(candidates[last].blocked.is_none());
+    // Before any move, the last row is out of view below.
+    let list = bounds("link-rows", cx);
+    assert!(bounds(row(last), cx).top() >= list.bottom());
+
+    for _ in 0..last {
+        cx.simulate_keystrokes("down");
+    }
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).chosen().cloned()),
+        Some(Choice::Transaction(candidates[last].transaction))
+    );
+    assert_scrolled_to(&row(0), &row(last), cx);
+}
+
+#[gpui_kit::test]
+fn the_arrows_scroll_the_chosen_person_into_view(cx: &mut TestAppContext) {
+    let scratch = scratch(Variant::Suggested);
+    {
+        let mut db = Database::open(&scratch.path).unwrap();
+        link_fixture::crowd(&mut db, scratch.seeded.current, 12);
+    }
+    let (view, cx) = open(cx, &scratch);
+    let (dialog, cx) = open_dialog(cx, &view, LinkFrom::Transaction(scratch.seeded.acme));
+    dialog.update_in(cx, |dialog, window, cx| {
+        dialog.set_kind(LinkKind::Settlement, window, cx)
+    });
+    redraw(cx);
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).kind()),
+        LinkKind::Settlement
+    );
+    let first = cx.update(|_, cx| dialog.read(cx).chosen().cloned());
+    let Some(Choice::Person(first)) = first else {
+        panic!("a person is chosen first: {first:?}");
+    };
+    // Sam, Priya and the twelve stallholders.
+    for _ in 0..13 {
+        cx.simulate_keystrokes("down");
+    }
+    let last = cx.update(|_, cx| dialog.read(cx).chosen().cloned());
+    let Some(Choice::Person(last)) = last else {
+        panic!("a person is chosen: {last:?}");
+    };
+    assert_ne!(first, last);
+    assert_scrolled_to(
+        &format!("link-person-{}", first.as_str()),
+        &format!("link-person-{}", last.as_str()),
+        cx,
     );
 }

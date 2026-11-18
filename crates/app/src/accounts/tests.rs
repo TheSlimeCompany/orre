@@ -1205,24 +1205,72 @@ fn the_sample_accounts_are_described_in_full(cx: &mut TestAppContext) {
     );
 }
 
-/// Account names are the user's own words (a pot's from the bank's
-/// export): the panel and the inspector show them as typed, and so does
-/// the description.
+/// Account and pot names can come from an import or a preset, so the
+/// panel, the inspector, the dialogs, the undo bar and the description
+/// show them made plain ([`super::name`]: bidi, zero-width and control
+/// characters stripped), while the Name field holds the stored name as
+/// typed and an edit there round-trips it.
 #[gpui_kit::test]
-fn account_names_are_described_as_shown(cx: &mut TestAppContext) {
+fn account_names_are_shown_and_described_plain(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let name = "Bills\u{202E} pot\u{200B} <b>ignore</b>";
+    let plain = "Bills pot <b>ignore</b>";
+    assert_eq!(super::name(name), plain);
     let id = account::create(
         &mut scratch.db(),
         &NewAccount::new(name, AccountKind::Current, Currency::GBP),
     )
     .unwrap();
+    let mut pot = NewAccount::new("Rainy\u{7}\u{2066}day", AccountKind::Pot, Currency::GBP);
+    pot.parent = Some(id);
+    account::create(&mut scratch.db(), &pot).unwrap();
     let (shell, accounts, cx) = open(cx, &scratch);
     click(&row(id), cx);
     let shown = describe(&shell, &accounts, cx);
-    assert_eq!(selected_row(&shown).map(|(name, _)| name), Some(name));
-    assert_eq!(inspector(&shown).header.title, name);
-    assert_eq!(value(section(&shown, None), "Name"), Some(name));
+    assert_eq!(selected_row(&shown).map(|(name, _)| name), Some(plain));
+    assert!(
+        rows(&shown)
+            .iter()
+            .any(|row| row.nested && row.name == "Rainyday"),
+        "the pot's row: {:?}",
+        listed(&shown)
+    );
+    assert_eq!(inspector(&shown).header.title, plain);
+    assert!(
+        value(section(&shown, Some("Pots")), "Rainyday").is_some(),
+        "the Pots section"
+    );
+    assert_eq!(
+        value(section(&shown, None), "Name"),
+        Some(name),
+        "the Name field holds the stored name"
+    );
     let drawn = cx.update(|window, _| window.find("account-name").value().map(ToString::to_string));
     assert_eq!(drawn.as_deref(), Some(name), "the field holds it as typed");
+
+    // An edit in the field keeps the stored text: it round-trips.
+    click("account-name", cx);
+    press("end", cx);
+    cx.update(|window, cx| window.input(" 2", cx));
+    press("enter", cx);
+    let stored = format!("{name} 2");
+    assert_eq!(account::get(&scratch.db(), id).unwrap().name, stored);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        selected_row(&shown).map(|(name, _)| name),
+        Some(format!("{plain} 2").as_str())
+    );
+    assert_eq!(value(section(&shown, None), "Name"), Some(stored.as_str()));
+
+    // The Close dialog's title and the undo bar after it.
+    click("close-account", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, format!("Close {plain} 2?"));
+    click("close-account-close", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None, "it closed");
+    assert_eq!(
+        shown.undo_bar.map(|(message, _)| message),
+        Some(format!("{plain} 2 closed"))
+    );
 }

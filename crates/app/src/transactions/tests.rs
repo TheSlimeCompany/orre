@@ -980,7 +980,8 @@ fn the_keys_follow_the_selection_and_the_filters(cx: &mut TestAppContext) {
         "Transfer · Rainy day pot"
     );
 
-    // Several: the bulk-action bar, its unwired buttons disabled.
+    // Several: the bulk-action bar. A row in a transfer already can't be
+    // marked as one.
     press("shift-down", cx);
     let description = describe(&view, cx);
     assert_eq!(
@@ -990,7 +991,7 @@ fn the_keys_follow_the_selection_and_the_filters(cx: &mut TestAppContext) {
             actions: vec![
                 describe::Action::button("Categorise", true),
                 describe::Action::button("Mark as transfer", false),
-                describe::Action::button("Create rule", false),
+                describe::Action::button("Create rule", true),
                 describe::Action::button("Clear selection", true),
             ],
         })
