@@ -14,7 +14,7 @@ this file covers how the app looks and feels.
 | Tool | [Paper](https://paper.design), read and written via the Paper MCP server |
 | Coffer file | **Coffer** — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Coffer design work happens here |
 | Coffer page | `Page 1` (`p-1-0`) |
-| Coffer artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide |
+| Coffer artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide |
 | Coffer tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1; content hash `6a126241` (see "Tokens") |
 | Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Coffer's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
 | Reference page | `Editor — v1` (`p-1-0`) |
@@ -2316,6 +2316,37 @@ or AI-suggested.
   counterpart wait for a Transactions filter by rows; "Show rule 2" (within Rules) is
   built. Differences from Paper: the apply preview names each row by its display name
   (the cleaned bank text), as Transactions does, so fixture rows can repeat a name.
+- **Keyboard reorder** — drawn for U.8: Rules · keyboard reorder (`I8D-0`, duplicated from
+  `B1J-0`) and the first section of Keyboard paths · states (`IIH-0`). Dragging was the
+  only way to reorder; ⌥↑ and ⌥↓ (Alt on Linux and Windows) now move the selected rule one
+  place. No new tokens or components. Fixture: "Merchant contains `UBER TRIP`", never
+  reached at rule 3, is moved above UBER with ⌥↑ and now decides 9 of UBER's 31 (UBER
+  shows 22). The inspector follows the moved rule ("rule 2 of 14").
+  - *Toolbar hints*: kbd ↑↓ "Select", then kbd ⌥↑↓ "Reorder", then "+ New rule", 12px
+    apart. ↑↓ was labelled "Move" here; with reorder beside it, "Move" would read as
+    moving the rule. The Kbd sets ⌥ in Inter, as it does ⌘: Geist Mono has neither glyph
+    (checked in the bundled files).
+  - *The moved row* stays selected and keeps focus: `molten-soft` fill and the inset
+    focus ring, so the next ⌥↑ moves it again. The # lane renumbers at once.
+  - *What it says*: the D6.3 undo bar, in its usual place 24px above the canvas bottom:
+    the 14px `check`, "Moved “Merchant contains `UBER TRIP`” to rule 2 of 14" (the rule as
+    its inspector title names it, the text in mono; "rule N of M" as the inspector caption
+    and the Position select word it), outline "Undo" and the dismiss button. Undo moves
+    the rule back. No transaction changes, so it's not a `change_batch` and Change
+    history doesn't list it, as for Delete rule.
+  - *Pressed again*: the same bar updates ("…to rule 1 of 14"). Undo returns the rule to
+    where the presses began. Moving a different rule, or any other change, starts a new
+    bar.
+  - *At the edges*: ⌥↑ on rule 1 or ⌥↓ on the last rule does nothing. No bar, no line:
+    the # lane already shows where the rule is.
+  - *Filtered* (an ACTION, MATCH or KIND row picked): the rule moves past the rows the
+    filter hides to just above (or below) the next row shown, so the move is always
+    visible. Drawn: Add tag picked, ⌥↑ on rule 12 JUSTGIVING takes it to rule 6 above
+    WAITROSE, and the bar says "to rule 6 of 14".
+  - *Where the keys work*: while the Rules table has focus and a stored rule is
+    selected. Not in the inspector's fields, where ⌥↑↓ stay text keys, and not for a new
+    rule, which has the Position select. The table note now reads "…drag a row, or press
+    ⌥↑ or ⌥↓ on the selected rule, to reorder."
 - **Categories (built in M3.7)** (`crates/app/src/rules/`; `ARCHITECTURE.md` → "Decision
   record: the categories editor (built)"). **Composed from existing specs, not drawn**
   (user, 2026-11-15):
@@ -2493,6 +2524,52 @@ because only the six biggest categories by spending get a colour.
 - **Not drawn:** Upcoming with "All accounts" selected (recommended: the sum of the
   accounts that have schedules, with each account's lowest point in the inspector), a
   paused schedule's row, and the Group select's menu.
+
+**Keyboard paths** — U.9: every action that only a pointer could do gets a key.
+Audited 2026-11-18 against the code at `a2fd70d`. Drawn in the second section of Keyboard
+paths · states (`IIH-0`, 1440 wide); keys-only items are listed but not drawn. ⌘ is Ctrl
+and ⌥ is Alt on Linux and Windows. No new tokens or components.
+- **Inbox and Rules panels** (drawn). Their rows answered only to clicks, so a keyboard
+  couldn't reach Approved or Rejected, the CHECKS queues (Possible duplicates, Balance
+  checks, Owed to you), the KIND and SOURCE filters, or Rules' Merchant names, Change
+  history, Categories and its ACTION, MATCH and KIND filters. Each panel becomes a Tab
+  stop, like the Accounts and Settings panels. ↑↓ move a keyboard cursor through every
+  row, across sections, skipping the section labels. The cursor row takes the list row's
+  "current" look (`hover` fill, `text` label) and the inset focus ring. Enter or Space
+  acts on it as a click does: it opens a status or queue, or turns a filter on or off.
+  The open queue keeps its `molten-soft` fill while the cursor is elsewhere. Drawn: the
+  cursor on Balance checks while Possible duplicates is open. Unlike the Accounts panel,
+  ↑↓ don't change the selection here, because most of these rows are filters.
+- **Sortable column titles on Transactions** (drawn). Sorting was click-only, and the
+  chevron showed only on hover. Each sortable title becomes a Tab stop after the toolbar,
+  in column order. Focused, it shows its chevron as on hover (`icon-faint`, on the
+  column's inner side) and the focus ring 2px out (radius `radius-sm` + 2). Enter or
+  Space sorts, cycling as a click does. Drawn: Category focused, before any sort.
+- **Keys only** (nothing new on screen):
+  - *Status bar items* ("1 agent connected" or "AI access off", "1 balance check
+    failing") stay click-only, as a status line should. ⌘, then the Settings panel
+    reaches AI clients; ⌘6 then the Inbox panel (above) reaches Balance checks.
+  - *An account's flagged dot* opens Balance checks on that account's check. Keyboard:
+    with the Accounts panel focused and a flagged account selected, Enter does the same.
+    Enter does nothing on an account that isn't flagged.
+  - *Link dialog candidates* (refund, reimbursement and settlement rows, and a
+    settlement's people) were click-only. From the search field, ↑↓ move the chosen row
+    (its existing `molten-soft` look) and scroll it into view, skipping rows at
+    `opacity-disabled`. Enter is the primary button.
+  - *⌘-click in Transactions* adds a row to the selection without its neighbours; ⇧↑↓
+    only extends a range. Proposed: ⌘↑ / ⌘↓ move the panel-style keyboard cursor
+    without changing the selection, and Space adds or removes the cursor row. Needs the
+    user's decision before it's built (see the U.9 report).
+- **Already have a keyboard path** (hover only styles them, or a key exists): Inbox
+  approve ✓ / reject ✕ (shown on hover or selection; A and R act on the selected row);
+  agent-card rows (Tab stops that reveal their buttons on focus too); the tag pill's ✕
+  (shown on hover; the "+ Tag" menu removes a tag too, so "+ Tag" must be a Tab stop:
+  its focus handle wasn't marked as one at `a2fd70d`); the category cell's double-click
+  (Enter); dropping a file on the window (⌘I) or on Import's drop zone ("Choose file…");
+  closing a menu by clicking outside (Escape); a rule's "Never reached" fix ("Move above
+  rule 2" is a button).
+- **Out of scope**: dragging the window by the title bar, double-clicking it to zoom, and
+  its right-click menu belong to the window manager, which has its own keys.
 
 **Not drawn in D6.1:** empty states for these screens (empty Inbox, no budgets, no
 reviews), the Approved / Rejected inbox lists, Save as preset (M3.5), and the screens
