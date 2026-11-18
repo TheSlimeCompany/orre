@@ -11,7 +11,9 @@
 //! accounts. The `+` opens New account. The panel is a Tab stop: there the
 //! arrow keys move the selection through the rows, in panel order, and
 //! Escape goes back to all accounts; the selected row draws the inset focus
-//! ring while the panel has keyboard focus.
+//! ring while the panel has keyboard focus. Enter on a flagged account
+//! opens its failing balance check, as the dot does; on any other account
+//! it does nothing (`docs/DESIGN.md` → "Keyboard paths").
 //!
 //! Composed for M3.2 (not drawn): with no accounts, the Accounts section
 //! says so in a `text-muted` row, and net worth reads "—"; accounts in more
@@ -35,7 +37,7 @@
 use coffer_core::account::AccountKind;
 use coffer_core::id::AccountId;
 use coffer_core::reporting::account_tree::AccountNode;
-use gpui_kit::base::actions::Cancel;
+use gpui_kit::base::actions::{Cancel, Confirm};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -354,6 +356,7 @@ pub fn render(
         );
 
     let (step, clear, add_value) = (accounts.clone(), accounts.clone(), accounts.clone());
+    let (checks, panel) = (accounts.clone(), focus.clone());
     div()
         .id("left-panel")
         .key_context(CONTEXT)
@@ -363,6 +366,17 @@ pub fn render(
         })
         .on_action(move |_: &Cancel, _, cx| {
             clear.update(cx, |accounts, cx| accounts.select(None, cx))
+        })
+        // Enter on the panel itself (not a `+` in it): the selected
+        // account's flagged dot.
+        .on_action(move |_: &Confirm, window, cx| {
+            if !panel.is_focused(window) {
+                cx.propagate();
+                return;
+            }
+            checks.update(cx, |accounts, cx| {
+                accounts.request_selected_checks(cx);
+            });
         })
         // ⌘N adds the record the selected account takes (D6.9): a valuation
         // here, a transaction on a bank or cash account (M3.10).

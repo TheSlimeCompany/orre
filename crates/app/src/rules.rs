@@ -71,12 +71,14 @@ gpui_kit::actions!(
 );
 
 /// Binds the view's keys: ↑↓ move the selection, ⌥↑⌥↓ move the selected
-/// rule, Escape clears the selection or goes back from the preview. Call
-/// once, before the first [`view::RulesView`].
+/// rule, Escape clears the selection or goes back from the preview; in the
+/// panel, ↑↓ move its cursor and Enter or Space act on it. Call once,
+/// before the first [`view::RulesView`].
 pub fn init(cx: &mut gpui_kit::App) {
     use gpui_kit::KeyBinding;
     use gpui_kit::base::actions::Cancel;
     view::KEYS.bind(cx);
+    panel::KEYS.bind(cx);
     cx.bind_keys([
         KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
         KeyBinding::new("alt-up", MoveRuleUp, Some(view::CONTEXT)),
@@ -1594,6 +1596,8 @@ fn row_after<T: Copy + PartialEq>(order: &[T], id: T) -> Option<T> {
         .copied()
 }
 
+#[cfg(test)]
+mod panel_tests;
 #[cfg(test)]
 mod reorder_tests;
 #[cfg(test)]

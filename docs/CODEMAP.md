@@ -189,6 +189,12 @@ per call through its own store and changes data only through core.
   Escape `unhinted`). `bind` binds them, `keys::hints(KEYS.hints())` draws the toolbar's
   hints, a test-only `describe()` lists them, and `ViewKeys::assert_bound` (tests) checks
   the keymap holds exactly them. Used by the Inbox and the review queues (Checks).
+- `ui::panel_cursor` (U.9): the keyboard cursor for a left panel of filters (Rules, later
+  the Inbox). A Tab stop where ↑↓ move a cursor across sections without changing the
+  selection, and Enter or Space act on its row as a click does. `PanelKeys` binds the
+  keys, `PanelCursor::keyed` keeps the cursor with the panel's element,
+  `panel_cursor(...)` wires the element, and `Frame::mark` gives the cursor row
+  `ListRow::current` and the inset ring.
 - `format`: writes and reads money and dates.
 - `showcase`: the component showcase, `coffer --showcase`.
 

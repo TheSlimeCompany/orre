@@ -50,10 +50,15 @@ gpui_kit::actions!(
 pub fn init(cx: &mut gpui_kit::App) {
     use std::rc::Rc;
 
-    use gpui_kit::base::actions::Cancel;
+    use gpui_kit::base::actions::{Cancel, Confirm};
     use gpui_kit::{KeyBinding, KeyBindingContextPredicate};
     panel::KEYS.bind(cx);
-    cx.bind_keys([KeyBinding::new("escape", Cancel, Some(panel::CONTEXT))]);
+    cx.bind_keys([
+        KeyBinding::new("escape", Cancel, Some(panel::CONTEXT)),
+        // Enter on a flagged account opens its failing check, as its dot
+        // does (`DESIGN.md` → "Keyboard paths").
+        KeyBinding::new("enter", Confirm { secondary: false }, Some(panel::CONTEXT)),
+    ]);
     // ⌘N (Ctrl elsewhere): `KeyBinding::new` can't resolve `secondary-`,
     // so `load` asks the platform, as the shell's shortcuts do.
     let bindings = [panel::CONTEXT, valuations::CONTEXT].map(|context| {
@@ -301,6 +306,19 @@ impl Accounts {
     /// The flagged dot: ask the shell to open the account's balance checks.
     pub fn request_checks(&mut self, account: AccountId, cx: &mut Context<Self>) {
         cx.emit(AccountsEvent::ChecksRequested(account));
+    }
+
+    /// Enter in the panel: what the selected account's flagged dot does,
+    /// if it has one. Returns whether it did anything.
+    pub fn request_selected_checks(&mut self, cx: &mut Context<Self>) -> bool {
+        let flagged = self
+            .selected_node()
+            .filter(|node| node.status == coffer_core::reconciliation::Status::Mismatch)
+            .map(|node| node.account.id);
+        if let Some(account) = flagged {
+            self.request_checks(account, cx);
+        }
+        flagged.is_some()
     }
 
     /// A row under CATEGORIES: ask the shell to filter Transactions by it.

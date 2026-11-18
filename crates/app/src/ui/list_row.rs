@@ -8,9 +8,11 @@
 //!
 //! A row doesn't own keyboard focus. In a list, the list holds focus and the
 //! arrow keys move its current row, so the list tells the row when to draw
-//! the focus ring ([`ListRow::focus_visible`]). The ring is inset, because a
-//! scrolling list clips anything outside its rows, and it's drawn on a
-//! wrapper: the stock item puts children in an inner box, not its own.
+//! the focus ring ([`ListRow::focus_visible`]). A panel whose keyboard
+//! cursor isn't its selection ([`crate::ui::panel_cursor`]) also gives the
+//! cursor row the current look ([`ListRow::current`]). The ring is inset,
+//! because a scrolling list clips anything outside its rows, and it's drawn
+//! on a wrapper: the stock item puts children in an inner box, not its own.
 
 use gpui_kit::component::list::ListItem;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -105,6 +107,7 @@ pub struct ListRow {
     dimmed: bool,
     nested: bool,
     selected: bool,
+    current: bool,
     focus_visible: bool,
     preview: Option<PreviewState>,
     on_click: Option<ClickHandler>,
@@ -126,6 +129,7 @@ impl ListRow {
             dimmed: false,
             nested: false,
             selected: false,
+            current: false,
             focus_visible: false,
             preview: None,
             on_click: None,
@@ -226,6 +230,15 @@ impl ListRow {
         self
     }
 
+    /// Draws the row as the keyboard's current row: the hover look
+    /// (`hover` fill, `text` label and icon) without the pointer. For a
+    /// panel whose cursor moves apart from its selection
+    /// ([`crate::ui::panel_cursor`]); a selected row keeps its own look.
+    pub fn current(mut self, current: bool) -> Self {
+        self.current = current;
+        self
+    }
+
     /// Draws the inset focus ring. The owning list sets it on its current
     /// row while the list has keyboard focus (focused, and the last input was
     /// a key press).
@@ -255,6 +268,10 @@ impl ListRow {
         self.selected
     }
 
+    pub fn is_current(&self) -> bool {
+        self.current
+    }
+
     pub fn is_focus_visible(&self) -> bool {
         self.focus_visible
     }
@@ -268,7 +285,10 @@ impl ListRow {
     }
 
     fn colors(&self) -> RowColors {
-        let colors = RowColors::new(self.selected, self.preview == Some(PreviewState::Hovered));
+        let colors = RowColors::new(
+            self.selected,
+            self.current || self.preview == Some(PreviewState::Hovered),
+        );
         if self.dimmed && colors.follows_hover {
             RowColors {
                 label: color::TEXT_MUTED,
@@ -292,7 +312,9 @@ struct RowColors {
 }
 
 impl RowColors {
-    fn new(selected: bool, previewed_hover: bool) -> Self {
+    /// `lifted`: drawn hovered without the pointer, as the keyboard's
+    /// current row or a previewed hover.
+    fn new(selected: bool, lifted: bool) -> Self {
         if selected {
             // The stock item draws `list_active` (`molten-soft`) and drops
             // its hover fill while selected.
@@ -302,7 +324,7 @@ impl RowColors {
                 icon: color::TEXT,
                 follows_hover: false,
             }
-        } else if previewed_hover {
+        } else if lifted {
             Self {
                 fill: Some(color::HOVER),
                 label: color::TEXT,
@@ -593,5 +615,24 @@ mod tests {
             .debug_bounds(RING_SELECTOR)
             .expect("the focused row draws the ring");
         assert_eq!(ring, bounds(cx, "joint"), "inset: on the row's own edge");
+    }
+
+    #[test]
+    fn the_current_row_takes_the_hover_look_and_selection_wins() {
+        let row = ListRow::new("joint", "Joint account").current(true);
+        assert!(row.is_current());
+        assert_eq!(row.colors(), RowColors::new(false, true));
+        assert_eq!(row.colors().fill, Some(color::HOVER));
+        assert_eq!(row.colors().label, color::TEXT);
+
+        let selected = ListRow::new("joint", "Joint account")
+            .selected(true)
+            .current(true);
+        assert_eq!(selected.colors(), RowColors::new(true, false));
+        // A dimmed row lifts to `text` too.
+        let dimmed = ListRow::new("none", "Uncategorised")
+            .dimmed(true)
+            .current(true);
+        assert_eq!(dimmed.colors().label, color::TEXT);
     }
 }

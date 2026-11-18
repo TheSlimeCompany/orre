@@ -26,6 +26,7 @@ pub mod list_row;
 pub mod marker;
 pub mod menu;
 pub mod notification;
+pub mod panel_cursor;
 pub mod section_label;
 pub mod segmented;
 pub mod status_bar;

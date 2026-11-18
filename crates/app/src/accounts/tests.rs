@@ -697,3 +697,79 @@ fn a_matching_count_has_a_plain_save_and_the_first_count_too(cx: &mut TestAppCon
         1
     );
 }
+
+/// The shell on Transactions over the states board's accounts, where Joint
+/// account's balance check failed.
+fn open_flagged(
+    cx: &mut TestAppContext,
+) -> (Entity<ShellView>, Entity<Accounts>, &mut VisualTestContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+    });
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        let accounts = cx.new(|_| Accounts::fixture(fixture::with_states()));
+        ShellView::with_accounts(View::Transactions, accounts, window, cx)
+    });
+    let accounts = cx.update(|_, cx| shell.read(cx).accounts().clone());
+    redraw(cx);
+    (shell, accounts, cx)
+}
+
+/// What the panel asked the shell for, as it happens.
+fn requests(
+    accounts: &Entity<Accounts>,
+    cx: &mut VisualTestContext,
+) -> std::rc::Rc<std::cell::RefCell<Vec<AccountsEvent>>> {
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = seen.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(accounts, move |_, event: &AccountsEvent, _| {
+            sink.borrow_mut().push(*event)
+        })
+        .detach()
+    });
+    seen
+}
+
+#[gpui_kit::test]
+fn enter_on_a_flagged_account_opens_its_check_as_the_dot_does(cx: &mut TestAppContext) {
+    let (shell, accounts, cx) = open_flagged(cx);
+    let seen = requests(&accounts, cx);
+    // Clicking the row selects it and focuses the panel.
+    click(&row(fixture::JOINT), cx);
+    assert_eq!(selected(&accounts, cx), Some(fixture::JOINT));
+
+    press("enter", cx);
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&AccountsEvent::ChecksRequested(fixture::JOINT)),
+        "what the flagged dot asks for"
+    );
+    assert_eq!(cx.update(|_, cx| shell.read(cx).view()), View::Inbox);
+}
+
+#[gpui_kit::test]
+fn enter_on_an_account_that_isnt_flagged_does_nothing(cx: &mut TestAppContext) {
+    let (shell, accounts, cx) = open_flagged(cx);
+    let seen = requests(&accounts, cx);
+    click(&row(fixture::CURRENT), cx);
+    let before = seen.borrow().len();
+
+    press("enter", cx);
+    assert_eq!(seen.borrow().len(), before, "nothing asked for");
+    assert_eq!(cx.update(|_, cx| shell.read(cx).view()), View::Transactions);
+    assert_eq!(selected(&accounts, cx), Some(fixture::CURRENT));
+
+    // The arrows go on to Joint, and there Enter opens its check.
+    let order = cx.update(|_, cx| panel::order(accounts.read(cx).data()));
+    let from = order.iter().position(|id| *id == fixture::CURRENT).unwrap();
+    let to = order.iter().position(|id| *id == fixture::JOINT).unwrap();
+    for _ in from..to {
+        press("down", cx);
+    }
+    assert_eq!(selected(&accounts, cx), Some(fixture::JOINT));
+    press("enter", cx);
+    assert_eq!(cx.update(|_, cx| shell.read(cx).view()), View::Inbox);
+}
