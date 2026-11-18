@@ -20,6 +20,8 @@
 //! Rationales, patterns, names and bank text are untrusted text: shown as
 //! plain text, stripped ([`text::plain`]), never acted on.
 
+#[cfg(test)]
+mod describe;
 pub mod fixture;
 mod inspector;
 pub mod panel;
@@ -49,13 +51,20 @@ pub fn init(cx: &mut gpui_kit::App) {
     use gpui_kit::KeyBinding;
     use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
     cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(view::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(view::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
-        KeyBinding::new("a", view::ApproveSelected, Some(view::CONTEXT)),
-        KeyBinding::new("r", view::RejectSelected, Some(view::CONTEXT)),
+        KeyBinding::new(KEY_UP, SelectUp, Some(view::CONTEXT)),
+        KeyBinding::new(KEY_DOWN, SelectDown, Some(view::CONTEXT)),
+        KeyBinding::new(KEY_CLEAR, Cancel, Some(view::CONTEXT)),
+        KeyBinding::new(KEY_APPROVE, view::ApproveSelected, Some(view::CONTEXT)),
+        KeyBinding::new(KEY_REJECT, view::RejectSelected, Some(view::CONTEXT)),
     ]);
 }
+
+/// The keys [`init`] binds.
+const KEY_UP: &str = "up";
+const KEY_DOWN: &str = "down";
+const KEY_CLEAR: &str = "escape";
+const KEY_APPROVE: &str = "a";
+const KEY_REJECT: &str = "r";
 
 /// Where the suggestions come from.
 enum Source {

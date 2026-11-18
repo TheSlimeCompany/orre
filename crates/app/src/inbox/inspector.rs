@@ -225,14 +225,86 @@ fn proposal(entry: &Entry, accent: Rgba, today: NaiveDate) -> Vec<Part> {
     }
 }
 
+/// What the card says.
+pub(super) struct CardText {
+    /// The source: the client's name, or "Coffer".
+    pub name: String,
+    /// When it came: "2h ago", or "from your edits · today".
+    pub when: String,
+    /// What it proposes, as a sentence ([`proposal`]).
+    pub proposal: Vec<Part>,
+    /// The client's reason, plain.
+    pub reason: Option<String>,
+    /// Whether Approve and Reject show.
+    pub pending: bool,
+    /// Why it can't be approved now: "Can't be approved now: …." (Approve
+    /// is disabled).
+    pub blocked: Option<String>,
+    /// Why core refused the last decision on it.
+    pub refused: Option<SharedString>,
+}
+
+impl CardText {
+    /// The card for `entry`, the proposed value in `accent`.
+    pub(super) fn of(inbox: &Inbox, entry: &Entry, accent: Rgba) -> Self {
+        let now = inbox.data().read_at.unwrap_or_default();
+        let (name, suffix) = source_name(&entry.suggestion.source_client);
+        let when = match suffix {
+            Some(suffix) => format!(
+                "{suffix} · {}",
+                text::day_of(&entry.suggestion.created_at, now)
+            ),
+            None => text::ago(&entry.suggestion.created_at, now),
+        };
+        let reason = entry
+            .suggestion
+            .rationale
+            .as_deref()
+            .map(|reason| plain(reason, RATIONALE_SHOWN))
+            .filter(|reason| !reason.is_empty());
+        let blocked = entry
+            .preview
+            .as_ref()
+            .and_then(|preview| preview.impact.blocked.clone())
+            .or_else(|| entry.refused.clone())
+            .map(|why| format!("Can't be approved now: {why}."));
+        let refused = match inbox.outcome() {
+            Some(Outcome::Refused {
+                scope: Scope::Suggestion(scope),
+                message,
+            }) if *scope == entry.id() => Some(message.clone()),
+            _ => None,
+        };
+        Self {
+            name,
+            when,
+            proposal: proposal(entry, accent, now.date_naive()),
+            reason,
+            pending: entry.suggestion.status == SuggestionStatus::Pending,
+            blocked,
+            refused,
+        }
+    }
+}
+
 /// The card the suggestion came on, with Approve and Reject while it's
 /// pending (`DESIGN.md` → "Inbox"; Coffer's own: "Inbox impact preview").
 fn card(view: &InboxView, inbox: &Inbox, entry: &Entry, window: &Window) -> AnyElement {
     let agent = entry.suggestion.source_client != COFFER_SOURCE;
-    let now = inbox.data().read_at.unwrap_or_default();
-    let today = now.date_naive();
-    let (name, suffix) = source_name(&entry.suggestion.source_client);
-    let pending = entry.suggestion.status == SuggestionStatus::Pending;
+    let accent = if agent {
+        color::MOLDAVITE_TEXT
+    } else {
+        color::TEXT_STRONG
+    };
+    let CardText {
+        name,
+        when,
+        proposal: sentence,
+        reason,
+        pending,
+        blocked,
+        refused,
+    } = CardText::of(inbox, entry, accent);
     let header = div()
         .flex()
         .items_center()
@@ -264,25 +336,8 @@ fn card(view: &InboxView, inbox: &Inbox, entry: &Entry, window: &Window) -> AnyE
                 } else {
                     color::TEXT_MUTED
                 })
-                .child(match suffix {
-                    Some(suffix) => format!(
-                        "{suffix} · {}",
-                        text::day_of(&entry.suggestion.created_at, now)
-                    ),
-                    None => text::ago(&entry.suggestion.created_at, now),
-                }),
+                .child(when),
         );
-    let accent = if agent {
-        color::MOLDAVITE_TEXT
-    } else {
-        color::TEXT_STRONG
-    };
-    let reason = entry
-        .suggestion
-        .rationale
-        .as_deref()
-        .map(|reason| plain(reason, RATIONALE_SHOWN))
-        .filter(|reason| !reason.is_empty());
     let proposal = div()
         .flex()
         .flex_col()
@@ -291,12 +346,7 @@ fn card(view: &InboxView, inbox: &Inbox, entry: &Entry, window: &Window) -> AnyE
             div()
                 .text_role(typography::BODY)
                 .text_color(color::TEXT_STRONG)
-                .child(rich(
-                    window,
-                    typography::BODY,
-                    color::TEXT_STRONG,
-                    proposal(entry, accent, today),
-                )),
+                .child(rich(window, typography::BODY, color::TEXT_STRONG, sentence)),
         )
         .children(reason.map(|reason| {
             div()
@@ -313,11 +363,6 @@ fn card(view: &InboxView, inbox: &Inbox, entry: &Entry, window: &Window) -> AnyE
     } else {
         color::FLOAT
     };
-    let blocked = entry
-        .preview
-        .as_ref()
-        .and_then(|preview| preview.impact.blocked.clone())
-        .or_else(|| entry.refused.clone());
     let id = entry.id();
     let (approve, reject) = (view.inbox().clone(), view.inbox().clone());
     let actions = pending.then(|| {
@@ -352,13 +397,6 @@ fn card(view: &InboxView, inbox: &Inbox, entry: &Entry, window: &Window) -> AnyE
                     })),
             )
     });
-    let refused = match inbox.outcome() {
-        Some(Outcome::Refused {
-            scope: Scope::Suggestion(scope),
-            message,
-        }) if *scope == id => Some(message.clone()),
-        _ => None,
-    };
     let card = div()
         .flex()
         .flex_col()
@@ -383,12 +421,7 @@ fn card(view: &InboxView, inbox: &Inbox, entry: &Entry, window: &Window) -> AnyE
         .px(spacing::S3_5)
         .pb(spacing::S3_5)
         .child(card)
-        .children(
-            pending
-                .then_some(blocked)
-                .flatten()
-                .map(|why| danger(format!("Can't be approved now: {why}."))),
-        )
+        .children(blocked.filter(|_| pending).map(danger))
         .children(refused.map(danger))
         .into_any_element()
 }
@@ -731,8 +764,40 @@ fn definition(inbox: &Inbox, entry: &Entry, window: &Window) -> Option<AnyElemen
     }
 }
 
+/// The inspector's header, as text: a title of runs (`true`: mono), a
+/// display figure with an optional muted tail, and a caption.
+pub(super) struct HeaderText {
+    pub title: Vec<(String, bool)>,
+    pub figure: Option<(String, Option<String>)>,
+    pub caption: Option<String>,
+}
+
+impl HeaderText {
+    fn new(
+        title: Vec<(String, bool)>,
+        figure: Option<(String, Option<String>)>,
+        caption: Option<String>,
+    ) -> Self {
+        Self {
+            title,
+            figure,
+            caption,
+        }
+    }
+}
+
 /// The header for each kind.
 fn entry_header(entry: &Entry, today: NaiveDate) -> AnyElement {
+    let HeaderText {
+        title,
+        figure,
+        caption: words,
+    } = header_text(entry, today);
+    header(title, figure, words.map(caption)).into_any_element()
+}
+
+/// The header for each kind, as text.
+pub(super) fn header_text(entry: &Entry, today: NaiveDate) -> HeaderText {
     let preview = entry.preview.as_ref();
     let of = |done: usize, matches: usize| (done.to_string(), Some(format!(" of {matches}")));
     match (&entry.suggestion.payload, &entry.subject) {
@@ -741,35 +806,33 @@ fn entry_header(entry: &Entry, today: NaiveDate) -> AnyElement {
                 Detail::Rule(impact) => Some(of(impact.recategorises, impact.matches)),
                 _ => None,
             });
-            header(
+            HeaderText::new(
                 vec![
                     (format!("{} ", rule_condition(rule)), false),
                     (text::pattern(rule), true),
                 ],
                 figure,
-                preview.map(|_| caption("Past matches that change category · new rule")),
+                preview.map(|_| "Past matches that change category · new rule".to_owned()),
             )
-            .into_any_element()
         }
         (Payload::MerchantAlias(alias), _) => {
             let figure = preview.and_then(|p| match &p.impact.detail {
                 Detail::MerchantAlias(impact) => Some(of(impact.renames, p.matches)),
                 _ => None,
             });
-            header(
+            HeaderText::new(
                 vec![
                     (format!("{} ", alias_condition(alias.kind())), false),
                     (plain(alias.pattern(), NAME_SHOWN), true),
                 ],
                 figure,
                 preview.map(|_| {
-                    caption(format!(
+                    format!(
                         "Matches that will show as {}",
                         plain(alias.name().as_str(), NAME_SHOWN)
-                    ))
+                    )
                 }),
             )
-            .into_any_element()
         }
         (Payload::TransferPair(_), Subject::TransferPair { outflow, inflow }) => {
             let name = |side: &Option<TransactionRef>| {
@@ -782,13 +845,13 @@ fn entry_header(entry: &Entry, today: NaiveDate) -> AnyElement {
                 }
                 _ => false,
             };
-            header(
+            HeaderText::new(
                 vec![(format!("{} → {}", name(outflow), name(inflow)), false)],
                 inflow
                     .as_ref()
                     .map(|row| (text::unsigned(row.amount), None)),
                 outflow.as_ref().map(|row| {
-                    caption(format!(
+                    format!(
                         "Transfer pair · {}{}",
                         text::date(row.date, today),
                         if same {
@@ -796,12 +859,11 @@ fn entry_header(entry: &Entry, today: NaiveDate) -> AnyElement {
                         } else {
                             ""
                         }
-                    ))
+                    )
                 }),
             )
-            .into_any_element()
         }
-        (Payload::RefundLink(_), Subject::RefundLink { refund, .. }) => header(
+        (Payload::RefundLink(_), Subject::RefundLink { refund, .. }) => HeaderText::new(
             vec![(
                 refund
                     .as_ref()
@@ -810,14 +872,13 @@ fn entry_header(entry: &Entry, today: NaiveDate) -> AnyElement {
             )],
             refund.as_ref().map(|row| (text::signed(row.amount), None)),
             refund.as_ref().map(|row| {
-                caption(format!(
+                format!(
                     "{} · money in · {}",
                     plain(&row.account_name, NAME_SHOWN),
                     text::date(row.date, today)
-                ))
+                )
             }),
-        )
-        .into_any_element(),
+        ),
         (_, Subject::Categorization(items)) => match items.as_slice() {
             [item] => match &item.transaction {
                 Some(row) => {
@@ -831,28 +892,25 @@ fn entry_header(entry: &Entry, today: NaiveDate) -> AnyElement {
                         .as_deref()
                         .and_then(|time| time.get(..5))
                         .map_or_else(|| text::date(row.date, today), str::to_owned);
-                    header(
+                    HeaderText::new(
                         vec![(plain(row.name(), NAME_SHOWN), false)],
                         Some((text::signed(row.amount), None)),
-                        Some(caption(format!("{how} · {when}"))),
+                        Some(format!("{how} · {when}")),
                     )
-                    .into_any_element()
                 }
-                None => header(
+                None => HeaderText::new(
                     vec![("A transaction gone since".to_owned(), false)],
                     None,
                     None,
-                )
-                .into_any_element(),
+                ),
             },
-            many => header(
+            many => HeaderText::new(
                 vec![(count(many.len(), "transaction", "transactions"), false)],
                 None,
-                Some(caption("One categorisation")),
-            )
-            .into_any_element(),
+                Some("One categorisation".to_owned()),
+            ),
         },
-        _ => header(vec![("Suggestion".to_owned(), false)], None, None).into_any_element(),
+        _ => HeaderText::new(vec![("Suggestion".to_owned(), false)], None, None),
     }
 }
 
@@ -886,13 +944,7 @@ fn decision(entry: &Entry, window: &Window, today: NaiveDate) -> AnyElement {
         SuggestionStatus::Approved => "Approved",
         _ => "Rejected",
     };
-    let when = entry
-        .suggestion
-        .decided_at
-        .as_deref()
-        .and_then(text::timestamp)
-        .map(|at| text::date(at.date_naive(), today))
-        .unwrap_or_default();
+    let when = text::decided_on(entry, today);
     section(true)
         .gap(spacing::S2)
         .child(section_title("Decision"))
@@ -913,10 +965,19 @@ fn click(
     handler
 }
 
+/// What the inspector says with nothing selected.
+pub(super) const NOTHING_SELECTED: &str =
+    "Select a suggestion to see what approving it would change.";
+
+/// Today, as the inspector dates things: from when the data was read.
+pub(super) fn today(inbox: &Inbox) -> NaiveDate {
+    inbox.data().read_at.unwrap_or_default().date_naive()
+}
+
 /// The inspector for the selected suggestion.
 pub fn render(view: &InboxView, window: &mut Window, cx: &App) -> impl IntoElement {
     let inbox = view.inbox().read(cx);
-    let today = inbox.data().read_at.unwrap_or_default().date_naive();
+    let today = today(inbox);
     let mut sections: Vec<AnyElement> = Vec::new();
     match inbox.selected_entry() {
         Some(entry) => {
@@ -933,9 +994,7 @@ pub fn render(view: &InboxView, window: &mut Window, cx: &App) -> impl IntoEleme
         }
         None => sections.push(
             section(false)
-                .child(caption(
-                    "Select a suggestion to see what approving it would change.",
-                ))
+                .child(caption(NOTHING_SELECTED))
                 .into_any_element(),
         ),
     }

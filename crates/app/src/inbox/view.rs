@@ -79,6 +79,24 @@ fn open_indent() -> gpui_kit::Pixels {
     spacing::S2 + spacing::S4
 }
 
+/// The keys the toolbar lists while suggestions are pending, with what
+/// they do.
+pub(super) const TOOLBAR_KEYS: [(&str, &str); 3] =
+    [("A", "Approve"), ("R", "Reject"), ("↑↓", "Move")];
+
+/// The toolbar's title (the status) and caption.
+pub(super) fn toolbar_text(inbox: &Inbox) -> (&'static str, String) {
+    let shown = count(inbox.order().len(), "suggestion", "suggestions");
+    match inbox.status() {
+        SuggestionStatus::Pending => (
+            "Pending",
+            format!("{shown} · nothing changes until you approve"),
+        ),
+        SuggestionStatus::Approved => ("Approved", format!("{shown} you approved")),
+        SuggestionStatus::Rejected => ("Rejected", format!("{shown} you rejected")),
+    }
+}
+
 /// The Inbox's canvas and inspector.
 pub struct InboxView {
     inbox: Entity<Inbox>,
@@ -136,24 +154,7 @@ impl InboxView {
     }
 
     fn render_toolbar(&self, inbox: &Inbox) -> impl IntoElement {
-        let shown = inbox.order().len();
-        let (title, caption) = match inbox.status() {
-            SuggestionStatus::Pending => (
-                "Pending",
-                format!(
-                    "{} · nothing changes until you approve",
-                    count(shown, "suggestion", "suggestions")
-                ),
-            ),
-            SuggestionStatus::Approved => (
-                "Approved",
-                format!("{} you approved", count(shown, "suggestion", "suggestions")),
-            ),
-            SuggestionStatus::Rejected => (
-                "Rejected",
-                format!("{} you rejected", count(shown, "suggestion", "suggestions")),
-            ),
-        };
+        let (title, caption) = toolbar_text(inbox);
         let key = |keys: &'static str, label: &'static str| {
             div()
                 .flex()
@@ -200,9 +201,7 @@ impl InboxView {
                         .flex_none()
                         .items_center()
                         .gap(spacing::S3)
-                        .child(key("A", "Approve"))
-                        .child(key("R", "Reject"))
-                        .child(key("↑↓", "Move")),
+                        .children(TOOLBAR_KEYS.map(|(keys, label)| key(keys, label))),
                 )
             })
     }
@@ -415,13 +414,7 @@ impl InboxView {
                 )
                 .into_any_element()
         } else if !pending {
-            let decided = entry
-                .suggestion
-                .decided_at
-                .as_deref()
-                .and_then(text::timestamp)
-                .map(|at| text::date(at.date_naive(), today))
-                .unwrap_or_default();
+            let decided = text::decided_on(entry, today);
             div()
                 .text_right()
                 .text_role(typography::MONO_VALUE)
@@ -514,52 +507,16 @@ impl InboxView {
 
     fn render_footer(&self, inbox: &Inbox, key: &GroupKey, entries: &[&Entry]) -> impl IntoElement {
         let agent = key.source != COFFER_SOURCE;
-        let approvable = inbox.approvable(key);
-        let single = entries.len() == 1;
-        let (approve_label, reject_label) = if single {
-            ("Approve".to_owned(), "Reject".to_owned())
-        } else {
-            (
-                format!("Approve all ({})", approvable.len()),
-                "Reject all".to_owned(),
-            )
-        };
-        let wide: Vec<&Entry> = entries
-            .iter()
-            .copied()
-            .filter(|entry| entry.needs_own_approval())
-            .collect();
-        let note = match wide.as_slice() {
-            [] => None,
-            [one] => Some(match &one.suggestion.payload {
-                Payload::Rule(rule) if one.preview.as_ref().is_some_and(|p| p.impact.wide()) => {
-                    format!(
-                        "Leaves out {}: a wide rule needs its own ✓",
-                        text::pattern(rule)
-                    )
-                }
-                _ => "Leaves out one that can't be approved now".to_owned(),
-            }),
-            many => Some(format!(
-                "Leaves out {}: each needs its own ✓",
-                count(many.len(), "suggestion", "suggestions")
-            )),
-        };
-        let newest = entries
-            .iter()
-            .map(|entry| entry.suggestion.created_at.as_str())
-            .max()
-            .unwrap_or_default();
-        let now = inbox.data().read_at.unwrap_or_default();
+        let FooterText {
+            approve_label,
+            can_approve,
+            reject_label,
+            note,
+            source,
+            refused,
+        } = FooterText::of(inbox, key, entries);
         let (approve_group, reject_group) = (key.clone(), key.clone());
         let (approve, reject) = (self.inbox.clone(), self.inbox.clone());
-        let refused = match inbox.outcome() {
-            Some(Outcome::Refused {
-                scope: Scope::Group(group),
-                message,
-            }) if group == key => Some(message.clone()),
-            _ => None,
-        };
         div()
             .flex()
             .flex_col()
@@ -584,7 +541,7 @@ impl InboxView {
                         } else {
                             ButtonVariant::Primary
                         })
-                        .disabled(approvable.is_empty())
+                        .disabled(!can_approve)
                         .on_click(click(move |_, _, cx| {
                             let group = approve_group.clone();
                             approve.update(cx, |inbox, cx| inbox.approve_group(group, cx))
@@ -614,7 +571,7 @@ impl InboxView {
                             .child(note)
                     }))
                     .child(div().flex_1())
-                    .child(footer_source(&key.source, newest, now)),
+                    .child(footer_source(source)),
             )
             .children(refused.map(|message| {
                 div()
@@ -628,7 +585,7 @@ impl InboxView {
 }
 
 /// Today, from when the data was read.
-fn today(read_at: Option<DateTime<Utc>>) -> NaiveDate {
+pub(super) fn today(read_at: Option<DateTime<Utc>>) -> NaiveDate {
     read_at.map_or_else(crate::accounts::fixture::today, |at| at.date_naive())
 }
 
@@ -736,9 +693,19 @@ fn muted(words: impl Into<SharedString>) -> AnyElement {
         .into_any_element()
 }
 
+/// The words of a category now: its label, "Uncategorised" or "Split".
+pub(super) fn now_words(now: &Now) -> String {
+    match now {
+        Now::Category { category, .. } => plain(&category.label, NAME_SHOWN),
+        Now::Uncategorised => "Uncategorised".to_owned(),
+        Now::Split => "Split".to_owned(),
+    }
+}
+
 /// A category now: its marker and label (`text-secondary`, or `text` when
 /// `lifted`), the dashed marker and "Uncategorised", or "Split".
 fn category_cell(now: &Now, palette: &Palette, lifted: bool) -> Vec<AnyElement> {
+    let words = now_words(now);
     match now {
         Now::Category { category, .. } => vec![
             marker(palette, category).render().into_any_element(),
@@ -749,29 +716,35 @@ fn category_cell(now: &Now, palette: &Palette, lifted: bool) -> Vec<AnyElement> 
                 } else {
                     color::TEXT_SECONDARY
                 })
-                .child(plain(&category.label, NAME_SHOWN))
+                .child(words)
                 .into_any_element(),
         ],
-        Now::Uncategorised => vec![
-            Marker::None.render().into_any_element(),
-            muted("Uncategorised"),
-        ],
-        Now::Split => vec![muted("Split")],
+        Now::Uncategorised => vec![Marker::None.render().into_any_element(), muted(words)],
+        Now::Split => vec![muted(words)],
     }
 }
 
-fn category_now_cell(now: &CategoryNow, palette: &Palette) -> Vec<AnyElement> {
+/// A merchant's categories now, as [`Now`]: `None` for "Several".
+fn category_now(now: &CategoryNow) -> Option<Now> {
     match now {
-        CategoryNow::Uncategorised => category_cell(&Now::Uncategorised, palette, false),
-        CategoryNow::Category(category) => category_cell(
-            &Now::Category {
-                category: category.clone(),
-                set_by: coffer_core::inbox::preview::SetBy::User,
-            },
-            palette,
-            false,
-        ),
-        CategoryNow::Several => vec![muted("Several")],
+        CategoryNow::Uncategorised => Some(Now::Uncategorised),
+        CategoryNow::Category(category) => Some(Now::Category {
+            category: category.clone(),
+            set_by: coffer_core::inbox::preview::SetBy::User,
+        }),
+        CategoryNow::Several => None,
+    }
+}
+
+/// The words of a merchant's categories now.
+pub(super) fn category_now_words(now: &CategoryNow) -> String {
+    category_now(now).map_or_else(|| SEVERAL.to_owned(), |now| now_words(&now))
+}
+
+fn category_now_cell(now: &CategoryNow, palette: &Palette) -> Vec<AnyElement> {
+    match category_now(now) {
+        Some(now) => category_cell(&now, palette, false),
+        None => vec![muted(category_now_words(now))],
     }
 }
 
@@ -802,7 +775,7 @@ fn suggested(label: impl Into<SharedString>, agent: bool) -> Vec<AnyElement> {
 }
 
 /// "Stays, you set it": the person icon and the words, `text-muted`.
-fn stays(words: &'static str, icon: bool) -> Vec<AnyElement> {
+fn stays(words: String, icon: bool) -> Vec<AnyElement> {
     let mut cell = Vec::new();
     if icon {
         cell.push(
@@ -848,36 +821,59 @@ fn amount_cell(amount: String) -> AnyElement {
         .into_any_element()
 }
 
-fn date_cell(date: NaiveDate, today: NaiveDate) -> AnyElement {
-    div().child(text::date(date, today)).into_any_element()
+/// A row's first cell, as text.
+pub(super) enum ItemText {
+    /// Mixed runs in body type, `text`: a condition and its pattern.
+    Rich(Vec<Part>),
+    Plain(String),
+    Muted(String),
 }
 
-impl RowCells {
-    fn of(
-        entry: &Entry,
-        palette: &Palette,
-        today: NaiveDate,
-        agent: bool,
-        window: &Window,
-    ) -> Self {
+/// What a row's NOW lane holds, as text.
+pub(super) enum NowText<'a> {
+    Empty,
+    Muted(String),
+    /// Mixed runs in body type, `text-muted`: "Rule UBER".
+    Rich(Vec<Part>),
+    /// A category now: [`category_cell`].
+    Category(&'a Now),
+}
+
+/// What a row's amount lane holds.
+pub(super) enum AmountText {
+    /// CHANGES or RENAMES: [`count_cell`].
+    Count {
+        value: usize,
+        warning: bool,
+    },
+    Money(String),
+}
+
+/// What a suggestion's row says, lane by lane, before it's drawn
+/// ([`RowCells`]).
+pub(super) struct RowText<'a> {
+    pub item: ItemText,
+    pub now: NowText<'a>,
+    /// The SUGGESTED lane's label, drawn by [`suggested`].
+    pub suggested: Option<String>,
+    pub date: Option<String>,
+    pub amount: Option<AmountText>,
+}
+
+impl<'a> RowText<'a> {
+    pub(super) fn of(entry: &'a Entry, today: NaiveDate) -> Self {
         let preview = entry.preview.as_ref();
         let pending = entry.suggestion.status == SuggestionStatus::Pending;
-        let none = || Vec::new();
         match (&entry.suggestion.payload, &entry.subject) {
             (Payload::Rule(rule), subject) => {
                 let now = match preview.and_then(|p| p.deciding.as_ref()) {
-                    Some(Deciding::NoRule) => vec![muted("No rule")],
-                    Some(Deciding::Rule(decider)) => vec![
-                        rich(
-                            window,
-                            typography::BODY,
-                            color::TEXT_MUTED,
-                            vec![Part::text("Rule "), Part::mono(text::pattern(decider))],
-                        )
-                        .into_any_element(),
-                    ],
-                    Some(Deciding::Several) => vec![muted("Several")],
-                    None => none(),
+                    Some(Deciding::NoRule) => NowText::Muted("No rule".to_owned()),
+                    Some(Deciding::Rule(decider)) => NowText::Rich(vec![
+                        Part::text("Rule "),
+                        Part::mono(text::pattern(decider)),
+                    ]),
+                    Some(Deciding::Several) => NowText::Muted(SEVERAL.to_owned()),
+                    None => NowText::Empty,
                 };
                 let label = text::rule_category(subject)
                     .map(|category| plain(&category.label, NAME_SHOWN))
@@ -888,50 +884,43 @@ impl RowCells {
                     })
                     .unwrap_or_default();
                 let amount = preview.and_then(|p| match &p.impact.detail {
-                    Detail::Rule(impact) => Some(count_cell(impact.recategorises, impact.wide)),
+                    Detail::Rule(impact) => Some(AmountText::Count {
+                        value: impact.recategorises,
+                        warning: impact.wide,
+                    }),
                     _ => None,
                 });
                 Self {
-                    item: rich(
-                        window,
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            Part::text(format!("{} ", rule_condition(rule))),
-                            Part::mono(text::pattern(rule)).color(color::TEXT_STRONG),
-                        ],
-                    )
-                    .into_any_element(),
+                    item: ItemText::Rich(vec![
+                        Part::text(format!("{} ", rule_condition(rule))),
+                        Part::mono(text::pattern(rule)).color(color::TEXT_STRONG),
+                    ]),
                     now,
-                    suggested: suggested(label, agent),
+                    suggested: Some(label),
                     date: None,
                     amount,
                 }
             }
             (Payload::MerchantAlias(alias), _) => {
                 let now = match preview.and_then(|p| p.names_now.as_ref()) {
-                    Some(NamesNow::One(name)) => vec![muted(plain(name, NAME_SHOWN))],
-                    Some(NamesNow::Several(names)) => vec![muted(format!("{names} names"))],
-                    None => none(),
+                    Some(NamesNow::One(name)) => NowText::Muted(plain(name, NAME_SHOWN)),
+                    Some(NamesNow::Several(names)) => NowText::Muted(format!("{names} names")),
+                    None => NowText::Empty,
                 };
                 let amount = preview.and_then(|p| match &p.impact.detail {
-                    Detail::MerchantAlias(impact) => Some(count_cell(impact.renames, false)),
+                    Detail::MerchantAlias(impact) => Some(AmountText::Count {
+                        value: impact.renames,
+                        warning: false,
+                    }),
                     _ => None,
                 });
                 Self {
-                    item: rich(
-                        window,
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            Part::text(format!("{} ", alias_condition(alias.kind()))),
-                            Part::mono(plain(alias.pattern(), NAME_SHOWN))
-                                .color(color::TEXT_STRONG),
-                        ],
-                    )
-                    .into_any_element(),
+                    item: ItemText::Rich(vec![
+                        Part::text(format!("{} ", alias_condition(alias.kind()))),
+                        Part::mono(plain(alias.pattern(), NAME_SHOWN)).color(color::TEXT_STRONG),
+                    ]),
                     now,
-                    suggested: suggested(plain(alias.name().as_str(), NAME_SHOWN), agent),
+                    suggested: Some(plain(alias.name().as_str(), NAME_SHOWN)),
                     date: None,
                     amount,
                 }
@@ -944,27 +933,21 @@ impl RowCells {
                         })
                 };
                 Self {
-                    item: rich(
-                        window,
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            Part::text(name(outflow)),
-                            Part::text(" → ").color(color::TEXT_MUTED),
-                            Part::text(name(inflow)),
-                        ],
-                    )
-                    .into_any_element(),
+                    item: ItemText::Rich(vec![
+                        Part::text(name(outflow)),
+                        Part::text(" → ").color(color::TEXT_MUTED),
+                        Part::text(name(inflow)),
+                    ]),
                     now: if pending {
-                        vec![muted("Income and spending")]
+                        NowText::Muted("Income and spending".to_owned())
                     } else {
-                        none()
+                        NowText::Empty
                     },
-                    suggested: suggested("Transfer", agent),
-                    date: outflow.as_ref().map(|row| date_cell(row.date, today)),
+                    suggested: Some("Transfer".to_owned()),
+                    date: outflow.as_ref().map(|row| text::date(row.date, today)),
                     amount: inflow
                         .as_ref()
-                        .map(|row| amount_cell(text::unsigned(row.amount))),
+                        .map(|row| AmountText::Money(text::unsigned(row.amount))),
                 }
             }
             (Payload::RefundLink(link), Subject::RefundLink { refund, purchase }) => {
@@ -977,32 +960,26 @@ impl RowCells {
                     None => format!("{of} a transaction gone since"),
                 };
                 Self {
-                    item: rich(
-                        window,
-                        typography::BODY,
-                        color::TEXT,
-                        vec![
-                            Part::text(
-                                refund
-                                    .as_ref()
-                                    .map_or("A transaction gone since".to_owned(), |row| {
-                                        plain(row.name(), NAME_SHOWN)
-                                    }),
-                            ),
-                            Part::text(back).color(color::TEXT_MUTED),
-                        ],
-                    )
-                    .into_any_element(),
+                    item: ItemText::Rich(vec![
+                        Part::text(
+                            refund
+                                .as_ref()
+                                .map_or("A transaction gone since".to_owned(), |row| {
+                                    plain(row.name(), NAME_SHOWN)
+                                }),
+                        ),
+                        Part::text(back).color(color::TEXT_MUTED),
+                    ]),
                     now: if pending {
-                        vec![muted("Income")]
+                        NowText::Muted("Income".to_owned())
                     } else {
-                        none()
+                        NowText::Empty
                     },
-                    suggested: suggested(of, agent),
-                    date: refund.as_ref().map(|row| date_cell(row.date, today)),
+                    suggested: Some(of),
+                    date: refund.as_ref().map(|row| text::date(row.date, today)),
                     amount: refund
                         .as_ref()
-                        .map(|row| amount_cell(text::signed(row.amount))),
+                        .map(|row| AmountText::Money(text::signed(row.amount))),
                 }
             }
             (_, Subject::Categorization(items)) => {
@@ -1024,11 +1001,9 @@ impl RowCells {
                     count(items.len(), "transaction", "transactions")
                 };
                 let now = match row {
-                    Some(row) if pending && (single || same_now) => {
-                        category_cell(&row.now, palette, false)
-                    }
-                    _ if pending => vec![muted("Several")],
-                    _ => none(),
+                    Some(row) if pending && (single || same_now) => NowText::Category(&row.now),
+                    _ if pending => NowText::Muted(SEVERAL.to_owned()),
+                    _ => NowText::Empty,
                 };
                 let label = if same_category {
                     first
@@ -1037,25 +1012,68 @@ impl RowCells {
                             plain(&c.label, NAME_SHOWN)
                         })
                 } else {
-                    "Several".to_owned()
+                    SEVERAL.to_owned()
                 };
                 Self {
-                    item: div().child(item).into_any_element(),
+                    item: ItemText::Plain(item),
                     now,
-                    suggested: suggested(label, agent),
-                    date: row.filter(|_| single).map(|row| date_cell(row.date, today)),
+                    suggested: Some(label),
+                    date: row
+                        .filter(|_| single)
+                        .map(|row| text::date(row.date, today)),
                     amount: row
                         .filter(|_| single)
-                        .map(|row| amount_cell(text::signed(row.amount))),
+                        .map(|row| AmountText::Money(text::signed(row.amount))),
                 }
             }
             _ => Self {
-                item: muted("This suggestion no longer fits"),
-                now: none(),
-                suggested: none(),
+                item: ItemText::Muted("This suggestion no longer fits".to_owned()),
+                now: NowText::Empty,
+                suggested: None,
                 date: None,
                 amount: None,
             },
+        }
+    }
+}
+
+impl RowCells {
+    fn of(
+        entry: &Entry,
+        palette: &Palette,
+        today: NaiveDate,
+        agent: bool,
+        window: &Window,
+    ) -> Self {
+        let RowText {
+            item,
+            now,
+            suggested: label,
+            date,
+            amount,
+        } = RowText::of(entry, today);
+        Self {
+            item: match item {
+                ItemText::Rich(parts) => {
+                    rich(window, typography::BODY, color::TEXT, parts).into_any_element()
+                }
+                ItemText::Plain(words) => div().child(words).into_any_element(),
+                ItemText::Muted(words) => muted(words),
+            },
+            now: match now {
+                NowText::Empty => Vec::new(),
+                NowText::Muted(words) => vec![muted(words)],
+                NowText::Rich(parts) => vec![
+                    rich(window, typography::BODY, color::TEXT_MUTED, parts).into_any_element(),
+                ],
+                NowText::Category(now) => category_cell(now, palette, false),
+            },
+            suggested: label.map_or_else(Vec::new, |label| suggested(label, agent)),
+            date: date.map(|date| div().child(date).into_any_element()),
+            amount: amount.map(|amount| match amount {
+                AmountText::Count { value, warning } => count_cell(value, warning),
+                AmountText::Money(amount) => amount_cell(amount),
+            }),
         }
     }
 }
@@ -1082,8 +1100,7 @@ fn open_row() -> gpui_kit::Div {
 
 /// Bank text with the matched part in `text-strong`, the rest
 /// `text-muted`, mono 11/14.
-fn bank_text(window: &Window, raw: &str, highlight: Option<&std::ops::Range<usize>>) -> AnyElement {
-    let (before, matched, after) = text::plain_highlighted(raw, highlight, text::BANK_TEXT_SHOWN);
+fn bank_text(window: &Window, (before, matched, after): BankText) -> AnyElement {
     div()
         .flex_1()
         .min_w_0()
@@ -1132,21 +1149,53 @@ fn open_header(
 /// AI-suggested style, or why it's left as it is (the person icon only
 /// where the user set it).
 fn after_cell(after: &After, names: bool, agent: bool) -> Vec<AnyElement> {
+    let label = after_label(after, names);
     match after {
-        After::Category(category) => suggested(plain(&category.label, NAME_SHOWN), agent),
-        After::Name(name) => suggested(plain(name, NAME_SHOWN), agent),
-        After::Split(lines) => suggested(
-            lines
-                .iter()
-                .map(|(category, _)| plain(&category.label, NAME_SHOWN))
-                .collect::<Vec<_>>()
-                .join(" / "),
-            agent,
-        ),
-        other => stays(
-            after_words(other, names).unwrap_or_default(),
-            *other == After::Stays,
-        ),
+        After::Category(_) | After::Name(_) | After::Split(_) => suggested(label, agent),
+        other => stays(label, *other == After::Stays),
+    }
+}
+
+/// The words in a line's AFTER lane: what it's set to, or why it's left.
+pub(super) fn after_label(after: &After, names: bool) -> String {
+    match after {
+        After::Category(category) => plain(&category.label, NAME_SHOWN),
+        After::Name(name) => plain(name, NAME_SHOWN),
+        After::Split(lines) => lines
+            .iter()
+            .map(|(category, _)| plain(&category.label, NAME_SHOWN))
+            .collect::<Vec<_>>()
+            .join(" / "),
+        other => after_words(other, names).unwrap_or_default().to_owned(),
+    }
+}
+
+/// Bank text as shown: the parts before, in and after what the pattern
+/// matched ([`text::plain_highlighted`]).
+pub(super) type BankText = (String, String, String);
+
+fn bank_parts(raw: &str, highlight: Option<&std::ops::Range<usize>>) -> BankText {
+    text::plain_highlighted(raw, highlight, text::BANK_TEXT_SHOWN)
+}
+
+/// A listed row of an open rule, name or categorisation, as text.
+pub(super) struct LineText {
+    pub bank_text: BankText,
+    /// The name it shows as now, for a merchant name; else the category
+    /// lane ([`now_words`]) says it.
+    pub name: Option<String>,
+    pub date: String,
+    pub amount: String,
+}
+
+impl LineText {
+    pub(super) fn of(line: &Line, names: bool, today: NaiveDate) -> Self {
+        Self {
+            bank_text: bank_parts(&line.transaction.bank_text, line.highlight.as_ref()),
+            name: names.then(|| plain(line.transaction.name(), NAME_SHOWN)),
+            date: text::date(line.transaction.date, today),
+            amount: text::signed(line.transaction.amount),
+        }
     }
 }
 
@@ -1160,8 +1209,14 @@ fn open_line(
     window: &Window,
 ) -> impl IntoElement {
     let kept = line.after == After::Stays;
-    let now: Vec<AnyElement> = if names {
-        vec![
+    let LineText {
+        bank_text: bank,
+        name,
+        date,
+        amount,
+    } = LineText::of(line, names, today);
+    let now: Vec<AnyElement> = match name {
+        Some(name) => vec![
             div()
                 .text_role(typography::BODY)
                 .text_color(if kept {
@@ -1169,19 +1224,14 @@ fn open_line(
                 } else {
                     color::TEXT_SECONDARY
                 })
-                .child(plain(line.transaction.name(), NAME_SHOWN))
+                .child(name)
                 .into_any_element(),
-        ]
-    } else {
-        category_cell(&line.transaction.now, palette, kept)
+        ],
+        None => category_cell(&line.transaction.now, palette, kept),
     };
     let after = after_cell(&line.after, names, agent);
     open_row()
-        .child(bank_text(
-            window,
-            &line.transaction.bank_text,
-            line.highlight.as_ref(),
-        ))
+        .child(bank_text(window, bank))
         .child(lane(size::COLUMN_ACCOUNT).gap(spacing::S2).children(now))
         .child(
             lane(size::COLUMN_CATEGORY)
@@ -1193,17 +1243,51 @@ fn open_line(
                 .justify_end()
                 .text_role(typography::MONO_VALUE)
                 .text_color(color::TEXT_MUTED)
-                .child(text::date(line.transaction.date, today)),
+                .child(date),
         )
         .child(
             lane(size::COLUMN_AMOUNT)
                 .justify_end()
                 .text_role(typography::MONO_AMOUNT)
                 .text_color(color::TEXT_SECONDARY)
-                .child(text::signed(line.transaction.amount)),
+                .child(amount),
         )
         .child(lane(action_lane()))
 }
+
+/// The merchant cell of a wide rule's summary line: a label ("and 3 more
+/// merchants") or the merchant's bank text.
+pub(super) enum MerchantCell {
+    Label(String),
+    BankText(BankText),
+}
+
+/// A line of a wide rule's by-merchant summary, as text. Its AFTER lane is
+/// [`after_label`]'s, or [`SEVERAL`] when its rows would differ.
+pub(super) struct MerchantText {
+    pub merchant: MerchantCell,
+    /// How many of its rows match, in the date lane.
+    pub count: String,
+    pub total: Option<String>,
+}
+
+impl MerchantText {
+    pub(super) fn of(line: &MerchantLine, label: Option<String>) -> Self {
+        Self {
+            merchant: match label {
+                Some(label) => MerchantCell::Label(label),
+                None => {
+                    MerchantCell::BankText(bank_parts(&line.bank_text, line.highlight.as_ref()))
+                }
+            },
+            count: line.count.to_string(),
+            total: line.total.map(text::signed),
+        }
+    }
+}
+
+/// A lane whose rows differ.
+pub(super) const SEVERAL: &str = "Several";
 
 /// A line of a wide rule's by-merchant summary.
 fn merchant_line(
@@ -1213,8 +1297,13 @@ fn merchant_line(
     palette: &Palette,
     window: &Window,
 ) -> impl IntoElement {
-    let merchant = match label {
-        Some(label) => div()
+    let MerchantText {
+        merchant,
+        count,
+        total,
+    } = MerchantText::of(line, label);
+    let merchant = match merchant {
+        MerchantCell::Label(label) => div()
             .flex_1()
             .min_w_0()
             .overflow_hidden()
@@ -1223,11 +1312,11 @@ fn merchant_line(
             .text_color(color::TEXT_MUTED)
             .child(label)
             .into_any_element(),
-        None => bank_text(window, &line.bank_text, line.highlight.as_ref()),
+        MerchantCell::BankText(parts) => bank_text(window, parts),
     };
     let after = match &line.after {
         Some(after) => after_cell(after, false, agent),
-        None => vec![muted("Several")],
+        None => vec![muted(SEVERAL)],
     };
     open_row()
         .child(merchant)
@@ -1246,14 +1335,14 @@ fn merchant_line(
                 .justify_end()
                 .text_role(typography::MONO_VALUE)
                 .text_color(color::TEXT_MUTED)
-                .child(line.count.to_string()),
+                .child(count),
         )
         .child(
             lane(size::COLUMN_AMOUNT)
                 .justify_end()
                 .text_role(typography::MONO_AMOUNT)
                 .text_color(color::TEXT_SECONDARY)
-                .children(line.total.map(text::signed)),
+                .children(total),
         )
         .child(lane(action_lane()))
 }
@@ -1287,28 +1376,47 @@ fn listed_label(first: &str, preview: &Preview) -> String {
     }
 }
 
+/// D6.4's warning before a wide rule's summary: a title, and a body whose
+/// numbers are mono.
+pub(super) struct WarningText {
+    pub title: String,
+    pub body: Vec<Part>,
+}
+
+impl WarningText {
+    fn of(preview: &Preview, by: &ByMerchant, category: &str) -> Self {
+        let (changes, matches) = match &preview.impact.detail {
+            Detail::Rule(impact) => (impact.recategorises, impact.matches),
+            _ => (0, preview.matches),
+        };
+        let moves_income =
+            matches!(&preview.impact.detail, Detail::Rule(impact) if impact.moves_income);
+        let title = format!(
+            "This rule reaches {}{}",
+            count(by.merchants, "merchant", "merchants"),
+            if moves_income {
+                ", including income"
+            } else {
+                ""
+            }
+        );
+        let body = vec![
+            Part::text("It would change "),
+            Part::mono(changes.to_string()),
+            Part::text(" of "),
+            Part::mono(matches.to_string()),
+            Part::text(format!(
+                " past transactions. A narrower pattern is safer: approve only if every \
+                 merchant below belongs in {category}."
+            )),
+        ];
+        Self { title, body }
+    }
+}
+
 /// D6.4's warning block before a wide rule's summary.
-fn wide_warning(
-    preview: &Preview,
-    by: &ByMerchant,
-    category: &str,
-    window: &Window,
-) -> impl IntoElement {
-    let (changes, matches) = match &preview.impact.detail {
-        Detail::Rule(impact) => (impact.recategorises, impact.matches),
-        _ => (0, preview.matches),
-    };
-    let moves_income =
-        matches!(&preview.impact.detail, Detail::Rule(impact) if impact.moves_income);
-    let title = format!(
-        "This rule reaches {}{}",
-        count(by.merchants, "merchant", "merchants"),
-        if moves_income {
-            ", including income"
-        } else {
-            ""
-        }
-    );
+fn wide_warning(warning: WarningText, window: &Window) -> impl IntoElement {
+    let WarningText { title, body } = warning;
     div()
         .flex()
         .flex_col()
@@ -1354,21 +1462,145 @@ fn wide_warning(
                                     window,
                                     typography::CAPTION,
                                     color::TEXT_SECONDARY,
-                                    vec![
-                                        Part::text("It would change "),
-                                        Part::mono(changes.to_string()),
-                                        Part::text(" of "),
-                                        Part::mono(matches.to_string()),
-                                        Part::text(format!(
-                                            " past transactions. A narrower pattern is safer: \
-                                             approve only if every merchant below belongs in \
-                                             {category}."
-                                        )),
-                                    ],
+                                    body,
                                 )),
                         ),
                 ),
         )
+}
+
+/// The labels over an open suggestion's lines: the first lane's, then
+/// NOW, AFTER, the date lane's and the amount lane's.
+pub(super) struct OpenHeader {
+    pub first: String,
+    pub lanes: [&'static str; 4],
+}
+
+/// A listed line of an open suggestion.
+pub(super) enum OpenLine<'a> {
+    /// A transaction; `names` for a merchant name's.
+    Row { line: &'a Line, names: bool },
+    /// A wide rule's merchant, or the rest of them ("and 3 more
+    /// merchants", "Categories you set").
+    Merchant {
+        line: &'a MerchantLine,
+        label: Option<String>,
+    },
+}
+
+/// What the selected suggestion lists, open in place under its row.
+pub(super) struct OpenText<'a> {
+    pub warning: Option<WarningText>,
+    pub header: Option<OpenHeader>,
+    pub lines: Vec<OpenLine<'a>>,
+    pub caption: String,
+}
+
+impl<'a> OpenText<'a> {
+    /// `None` when there's no more to list than the row says.
+    pub(super) fn of(entry: &'a Entry) -> Option<Self> {
+        let preview = entry.preview.as_ref()?;
+        let rows = |names: bool| -> Vec<OpenLine<'a>> {
+            preview
+                .lines
+                .iter()
+                .map(|line| OpenLine::Row { line, names })
+                .collect()
+        };
+        match &entry.suggestion.payload {
+            Payload::Rule(_) => {
+                let category = text::rule_category(&preview.subject)
+                    .map(|category| plain(&category.label, NAME_SHOWN))
+                    .unwrap_or_else(|| "its category".to_owned());
+                if let Some(by) = preview
+                    .by_merchant
+                    .as_ref()
+                    .filter(|_| preview.impact.wide())
+                {
+                    let mut lines: Vec<OpenLine<'a>> = by
+                        .shown
+                        .iter()
+                        .map(|line| OpenLine::Merchant { line, label: None })
+                        .collect();
+                    if let Some((rest, merchants)) = &by.rest {
+                        lines.push(OpenLine::Merchant {
+                            line: rest,
+                            label: Some(format!(
+                                "and {merchants} more {}",
+                                if *merchants == 1 {
+                                    "merchant"
+                                } else {
+                                    "merchants"
+                                }
+                            )),
+                        });
+                    }
+                    if let Some(kept) = &by.kept {
+                        lines.push(OpenLine::Merchant {
+                            line: kept,
+                            label: Some("Categories you set".to_owned()),
+                        });
+                    }
+                    return Some(Self {
+                        warning: Some(WarningText::of(preview, by, &category)),
+                        header: Some(OpenHeader {
+                            first: format!("Merchant · {}", by.merchants),
+                            lanes: ["Now", "After", "Count", "Amount"],
+                        }),
+                        lines,
+                        caption: "Summed by merchant because the matches span more than 5. \
+                                  Categories you set stay."
+                            .to_owned(),
+                    });
+                }
+                let caption = if preview.matches == 0 {
+                    format!(
+                        "No past transactions match. Imports from now on that match go to \
+                         {category}."
+                    )
+                } else {
+                    format!("Imports from now on that match go to {category} too.")
+                };
+                let listed = preview.matches > 0;
+                Some(Self {
+                    warning: None,
+                    header: listed.then(|| OpenHeader {
+                        first: listed_label("Bank text", preview),
+                        lanes: ["Now", "After", "Date", "Amount"],
+                    }),
+                    lines: if listed { rows(false) } else { Vec::new() },
+                    caption,
+                })
+            }
+            Payload::MerchantAlias(_) => {
+                let listed = preview.matches > 0;
+                Some(Self {
+                    warning: None,
+                    header: listed.then(|| OpenHeader {
+                        first: listed_label("Bank text", preview),
+                        lanes: ["Shows as now", "After", "Date", "Amount"],
+                    }),
+                    lines: if listed { rows(true) } else { Vec::new() },
+                    caption: "Only the name you see changes. Bank text, categories and rules \
+                              stay as they are."
+                        .to_owned(),
+                })
+            }
+            Payload::Categorization(items) if items.len() > 1 => Some(Self {
+                warning: None,
+                header: Some(OpenHeader {
+                    first: format!(
+                        "Bank text · {}",
+                        count(items.len(), "transaction", "transactions")
+                    ),
+                    lanes: ["Now", "After", "Date", "Amount"],
+                }),
+                lines: rows(false),
+                caption: "Approving sets each one's category; nothing else changes.".to_owned(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// The selected suggestion, open in place under its row, when there's
@@ -1379,110 +1611,142 @@ fn render_open(
     today: NaiveDate,
     window: &Window,
 ) -> Option<AnyElement> {
-    let preview = entry.preview.as_ref()?;
+    let OpenText {
+        warning,
+        header,
+        lines,
+        caption,
+    } = OpenText::of(entry)?;
     let agent = entry.suggestion.source_client != COFFER_SOURCE;
-    let container = || {
+    let lines: Vec<AnyElement> = lines
+        .into_iter()
+        .map(|line| match line {
+            OpenLine::Row { line, names } => {
+                open_line(line, names, agent, palette, today, window).into_any_element()
+            }
+            OpenLine::Merchant { line, label } => {
+                merchant_line(line, label, agent, palette, window).into_any_element()
+            }
+        })
+        .collect();
+    Some(
         div()
             .flex()
             .flex_col()
             .flex_none()
             .pt(spacing::S1)
             .pb(spacing::S2)
-    };
-    match &entry.suggestion.payload {
-        Payload::Rule(_) => {
-            let category = text::rule_category(&preview.subject)
-                .map(|category| plain(&category.label, NAME_SHOWN))
-                .unwrap_or_else(|| "its category".to_owned());
-            if let Some(by) = preview.by_merchant.as_ref().filter(|_| preview.impact.wide()) {
-                let mut lines: Vec<AnyElement> = by
-                    .shown
-                    .iter()
-                    .map(|line| merchant_line(line, None, agent, palette, window).into_any_element())
-                    .collect();
-                if let Some((rest, merchants)) = &by.rest {
-                    lines.push(
-                        merchant_line(
-                            rest,
-                            Some(format!("and {merchants} more {}", if *merchants == 1 { "merchant" } else { "merchants" })),
-                            agent,
-                            palette,
-                            window,
-                        )
-                        .into_any_element(),
-                    );
+            .children(warning.map(|warning| wide_warning(warning, window)))
+            .children(header.map(|OpenHeader { first, lanes }| {
+                let [now, after, date, amount] = lanes;
+                open_header(first, now, after, date, amount)
+            }))
+            .children(lines)
+            .child(open_caption(caption))
+            .into_any_element(),
+    )
+}
+
+/// What a pending group's footer says.
+pub(super) struct FooterText {
+    /// "Approve all (n)", or "Approve" for a group of one.
+    pub approve_label: String,
+    /// Whether "Approve all" has anything to approve.
+    pub can_approve: bool,
+    pub reject_label: &'static str,
+    /// Which suggestions "Approve all" leaves out.
+    pub note: Option<String>,
+    pub source: SourceText,
+    /// Why core refused the last decision on this group.
+    pub refused: Option<SharedString>,
+}
+
+impl FooterText {
+    pub(super) fn of(inbox: &Inbox, key: &GroupKey, entries: &[&Entry]) -> Self {
+        let approvable = inbox.approvable(key);
+        let single = entries.len() == 1;
+        let (approve_label, reject_label) = if single {
+            ("Approve".to_owned(), "Reject")
+        } else {
+            (format!("Approve all ({})", approvable.len()), "Reject all")
+        };
+        let wide: Vec<&Entry> = entries
+            .iter()
+            .copied()
+            .filter(|entry| entry.needs_own_approval())
+            .collect();
+        let note = match wide.as_slice() {
+            [] => None,
+            [one] => Some(match &one.suggestion.payload {
+                Payload::Rule(rule) if one.preview.as_ref().is_some_and(|p| p.impact.wide()) => {
+                    format!(
+                        "Leaves out {}: a wide rule needs its own ✓",
+                        text::pattern(rule)
+                    )
                 }
-                if let Some(kept) = &by.kept {
-                    lines.push(
-                        merchant_line(kept, Some("Categories you set".to_owned()), agent, palette, window)
-                            .into_any_element(),
-                    );
-                }
-                return Some(
-                    container()
-                        .child(wide_warning(preview, by, &category, window))
-                        .child(open_header(
-                            format!("Merchant · {}", by.merchants),
-                            "Now",
-                            "After",
-                            "Count",
-                            "Amount",
-                        ))
-                        .children(lines)
-                        .child(open_caption(
-                            "Summed by merchant because the matches span more than 5. \
-                             Categories you set stay.",
-                        ))
-                        .into_any_element(),
-                );
-            }
-            let caption = if preview.matches == 0 {
-                format!("No past transactions match. Imports from now on that match go to {category}.")
-            } else {
-                format!("Imports from now on that match go to {category} too.")
-            };
-            Some(
-                container()
-                    .when(preview.matches > 0, |this| {
-                        this.child(open_header(listed_label("Bank text", preview), "Now", "After", "Date", "Amount"))
-                            .children(preview.lines.iter().map(|line| open_line(line, false, agent, palette, today, window)))
-                    })
-                    .child(open_caption(caption))
-                    .into_any_element(),
-            )
+                _ => "Leaves out one that can't be approved now".to_owned(),
+            }),
+            many => Some(format!(
+                "Leaves out {}: each needs its own ✓",
+                count(many.len(), "suggestion", "suggestions")
+            )),
+        };
+        let newest = entries
+            .iter()
+            .map(|entry| entry.suggestion.created_at.as_str())
+            .max()
+            .unwrap_or_default();
+        let now = inbox.data().read_at.unwrap_or_default();
+        let refused = match inbox.outcome() {
+            Some(Outcome::Refused {
+                scope: Scope::Group(group),
+                message,
+            }) if group == key => Some(message.clone()),
+            _ => None,
+        };
+        Self {
+            approve_label,
+            can_approve: !approvable.is_empty(),
+            reject_label,
+            note,
+            source: SourceText::of(&key.source, newest, now),
+            refused,
         }
-        Payload::MerchantAlias(_) => Some(
-            container()
-                .when(preview.matches > 0, |this| {
-                    this.child(open_header(listed_label("Bank text", preview), "Shows as now", "After", "Date", "Amount"))
-                        .children(preview.lines.iter().map(|line| open_line(line, true, agent, palette, today, window)))
-                })
-                .child(open_caption(
-                    "Only the name you see changes. Bank text, categories and rules stay as they are.",
-                ))
-                .into_any_element(),
-        ),
-        Payload::Categorization(items) if items.len() > 1 => Some(
-            container()
-                .child(open_header(
-                    format!("Bank text · {}", count(items.len(), "transaction", "transactions")),
-                    "Now",
-                    "After",
-                    "Date",
-                    "Amount",
-                ))
-                .children(preview.lines.iter().map(|line| open_line(line, false, agent, palette, today, window)))
-                .child(open_caption("Approving sets each one's category; nothing else changes."))
-                .into_any_element(),
-        ),
-        _ => None,
+    }
+}
+
+/// The source at the end of a group's footer.
+pub(super) struct SourceText {
+    /// Coffer's own ("Coffer", its mark), or an AI client's (its name, the
+    /// sparkle).
+    pub coffer: bool,
+    pub name: String,
+    /// "from your edits", or how long ago the newest one came: "2h ago".
+    pub tail: String,
+}
+
+impl SourceText {
+    fn of(source: &str, newest: &str, now: DateTime<Utc>) -> Self {
+        let (name, suffix) = source_name(source);
+        match suffix {
+            Some(suffix) => Self {
+                coffer: true,
+                name,
+                tail: suffix.to_owned(),
+            },
+            None => Self {
+                coffer: false,
+                name,
+                tail: text::ago(newest, now),
+            },
+        }
     }
 }
 
 /// The source at the end of a group's footer: "✦ claude-code · 2h ago",
 /// or Coffer's mark and "Coffer · from your edits".
-fn footer_source(source: &str, newest: &str, now: DateTime<Utc>) -> impl IntoElement {
-    let (name, suffix) = source_name(source);
+fn footer_source(source: SourceText) -> impl IntoElement {
+    let SourceText { coffer, name, tail } = source;
     let row = div()
         .flex()
         .flex_none()
@@ -1491,47 +1755,60 @@ fn footer_source(source: &str, newest: &str, now: DateTime<Utc>) -> impl IntoEle
         .whitespace_nowrap()
         .text_role(typography::CAPTION)
         .text_color(color::TEXT_MUTED);
-    match suffix {
-        Some(suffix) => row
-            .child(
-                Glyph::Mark
-                    .render_at(size::ICON_SM)
-                    .text_color(color::TEXT_SECONDARY),
-            )
-            .child(div().text_color(color::TEXT_SECONDARY).child(name))
-            .child(format!("· {suffix}")),
-        None => row
-            .child(
-                Glyph::Sparkle
-                    .render_at(size::ICON_XS)
-                    .text_color(color::MOLDAVITE),
-            )
-            .child(div().text_color(color::MOLDAVITE_TEXT).child(name))
-            .child(format!("· {}", text::ago(newest, now))),
+    if coffer {
+        row.child(
+            Glyph::Mark
+                .render_at(size::ICON_SM)
+                .text_color(color::TEXT_SECONDARY),
+        )
+        .child(div().text_color(color::TEXT_SECONDARY).child(name))
+        .child(format!("· {tail}"))
+    } else {
+        row.child(
+            Glyph::Sparkle
+                .render_at(size::ICON_XS)
+                .text_color(color::MOLDAVITE),
+        )
+        .child(div().text_color(color::MOLDAVITE_TEXT).child(name))
+        .child(format!("· {tail}"))
     }
 }
 
 /// What an empty list says (composed from Paper `13L-0`; user,
 /// 2026-11-14).
 fn empty_state(inbox: &Inbox) -> EmptyState {
+    let (title, body) = empty_text(inbox);
+    EmptyState::new(title).body(body)
+}
+
+/// The empty list's title and body.
+pub(super) fn empty_text(inbox: &Inbox) -> (&'static str, SharedString) {
     if let Some(error) = inbox.load_error() {
-        return EmptyState::new("The Inbox couldn't be read").body(error.clone());
+        return ("The Inbox couldn't be read", error.clone());
     }
     let filtered = inbox.kind_filter().is_some() || inbox.source_filter().is_some();
     let any = !inbox.data().entries.is_empty();
     if filtered && any {
-        return EmptyState::new("Nothing matches these filters")
-            .body("Click the selected Kind or Source again to show every suggestion.");
+        return (
+            "Nothing matches these filters",
+            "Click the selected Kind or Source again to show every suggestion.".into(),
+        );
     }
     match inbox.status() {
-        SuggestionStatus::Pending => EmptyState::new("Nothing to review").body(
+        SuggestionStatus::Pending => (
+            "Nothing to review",
             "Suggestions from AI clients and from Coffer wait here. Nothing changes until you \
-             approve one.",
+             approve one."
+                .into(),
         ),
-        SuggestionStatus::Approved => EmptyState::new("No approved suggestions")
-            .body("Suggestions you approve are listed here."),
-        SuggestionStatus::Rejected => EmptyState::new("No rejected suggestions")
-            .body("Suggestions you reject are listed here."),
+        SuggestionStatus::Approved => (
+            "No approved suggestions",
+            "Suggestions you approve are listed here.".into(),
+        ),
+        SuggestionStatus::Rejected => (
+            "No rejected suggestions",
+            "Suggestions you reject are listed here.".into(),
+        ),
     }
 }
 
