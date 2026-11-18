@@ -49,8 +49,9 @@ type SortHandler = Rc<dyn Fn(TransactionColumn, SortedBy, &mut Window, &mut App)
 /// How a column title was asked to sort.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortedBy {
-    /// A click. The title took focus on the mouse-down, so the view puts it
-    /// back where it belongs (the table).
+    /// A click. A title never takes focus from the mouse (its mouse-down is
+    /// stopped), so the view puts focus where a click on the header always
+    /// put it: on the table.
     Click,
     /// Enter or Space on the focused title, which keeps focus.
     Key,
@@ -315,6 +316,10 @@ impl RenderOnce for TransactionHeader {
                         .on_click(move |_, window, cx| handler(column, SortedBy::Click, window, cx))
                         .when_some(focus.clone(), |this, focus| {
                             this.track_focus(&focus)
+                                // Only Tab focuses a title: a press of any
+                                // button (a right-click, a drag off it) would
+                                // otherwise leave the keys with it.
+                                .on_any_mouse_down(|_, window, _| window.prevent_default())
                                 .key_context(TITLE_CONTEXT)
                                 .on_action(move |_: &Confirm, window, cx| {
                                     cx.stop_propagation();

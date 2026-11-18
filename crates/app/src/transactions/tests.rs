@@ -1157,7 +1157,9 @@ fn clicking_a_column_title_sorts_and_leaves_the_keys_with_the_table(cx: &mut Tes
     let id = fixture::id;
     let pret = id("txn-pret-09");
     click(row_id(pret), cx);
+    let before = describe(&view, cx).sort;
     click(TransactionColumn::Amount.element_id(), cx);
+    assert_ne!(describe(&view, cx).sort, before, "the click sorted");
     assert_eq!(
         focused_column(&view, cx),
         None,
@@ -1165,6 +1167,25 @@ fn clicking_a_column_title_sorts_and_leaves_the_keys_with_the_table(cx: &mut Tes
     );
     // Enter edits the keyboard row's category, as before titles took focus,
     // rather than sorting again.
+    press("enter", cx);
+    assert_eq!(open_menu(&view, cx), Some(Menu::Row(pret)));
+}
+
+#[gpui_kit::test]
+fn no_mouse_button_leaves_focus_on_a_column_title(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, MouseButton};
+    let (view, mut cx) = open_rooted(cx);
+    let cx = &mut cx;
+    let pret = fixture::id("txn-pret-09");
+    click(row_id(pret), cx);
+    let title = TransactionColumn::Amount.element_id();
+    let at = cx.update(|window, _| window.find(title).bounds().center());
+    for button in [MouseButton::Right, MouseButton::Middle] {
+        cx.simulate_mouse_down(at, button, Modifiers::none());
+        cx.simulate_mouse_up(at, button, Modifiers::none());
+        redraw(cx);
+        assert_eq!(focused_column(&view, cx), None, "{button:?}");
+    }
     press("enter", cx);
     assert_eq!(open_menu(&view, cx), Some(Menu::Row(pret)));
 }
