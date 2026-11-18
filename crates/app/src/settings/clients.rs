@@ -23,7 +23,6 @@ use chrono::NaiveDateTime;
 use coffer_core::access_log::Outcome;
 use coffer_core::mcp_client::{AccessLevel, ClientName};
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, ClipboardItem, Context, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -34,6 +33,7 @@ use crate::theme::tokens::{color, opacity, radius, size, spacing, typography, we
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
 use crate::ui::field::{FieldRow, LockedValue, SelectField};
 use crate::ui::icon::Glyph;
+use crate::ui::list::{ListKeysExt as _, Move};
 use crate::ui::menu::{MenuGroup, MenuOption, Select};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::toggle::Toggle;
@@ -516,8 +516,10 @@ impl SettingsView {
                 table::body("clients-body")
                     .key_context(table::LIST_CONTEXT)
                     .track_focus(&self.list_focus.clone().tab_stop(true))
-                    .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.select_next(-1, cx)))
-                    .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.select_next(1, cx)))
+                    .on_list_move(
+                        &table::LIST_KEYS,
+                        cx.listener(|this, to: &Move, _, cx| this.select_next(*to, cx)),
+                    )
                     .when(!on, |this| {
                         this.child(div().flex_none().pt(spacing::S3).child(off_banner(cx)))
                     })

@@ -50,13 +50,10 @@ gpui_kit::actions!(
 pub fn init(cx: &mut gpui_kit::App) {
     use std::rc::Rc;
 
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+    use gpui_kit::base::actions::Cancel;
     use gpui_kit::{KeyBinding, KeyBindingContextPredicate};
-    cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(panel::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(panel::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(panel::CONTEXT)),
-    ]);
+    panel::KEYS.bind(cx);
+    cx.bind_keys([KeyBinding::new("escape", Cancel, Some(panel::CONTEXT))]);
     // ⌘N (Ctrl elsewhere): `KeyBinding::new` can't resolve `secondary-`,
     // so `load` asks the platform, as the shell's shortcuts do.
     let bindings = [panel::CONTEXT, valuations::CONTEXT].map(|context| {
@@ -83,6 +80,7 @@ use coffer_core::money::Money;
 use coffer_core::reporting::account_tree::AccountNode;
 use gpui_kit::{Context, EventEmitter, SharedString};
 
+use crate::ui::list;
 use data::AccountsData;
 use store::AccountStore;
 
@@ -252,23 +250,14 @@ impl Accounts {
         self.select(next, cx);
     }
 
-    /// Moves the selection `step` rows down the panel (up when negative),
-    /// stopping at the ends; with nothing selected, down selects the first
-    /// row and up the last. The arrow keys in the panel.
-    pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selection through the panel's accounts in panel order
+    /// ([`list::step`]: stopping at the ends; with nothing selected, down
+    /// selects the first row and up the last). The arrow keys in the panel.
+    pub fn select_next(&mut self, to: list::Move, cx: &mut Context<Self>) {
         let rows: Vec<AccountId> = panel::order(&self.data);
-        if rows.is_empty() {
-            return;
+        if let Some(next) = list::step(&rows, self.selected.as_ref(), to) {
+            self.select(Some(next), cx);
         }
-        let next = match self
-            .selected
-            .and_then(|id| rows.iter().position(|row| *row == id))
-        {
-            Some(at) => at.saturating_add_signed(step).min(rows.len() - 1),
-            None if step < 0 => rows.len() - 1,
-            None => 0,
-        };
-        self.select(Some(rows[next]), cx);
     }
 
     /// Asks the shell to open New account.

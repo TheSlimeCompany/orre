@@ -46,12 +46,12 @@ use coffer_core::mcp_client::{AccessLevel, ClientName};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, EventEmitter, FocusHandle, InteractiveElement as _, IntoElement,
-    KeyBinding, ParentElement as _, Render, ScrollHandle, SharedString, Styled as _, Task, Window,
-    div,
+    ParentElement as _, Render, ScrollHandle, SharedString, Styled as _, Task, Window, div,
 };
 
 use crate::accounts::store::StoreError;
 use crate::theme::tokens::{color, spacing};
+use crate::ui::list::{self, Move};
 use crate::ui::menu::SelectState;
 
 use data::{AiData, BackupsData, Clock, LogFilter, LogRow, Period};
@@ -59,13 +59,8 @@ use store::SettingsStore;
 
 /// Binds the arrow keys of Settings' panel and lists. Call once.
 pub fn init(cx: &mut App) {
-    use gpui_kit::base::actions::{SelectDown, SelectUp};
-    cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(panel::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(panel::CONTEXT)),
-        KeyBinding::new("up", SelectUp, Some(table::LIST_CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(table::LIST_CONTEXT)),
-    ]);
+    panel::KEYS.bind(cx);
+    table::LIST_KEYS.bind(cx);
 }
 
 /// Which screen Settings shows.
@@ -494,20 +489,9 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Moves the selection in the open list `step` rows (the arrow keys).
-    pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
-        fn next<T: PartialEq + Clone>(rows: &[T], current: Option<&T>, step: isize) -> Option<T> {
-            if rows.is_empty() {
-                return None;
-            }
-            let at = current.and_then(|current| rows.iter().position(|row| row == current));
-            let index = match at {
-                Some(at) => at.saturating_add_signed(step).min(rows.len() - 1),
-                None if step < 0 => rows.len() - 1,
-                None => 0,
-            };
-            Some(rows[index].clone())
-        }
+    /// Moves the selection in the open list (the arrow keys,
+    /// [`list::step`]).
+    pub fn select_next(&mut self, to: Move, cx: &mut Context<Self>) {
         match self.section {
             Section::Clients => {
                 let names: Vec<ClientName> = self
@@ -516,19 +500,19 @@ impl SettingsView {
                     .iter()
                     .map(|client| client.name.clone())
                     .collect();
-                if let Some(name) = next(&names, self.selected_client.as_ref(), step) {
+                if let Some(name) = list::step(&names, self.selected_client.as_ref(), to) {
                     self.select_client(name, cx);
                 }
             }
             Section::Log => {
                 let ids: Vec<i64> = self.log.iter().map(|row| row.call.id).collect();
-                if let Some(id) = next(&ids, self.selected_call.as_ref(), step) {
+                if let Some(id) = list::step(&ids, self.selected_call.as_ref(), to) {
                     self.select_call(id, cx);
                 }
             }
             Section::Backups => {
                 let paths: Vec<PathBuf> = table::backup_order(&self.backups);
-                if let Some(path) = next(&paths, self.selected_backup.as_ref(), step) {
+                if let Some(path) = list::step(&paths, self.selected_backup.as_ref(), to) {
                     self.select_backup(path, cx);
                 }
             }
@@ -537,13 +521,10 @@ impl SettingsView {
 
     /// Moves to the next or previous section in the panel (the arrow keys
     /// there).
-    pub fn show_next(&mut self, step: isize, cx: &mut Context<Self>) {
-        let at = Section::ALL
-            .iter()
-            .position(|section| *section == self.section)
-            .unwrap_or(0);
-        let index = at.saturating_add_signed(step).min(Section::ALL.len() - 1);
-        self.show(Section::ALL[index], cx);
+    pub fn show_next(&mut self, to: Move, cx: &mut Context<Self>) {
+        if let Some(section) = list::step(&Section::ALL, Some(&self.section), to) {
+            self.show(section, cx);
+        }
     }
 
     /// Runs a change through the store, then reads the clients again and

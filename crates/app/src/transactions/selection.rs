@@ -4,6 +4,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::ui::list::{self, Move};
+
 /// What a click on a row does to the selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClickKind {
@@ -65,25 +67,20 @@ impl<Id: Copy + Ord> Selection<Id> {
         }
     }
 
-    /// Moves the keyboard row `delta` rows through `order`, stopping at the
-    /// ends, and selects it; with `extend`, selects the range from the
-    /// anchor to it (⇧↑/⇧↓). With no keyboard row yet, starts at the first
-    /// row (down) or the last (up).
-    pub fn move_by(&mut self, delta: isize, extend: bool, order: &[Id]) {
-        let Some(last) = order.len().checked_sub(1) else {
+    /// Moves the keyboard row through `order` ([`list::step`]: stopping at
+    /// the ends; with no keyboard row yet, down and Home start at the first
+    /// row and up and End at the last) and selects it; a [`Move::Extend`]
+    /// selects the range from the anchor to it (⇧↑/⇧↓).
+    pub fn move_by(&mut self, to: Move, order: &[Id]) {
+        let Some(target) = list::step(order, self.current.as_ref(), to) else {
             return;
         };
-        let target = match self.current.and_then(|id| position(order, id)) {
-            Some(index) => index.saturating_add_signed(delta).min(last),
-            None if delta < 0 => last,
-            None => 0,
-        };
-        let kind = if extend {
+        let kind = if to.extends() {
             ClickKind::Extend
         } else {
             ClickKind::Replace
         };
-        self.click(order[target], kind, order);
+        self.click(target, kind, order);
     }
 
     /// Selects nothing; the keyboard row stays where it was.
@@ -182,24 +179,36 @@ mod tests {
     #[test]
     fn keyboard_moves_stop_at_the_ends() {
         let mut selection = Selection::default();
-        selection.move_by(1, false, &ORDER);
+        selection.move_by(Move::DOWN, &ORDER);
         assert_eq!(
             selected(&selection),
             [10],
             "down with nothing selected starts at the top"
         );
-        selection.move_by(-1, false, &ORDER);
+        selection.move_by(Move::UP, &ORDER);
         assert_eq!(selected(&selection), [10]);
-        selection.move_by(10, false, &ORDER);
+        selection.move_by(Move::By(10), &ORDER);
         assert_eq!(selected(&selection), [50]);
-        selection.move_by(-1, true, &ORDER);
+        selection.move_by(Move::Extend(-1), &ORDER);
         assert_eq!(selected(&selection), [40, 50]);
+    }
+
+    #[test]
+    fn home_and_end_go_to_the_ends_and_select_only_that_row() {
+        let mut selection = Selection::default();
+        // Home with no keyboard row yet starts at the top, as ↓ does.
+        selection.move_by(Move::First, &ORDER);
+        assert_eq!(selected(&selection), [10]);
+        selection.move_by(Move::Extend(1), &ORDER);
+        assert_eq!(selected(&selection), [10, 20]);
+        selection.move_by(Move::Last, &ORDER);
+        assert_eq!(selected(&selection), [50]);
     }
 
     #[test]
     fn up_with_nothing_selected_starts_at_the_bottom() {
         let mut selection = Selection::default();
-        selection.move_by(-1, false, &ORDER);
+        selection.move_by(Move::UP, &ORDER);
         assert_eq!(selected(&selection), [50]);
     }
 
@@ -210,14 +219,14 @@ mod tests {
         selection.clear();
         assert!(selection.is_empty());
         assert_eq!(selection.current(), Some(30));
-        selection.move_by(1, false, &ORDER);
+        selection.move_by(Move::DOWN, &ORDER);
         assert_eq!(selected(&selection), [40]);
     }
 
     #[test]
     fn empty_order_is_a_no_op() {
         let mut selection = Selection::<u8>::default();
-        selection.move_by(1, false, &[]);
+        selection.move_by(Move::DOWN, &[]);
         assert!(selection.is_empty());
     }
 }

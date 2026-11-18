@@ -52,6 +52,7 @@ use coffer_core::rule::{
 };
 use gpui_kit::{Context, EventEmitter, SharedString};
 
+use crate::ui::list;
 use form::{CategoryError, CategoryForm, FormError, NameForm, RuleForm};
 use state::{CategoriesPane, CategoryEdit, HistoryPane, NameEdit, NamesPane, RuleEdit, RulesPane};
 use store::{RulesData, RulesStore};
@@ -61,12 +62,9 @@ use write::{Policy, Said};
 /// back from the preview. Call once, before the first [`view::RulesView`].
 pub fn init(cx: &mut gpui_kit::App) {
     use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
-    cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(view::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(view::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
-    ]);
+    use gpui_kit::base::actions::Cancel;
+    view::KEYS.bind(cx);
+    cx.bind_keys([KeyBinding::new("escape", Cancel, Some(view::CONTEXT))]);
 }
 
 /// The lists under RULES in the panel.
@@ -687,12 +685,12 @@ impl Rules {
         self.select_rule(next, cx);
     }
 
-    /// Moves the selection `step` rows in the open section (↑↓).
-    pub fn select_next(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selection in the open section (↑↓, [`list::step`]).
+    pub fn select_next(&mut self, to: list::Move, cx: &mut Context<Self>) {
         match self.section {
             Section::Rules if self.apply().is_none() => {
                 let order: Vec<RuleId> = self.rules().iter().map(|s| s.rule.id()).collect();
-                if let Some(next) = step_in(&order, self.selected_rule_id(), step) {
+                if let Some(next) = list::step(&order, self.selected_rule_id().as_ref(), to) {
                     self.select_rule(Some(next), cx);
                 }
             }
@@ -704,13 +702,13 @@ impl Rules {
                     Some(NameSelection::Stored(id)) => Some(id),
                     _ => None,
                 };
-                if let Some(next) = step_in(&order, current, step) {
+                if let Some(next) = list::step(&order, current.as_ref(), to) {
                     self.select_name(Some(NameSelection::Stored(next)), cx);
                 }
             }
             Section::History => {
                 let order: Vec<ChangeBatchId> = self.history().iter().map(|e| e.batch.id).collect();
-                if let Some(next) = step_in(&order, self.history.selected_id(), step) {
+                if let Some(next) = list::step(&order, self.history.selected_id().as_ref(), to) {
                     self.select_batch(Some(next), cx);
                 }
             }
@@ -724,7 +722,7 @@ impl Rules {
                     Some(CategorySelection::Stored(id)) => Some(id),
                     _ => None,
                 };
-                if let Some(next) = step_in(&order, current, step) {
+                if let Some(next) = list::step(&order, current.as_ref(), to) {
                     self.select_category(Some(CategorySelection::Stored(next)), cx);
                 }
             }
@@ -1480,20 +1478,6 @@ fn row_after<T: Copy + PartialEq>(order: &[T], id: T) -> Option<T> {
         .get(at + 1)
         .or_else(|| at.checked_sub(1).and_then(|before| order.get(before)))
         .copied()
-}
-
-/// The item `step` rows from `current` in `order`, stopping at the ends;
-/// with nothing selected, down gives the first and up the last.
-fn step_in<T: Copy + PartialEq>(order: &[T], current: Option<T>, step: isize) -> Option<T> {
-    if order.is_empty() {
-        return None;
-    }
-    let next = match current.and_then(|id| order.iter().position(|row| *row == id)) {
-        Some(at) => at.saturating_add_signed(step).min(order.len() - 1),
-        None if step < 0 => order.len() - 1,
-        None => 0,
-    };
-    Some(order[next])
 }
 
 #[cfg(test)]

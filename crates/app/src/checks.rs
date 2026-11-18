@@ -41,6 +41,7 @@ use coffer_core::reconciliation::BalanceRef;
 use gpui_kit::{Context, EventEmitter, SharedString};
 
 use crate::accounts::store::StoreError;
+use crate::ui::list::{self, Move};
 use store::{ChecksData, ChecksStore};
 
 /// Binds the queues' keys: M merge, N not duplicates, ←→ keep the other
@@ -48,10 +49,9 @@ use store::{ChecksData, ChecksStore};
 /// [`view::ChecksView`].
 pub fn init(cx: &mut gpui_kit::App) {
     use gpui_kit::KeyBinding;
-    use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+    use gpui_kit::base::actions::Cancel;
+    view::KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(view::CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(view::CONTEXT)),
         KeyBinding::new("escape", Cancel, Some(view::CONTEXT)),
         KeyBinding::new("m", view::MergeSelected, Some(view::CONTEXT)),
         KeyBinding::new("n", view::DismissSelected, Some(view::CONTEXT)),
@@ -365,11 +365,11 @@ impl Checks {
         }
     }
 
-    /// Moves the selected pair `step` rows (↑↓), stopping at the ends.
-    pub fn select_next_pair(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selected pair (↑↓, [`list::step`]).
+    pub fn select_next_pair(&mut self, to: Move, cx: &mut Context<Self>) {
         let order: Vec<DuplicateCandidateId> =
             self.pairs().iter().map(|pair| pair.candidate).collect();
-        let next = step_in(&order, self.pair, step);
+        let next = list::step(&order, self.pair.as_ref(), to);
         if next.is_some() {
             self.select_pair(next, cx);
         }
@@ -592,10 +592,10 @@ impl Checks {
             .collect()
     }
 
-    /// Moves the selected balance `step` rows (↑↓), stopping at the ends.
-    pub fn select_next_check(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selected balance (↑↓, [`list::step`]).
+    pub fn select_next_check(&mut self, to: Move, cx: &mut Context<Self>) {
         let order = self.check_order();
-        if let Some(next) = step_in(&order, self.check, step) {
+        if let Some(next) = list::step(&order, self.check.as_ref(), to) {
             self.check = Some(next);
             cx.notify();
         }
@@ -651,8 +651,8 @@ impl Checks {
         cx.notify();
     }
 
-    /// Moves the selected person `step` rows (↑↓), stopping at the ends.
-    pub fn select_next_person(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// Moves the selected person (↑↓, [`list::step`]).
+    pub fn select_next_person(&mut self, to: Move, cx: &mut Context<Self>) {
         let order: Vec<(ShareLabel, Currency)> = self
             .data
             .owed
@@ -660,7 +660,7 @@ impl Checks {
             .iter()
             .map(|person| (person.label.clone(), person.owed.currency()))
             .collect();
-        if let Some(next) = step_in(&order, self.person.clone(), step) {
+        if let Some(next) = list::step(&order, self.person.as_ref(), to) {
             self.person = Some(next);
             cx.notify();
         }
@@ -772,20 +772,6 @@ impl Checks {
     pub fn account(&self, account: AccountId) -> Option<&AccountReview> {
         self.data.review.account(account)
     }
-}
-
-/// The item `step` rows from `current` in `order`, stopping at the ends;
-/// with nothing selected, down gives the first and up the last.
-fn step_in<T: Clone + PartialEq>(order: &[T], current: Option<T>, step: isize) -> Option<T> {
-    if order.is_empty() {
-        return None;
-    }
-    let next = match current.and_then(|id| order.iter().position(|row| *row == id)) {
-        Some(at) => at.saturating_add_signed(step).min(order.len() - 1),
-        None if step < 0 => order.len() - 1,
-        None => 0,
-    };
-    Some(order[next].clone())
 }
 
 #[cfg(test)]

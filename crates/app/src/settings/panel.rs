@@ -5,7 +5,6 @@
 //!
 //! A Tab stop: the arrow keys move between the three screens.
 
-use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, Styled as _,
     Window, div,
@@ -13,6 +12,7 @@ use gpui_kit::{
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
+use crate::ui::list::{Keys, ListKeysExt as _, Move};
 use crate::ui::list_row::{ListRow, TrailingTone};
 use crate::ui::section_label::SectionLabelRow;
 use crate::ui::text::TextRoleExt as _;
@@ -22,6 +22,9 @@ use super::{Section, SettingsView};
 
 /// The panel's key context.
 pub const CONTEXT: &str = "CofferSettingsPanel";
+
+/// The panel's movement keys: ↑↓ between the screens.
+pub const KEYS: Keys = Keys::new(CONTEXT);
 
 /// A list under a section label: 8px top, 10px bottom, 6px inline padding
 /// (Paper `BPR-0`).
@@ -132,8 +135,10 @@ impl SettingsView {
             .id("settings-panel")
             .key_context(CONTEXT)
             .track_focus(&self.panel_focus.clone().tab_stop(true))
-            .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.show_next(-1, cx)))
-            .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.show_next(1, cx)))
+            .on_list_move(
+                &KEYS,
+                cx.listener(|this, to: &Move, _, cx| this.show_next(*to, cx)),
+            )
             .flex()
             .flex_col()
             .flex_none()

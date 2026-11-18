@@ -77,7 +77,7 @@ use coffer_core::reporting::register::{
     CategoryCounts, DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
 };
 use coffer_core::transfer as core_transfer;
-use gpui_kit::base::actions::{Cancel, SelectDown, SelectFirst, SelectLast, SelectUp};
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -98,6 +98,7 @@ use crate::ui::bulk_action_bar::BulkActionBar;
 use crate::ui::button::{Button, ButtonVariant, Chip};
 use crate::ui::empty_state::EmptyState;
 use crate::ui::field::search_input;
+use crate::ui::list::{Keys, ListKeysExt as _, Move, Reveal as _};
 use crate::ui::menu::{self, MenuGroup, MenuList, SelectState, filter_groups};
 use crate::ui::notification::NotificationBar;
 use crate::ui::transaction_row::{
@@ -112,6 +113,10 @@ use write::{Offer, Policy, Said};
 /// The key context of the canvas, where the arrow keys move the selection.
 const TABLE_CONTEXT: &str = "CofferTransactionsTable";
 
+/// The table's movement keys: ↑↓, ⇧↑⇧↓ to extend the selection, Home and
+/// End.
+const TABLE_KEYS: Keys = Keys::new(TABLE_CONTEXT).with_extend().with_ends();
+
 /// Menus taller than eight options scroll (`DESIGN.md` → "Accounts panel" →
 /// "Menus").
 const MENU_ROWS: f32 = 8.;
@@ -119,10 +124,6 @@ const MENU_ROWS: f32 = 8.;
 gpui_kit::actions!(
     coffer_transactions,
     [
-        /// ⇧↑: extend the selection one row up.
-        ExtendSelectionUp,
-        /// ⇧↓: extend the selection one row down.
-        ExtendSelectionDown,
         /// Enter: open the category menu on the keyboard row.
         EditCategory,
     ]
@@ -131,13 +132,8 @@ gpui_kit::actions!(
 /// Binds the table's and the menus' keys. Call once, before the first view
 /// is created.
 pub fn init(cx: &mut App) {
+    TABLE_KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(TABLE_CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(TABLE_CONTEXT)),
-        KeyBinding::new("shift-up", ExtendSelectionUp, Some(TABLE_CONTEXT)),
-        KeyBinding::new("shift-down", ExtendSelectionDown, Some(TABLE_CONTEXT)),
-        KeyBinding::new("home", SelectFirst, Some(TABLE_CONTEXT)),
-        KeyBinding::new("end", SelectLast, Some(TABLE_CONTEXT)),
         KeyBinding::new("enter", EditCategory, Some(TABLE_CONTEXT)),
         KeyBinding::new("escape", Cancel, Some(TABLE_CONTEXT)),
     ]);
@@ -1396,8 +1392,8 @@ impl TransactionsView {
         cx.notify();
     }
 
-    fn move_selection(&mut self, delta: isize, extend: bool, cx: &mut Context<Self>) {
-        self.selection.move_by(delta, extend, &self.order);
+    fn move_selection(&mut self, to: Move, cx: &mut Context<Self>) {
+        self.selection.move_by(to, &self.order);
         self.undo = None;
         self.edit_failure = None;
         self.reveal_current();
@@ -1439,7 +1435,7 @@ impl TransactionsView {
             TableItem::Day { .. } => false,
         });
         if let Some(index) = index {
-            self.list.scroll_to_reveal_item(index);
+            self.list.reveal(index);
         }
     }
 
@@ -1806,23 +1802,9 @@ impl TransactionsView {
     fn render_canvas(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .key_context(TABLE_CONTEXT)
-            .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.move_selection(-1, false, cx)))
-            .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.move_selection(1, false, cx)))
-            .on_action(
-                cx.listener(|this, _: &ExtendSelectionUp, _, cx| this.move_selection(-1, true, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &ExtendSelectionDown, _, cx| {
-                    this.move_selection(1, true, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &SelectFirst, _, cx| {
-                this.move_selection(isize::MIN, false, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &SelectLast, _, cx| {
-                    this.move_selection(isize::MAX, false, cx)
-                }),
+            .on_list_move(
+                &TABLE_KEYS,
+                cx.listener(|this, to: &Move, _, cx| this.move_selection(*to, cx)),
             )
             .on_action(
                 cx.listener(|this, _: &EditCategory, window, cx| this.edit_current(window, cx)),

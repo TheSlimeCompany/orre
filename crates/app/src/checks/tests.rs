@@ -344,16 +344,6 @@ fn the_status_bar_counts_failing_checks(cx: &mut TestAppContext) {
     assert_eq!(cx.update(|_, cx| shell.read(cx).view()), View::Inbox);
 }
 
-#[test]
-fn step_in_stops_at_the_ends() {
-    let order = [1, 2, 3];
-    assert_eq!(step_in(&order, None, 1), Some(1));
-    assert_eq!(step_in(&order, None, -1), Some(3));
-    assert_eq!(step_in(&order, Some(3), 1), Some(3));
-    assert_eq!(step_in(&order, Some(2), -1), Some(1));
-    assert_eq!(step_in::<i32>(&[], None, 1), None);
-}
-
 // Owed to you (M3.11) ----------------------------------------------------------
 
 #[gpui_kit::test]

@@ -491,7 +491,11 @@ fn the_categories_section_lists_and_filters_every_category(cx: &mut TestAppConte
 
     // ↓ moves the selection through the listed rows.
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_category(None, cx)));
-    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_next(1, cx)));
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.select_next(crate::ui::list::Move::DOWN, cx)
+        })
+    });
     let first = cx.update(|_, cx| rules.read(cx).selected_category());
     let mortgage = stored_category(&scratch, "home.mortgage").unwrap().id();
     assert_eq!(first, Some(CategorySelection::Stored(mortgage)));

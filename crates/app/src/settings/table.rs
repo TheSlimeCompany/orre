@@ -15,6 +15,7 @@ use gpui_kit::{
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, font as family, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant};
+use crate::ui::list::Keys;
 use crate::ui::notification::NotificationBar;
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
@@ -25,6 +26,9 @@ use super::{Notice, NoticeMessage, SettingsView};
 /// The key context of a Settings list, where the arrow keys move the
 /// selection.
 pub const LIST_CONTEXT: &str = "CofferSettingsList";
+
+/// A Settings list's movement keys: ↑↓ through its rows.
+pub const LIST_KEYS: Keys = Keys::new(LIST_CONTEXT);
 
 /// A canvas title: 13/16 600, tight tracking.
 const TOOLBAR_TITLE: TextRole = typography::TITLE;

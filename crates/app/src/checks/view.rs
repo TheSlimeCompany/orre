@@ -8,7 +8,7 @@
 //! dismissal the D6.3 undo bar floats at the foot of the canvas. A change
 //! core refuses is said under the toolbar in caption type, `danger`.
 
-use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -20,6 +20,7 @@ use gpui_kit::{
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
 use crate::ui::kbd::Kbd;
+use crate::ui::list::{Keys, ListKeysExt as _, Move};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
 use crate::ui::undo_bar::UndoBar;
@@ -29,6 +30,9 @@ use super::{Checks, Outcome, Queue};
 
 /// The key context of the queues' canvas, where M, N, ←→ and ↑↓ work.
 pub const CONTEXT: &str = "CofferChecks";
+
+/// The queues' movement keys: ↑↓ through the open queue's rows.
+pub const KEYS: Keys = Keys::new(CONTEXT);
 
 gpui_kit::actions!(
     coffer_checks,
@@ -346,20 +350,16 @@ impl Render for ChecksView {
         let root = div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &SelectUp, _, cx| {
-                this.update(cx, |checks, cx| match checks.queue() {
-                    Some(Queue::Balances) => checks.select_next_check(-1, cx),
-                    Some(Queue::Owed) => checks.select_next_person(-1, cx),
-                    _ => checks.select_next_pair(-1, cx),
-                })
-            }))
-            .on_action(cx.listener(|this, _: &SelectDown, _, cx| {
-                this.update(cx, |checks, cx| match checks.queue() {
-                    Some(Queue::Balances) => checks.select_next_check(1, cx),
-                    Some(Queue::Owed) => checks.select_next_person(1, cx),
-                    _ => checks.select_next_pair(1, cx),
-                })
-            }))
+            .on_list_move(
+                &KEYS,
+                cx.listener(|this, to: &Move, _, cx| {
+                    this.update(cx, |checks, cx| match checks.queue() {
+                        Some(Queue::Balances) => checks.select_next_check(*to, cx),
+                        Some(Queue::Owed) => checks.select_next_person(*to, cx),
+                        _ => checks.select_next_pair(*to, cx),
+                    })
+                }),
+            )
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 this.update(cx, |checks, cx| checks.clear_selection(cx))
             }))

@@ -24,7 +24,6 @@
 use coffer_core::access_log::activity::{ArgumentValue, arguments};
 use coffer_core::access_log::{LoggedCall, Outcome};
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
@@ -35,6 +34,7 @@ use crate::cli::ai_access::{PURPOSE_CHARS, one_line};
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, radius, size, spacing, typography, weight};
 use crate::ui::icon::Glyph;
+use crate::ui::list::{ListKeysExt as _, Move};
 use crate::ui::menu::{MenuGroup, MenuOption, Select};
 use crate::ui::text::TextRoleExt as _;
 
@@ -427,8 +427,10 @@ impl SettingsView {
                     .key_context(table::LIST_CONTEXT)
                     .track_focus(&self.list_focus.clone().tab_stop(true))
                     .track_scroll(&self.log_scroll)
-                    .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.select_next(-1, cx)))
-                    .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.select_next(1, cx)))
+                    .on_list_move(
+                        &table::LIST_KEYS,
+                        cx.listener(|this, to: &Move, _, cx| this.select_next(*to, cx)),
+                    )
                     .on_scroll(cx.listener(move |this, _, _, cx| {
                         // Near the end: the next page.
                         let left = scroll.max_offset().y + scroll.offset().y;

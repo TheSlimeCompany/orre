@@ -35,7 +35,7 @@
 use coffer_core::account::AccountKind;
 use coffer_core::id::AccountId;
 use coffer_core::reporting::account_tree::AccountNode;
-use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -47,6 +47,7 @@ use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, font, size, spacing, typography};
 use crate::ui::button::IconButton;
 use crate::ui::icon::Glyph;
+use crate::ui::list::{Keys, ListKeysExt as _};
 use crate::ui::list_row::{ListRow, TrailingTone};
 use crate::ui::marker::Marker;
 use crate::ui::section_label::SectionLabelRow;
@@ -90,6 +91,9 @@ pub const UNCATEGORISED_ROW: &str = "uncategorised";
 
 /// The panel's key context, where the arrow keys move the selection.
 pub const CONTEXT: &str = "CofferAccountsPanel";
+
+/// The panel's movement keys: ↑↓ through the accounts.
+pub const KEYS: Keys = Keys::new(CONTEXT);
 
 /// Every account in the panel's order: accounts, each followed by its pots,
 /// then the assets and liabilities.
@@ -349,21 +353,13 @@ pub fn render(
                 .on_click(pick(CategoryPick::Uncategorised)),
         );
 
-    let (up, down, clear, add_value) = (
-        accounts.clone(),
-        accounts.clone(),
-        accounts.clone(),
-        accounts.clone(),
-    );
+    let (step, clear, add_value) = (accounts.clone(), accounts.clone(), accounts.clone());
     div()
         .id("left-panel")
         .key_context(CONTEXT)
         .track_focus(&focus.clone().tab_stop(true))
-        .on_action(move |_: &SelectUp, _, cx| {
-            up.update(cx, |accounts, cx| accounts.select_next(-1, cx))
-        })
-        .on_action(move |_: &SelectDown, _, cx| {
-            down.update(cx, |accounts, cx| accounts.select_next(1, cx))
+        .on_list_move(&KEYS, move |to, _, cx| {
+            step.update(cx, |accounts, cx| accounts.select_next(*to, cx))
         })
         .on_action(move |_: &Cancel, _, cx| {
             clear.update(cx, |accounts, cx| accounts.select(None, cx))

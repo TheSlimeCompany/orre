@@ -22,7 +22,7 @@ mod stock;
 
 use std::collections::BTreeSet;
 
-use gpui_kit::base::actions::{Confirm, SelectDown, SelectFirst, SelectLast, SelectUp};
+use gpui_kit::base::actions::Confirm;
 use gpui_kit::{
     App, AppContext as _, Bounds, ClickEvent, Context, Div, FocusHandle, InteractiveElement as _,
     IntoElement, KeyBinding, ParentElement as _, Render, SharedString,
@@ -32,18 +32,19 @@ use gpui_kit::{
 
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, size as token_size, spacing, typography, weight};
+use crate::ui::list::{self, Keys, ListKeysExt as _, Move};
 use crate::ui::text::{CasedText as _, TextRoleExt as _};
 
 /// The key context of the live lists, where the arrow keys move.
 const LIST_CONTEXT: &str = "CofferShowcaseList";
 
+/// The live lists' movement keys: ↑↓, Home and End move the keyboard row.
+const LIST_KEYS: Keys = Keys::new(LIST_CONTEXT).with_ends();
+
 /// Binds the live lists' keys. Call once, before [`open`].
 pub fn init(cx: &mut App) {
+    LIST_KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(LIST_CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(LIST_CONTEXT)),
-        KeyBinding::new("home", SelectFirst, Some(LIST_CONTEXT)),
-        KeyBinding::new("end", SelectLast, Some(LIST_CONTEXT)),
         KeyBinding::new("enter", Confirm { secondary: false }, Some(LIST_CONTEXT)),
         KeyBinding::new("space", Confirm { secondary: false }, Some(LIST_CONTEXT)),
     ]);
@@ -119,23 +120,13 @@ impl Showcase {
             .id(id)
             .key_context(LIST_CONTEXT)
             .track_focus(&focus)
-            .on_action(cx.listener(move |this, _: &SelectUp, _, cx| {
-                which(this).move_by(-1);
-                cx.notify();
-            }))
-            .on_action(cx.listener(move |this, _: &SelectDown, _, cx| {
-                which(this).move_by(1);
-                cx.notify();
-            }))
-            .on_action(cx.listener(move |this, _: &SelectFirst, _, cx| {
-                which(this).current = 0;
-                cx.notify();
-            }))
-            .on_action(cx.listener(move |this, _: &SelectLast, _, cx| {
-                let list = which(this);
-                list.current = list.len.saturating_sub(1);
-                cx.notify();
-            }))
+            .on_list_move(
+                &LIST_KEYS,
+                cx.listener(move |this, to: &Move, _, cx| {
+                    which(this).move_to(*to);
+                    cx.notify();
+                }),
+            )
             .on_action(cx.listener(move |this, _: &Confirm, _, cx| {
                 which(this).confirm();
                 cx.notify();
@@ -203,10 +194,11 @@ impl LiveList {
         }
     }
 
-    /// Moves the keyboard row by `delta`, stopping at the ends.
-    fn move_by(&mut self, delta: isize) {
-        let last = self.len.saturating_sub(1);
-        self.current = self.current.saturating_add_signed(delta).min(last);
+    /// Moves the keyboard row ([`list::target`]), stopping at the ends.
+    fn move_to(&mut self, to: Move) {
+        if let Some(index) = list::target(self.len, Some(self.current), to) {
+            self.current = index;
+        }
     }
 
     /// Enter or Space on the keyboard row: selects it, or toggles it in a
@@ -428,10 +420,12 @@ mod tests {
     #[gpui_kit::test]
     fn keyboard_movement_stops_at_the_ends(cx: &mut TestAppContext) {
         let mut list = list(cx, Selection::Single);
-        list.move_by(-1);
+        list.move_to(Move::UP);
         assert_eq!(list.current, 0);
-        list.move_by(10);
+        list.move_to(Move::By(10));
         assert_eq!(list.current, 3);
+        list.move_to(Move::First);
+        assert_eq!(list.current, 0);
     }
 
     #[gpui_kit::test]

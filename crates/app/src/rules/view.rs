@@ -17,7 +17,7 @@ use coffer_core::category::{CategoryKey, CategoryKind};
 use coffer_core::id::AccountId;
 use coffer_core::merchant::AliasKind;
 use coffer_core::rule::{ActionKind, ExcludeReason, MatchField, MatchKind};
-use gpui_kit::base::actions::{Cancel, SelectDown, SelectUp};
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable as _,
@@ -27,6 +27,7 @@ use gpui_kit::{
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
+use crate::ui::list::{Keys, ListKeysExt as _, Move};
 use crate::ui::menu::{MenuGroup, MenuList, MenuOption, SelectState, filter_groups};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::undo_bar::UndoBar;
@@ -41,6 +42,9 @@ use super::{Outcome, Rules};
 
 /// The key context of the Rules canvas, where ↑↓ and Escape work.
 pub const CONTEXT: &str = "CofferRules";
+
+/// The canvas's movement keys: ↑↓ through the open section's rows.
+pub const KEYS: Keys = Keys::new(CONTEXT);
 
 /// The most rows a menu shows before it scrolls.
 pub const MENU_ROWS: f32 = 12.;
@@ -1120,12 +1124,13 @@ impl Render for RulesView {
         let root = div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &SelectUp, _, cx| {
-                this.rules.update(cx, |rules, cx| rules.select_next(-1, cx))
-            }))
-            .on_action(cx.listener(|this, _: &SelectDown, _, cx| {
-                this.rules.update(cx, |rules, cx| rules.select_next(1, cx))
-            }))
+            .on_list_move(
+                &KEYS,
+                cx.listener(|this, to: &Move, _, cx| {
+                    this.rules
+                        .update(cx, |rules, cx| rules.select_next(*to, cx))
+                }),
+            )
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 this.rules.update(cx, |rules, cx| rules.cancel(cx))
             }))

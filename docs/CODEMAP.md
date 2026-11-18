@@ -178,6 +178,11 @@ per call through its own store and changes data only through core.
   `Segmented::fill`), `ui::notification`, `ui::undo_bar`, `ui::tag`, and the rest of
   `crates/app/src/ui/`. Variants added for later views: `ButtonVariant::Ghost`,
   `SelectField::private`/`amount`, `CategoryCell::suffix`/`repays`, `Glyph::Owed`.
+- `ui::list` (U.6): the keyboard behaviour every list shares. A view declares its
+  list's keys as a `list::Keys` constant (↑↓, optionally Home/End and ⇧↑⇧↓) and binds
+  them in its `init`; `on_list_move` hands it one `list::Move` per key; `list::step`
+  (by id) and `list::target` (by index) find the row reached, stopping at the ends;
+  `list::Reveal` scrolls it into view. The view keeps its selection and its look.
 - `format`: writes and reads money and dates.
 - `showcase`: the component showcase, `coffer --showcase`.
 

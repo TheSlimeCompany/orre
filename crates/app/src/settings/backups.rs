@@ -22,7 +22,6 @@
 use coffer_core::backup::Reason;
 use coffer_core::backup::detail::Detail;
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -31,6 +30,7 @@ use gpui_kit::{
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
+use crate::ui::list::{ListKeysExt as _, Move};
 use crate::ui::text::TextRoleExt as _;
 use gpui_kit::component::Disableable as _;
 
@@ -179,8 +179,10 @@ impl SettingsView {
                 table::body("backups-body")
                     .key_context(table::LIST_CONTEXT)
                     .track_focus(&self.list_focus.clone().tab_stop(true))
-                    .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.select_next(-1, cx)))
-                    .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.select_next(1, cx)))
+                    .on_list_move(
+                        &table::LIST_KEYS,
+                        cx.listener(|this, to: &Move, _, cx| this.select_next(*to, cx)),
+                    )
                     .when_some(self.backups_error.clone(), |this, error| {
                         this.child(
                             div()

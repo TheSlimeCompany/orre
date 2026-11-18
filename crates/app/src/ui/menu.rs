@@ -31,7 +31,7 @@
 use std::rc::Rc;
 
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::base::actions::{Cancel, Confirm, SelectDown, SelectUp};
+use gpui_kit::base::actions::{Cancel, Confirm};
 use gpui_kit::component::input::{self, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -43,6 +43,7 @@ use gpui_kit::{
 use crate::theme::tokens::{color, opacity, radius, shadow, size, spacing, typography};
 use crate::ui::field::{SelectField, search_input};
 use crate::ui::icon::Glyph;
+use crate::ui::list::{self, Keys, ListKeysExt as _, Reveal as _};
 use crate::ui::marker::Marker;
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
@@ -50,11 +51,13 @@ use crate::ui::tracked::Tracked;
 /// The key context of a [`MenuList`] that handles its own keys.
 const MENU_CONTEXT: &str = "CofferMenu";
 
+/// A [`MenuList`]'s movement keys: ↑↓ only.
+const KEYS: Keys = Keys::new(MENU_CONTEXT);
+
 /// Binds a [`MenuList`]'s keys. Call once, before the first menu.
 pub fn init(cx: &mut App) {
+    KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("up", SelectUp, Some(MENU_CONTEXT)),
-        KeyBinding::new("down", SelectDown, Some(MENU_CONTEXT)),
         KeyBinding::new("enter", Confirm { secondary: false }, Some(MENU_CONTEXT)),
         KeyBinding::new("escape", Cancel, Some(MENU_CONTEXT)),
     ]);
@@ -240,7 +243,7 @@ impl SelectState {
     /// change to the filter does.
     pub fn highlight_first(&mut self, groups: &[MenuGroup]) {
         self.highlighted = choosable(groups).next().map(|option| option.key.clone());
-        self.scroll.scroll_to_item(0);
+        self.scroll.reveal(0);
     }
 
     pub fn is_open(&self) -> bool {
@@ -284,23 +287,14 @@ impl SelectState {
     /// Moves the highlight `step` options down (up when negative), skipping
     /// options that can't be chosen and stopping at the ends.
     pub fn move_highlight(&mut self, groups: &[MenuGroup], step: isize) {
-        let keys: Vec<&SharedString> = choosable(groups).map(|option| &option.key).collect();
-        if keys.is_empty() {
+        let keys: Vec<SharedString> = choosable(groups).map(|option| option.key.clone()).collect();
+        let Some(next) = list::step(&keys, self.highlighted.as_ref(), list::Move::By(step)) else {
             return;
-        }
-        let next = match self
-            .highlighted
-            .as_ref()
-            .and_then(|key| keys.iter().position(|candidate| *candidate == key))
-        {
-            Some(at) => at.saturating_add_signed(step).min(keys.len() - 1),
-            None if step < 0 => keys.len() - 1,
-            None => 0,
         };
-        self.highlighted = Some(keys[next].clone());
-        if let Some(index) = row_index(groups, keys[next]) {
-            self.scroll.scroll_to_item(index);
+        if let Some(index) = row_index(groups, &next) {
+            self.scroll.reveal(index);
         }
+        self.highlighted = Some(next);
     }
 }
 
@@ -518,8 +512,7 @@ impl MenuList {
 impl RenderOnce for MenuList {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let rows = self.render_rows();
-        let on_move_up = self.on_move.clone();
-        let on_move_down = self.on_move.clone();
+        let on_move = self.on_move.clone();
         let on_close = self.on_dismiss.clone();
         let own_keys = self.own_keys;
         let options = div()
@@ -547,16 +540,10 @@ impl RenderOnce for MenuList {
             .border_color(color::BORDER)
             .rounded(radius::LG)
             .shadow(vec![shadow::TOOLBAR.box_shadow()])
-            .on_action(move |_: &SelectUp, window, cx| {
+            .on_list_move(&KEYS, move |to, window, cx| {
                 cx.stop_propagation();
-                if let Some(handler) = &on_move_up {
-                    handler(-1, window, cx);
-                }
-            })
-            .on_action(move |_: &SelectDown, window, cx| {
-                cx.stop_propagation();
-                if let Some(handler) = &on_move_down {
-                    handler(1, window, cx);
+                if let (list::Move::By(step), Some(handler)) = (to, &on_move) {
+                    handler(*step, window, cx);
                 }
             })
             .on_mouse_down_out(move |_, window, cx| {
