@@ -67,7 +67,7 @@ pub fn read(
 fn reason_groups() -> Vec<MenuGroup> {
     vec![MenuGroup::new(
         None,
-        ExclusionReason::ALL
+        ExclusionReason::CHOOSABLE
             .into_iter()
             .map(|reason| MenuOption::new(reason.as_str(), reason_label(reason)))
             .collect(),

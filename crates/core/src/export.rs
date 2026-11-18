@@ -102,7 +102,7 @@
 //! | `category_source` | `rule`, `preset_map`, `user`, `ai_approved` or empty | What set the transaction's category | categorised, unsplit rows |
 //! | `tags` | list | The transaction's public tags, by name | always (may be empty) |
 //! | `reimbursable` | boolean | Whether the user expects the money back | always |
-//! | `excluded_reason` | `duplicate`, `bank_error`, `disputed`, `other` or empty | Why the transaction is excluded from reports (only `duplicate` also leaves the balance) | excluded rows |
+//! | `excluded_reason` | `duplicate`, `bank_error`, `disputed`, `other`, `superseded` or empty | Why the transaction is excluded from reports (`duplicate` and `superseded`, replaced by the bank's correction, also leave the balance) | excluded rows |
 //! | `excluded_at` | UTC timestamp or empty | When it was excluded | excluded rows |
 //! | `transfer_group_id` | integer or empty | The transfer pair the transaction is in | paired rows |
 //! | `transfer_status` | `suggested`, `confirmed`, `rejected` or empty | That pair's status | paired rows |

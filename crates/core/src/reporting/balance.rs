@@ -10,7 +10,8 @@
 //!   one day the opening balance comes first, then snapshots by ID, and the
 //!   last one on a day wins.
 //! - **Movements**: every transaction of the account except those excluded
-//!   as `duplicate` (a duplicate never happened at the bank). A split row
+//!   as `duplicate` (a duplicate never happened at the bank) or `superseded`
+//!   (the bank's correction of it counts instead). A split row
 //!   counts once, with its whole amount. Confirmed transfers count: they
 //!   moved real money between accounts.
 //!
@@ -132,7 +133,8 @@ impl History {
         let mut movements = DailyMovements::new();
         let mut statement = conn.prepare_cached(
             "SELECT date, amount_minor FROM \"transaction\" \
-             WHERE account_id = ?1 AND excluded_reason IS NOT 'duplicate'",
+             WHERE account_id = ?1 AND excluded_reason IS NOT 'duplicate' \
+               AND excluded_reason IS NOT 'superseded'",
         )?;
         let rows = statement.query_map([account.id], |row| {
             Ok((account::date(row, "date")?, row.get::<_, i64>(1)?))

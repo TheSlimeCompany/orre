@@ -536,7 +536,10 @@ fn the_hidden_flag_applies_to_an_existing_database() {
             .unwrap();
     }
     let mut db = Database::open(&path).unwrap();
-    assert_eq!(db.schema_version().unwrap(), 18);
+    assert_eq!(
+        db.schema_version().unwrap(),
+        Database::supported_schema_version()
+    );
     let tree = db.categories().unwrap();
     assert_eq!(tree.len(), DEFAULT_CATEGORIES.len() + 1);
     assert_eq!(tree.visible().count(), tree.len());

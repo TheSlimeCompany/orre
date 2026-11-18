@@ -1,0 +1,5 @@
+Transaction ID,Date,Time,Type,Name,Category,Amount,Currency,Local amount,Local currency,Notes,Description
+rw_0001,02/11/2026,08:10:00,Card payment,Bean Example,Eating out,-3.40,GBP,-3.40,GBP,,BEAN EXAMPLE FAKE
+rw_0002,02/11/2026,13:20:00,Card payment,Bean Example,Eating out,-3.40,GBP,-3.40,GBP,,BEAN EXAMPLE FAKE
+rw_0003,03/11/2026,18:05:00,Card payment,Example Grocer,Groceries,-42.15,GBP,-42.15,GBP,,EXAMPLE GROCER FAKE
+rw_0004,04/11/2026,09:00:00,Faster payment,Example Employer Ltd,Income,"1,200.00",GBP,"1,200.00",GBP,,EXAMPLE EMPLOYER SALARY

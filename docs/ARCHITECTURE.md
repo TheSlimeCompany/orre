@@ -30,6 +30,8 @@ How a file becomes rows: the importers, presets, dedupe, reconciliation, the com
 - Decision record: import commit, dedupe and undo (2026-11-11)
 - Decision record: importer paths and locked balances (2026-11-11)
 - Decision record: the import flow (2026-11-14)
+- Decision record: a bank's correction supersedes the stored row (2026-11-18)
+- Decision record: a preset's dedupe identity is frozen (2026-11-18)
 
 ### [Money and the data model](architecture/data-model.md)
 
@@ -88,6 +90,7 @@ Change batches, refunds, reimbursements and shared costs, possible duplicates, b
 - Decision record: M1 wave 4 — change batches, rule actions, links, duplicates, balance checks and export (2026-11-13)
 - Decision record: review queues (built) (2026-11-14)
 - Decision record: refunds, reimbursements and settlements (built) (2026-11-14)
+- Decision record: a source ID is checked against the row's content (2026-11-18)
 
 ### [Inbox](architecture/inbox.md)
 
@@ -103,6 +106,8 @@ The MCP server: tools by access level, the gate, the access log, untrusted text,
 - Section: MCP surface
 - Decision record: safe report rendering and withheld text (2026-11-10)
 - Decision record: M2: MCP server (2026-11-13)
+- Decision record: approval needs the user's terminal (2026-11-18)
+- Decision record: a client reads only its own reports (2026-11-18)
 
 ### [Settings, AI access and backups](architecture/settings-and-backups.md)
 

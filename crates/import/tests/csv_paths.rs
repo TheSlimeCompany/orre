@@ -177,14 +177,16 @@ fn signed_amounts_commit_every_readable_row_and_record_the_rest() {
         PreviewCounts {
             new: 7,
             already_imported: 0,
-            flagged: 3
+            flagged: 3,
+            corrections: 0,
         }
     );
     assert_eq!(
         preview.needs_confirmation(),
         Confirmations {
             flagged_rows: true,
-            balance_mismatch: false
+            balance_mismatch: false,
+            corrections: false,
         }
     );
     assert_eq!(
@@ -308,7 +310,8 @@ fn signed_amounts_commit_every_readable_row_and_record_the_rest() {
         PreviewCounts {
             new: 0,
             already_imported: 7,
-            flagged: 3
+            flagged: 3,
+            corrections: 0,
         }
     );
     assert!(
@@ -394,7 +397,8 @@ fn debit_credit_windows_1252_records_the_opening_balance() {
         preview.needs_confirmation(),
         Confirmations {
             flagged_rows: true,
-            balance_mismatch: false
+            balance_mismatch: false,
+            corrections: false,
         }
     );
 
@@ -766,7 +770,8 @@ fn a_headerless_export_with_a_wrong_running_balance() {
         preview.needs_confirmation(),
         Confirmations {
             flagged_rows: false,
-            balance_mismatch: true
+            balance_mismatch: true,
+            corrections: false,
         }
     );
     assert_eq!(
@@ -787,6 +792,7 @@ fn a_headerless_export_with_a_wrong_running_balance() {
     let flagged_only = Confirmations {
         flagged_rows: true,
         balance_mismatch: false,
+        corrections: false,
     };
     assert!(matches!(
         import::commit(&mut scratch.db, &preview, flagged_only),
@@ -902,7 +908,8 @@ fn ids_repeated_in_the_file_and_a_row_over_two_lines() {
         PreviewCounts {
             new: 5,
             already_imported: 1,
-            flagged: 2
+            flagged: 2,
+            corrections: 0,
         }
     );
 

@@ -497,11 +497,13 @@ pub(crate) fn load(conn: &Connection, account: &Account) -> rusqlite::Result<Acc
 }
 
 /// The account's net movement per day: every transaction except those
-/// excluded as `duplicate`. Summed in `i128`, so no day's total overflows.
+/// excluded as `duplicate` or `superseded`. Summed in `i128`, so no day's
+/// total overflows.
 pub(crate) fn movements(conn: &Connection, account: AccountId) -> rusqlite::Result<DailyMovements> {
     let mut statement = conn.prepare_cached(
         "SELECT date, amount_minor FROM \"transaction\" \
-         WHERE account_id = ?1 AND excluded_reason IS NOT 'duplicate'",
+         WHERE account_id = ?1 AND excluded_reason IS NOT 'duplicate' \
+         AND excluded_reason IS NOT 'superseded'",
     )?;
     let rows = statement.query_map([account], |row| {
         Ok((

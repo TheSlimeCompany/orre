@@ -159,7 +159,9 @@ Points 2 and 3 were decided by the user on 2026-11-12.
     3 days apart (`DuplicateWindow::DEFAULT`, both ends included, at most 31), neither
     excluded, not from the same import batch, at least one imported or mirrored. Two
     imported rows must differ in `description_normalized` (identical text is the exact
-    dedupe's job or a genuine repeat); a manual row pairs whatever its text. A pair
+    dedupe's job or a genuine repeat), except an `unmatched_source_id` pair (V20): the
+    same day, amount and text where the source IDs differ (decision record "a source ID
+    is checked against the row's content"); a manual row pairs whatever its text. A pair
     already recorded in any status isn't raised again.
 17. **Deterministic**: smallest gap first, then pairs whose display names agree, then
     IDs; each row in at most one new pair per run. Transfers and split rows take part.
@@ -336,3 +338,36 @@ shared costs" above and "Decision record: M1 wave 4" (B).
    rejected links don't count, as everywhere else. Not drawn in D6.7; composed at
    merge. Migrations: M3.13's is V16, this one V17. Transactions has one
    `TransactionsEvent` (rule prompt and links alike).
+
+### Decision record: a source ID is checked against the row's content (2026-11-18)
+
+Review finding R.3. The exact dedupe trusts a source ID: a row with an ID never matches by
+fingerprint, and near-duplicate review skipped two imported rows with the same
+`description_normalized`. A bank that regenerates its IDs (`FITID`) on each download, or a
+file imported again through a mapping without its ID column, therefore stored every
+overlapping row twice with nothing flagged. Only a balance check would notice, and
+Monzo-style exports have none.
+
+1. **A third candidate reason, `unmatched_source_id`.** Two `imported` rows on one
+   account, from different import batches, pair when they have the same date (exactly,
+   not within the window), currency, amount and `description_normalized`, at least one
+   has a source ID and the IDs differ (a missing one differs from any), neither is
+   excluded, and the pair isn't recorded in any status. Mirrored rows are left out: they
+   follow their main row, which pairs on its own. Rows where neither has an ID stay out:
+   the fingerprint's occurrence index owns those (two coffees on one day are two rows).
+   Point 17's ordering applies unchanged; at 0 days apart these pairs come first.
+2. **Guard: a row the file repeats isn't a counterpart.** A stored row the same import
+   matched by source ID is that file row, so it can't also be a new row's duplicate:
+   stored coffee X, then a download with X and a second coffee Z on the same day, dedupes
+   X and pairs nothing. The import passes the rows its plan matched by source ID to
+   `duplicate::detect_for_batch`. With regenerated IDs nothing matches, so every
+   overlapping row pairs. `scan` has no import to guard against and pairs every such row;
+   a pair that is really two transactions is dismissed once and stays dismissed.
+3. **Nothing is dropped or altered.** The second copy is stored and flagged, then merged
+   (excluded as `duplicate`, undoable) or dismissed by the user. A genuine repeat whose
+   stored twin isn't in the file still goes to review, which is the safe side. A
+   preview-time flag was rejected: the duplicate review already has merge, dismiss and
+   undo.
+4. **Schema: V20** rebuilds `duplicate_candidate` to widen the reason's CHECK, with its
+   rows, IDs, indexes and triggers as they were. No other table references it, so the
+   rebuild runs with foreign keys on.

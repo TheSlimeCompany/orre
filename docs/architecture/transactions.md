@@ -100,7 +100,9 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
 8. **Exclusion** (`coffer_core::exclusion`) applies to any row, with the reason, note
    and date of "Transactions additions" point 1. Excluding again changes the reason and
    resets the date. Only a change into or out of `duplicate` is refused inside a lock,
-   since only `duplicate` moves the balance.
+   since only `duplicate` moves the balance among the reasons a user can choose;
+   `superseded` (set only by an import, cleared only by undoing it: import.md, "a bank's
+   correction supersedes the stored row") also leaves the balance.
 9. **Merchant clean-up** (`merchant::clean`) is deterministic and keeps the bank's case
    (title-casing gets McDonald's, IKEA and eBay wrong and can't be undone; comparisons
    ignore case). It strips processor prefixes (`SQ *`, `SUMUP *`, `IZ *`, `ZETTLE_`,
@@ -269,7 +271,8 @@ from existing specs (review). **No migration.**
 4. **Undo import…** opens a confirmation composed from `import::undo_preview` and the
    CLI's wording, with a destructive confirm, since undoing removes rows (composed).
 5. **The Exclude dialog's Reason starts empty**, so the user always decides whether the
-   balance changes (only `duplicate` leaves it). "Edit reason…" reuses the dialog, filled
+   balance changes (of the reasons it offers, only `duplicate` leaves it; `superseded` is
+   never offered). "Edit reason…" reuses the dialog, filled
    in (composed).
 6. **Manual rows.** Merchant is required: it is also the row's description, which core
    needs (composed). Date, Amount and Account save through `manual::update`; Account

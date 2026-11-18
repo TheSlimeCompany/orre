@@ -108,7 +108,8 @@
 //! ## Apply
 //!
 //! [`preview_apply`] plans rule `rule` against every transaction it
-//! matches, of any account and origin, evaluating the whole current rule set
+//! matches, of any account and origin (but for rows a bank's correction
+//! superseded), evaluating the whole current rule set
 //! so the rule changes only the fields it wins (decision record "rules",
 //! point 1), tags included. Split rows are skipped entirely
 //! (decision record "splits, tags and notes…", point 3; listed in

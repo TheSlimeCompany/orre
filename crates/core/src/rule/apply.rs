@@ -206,7 +206,8 @@ impl Candidate {
 }
 
 /// The transactions `filter` (a condition on `"transaction" t`) selects, by
-/// ID.
+/// ID. A row the bank's correction superseded is never one: it is the
+/// replaced version, and its exclusion is the import's.
 pub(super) fn load_candidates(
     conn: &Connection,
     filter: &str,
@@ -220,7 +221,7 @@ pub(super) fn load_candidates(
          EXISTS (SELECT 1 FROM transaction_link l \
                  WHERE l.inflow_id = t.id AND l.status <> 'rejected') \
          FROM \"transaction\" t LEFT JOIN transfer_group g ON g.id = t.transfer_group_id \
-         WHERE {filter} ORDER BY t.id"
+         WHERE t.superseded_by IS NULL AND ({filter}) ORDER BY t.id"
     ))?;
     statement
         .query_map(params, |row| {

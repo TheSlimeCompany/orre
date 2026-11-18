@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use coffer_core::db::Reader;
 use coffer_core::envelope;
+use coffer_core::mcp_client::ClientName;
 use coffer_core::money::Money;
 use coffer_core::reporting::rows;
 use coffer_core::setting::PseudonymKey;
@@ -128,6 +129,7 @@ pub const HIDDEN_DESCRIPTION: &str =
 /// What a handler may use during one call.
 pub struct Call<'a> {
     reader: &'a Reader,
+    client: &'a ClientName,
     level: AccessLevel,
     inbox: Option<Inbox<'a>>,
     /// The per-database key for merchant tokens. The server refuses a
@@ -140,12 +142,14 @@ pub struct Call<'a> {
 impl<'a> Call<'a> {
     pub(crate) fn new(
         reader: &'a Reader,
+        client: &'a ClientName,
         level: AccessLevel,
         inbox: Option<Inbox<'a>>,
         pseudonym_key: Option<PseudonymKey>,
     ) -> Self {
         Call {
             reader,
+            client,
             level,
             inbox,
             pseudonym_key,
@@ -156,6 +160,11 @@ impl<'a> Call<'a> {
     /// The read-only connection. Queries are core functions that take it.
     pub fn reader(&self) -> &'a Reader {
         self.reader
+    }
+
+    /// The calling client's name, the server's own.
+    pub fn client(&self) -> &'a ClientName {
+        self.client
     }
 
     /// The calling client's access level. The registry already keeps tools

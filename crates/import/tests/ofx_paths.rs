@@ -193,7 +193,8 @@ fn a_ledger_balance_reconciles_against_an_entered_anchor() {
         preview.needs_confirmation(),
         Confirmations {
             flagged_rows: false,
-            balance_mismatch: true
+            balance_mismatch: true,
+            corrections: false,
         }
     );
     let refused = import::commit(&mut scratch.db, &preview, Confirmations::default());
@@ -218,10 +219,10 @@ fn a_ledger_balance_reconciles_against_an_entered_anchor() {
 
 /// The next month's file repeats the end of November: rows with known
 /// FITIDs are found again (even re-worded), one with a known FITID and
-/// another amount is a conflict, and the December balance checks against
-/// November's.
+/// another amount is the bank's correction of the stored row, and the
+/// December balance checks against November's.
 #[test]
-fn the_next_statement_overlaps_conflicts_and_reconciles() {
+fn the_next_statement_overlaps_corrects_and_reconciles() {
     let mut scratch = Scratch::new();
     let account = scratch.current("Current", Currency::GBP);
     let first = scratch.import_batch(account, "bank-sgml.ofx", read_ofx("bank-sgml.ofx"));
@@ -231,7 +232,7 @@ fn the_next_statement_overlaps_conflicts_and_reconciles() {
     assert_eq!(
         outcome_kinds(&preview),
         kinds(&[
-            (1, "flag:source_id_conflict"),
+            (1, "corrects"),
             (2, "already:source_id"),
             (3, "already:source_id"),
             (4, "new"),
@@ -240,11 +241,12 @@ fn the_next_statement_overlaps_conflicts_and_reconciles() {
         ])
     );
     let cash = scratch.by_external_id(account, "EX-0005").unwrap();
+    let import::RowOutcome::Corrects(correction) = preview.rows().next().unwrap().outcome else {
+        panic!("expected a correction");
+    };
     assert_eq!(
-        *preview.rows().next().unwrap().outcome,
-        import::RowOutcome::Flagged(import::Flag::SourceIdConflict {
-            existing: coffer_core::id::TransactionId::new(cash.id)
-        })
+        (correction.existing, correction.was_amount),
+        (coffer_core::id::TransactionId::new(cash.id), gbp(-5000))
     );
     assert_eq!(
         preview.balances(),
@@ -262,36 +264,50 @@ fn the_next_statement_overlaps_conflicts_and_reconciles() {
     assert_eq!(
         preview.needs_confirmation(),
         Confirmations {
-            flagged_rows: true,
-            balance_mismatch: false
+            flagged_rows: false,
+            balance_mismatch: false,
+            corrections: true,
         }
     );
 
     let second = scratch.import_batch(account, "bank-sgml-next.ofx", next());
     assert_eq!(
         (second.transactions, second.balances, second.flags),
-        (3, 1, 1)
+        (4, 1, 0)
     );
-    let flags = import::batch_flags(&scratch.db, second.batch).unwrap();
-    assert_eq!(flags.len(), 1);
-    assert_eq!(
-        (flags[0].location, flags[0].kind),
-        (SourceLocation::Entry(1), FlagKind::SourceIdConflict)
-    );
+    assert_eq!(second.corrections.len(), 1);
+    assert_eq!(second.corrections[0].replaced.get(), cash.id);
 
-    // Imported source fields are never edited: the stored rows keep the
-    // first file's amount and text.
+    // Imported source fields are never edited: the stored row keeps the
+    // first file's amount, excluded as superseded by the new version.
+    let replaced: (i64, String, i64) = scratch
+        .reader()
+        .query_row(
+            "SELECT amount_minor, excluded_reason, superseded_by FROM \"transaction\" \
+             WHERE id = ?1",
+            [cash.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        replaced,
+        (
+            -5000,
+            "superseded".to_owned(),
+            second.corrections[0].by.get()
+        )
+    );
     assert_eq!(
         scratch
             .by_external_id(account, "EX-0005")
             .unwrap()
             .amount_minor,
-        -5000
+        -5500
     );
     let cheque = scratch.by_external_id(account, "EX-0007").unwrap();
     assert_eq!(cheque.description_raw, "CHEQUE 000101");
     assert_eq!(cheque.batch, Some(first.batch.get()));
-    assert_eq!(scratch.stored(account).len(), 10);
+    assert_eq!(scratch.stored(account).len(), 11);
 
     // Undoing the first import names the second, which relied on it.
     let undo = import::undo_preview(&scratch.db, first.batch).unwrap();
@@ -537,7 +553,8 @@ fn edge_cases_record_every_flag_and_dedupe_rows_without_a_fitid() {
         PreviewCounts {
             new: 0,
             already_imported: 4,
-            flagged: 9
+            flagged: 9,
+            corrections: 0,
         }
     );
     assert_eq!(outcome_kinds(&again)[0].1, "already:fingerprint");

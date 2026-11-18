@@ -58,7 +58,7 @@ use rusqlite::{Connection, OptionalExtension, ToSql, TransactionBehavior, params
 
 use crate::db::Database;
 use crate::id::ChangeBatchId;
-use crate::mcp_client::{ClientName, RESERVED_CLIENT_NAME};
+use crate::mcp_client::{AccessLevel, ClientName, RESERVED_CLIENT_NAME};
 use crate::rule::{UnknownKey, key_enum};
 
 pub use approve::{
@@ -331,12 +331,25 @@ pub(crate) fn pending_identical(
     .optional()
 }
 
-/// Saves a report from `source` and returns its ID. A source that already
-/// has [`MAX_REPORTS_PER_SOURCE`] reports is refused
-/// ([`Error::TooManyReports`]) and nothing is written.
+/// Saves a report from `source` as [`AccessLevel::Standard`], the strictest
+/// level, for a writer that has no client level (see [`insert_report_at`]).
 pub fn insert_report(
     db: &mut Database,
     source: &ClientName,
+    report: &NewReport,
+) -> Result<i64, Error> {
+    insert_report_at(db, source, AccessLevel::Standard, report)
+}
+
+/// Saves a report from `source`, recording the access level it was saved
+/// at (`report.access_level`: `list_reports` shows it only to a client at
+/// that level or above), and returns its ID. A source that already has
+/// [`MAX_REPORTS_PER_SOURCE`] reports is refused ([`Error::TooManyReports`])
+/// and nothing is written.
+pub fn insert_report_at(
+    db: &mut Database,
+    source: &ClientName,
+    level: AccessLevel,
     report: &NewReport,
 ) -> Result<i64, Error> {
     for (field, text, max) in [
@@ -367,13 +380,14 @@ pub fn insert_report(
         });
     }
     tx.execute(
-        "INSERT INTO report (period, title, body_markdown, source_client) \
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO report (period, title, body_markdown, source_client, access_level) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             report.period,
             report.title,
             report.body_markdown,
             source.as_str(),
+            level,
         ],
     )?;
     let id = tx.last_insert_rowid();

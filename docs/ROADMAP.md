@@ -998,20 +998,25 @@ that changes a decision needs a new decision record in its topic file.
 
 **High**
 
-- ⬜ R.1 Approval is reachable by the agents it contains. `coffer inbox approve <id>…` takes
+- ✅ R.1 Approval is reachable by the agents it contains. `coffer inbox approve <id>…` takes
   no confirmation and has no terminal check (`crates/app/src/cli/inbox.rs`, `ApproveArgs`),
   and Claude Code and Codex have a shell by default, so an injected agent can file a
   suggestion and approve it. Require an interactive terminal for `inbox approve`,
   `categorize` and `ai-access enable` (and whatever else changes data or access as the
   user), or say in the invariant that containment depends on the client having no shell.
-  Decision record in `mcp.md`; update `mcp-setup.md`
-- ⬜ R.2 `list_reports` leaks across access levels. It is an `aggregate` tool and returns
+  Decision record in `mcp.md`; update `mcp-setup.md`. Done: commands that act as the user
+  need an interactive stdin (`cli/terminal.rs`), with no bypass; the record says it's a
+  speed bump and containment needs a client with no shell (`AGENTS.md` invariant too);
+  previews (`import --dry-run`; `undo-import`, `schedules delete` and `inbox delete-report`
+  without `--yes`) run without one
+- ✅ R.2 `list_reports` leaks across access levels. It is an `aggregate` tool and returns
   every client's report bodies (`crates/mcp/src/tools/catalog.rs`), so a `standard`
   client's review, with merchant names and bank text, reaches an `aggregate` client, and
   one client can plant text for another. Return only the caller's own reports, or record
   the author's level on the report (a migration) and filter on it. Add the case to the
-  tool × level matrix
-- ⬜ R.3 A source ID is trusted with no content check. A row with an ID never matches by
+  tool × level matrix. Done: both: own reports only, and only those saved at the client's
+  current level or below (`report.access_level`, V19)
+- ✅ R.3 A source ID is trusted with no content check. A row with an ID never matches by
   fingerprint, and near-duplicate review skips imported pairs with identical text
   (`crates/core/src/duplicate.rs`), so a bank that regenerates `FITID`s on each download,
   or a file imported again through a mapping without its ID column, duplicates every
@@ -1019,20 +1024,26 @@ that changes a decision needs a new decision record in its topic file.
   exports have none. When a new row's ID is unknown, look for a stored row on the account
   with the same date, amount and normalised text from another batch, and queue the pair as
   a duplicate candidate (a new `reason`) or flag it in the preview. Fixture rows for both
-  cases
-- ⬜ R.4 A bank's correction has no way in. The same source ID with a new amount or date
+  cases. Done: candidate reason `unmatched_source_id` (V20); rows the import matched by
+  source ID are no counterpart
+- ✅ R.4 A bank's correction has no way in. The same source ID with a new amount or date
   (tips, fuel holds, settled FX) is flagged `SourceIdConflict` and left out
   (`crates/core/src/import.rs`); source fields are immutable, so the stored row stays
   wrong, and the only remedy is undoing the whole batch with every user edit on it.
   Decide a "superseded" resolution: exclude the old row with its own reason and import the
   new one, moving the user's fields across as a duplicate merge does, as one undoable
-  batch. Overlaps L.21 (pending → posted): decide them together
-- ⬜ R.5 Editing a preset changes dedupe identity without a word (docs only). The
+  batch. Overlaps L.21 (pending → posted): decide them together. Done: the row is a
+  correction the user accepts; the stored row is excluded as `superseded` (V21, the first
+  migration with foreign keys off); undoing the import restores it. Only a row within 31
+  days moving money the same way is a correction; a scheduled payment's match moves to it.
+  L.21 stays open for a new ID with a new amount
+- ✅ R.5 Editing a preset changes dedupe identity without a word (docs only). The
   fingerprint depends on which columns a preset joins into the description, its date
   format and whether it maps an ID column, but presets have no version and only the
   fingerprint's format is frozen by a test. Add a golden test per bundled preset fixture
   that freezes each row's external ID and fingerprint, and write the rule into
-  `presets/README.md`: a change that moves either needs a new preset ID
+  `presets/README.md`: a change that moves either needs a new preset ID. Done:
+  `crates/import/tests/preset_golden.rs` and `tests/golden/`
 
 **Medium**
 

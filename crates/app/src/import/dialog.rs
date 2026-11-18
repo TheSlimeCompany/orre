@@ -530,8 +530,9 @@ impl ImportDialog {
         if review.preview.is_nothing_new() || self.busy.is_some() {
             return;
         }
-        // The Review step shows every flagged row and the mismatch, and its
-        // button names the mismatch: pressing it is the confirmation.
+        // The Review step shows every flagged row, the mismatch and the
+        // bank's corrections, and its button names the mismatch and the
+        // corrections: pressing it is the confirmation.
         let confirmed = review.preview.needs_confirmation();
         let preview = review.preview.clone();
         let file = preview.source_file().to_owned();
@@ -1977,6 +1978,9 @@ impl ImportDialog {
                 |preset| format!("{} exports", text::bank_name(preset.name())),
             );
         body.push(block(&text::reconciliation(preview, &exporter), None).into_any_element());
+        if let Some(corrections) = text::corrections(preview) {
+            body.push(block(&corrections, None).into_any_element());
+        }
         if let Some(locked) = text::locked(preview) {
             let unlock = Button::new("import-unlock", "Unlock…")
                 .with_variant(ButtonVariant::Outline)

@@ -99,6 +99,27 @@ pub fn undo_lines(preview: &UndoPreview, account: &str) -> Vec<String> {
             }
         ));
     }
+    if !preview.restored.is_empty() {
+        let restored = preview.restored.len();
+        lines.push(format!(
+            "{} replaced by the bank's corrections in this import {} back as {} {}.",
+            plural(restored, "transaction", "transactions"),
+            if restored == 1 { "comes" } else { "come" },
+            if restored == 1 { "it" } else { "they" },
+            if restored == 1 { "was" } else { "were" },
+        ));
+    }
+    if preview.superseded > 0 {
+        lines.push(format!(
+            "{} replaced by a later import's correction {} too; the correction stays.",
+            plural(preview.superseded, "transaction", "transactions"),
+            if preview.superseded == 1 {
+                "goes"
+            } else {
+                "go"
+            }
+        ));
+    }
     if !preview.later_batches.is_empty() {
         lines.push(
             "Later imports into this account skipped rows this one had, so those go too; \
@@ -364,6 +385,8 @@ mod tests {
             transfers: 0,
             merged_into: 0,
             later_batches: Vec::new(),
+            restored: Vec::new(),
+            superseded: 0,
         }
     }
 
@@ -386,6 +409,20 @@ mod tests {
         assert_eq!(
             lines[2],
             "1 transaction merged into these as duplicates stays excluded."
+        );
+
+        let mut corrections = preview();
+        corrections.restored = vec![coffer_core::id::TransactionId::new(7)];
+        corrections.superseded = 2;
+        let lines = undo_lines(&corrections, "Current account");
+        assert_eq!(
+            lines[1..],
+            [
+                "1 transaction replaced by the bank's corrections in this import comes back as \
+                 it was.",
+                "2 transactions replaced by a later import's correction go too; the correction \
+                 stays.",
+            ]
         );
     }
 }

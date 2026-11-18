@@ -233,7 +233,9 @@ as built). Everything else follows an earlier decision record or invariant.
 7. `list_rules` shows public tags plus a count of private ones, `set_note` as the action
    only, the share action as its percentage only (user).
 8. `list_reports` is newest first, every report `ai_authored: true`, text stripped of
-   invisible characters (decision record 2026-11-10, point 4).
+   invisible characters (decision record 2026-11-10, point 4). Since 2026-11-18 it lists only the
+   calling client's own reports saved at its current level or below (decision record "a
+   client reads only its own reports").
 9. A refund of a split purchase comes back as one row per line category, as the ledger
    nets it.
 
@@ -430,3 +432,63 @@ as built). Everything else follows an earlier decision record or invariant.
    the backup's own. A `pending_id` already present isn't copied twice. A failed carry
    doesn't fail the restore, which is done by then: `coffer restore` says the rows are
    in the pre-restore backup (user).
+
+### Decision record: approval needs the user's terminal (2026-11-18)
+
+Review finding R.1: `coffer inbox approve` took no confirmation and no terminal check.
+Claude Code and Codex have a shell by default, so a prompt-injected client could file a
+suggestion over MCP and then approve it itself through the CLI, getting around "MCP writes
+go to the inbox only".
+
+1. **Commands that act as the user need an interactive terminal.** They refuse to run
+   unless stdin is a terminal (`std::io::IsTerminal`), with an error and a non-zero exit.
+   The check is one match in `crates/app/src/cli/terminal.rs`, applied by `cli::run_with`
+   before any command runs; the binary passes `Terminal::detect()`.
+2. **There is no bypass.** No flag and no environment variable: an agent would use it.
+3. **Which commands.** Approving what an AI client filed (`inbox approve`); widening AI
+   access (`ai-access enable`, `on`, and `level` when it raises a client's level or the
+   client isn't enabled); writing transactions, rules, categories, accounts, budgets or
+   schedules as the user (`import`, `undo-import --yes`, `categorize`, `accounts
+   add|close|reopen`, `budgets set|remove`, every `schedules` command that writes);
+   `restore`; and `inbox delete-report --yes`, so a client can't remove the reports it
+   saved.
+4. **What stays usable without a terminal.** Everything read-only, `backup`, `export`,
+   `mcp`, `inbox reject`, and the ways to contain AI access: `ai-access revoke`, `ignore`,
+   `off`, and lowering a level. A script can still contain a client; it can't widen one.
+   The check gates the write, not the preview: `import --dry-run`, and `undo-import`,
+   `schedules delete` and `inbox delete-report` without `--yes`, read and print and write
+   nothing, so they don't act as the user. `restore` without `--yes` stays gated: its check
+   stages a copy of the backup in the data directory.
+5. **A speed bump, not a boundary.** A process with a shell can fake a terminal (`script`)
+   or open the SQLite file directly. Containment depends on the client having no shell, or
+   a sandbox that denies it the data directory and the `coffer` binary, as "Use a profile
+   with Coffer as the only data source" in `docs/mcp-setup.md` sets up. The terminal check
+   is defence in depth. "MCP writes go to the inbox only" (`AGENTS.md`) is about what the
+   MCP server does; it holds for a client that reaches Coffer only over MCP, and the
+   invariant now says so.
+6. **Automating the CLI.** A scheduled `coffer import` from a script is refused too, with
+   no flag to allow it: a script's import is indistinguishable from an agent's, and a
+   crafted file is a way to write transactions. A script can preview one
+   (`--dry-run`); committing it is the user's, in a terminal or the app.
+
+### Decision record: a client reads only its own reports (2026-11-18)
+
+Review finding R.2: `list_reports` is an `aggregate` tool and returned every client's
+reports. A `standard` client's review, with merchant names and bank text, reached an
+`aggregate` client, and one client could plant text for another to read back.
+
+1. **Its own reports only.** `list_reports` returns the reports whose `source_client` is
+   the calling client, so no client reads or is steered by another's text.
+2. **Saved at its level or below.** `save_report` records the caller's level in
+   `report.access_level` (V19), and `list_reports` returns only reports saved at a level no
+   higher than the client's current one (`aggregate` < `pseudonymous` < `standard`). A
+   client lowered from `standard` to `aggregate` no longer reads back the review it wrote
+   while it could see merchant names, and reads it again if raised. A report saved before
+   V19 has no level (NULL) and is read as `standard`, the strictest reading.
+3. **Filtered in the query** (`reporting::catalog::reports_visible_to`), so `limit` and
+   `truncated` count only the reports the client may see.
+4. **The user's view is unchanged.** The app and `coffer inbox reports` show every report
+   whatever its client or level. MCP still writes only `suggestion` and `report`.
+5. **Consequence.** A report from before V19 is invisible below `standard` until the user
+   deletes it or raises the client. Rejected: filtering by level alone, which still lets
+   one client plant text for another.

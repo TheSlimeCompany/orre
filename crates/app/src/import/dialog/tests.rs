@@ -244,3 +244,73 @@ fn a_file_that_isnt_a_statement_stays_on_file(cx: &mut TestAppContext) {
         );
     });
 }
+
+/// The bank's corrections (R.4): the Review step counts them and says what
+/// importing does, its button names them, and pressing it accepts them.
+#[gpui_kit::test]
+fn the_banks_corrections_are_shown_and_accepted_by_import(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    {
+        let mut db = Database::open(&scratch.path).unwrap();
+        let file = coffer_import::SourceFile::read(&fixture("ofx/corrections-first.ofx")).unwrap();
+        let statement =
+            coffer_import::AnyImporter::import(&coffer_import::ofx::OfxImporter::new(), &file)
+                .unwrap();
+        let preview =
+            core_import::preview(&db, scratch.account, "corrections-first.ofx", statement).unwrap();
+        core_import::commit(&mut db, &preview, preview.needs_confirmation()).unwrap();
+    }
+    let (shell, cx) = open(cx, &scratch);
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import(Some(fixture("ofx/corrections-next.ofx")), window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    // The only GBP account takes it.
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).session().unwrap().account_id()),
+        Some(scratch.account)
+    );
+    click("import-review", cx);
+
+    let (counts, label, block) = cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert_eq!(dialog.step(), Step::Review);
+        let preview = &dialog.review().unwrap().preview;
+        (
+            preview.counts(),
+            text::primary_label(preview),
+            text::corrections(preview).map(|block| text::joined(&block.body)),
+        )
+    });
+    assert_eq!(counts.corrections, 3);
+    assert_eq!(label, "Import 1 transaction and 3 corrections");
+    assert_eq!(
+        block.as_deref(),
+        Some(
+            "The bank sent a new date or amount for transactions you already have. Importing \
+             replaces each: the old ones stay under the Excluded filter as replaced, and what you \
+             set (category, notes, tags) moves to the new ones where it fits."
+        )
+    );
+
+    click("import-commit", cx);
+    assert!(
+        cx.update(|_, cx| shell.read(cx).dialog().is_none()),
+        "closed"
+    );
+    let batches = scratch.batches();
+    assert_eq!(batches.len(), 2);
+    assert_eq!(batches[1].status, BatchStatus::Committed);
+    let db = Database::open(&scratch.path).unwrap();
+    let superseded = (1..=3)
+        .filter(|id| {
+            coffer_core::exclusion::get(&db, coffer_core::id::TransactionId::new(*id))
+                .unwrap()
+                .is_some_and(|exclusion| {
+                    exclusion.reason == coffer_core::exclusion::ExclusionReason::Superseded
+                })
+        })
+        .count();
+    assert_eq!(superseded, 3);
+}

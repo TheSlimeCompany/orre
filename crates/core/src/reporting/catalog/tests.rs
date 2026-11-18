@@ -1,7 +1,7 @@
 use crate::account::AccountKind;
 use crate::category::CategoryKey;
 use crate::inbox::{self, NewReport};
-use crate::mcp_client::ClientName;
+use crate::mcp_client::{AccessLevel, ClientName};
 use crate::money::Currency;
 use crate::reporting::balance::Anchor;
 use crate::rule::{
@@ -321,6 +321,167 @@ fn reports_come_newest_first_and_are_capped() {
     let exact = reports(&ledger.reader(), Limit::new(Some(4))).unwrap();
     assert!(!exact.truncated);
     assert_eq!(exact.len(), 4);
+}
+
+fn save_as(
+    ledger: &mut TestLedger,
+    client: &str,
+    level: AccessLevel,
+    title: &str,
+    created_at: &str,
+) -> i64 {
+    let id = inbox::insert_report_at(
+        &mut ledger.db,
+        &ClientName::new(client).unwrap(),
+        level,
+        &NewReport {
+            period: "2026-10".to_owned(),
+            title: title.to_owned(),
+            body_markdown: String::new(),
+        },
+    )
+    .unwrap();
+    ledger
+        .db
+        .conn()
+        .execute(
+            "UPDATE report SET created_at = ?1 WHERE id = ?2",
+            rusqlite::params![created_at, id],
+        )
+        .unwrap();
+    id
+}
+
+fn visible_ids(ledger: &TestLedger, client: &str, level: AccessLevel, limit: Limit) -> Capped<i64> {
+    let found = reports_visible_to(
+        &ledger.reader(),
+        &ClientName::new(client).unwrap(),
+        level,
+        limit,
+    )
+    .unwrap();
+    Capped {
+        items: found.items.iter().map(|report| report.id).collect(),
+        truncated: found.truncated,
+    }
+}
+
+#[test]
+fn a_client_reads_only_its_own_reports_saved_at_its_level_or_below() {
+    let mut ledger = TestLedger::new();
+    let mine_standard = save_as(
+        &mut ledger,
+        "claude-code",
+        AccessLevel::Standard,
+        "Standard",
+        "2026-11-05T09:00:00.000Z",
+    );
+    let mine_pseudonymous = save_as(
+        &mut ledger,
+        "claude-code",
+        AccessLevel::Pseudonymous,
+        "Pseudonymous",
+        "2026-11-04T09:00:00.000Z",
+    );
+    let mine_aggregate = save_as(
+        &mut ledger,
+        "claude-code",
+        AccessLevel::Aggregate,
+        "Aggregate",
+        "2026-11-03T09:00:00.000Z",
+    );
+    let theirs = save_as(
+        &mut ledger,
+        "codex",
+        AccessLevel::Aggregate,
+        "Theirs",
+        "2026-11-06T09:00:00.000Z",
+    );
+    // Saved before `report.access_level` existed: NULL.
+    let before_levels = save_as(
+        &mut ledger,
+        "claude-code",
+        AccessLevel::Aggregate,
+        "Before",
+        "2026-11-02T09:00:00.000Z",
+    );
+    ledger
+        .db
+        .conn()
+        .execute(
+            "UPDATE report SET access_level = NULL WHERE id = ?1",
+            [before_levels],
+        )
+        .unwrap();
+
+    let at = |level| visible_ids(&ledger, "claude-code", level, Limit::MAX).items;
+    assert_eq!(at(AccessLevel::Aggregate), [mine_aggregate]);
+    assert_eq!(
+        at(AccessLevel::Pseudonymous),
+        [mine_pseudonymous, mine_aggregate]
+    );
+    assert_eq!(
+        at(AccessLevel::Standard),
+        [
+            mine_standard,
+            mine_pseudonymous,
+            mine_aggregate,
+            before_levels
+        ]
+    );
+    assert_eq!(
+        visible_ids(&ledger, "codex", AccessLevel::Standard, Limit::MAX).items,
+        [theirs]
+    );
+    // The user's view is unfiltered.
+    assert_eq!(reports(&ledger.reader(), Limit::MAX).unwrap().len(), 5);
+}
+
+#[test]
+fn the_visible_reports_limit_counts_only_visible_reports() {
+    let mut ledger = TestLedger::new();
+    save_as(
+        &mut ledger,
+        "codex",
+        AccessLevel::Aggregate,
+        "Theirs",
+        "2026-11-09T09:00:00.000Z",
+    );
+    save_as(
+        &mut ledger,
+        "claude-code",
+        AccessLevel::Standard,
+        "Too high",
+        "2026-11-08T09:00:00.000Z",
+    );
+    let newer = save_as(
+        &mut ledger,
+        "claude-code",
+        AccessLevel::Aggregate,
+        "Newer",
+        "2026-11-02T09:00:00.000Z",
+    );
+    let older = save_as(
+        &mut ledger,
+        "claude-code",
+        AccessLevel::Aggregate,
+        "Older",
+        "2026-11-01T09:00:00.000Z",
+    );
+    let one = visible_ids(
+        &ledger,
+        "claude-code",
+        AccessLevel::Aggregate,
+        Limit::new(Some(1)),
+    );
+    assert_eq!((one.items, one.truncated), (vec![newer], true));
+    let two = visible_ids(
+        &ledger,
+        "claude-code",
+        AccessLevel::Aggregate,
+        Limit::new(Some(2)),
+    );
+    assert_eq!((two.items, two.truncated), (vec![newer, older], false));
 }
 
 #[test]

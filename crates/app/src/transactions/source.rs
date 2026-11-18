@@ -16,6 +16,11 @@
 //!   also leaves the account's balance) and the day it was excluded; the
 //!   reason (body `text-strong`), the user's details (caption `text-muted`,
 //!   wrapping), then outline "Include again" and "Edit reason…".
+//! - **A superseded row** (the bank's correction replaced it: R.4) has the
+//!   same card, reason "Replaced by correction", and in the details' place
+//!   a caption saying what happened and how to bring it back; it has no
+//!   buttons, since only undoing the import that brought the correction
+//!   clears it. Text only, in the card's existing styles.
 //!
 //! The buttons ask the shell for their dialogs ([`super::TransactionsEvent`]);
 //! "Include again" is the undo of excluding and runs at once. The user's
@@ -52,10 +57,16 @@ pub fn reason_label(reason: ExclusionReason) -> &'static str {
         ExclusionReason::BankError => "Bank error",
         ExclusionReason::Disputed => "Disputed",
         ExclusionReason::Other => "Other",
+        ExclusionReason::Superseded => "Replaced by correction",
     }
 }
 
-/// The card's title: a duplicate also leaves the account's balance.
+/// What the card says under a superseded row's reason.
+pub const SUPERSEDED_DETAILS: &str = "The bank sent a corrected version of this transaction, \
+     which counts instead. Undo the import that brought it to bring this one back.";
+
+/// The card's title: a duplicate or a superseded row also leaves the
+/// account's balance.
 pub fn card_title(reason: ExclusionReason) -> &'static str {
     if reason.leaves_balance() {
         "Excluded from totals and balance"
@@ -88,10 +99,14 @@ pub(super) fn exclusion_card(
 ) -> Option<AnyElement> {
     let reason = row.excluded?;
     let id = row.id;
-    let details = row
-        .excluded_note
-        .clone()
-        .filter(|note| !note.trim().is_empty());
+    let superseded = reason == ExclusionReason::Superseded;
+    let details = if superseded {
+        Some(SUPERSEDED_DETAILS.to_owned())
+    } else {
+        row.excluded_note
+            .clone()
+            .filter(|note| !note.trim().is_empty())
+    };
     let day = row
         .excluded_on
         .map(|day| format::list_date(day, view.today))
@@ -135,25 +150,29 @@ pub(super) fn exclusion_card(
                     .child(details),
             )
         })
-        .child(
-            div()
-                .flex()
-                .gap(spacing::S2)
-                .child(
-                    Button::new("include-again", "Include again")
-                        .with_variant(ButtonVariant::Outline)
-                        .with_surface(color::FLOAT)
-                        .on_click(cx.listener(move |this, _, _, cx| this.include_again(id, cx))),
-                )
-                .child(
-                    Button::new("edit-exclusion", "Edit reason…")
-                        .with_variant(ButtonVariant::Outline)
-                        .with_surface(color::FLOAT)
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(TransactionsEvent::ExcludeRequested(id))
-                        })),
-                ),
-        )
+        .when(!superseded, |this| {
+            this.child(
+                div()
+                    .flex()
+                    .gap(spacing::S2)
+                    .child(
+                        Button::new("include-again", "Include again")
+                            .with_variant(ButtonVariant::Outline)
+                            .with_surface(color::FLOAT)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.include_again(id, cx)),
+                            ),
+                    )
+                    .child(
+                        Button::new("edit-exclusion", "Edit reason…")
+                            .with_variant(ButtonVariant::Outline)
+                            .with_surface(color::FLOAT)
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.emit(TransactionsEvent::ExcludeRequested(id))
+                            })),
+                    ),
+            )
+        })
         .children(error_at(view, EditPlace::Exclusion));
     // 8px below the header's caption.
     Some(div().pt(spacing::S2).child(card).into_any_element())
@@ -252,10 +271,13 @@ mod tests {
     }
 
     #[test]
-    fn only_a_duplicate_leaves_the_balance() {
+    fn only_a_duplicate_or_a_superseded_row_leaves_the_balance() {
+        for reason in [ExclusionReason::Duplicate, ExclusionReason::Superseded] {
+            assert_eq!(card_title(reason), "Excluded from totals and balance");
+        }
         assert_eq!(
-            card_title(ExclusionReason::Duplicate),
-            "Excluded from totals and balance"
+            reason_label(ExclusionReason::Superseded),
+            "Replaced by correction"
         );
         for reason in [
             ExclusionReason::BankError,

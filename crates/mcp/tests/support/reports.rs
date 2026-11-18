@@ -86,8 +86,9 @@ pub fn add_rule(
     coffer_core::rule::create(&mut writable(fixture), rule).unwrap()
 }
 
-/// A report saved by `client`; `created_at` (`YYYY-MM-DDTHH:MM:SS.sssZ`)
-/// replaces the time it was saved, when given.
+/// A report saved by `client` at `aggregate`, so every level of that
+/// client reads it; `created_at` (`YYYY-MM-DDTHH:MM:SS.sssZ`) replaces the
+/// time it was saved, when given.
 pub fn add_report(
     fixture: &Fixture,
     client: &str,
@@ -95,10 +96,31 @@ pub fn add_report(
     body: &str,
     created_at: Option<&str>,
 ) -> i64 {
+    add_report_at(
+        fixture,
+        client,
+        Some(coffer_core::mcp_client::AccessLevel::Aggregate),
+        title,
+        body,
+        created_at,
+    )
+}
+
+/// A report saved by `client` at `level`; `None` is a report saved before
+/// `report.access_level` existed (NULL).
+pub fn add_report_at(
+    fixture: &Fixture,
+    client: &str,
+    level: Option<coffer_core::mcp_client::AccessLevel>,
+    title: &str,
+    body: &str,
+    created_at: Option<&str>,
+) -> i64 {
     let mut db = writable(fixture);
-    let id = coffer_core::inbox::insert_report(
+    let id = coffer_core::inbox::insert_report_at(
         &mut db,
         &coffer_core::mcp_client::ClientName::new(client).unwrap(),
+        level.unwrap_or(coffer_core::mcp_client::AccessLevel::Standard),
         &coffer_core::inbox::NewReport {
             period: "2026-11".to_owned(),
             title: title.to_owned(),
@@ -107,6 +129,12 @@ pub fn add_report(
     )
     .unwrap();
     drop(db);
+    if level.is_none() {
+        rusqlite::Connection::open(fixture.path())
+            .unwrap()
+            .execute("UPDATE report SET access_level = NULL WHERE id = ?1", [id])
+            .unwrap();
+    }
     if let Some(at) = created_at {
         let conn = rusqlite::Connection::open(fixture.path()).unwrap();
         conn.execute(

@@ -1001,7 +1001,10 @@ fn suggest_for(conn: &Connection, inflows: &[TransactionId]) -> Result<usize, Er
 fn suggest_one(conn: &Connection, id: TransactionId) -> Result<usize, Error> {
     let inflow = load_row(conn, id)?;
     if inflow.amount <= 0
-        || inflow.excluded_reason.as_deref() == Some("duplicate")
+        || matches!(
+            inflow.excluded_reason.as_deref(),
+            Some("duplicate" | "superseded")
+        )
         || inflow.in_transfer
         || inflow.has_share
         || crate::split::is_split(conn, id)?
@@ -1057,6 +1060,7 @@ fn refund_candidate(
              AND p.amount_minor < 0 AND p.amount_minor >= -?4 \
              AND p.merchant_display = ?5 COLLATE NOCASE \
              AND p.excluded_reason IS NOT 'duplicate' \
+             AND p.excluded_reason IS NOT 'superseded' \
              AND coalesce(g.status, 'rejected') = 'rejected' \
              AND NOT EXISTS (SELECT 1 FROM transaction_link l \
                              WHERE l.target_id = p.id AND l.inflow_id = ?6)) \

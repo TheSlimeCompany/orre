@@ -18,6 +18,7 @@ Generic CSV shapes for the CSV importer (M1.7), written by hand:
 | `newest-first-tab-later.tsv` | M1.19. The next export of the same account: repeats the whole of 20 November (found again by fingerprint), then three new rows; its opening (end of 19 November) checks the first file's rows |
 | `headerless-preamble.csv` | M1.19. UTF-8, LF, two free-text preamble lines (one with a mid-field quote), no header row, `DD Mon YYYY` dates, a type column, oldest first. The running balance on line 5 doesn't follow from line 4 (a 7.50 row missing), so the import has a balance mismatch |
 | `repeated-ids-us.csv` | M1.19. UTF-8, LF, USD, `MM/DD/YYYY`, a `Debit` / `Credit` pair that carries its signs, IDs. One ID repeated with the same date and amount (repeated in file), one with another date and amount (flagged), a quoted memo over two lines (flagged unless `multiline_fields`), two identical rows without an ID, a `0.00` debit beside a credit |
+| `reimport-without-id.csv` | R.3. UTF-8, LF, the `signed-amount.csv` header, four rows with IDs (`rw_0001`–`rw_0004`), two identical same-day coffees. Read once with `uk/example-current.toml` and once with that mapping minus its `external_id`: the second import's rows have no ID, so nothing matches them and every row pairs as `unmatched_source_id` (`crates/import/tests/unmatched_source_id.rs`) |
 
 ### `csv/mappings/`
 
@@ -48,7 +49,11 @@ Synthetic OFX and QFX files for the OFX importer (M1.10), written by hand
 | `intuit.qfx` | QFX: OFX 1.02 SGML with `INTU.BID` / `INTU.USERID` and some values closed (`<NAME>…</NAME>`), LF, USD checking, placeholder `120000` times |
 | `edge-cases.ofx` | OFX 1.03 SGML, `ENCODING:UTF-8`, EUR, no `LEDGERBAL`, no trailing newline. Read: no `FITID`, a decimal comma, an empty SGML `<NAME>`, an `HHMM` time, an unknown bank value, a transaction with no text. Flagged: no `DTPOSTED`, 30 February, too many decimals, a repeated `FITID`, a `CORRECTACTION`, an amount in USD, `TRNAMT` twice, no `TRNAMT`, an unknown `CURSYM` |
 | `multi-statement.ofx` | OFX 2.1.1 XML without an XML declaration: two GBP bank statements and a GBP credit card in one file |
-| `bank-sgml-next.ofx` | M1.19. The next statement of `bank-sgml.ofx`'s account: OFX 1.02 SGML, `ENCODING:USASCII` + `CHARSET:NONE`, LF. Repeats `EX-0006` as is and `EX-0007` re-worded (already imported), `EX-0005` for another amount (a source ID conflict), then three December rows; a `LEDGERBAL` of 3806.98 on 31 December that reconciles against November's |
+| `bank-sgml-next.ofx` | M1.19. The next statement of `bank-sgml.ofx`'s account: OFX 1.02 SGML, `ENCODING:USASCII` + `CHARSET:NONE`, LF. Repeats `EX-0006` as is and `EX-0007` re-worded (already imported), `EX-0005` for another amount (the bank's correction of the stored row, R.4), then three December rows; a `LEDGERBAL` of 3806.98 on 31 December that reconciles against November's |
+| `regenerated-fitids-first.ofx` | R.3. OFX 1.02 SGML, GBP current account, no balances. Four rows (`RG1-0001`–`0004`), two identical same-day coffees, a grocer, a salary |
+| `regenerated-fitids-second.ofx` | R.3. The next download of `regenerated-fitids-first.ofx` with every `FITID` regenerated (`RG2-7741`–`7744`) and one new row (`RG2-7745`, a streaming payment). Importing it after the first pairs the four repeated rows as `unmatched_source_id`, first coffee with first, and leaves the new row unpaired |
+| `corrections-first.ofx` | R.4. OFX 1.02 SGML, GBP current account. Four rows (`CORR-0001`–`0004`): a bistro bill, a 1.00 fuel hold, a bookshop and a bakery |
+| `corrections-next.ofx` | R.4. The next download: `CORR-0001` with a tip added (-46.00), `CORR-0002` settled (-45.67), `CORR-0003` moved two days, `CORR-0004` as it was, and one new row (`CORR-0005`); a `LEDGERBAL` of 884.63. Three corrections, one already imported, one new (`crates/import/tests/corrections.rs`) |
 
 ## `presets/`
 

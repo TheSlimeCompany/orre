@@ -43,6 +43,8 @@ mod category_tests;
 mod migrations;
 #[cfg(test)]
 mod schema_tests;
+#[cfg(test)]
+mod superseded_tests;
 
 use std::ffi::OsString;
 use std::fs::OpenOptions;

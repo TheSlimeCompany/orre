@@ -742,3 +742,49 @@ fn only_manual_rows_can_be_deleted(cx: &mut TestAppContext) {
     ));
     assert!(!listed(&view, cx).contains(&shop));
 }
+
+/// A row the bank's correction superseded (R.4): under the Excluded chip,
+/// labelled as replaced, and its card offers nothing to change: only
+/// undoing the import that brought the correction brings it back.
+#[gpui_kit::test]
+fn a_superseded_row_is_labelled_and_has_nothing_to_change(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("coffer.db");
+    let mut db = Database::open(&path).unwrap();
+    let current = account::create(
+        &mut db,
+        &NewAccount::new("Current account", AccountKind::Current, Currency::GBP),
+    )
+    .unwrap();
+    let mut import_tip = |minor: i64| {
+        let mut statement = Statement::new(SourceFormat::Ofx, Currency::GBP);
+        let mut line = StatementLine::new(day(7), gbp(minor), "EXAMPLE BISTRO");
+        line.external_id = Some("bistro-1".to_owned());
+        statement.push(SourceLocation::Entry(1), Ok(line));
+        let preview = import::preview(&db, current, "bistro.ofx", statement).unwrap();
+        import::commit(&mut db, &preview, preview.needs_confirmation()).unwrap();
+    };
+    import_tip(-4_000);
+    import_tip(-4_600);
+    drop(db);
+    setup(cx);
+    let store = TransactionStore::new(path);
+    let (view, cx) = cx.add_window_view(move |window, cx| {
+        TransactionsView::new(Source::Database(store), window, cx)
+    });
+    redraw(cx);
+    let old = TransactionId::new(1);
+    assert!(!shows(row_id(old), cx), "out of the table by default");
+
+    click("filter-excluded", cx);
+    let row = describe(&view, cx).row(old).unwrap().clone();
+    assert_eq!(
+        (row.category.as_str(), row.excluded),
+        ("Excluded · Replaced by correction", true)
+    );
+    click(row_id(old), cx);
+    assert!(!shows("include-again", cx));
+    assert!(!shows("edit-exclusion", cx));
+    assert!(shows("undo-import", cx));
+    assert!(!shows("exclude", cx));
+}

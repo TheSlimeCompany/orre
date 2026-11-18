@@ -47,7 +47,10 @@
 //! taken oldest first, then by ID. The import commit matches its new rows
 //! for every active schedule on the account, in its own DB transaction
 //! (`match_batch`); undoing the import deletes those matches
-//! (`removal`).
+//! (`removal`). The bank's correction of a stored row (`import::supersede`)
+//! takes the stored row's match, if any (`move_match`), and is matched like
+//! a new row otherwise; undoing its import moves the correction's match to
+//! the restored row.
 //!
 //! - **The amount** compared is the transaction's whole `amount_minor`,
 //!   not the user's share or a split line.
@@ -899,6 +902,56 @@ fn insert_match(
     Ok(())
 }
 
+/// Moves the match naming transaction `from`, if there is one, to `to`,
+/// keeping its schedule, occurrence, `matched_by` and `matched_at`: the
+/// bank's correction of a row (`import::supersede`) takes the row's match,
+/// and undoing the import gives it back (`removal`). Nothing is checked
+/// against the schedule's tolerance: whoever matched `from` already decided
+/// the payment fulfils that occurrence. When `to` fulfils an occurrence
+/// already, `from`'s match is left where it is. Returns whether it moved.
+///
+/// `schedule_match` is read-only (`migrations/V12__schedule.sql`), so the
+/// match is deleted and inserted again with the same values, inside the
+/// caller's DB transaction.
+pub(crate) fn move_match(
+    conn: &Connection,
+    from: TransactionId,
+    to: TransactionId,
+) -> rusqlite::Result<bool> {
+    let taken = conn
+        .query_row(
+            "SELECT 1 FROM schedule_match WHERE transaction_id = ?1",
+            [to],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if taken {
+        return Ok(false);
+    }
+    let found: Option<(ScheduleId, String, String, String)> = conn
+        .query_row(
+            "SELECT schedule_id, occurrence_date, matched_by, matched_at FROM schedule_match \
+             WHERE transaction_id = ?1",
+            [from],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((schedule, occurrence, matched_by, matched_at)) = found else {
+        return Ok(false);
+    };
+    conn.execute(
+        "DELETE FROM schedule_match WHERE transaction_id = ?1",
+        [from],
+    )?;
+    conn.execute(
+        "INSERT INTO schedule_match (schedule_id, occurrence_date, transaction_id, matched_by, \
+         matched_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![schedule, occurrence, to, matched_by, matched_at],
+    )?;
+    Ok(true)
+}
+
 fn parse_date(text: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(text, "%Y-%m-%d").ok()
 }
@@ -978,6 +1031,10 @@ struct Candidate {
 
 /// The account's candidates, oldest first then by ID: of batch `batch`
 /// only, when given, and after `lock` (the account's lock date), when set.
+/// A correction that took its replaced row's match ([`move_match`]) is
+/// skipped as already matched; one whose replaced row had none is a
+/// candidate like any new row (a pending row for 0 that posts as the
+/// scheduled payment).
 fn candidates(
     conn: &Connection,
     account: AccountId,

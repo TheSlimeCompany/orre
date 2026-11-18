@@ -124,23 +124,27 @@ pub fn same_merchant(a: &str, b: &str) -> bool {
 }
 
 /// Whether `row` can be the money in of a link: money in, outside a
-/// transfer, not split, no share of its own, not a duplicate.
+/// transfer, not split, no share of its own, not a duplicate or superseded.
 pub fn can_be_inflow(row: &RegisterRow) -> bool {
     row.amount.is_positive()
         && !row.in_transfer
         && !matches!(row.category, RowCategory::Split(_))
         && row.share.my_share.is_none()
         && row.share.label.is_none()
-        && row.excluded != Some(crate::exclusion::ExclusionReason::Duplicate)
+        && !row
+            .excluded
+            .is_some_and(crate::exclusion::ExclusionReason::leaves_balance)
 }
 
 /// Whether `row` can be the purchase of a link: money out, outside a
-/// transfer, not a duplicate, no larger than a link can take.
+/// transfer, not a duplicate or superseded, no larger than a link can take.
 pub fn can_be_purchase(row: &RegisterRow) -> bool {
     row.amount.is_negative()
         && !row.in_transfer
         && row.amount.minor() >= -MAX_LINKED_PURCHASE_MINOR
-        && row.excluded != Some(crate::exclusion::ExclusionReason::Duplicate)
+        && !row
+            .excluded
+            .is_some_and(crate::exclusion::ExclusionReason::leaves_balance)
 }
 
 /// Which kinds of link `row` can start from in the dialog: money in can be

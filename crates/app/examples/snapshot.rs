@@ -73,6 +73,9 @@
 //!   the file was imported before (`6J4-0`);
 //! - `import-review-mismatch`: the same with entered balances that don't
 //!   match and a lock date (`6NP-0`, `6NX-0`);
+//! - `import-review-corrections`: the Review step where the earlier export
+//!   had the Odeon row for another amount, so the sample is the bank's
+//!   correction of it (R.4; composed, no Paper drawing);
 //! - `import-done`: the notification after an import;
 //! - `review-duplicates`: Possible duplicates with the Ocado pair open
 //!   (Paper `8SE-0`); `review-balances`: Balance checks with the joint
@@ -542,6 +545,7 @@ enum ImportShot {
     SavePreset,
     Review,
     Mismatch,
+    Corrections,
     Done,
 }
 
@@ -568,11 +572,19 @@ fn import_database(dir: &Path, shot: ImportShot) -> Result<PathBuf> {
     )?;
     let day = |d| NaiveDate::from_ymd_opt(2026, if d > 20 { 10 } else { 11 }, d).expect("a date");
     match shot {
-        ImportShot::Review | ImportShot::Done => {
-            // The file's last four rows (the oldest) came in an earlier export.
+        ImportShot::Review | ImportShot::Corrections | ImportShot::Done => {
+            // The file's last four rows (the oldest) came in an earlier export;
+            // for the corrections shot, with the Odeon row at 12.80, so the
+            // sample's 13.80 is the bank's correction of it.
             let lines: Vec<&str> = import_fixture::MONZO_NOVEMBER.lines().collect();
-            let earlier = std::iter::once(lines[0])
-                .chain(lines[lines.len() - 4..].iter().copied())
+            let earlier = std::iter::once(lines[0].to_owned())
+                .chain(lines[lines.len() - 4..].iter().map(|line| {
+                    if shot == ImportShot::Corrections && line.contains("Odeon") {
+                        line.replace("13.80", "12.80")
+                    } else {
+                        (*line).to_owned()
+                    }
+                }))
                 .collect::<Vec<_>>()
                 .join("\n");
             let presets = coffer_import::preset::Presets::bundled()?;
@@ -612,6 +624,7 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
         ("import-save-preset", ImportShot::SavePreset),
         ("import-review", ImportShot::Review),
         ("import-review-mismatch", ImportShot::Mismatch),
+        ("import-review-corrections", ImportShot::Corrections),
         ("import-done", ImportShot::Done),
     ];
     for (name, shot) in shots {
@@ -619,7 +632,7 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
         let database = import_database(dir.path(), shot)?;
         let with_store = matches!(
             shot,
-            ImportShot::Review | ImportShot::Mismatch | ImportShot::Done
+            ImportShot::Review | ImportShot::Mismatch | ImportShot::Corrections | ImportShot::Done
         );
         let built: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::default();
         let keep = built.clone();
@@ -652,9 +665,10 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                         dialog.open_save_form(window, cx);
                         dialog.set_preset_name("Example Bank", window, cx);
                     }
-                    ImportShot::Review | ImportShot::Mismatch | ImportShot::Done => {
-                        dialog.start_review(cx)
-                    }
+                    ImportShot::Review
+                    | ImportShot::Mismatch
+                    | ImportShot::Corrections
+                    | ImportShot::Done => dialog.start_review(cx),
                     _ => {}
                 }
             });
@@ -1346,6 +1360,8 @@ fn exclusion_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                         transfers: 0,
                         merged_into: 0,
                         later_batches: Vec::new(),
+                        restored: Vec::new(),
+                        superseded: 0,
                     };
                     let lines = undo_lines(&preview, "Current account");
                     let dialog = cx.new(|cx| {

@@ -405,8 +405,10 @@ steps and rolls them back, for the Review step's figures (M3.4). `undo_preview(d
 `undo(db, batch)` remove a batch; `batches`, `batch` and `batch_flags` read the history.
 
 - **Row outcomes**: `New` (with its fingerprint), `AlreadyImported` (the stored row and
-  whether its source ID or fingerprint matched), `RepeatedInFile`, or `Flagged`:
-  `Unreadable(RowProblem)`, `SourceIdConflict`, `SourceIdRepeated`, `Locked`. Every row of
+  whether its source ID or fingerprint matched), `RepeatedInFile`, `Corrects` (the bank's
+  new version of a stored row with that source ID: decision record "a bank's correction
+  supersedes the stored row"), or `Flagged`: `Unreadable(RowProblem)`, `SourceIdConflict`
+  (a correction that can't replace the stored row, with why), `SourceIdRepeated`, `Locked`. Every row of
   the statement has one, in file order.
 - **Source ID first.** A row with an external ID matches only the account's row with that
   ID, and never by fingerprint; source IDs are per account, so the same ID on two
@@ -477,12 +479,15 @@ reconciliation and the commit".
    different transaction, a row in a locked period, and a running balance that doesn't
    follow from the rows before it (that row itself is imported). Committing with flags
    or a failed reconciliation needs an explicit confirmation from the caller. The Review
-   screen's "Import N transactions" counts new rows only; flagged rows are listed
-   beside it.
+   screen's "Import N transactions" counts new rows only (since 2026-11-18, then the
+   bank's corrections: "and M corrections"); flagged rows are listed beside it.
 3. **A source ID with a different date or amount is a conflict, not a duplicate.** It is
    flagged and not imported. The same ID, date and amount with different text is the
    same transaction (banks re-word descriptions). A repeated ID within one file is
-   "repeated in file" when date and amount agree, otherwise flagged.
+   "repeated in file" when date and amount agree, otherwise flagged. Superseded on
+   2026-11-18: such a row is the bank's correction of the stored row, which the import
+   replaces; it is flagged only when that can't be done (decision record "a bank's
+   correction supersedes the stored row").
 4. **Re-importing a file stores nothing.** With no new transaction and no new balance,
    `commit` returns `NothingNew` and records no batch. A balance from a file is new
    unless an earlier import recorded the same balance on the same day; undoing that
@@ -611,3 +616,115 @@ the records above ("Import commit, dedupe and undo", "The CSV importer", "Preset
     (`import::undo`, the same as `coffer undo-import`; importing the file again brings
     the rows back). The notification stays until dismissed or replaced.
 11. **No migration.** M3.4 and M3.5 add none.
+
+### Decision record: a bank's correction supersedes the stored row (2026-11-18)
+
+R.4, decided together with L.21. Before this, a source ID the account already held with
+another date or amount was flagged `SourceIdConflict` and left out. Source fields are
+never edited, so the stored row stayed wrong and the only remedy was undoing its whole
+batch.
+
+1. **The new version is a correction, not a conflict.** In the preview it is
+   `RowOutcome::Corrects(Correction)`, counted in `PreviewCounts::corrections`, and it
+   needs `Confirmations::corrections` like flagged rows and a mismatch. The CLI's `--yes`
+   and the Review step's button ("Import N transactions and M corrections") accept it.
+2. **The commit supersedes, in the import's one DB transaction.** The stored row is
+   excluded with the new reason `superseded`, with `superseded_by` naming the new row. The
+   new row is inserted with the same source ID. The source ID index and
+   `transaction_insert_new` count only rows that aren't superseded, so an account holds
+   one live row and any number of superseded ones per ID. The stored row is pointed at the
+   new row's ID before the insert, so the foreign key is deferred, and triggers check that
+   both rows share an account and a source ID.
+3. **`superseded` is like `duplicate` for figures.** The row leaves the computed balance,
+   spending, income, budgets and reports, and stays visible under the Excluded filter as
+   "Replaced by correction". Only an import sets it: it isn't in the Exclude dialog
+   (`ExclusionReason::CHOOSABLE`), exclusion edits, change batches and rules refuse or
+   skip it, and only undoing the import clears it.
+4. **When it can't apply, the row stays flagged.** `SourceIdConflict { existing,
+   blocked }` says why: it isn't the same payment (point 11); the stored row is excluded;
+   is in a suggested or confirmed transfer; has a suggested or confirmed link; it or the
+   new version is dated on or before the lock; or it isn't an imported row (a pot's
+   mirrored side). Each tie depends on the old date or amount, so the user resolves it
+   first. A scheduled payment the stored row fulfils isn't a tie: the match moves
+   (point 6).
+5. **Every version is known.** A row equal to a version the account already replaced is
+   already imported, so an older export never reverses a correction, and a bank that goes
+   back to an earlier figure isn't followed (the live row keeps the latest one). Once the
+   older import is undone its version is gone, and that file is a correction again. A
+   third version supersedes the current live row.
+6. **What the user set moves across, after the rules.** A category the user set or
+   approved, a merchant name the user set, the note, the tags (added), `reimbursable`; the
+   share if it fits the new amount and no rule set one; the split if the amount is
+   unchanged. A rule's or preset's category or name is recomputed for the new row. The
+   stored row keeps its own values; what didn't fit stays on it and is listed per row
+   (`NotCarried`) in the preview and `CommitSummary::corrections` (the CLI prints both; the
+   app's Review step shows the corrections and the rows keeping something back as counts,
+   and the per-row list there waits on a design). These writes aren't a change batch:
+   undoing the import deletes the new row, and undoing an earlier change batch reverts the
+   stored row only, not the copy on its correction. The stored row's `schedule_match`
+   moves to the correction unchanged (schedule, occurrence, `matched_by`, `matched_at`),
+   even outside the schedule's tolerance: the user or the matcher already decided this
+   payment fulfils that occurrence. `schedule_match` is read-only, so the move is a
+   delete and re-insert in the commit's transaction (`schedule::move_match`), before the
+   import's own matching, which skips matched rows, so the commit summary doesn't count it
+   as new. A correction whose stored row had no match is matched like a new row: a
+   pending row for 0 that posts as the scheduled amount fulfils its occurrence.
+7. **Reconciliation counts the corrected rows.** The preview's movements swap each stored
+   row for its correction. A balance stated before the bank corrected a row can then stop
+   reconciling; that shows as a mismatch to confirm.
+8. **Undo.** Undoing the correcting import deletes its rows and clears `superseded` on the
+   rows they replaced, restoring them exactly (`UndoPreview::restored`); a replaced row in
+   a locked period refuses the undo. Before the rows go, a correction's schedule match
+   moves to the row it replaced: the moved one, one the import made for the correction,
+   or one the user has made on it since. Each names the same payment, so the occurrence
+   stays fulfilled; this is the one thing the restored row may hold that it didn't. If it
+   has a match of its own (the user matched the excluded row by hand), it keeps that one
+   and the correction's goes. Undoing the older
+   import deletes its superseded rows with the rest of the batch and keeps the corrections
+   as ordinary rows, with their schedule matches (`UndoPreview::superseded`). An import whose correction was itself corrected by a later
+   import waits for that one (`Error::CorrectedAgain`): restoring its replaced row would
+   put two live rows under one source ID.
+9. **L.21, pending → posted.** When the bank keeps the ID, posting is a correction and
+   this handles it. When the ID changes, the near-duplicate rules catch it if the amount
+   holds: R.3's `unmatched_source_id` when date and text agree too, the 3-day window when
+   the text changed. A posting with a new ID that also changes the amount (a tip added),
+   or moves the date with the text unchanged, is caught by neither; L.21 stays open for
+   those and for fixtures showing which exports include pending rows.
+10. **Schema: V21** rebuilds `"transaction"` (12-step) with foreign keys off. The
+    migration's first line, `-- coffer: foreign_keys=off`, asks `db::migrations::run` to
+    turn them off around the run and to check every foreign key inside its transaction
+    before it commits.
+11. **A correction must be the same payment.** The source ID alone isn't enough: a bank,
+    or a saved preset, whose IDs repeat across unrelated rows would turn them into
+    corrections. The file row must also be dated within 31 days of the stored row, either
+    way (`CORRECTION_WINDOW_DAYS`: a hotel, fuel or car-hire hold can settle weeks later),
+    and move money the same way; a zero amount, such as a pending authorisation, fits
+    either. The description isn't compared: a pending row's descriptor often differs from
+    the posted one's. Otherwise the row stays flagged, `CorrectionBlocked::NotSamePayment`.
+    A reused ID within the window and the same direction still reads as a correction; the
+    user sees it listed (CLI) or counted (app) and must accept it.
+
+### Decision record: a preset's dedupe identity is frozen (2026-11-18)
+
+R.5. A row's dedupe identity is its source ID, else its fingerprint ("Import commit, dedupe
+and undo"), and the fingerprint depends on what a preset reads: the columns it joins into
+the description, the date format, the amount's sign handling and whether it maps an ID
+column. Presets carry no version, and only the fingerprint's format was frozen by a test,
+so editing a bundled preset could move identities silently and the next import of an
+overlapping file would duplicate rows already in users' databases.
+
+1. **Each bundled preset's fixture rows have a golden file.**
+   `crates/import/tests/golden/<region>/<bank>.txt` holds each committed row's external ID
+   (or `-`) and fingerprint in file order. `preset_golden.rs` imports the fixture through
+   preview and commit into a scratch database, reads the identities back from the
+   `transaction` table, and compares. `dedupe::fingerprint` stays private to core.
+2. **A change that moves either needs a new preset ID**, a new preset with its own file,
+   fixture and golden file, never an edited golden file. The preset ID is recorded on
+   every batch, and the old preset stays loadable. Changes that leave every identity
+   alone (category map, name, pot rules) keep the ID.
+3. **A preset without a golden file fails the test.** `COFFER_BLESS_GOLDEN=1` writes the
+   missing files only and never overwrites one. The rule is in `presets/README.md` →
+   "Changing a preset".
+4. **Saved presets aren't covered.** They live in the data folder, have no fixture in the
+   repo, and the user owns them. Rejected: a version field on presets (a second identity
+   to keep in step with the ID, and nothing would stop editing without bumping it).

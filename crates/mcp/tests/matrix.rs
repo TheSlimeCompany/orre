@@ -33,7 +33,7 @@ use coffer_core::access_log::Outcome;
 use coffer_mcp::registry::Writes;
 use serde_json::{Value, json};
 use support::inbox::{InboxIds, inbox_counts, inbox_rows, outside_inbox, seed, suggestions};
-use support::reports::add_report;
+use support::reports::{add_report, add_report_at};
 use support::*;
 
 const CLIENT: &str = "matrix-client";
@@ -271,6 +271,14 @@ async fn every_tool_at_every_level() {
     fixture.set_client(CLIENT, Aggregate);
     add_report(&fixture, CLIENT, "Seeded mine", "", None);
     add_report(&fixture, "other-client", "Seeded theirs", "", None);
+    add_report_at(
+        &fixture,
+        CLIENT,
+        Some(Standard),
+        "Seeded standard",
+        "",
+        None,
+    );
     let untouched = outside_inbox(&fixture);
 
     for &level in LEVELS {
@@ -292,6 +300,14 @@ async fn every_tool_at_every_level() {
                 let result = client.call_ok(entry.tool, args).await;
                 if level == Pseudonymous {
                     assert_no_display_merchants(&fixture, &without_account_names(&result));
+                }
+                if entry.tool == "list_reports" {
+                    // Only the caller's own reports, saved at its level or
+                    // below.
+                    let text = result.to_string();
+                    assert!(text.contains("Seeded mine"), "{at}");
+                    assert!(!text.contains("Seeded theirs"), "{at}");
+                    assert_eq!(text.contains("Seeded standard"), level == Standard, "{at}");
                 }
                 if level < Standard {
                     assert!(!contains_ignoring_case(&result, PAYEE_NAME), "{at}");

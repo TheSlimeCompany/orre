@@ -44,7 +44,7 @@ There are three levels:
 
 | Level | The client sees |
 |---|---|
-| `aggregate` | Totals only: monthly summaries, spending by category, budgets, net worth (accounts by type, not name), categories and saved reports. It can save reports. No transaction rows. |
+| `aggregate` | Totals only: monthly summaries, spending by category, budgets, net worth (accounts by type, not name), categories and its own saved reports. It can save reports. No transaction rows. |
 | `pseudonymous` | Also transaction rows and recurring payments, with every merchant replaced by a stable token (`M-3f9a0c…`), account names, and filters by date, account, category and amount. No bank descriptions, no text search, no tags. |
 | `standard` | Everything above with real merchant names, bank descriptions (as labelled, sanitised untrusted text), text search, public tags, rules and merchant history, and the `propose_*` tools. Full access by design: a merchant name or bank description can be a person's name. |
 
@@ -224,7 +224,8 @@ then sends it somewhere. So run Coffer in a client profile that has:
 
 - Coffer as its only MCP server: no other servers that read or send data;
 - no web search, web fetch or browser tools;
-- no shell or network access it doesn't need.
+- no shell or network access it doesn't need. A client with a shell can run `coffer`
+  itself, or read the database file, as you.
 
 How to do that, per client (check your client's current documentation; options change):
 
@@ -297,6 +298,17 @@ coffer inbox approve 14 --apply-to-history   # a rule, also applied to past rows
 coffer inbox reject 15 --reason "wrong category"
 ```
 
+Approving is yours to do. `coffer inbox approve`, `coffer ai-access enable` and the other
+commands that change your data or widen AI access refuse to run unless they're attached to
+an interactive terminal, so run them yourself, or use the app. (`coffer inbox reject`,
+`coffer ai-access off`, `revoke` and lowering a level work from anywhere, so a script can
+always shut a client out. Previews work from anywhere too: `coffer import --dry-run`, and
+`undo-import`, `schedules delete` and `inbox delete-report` without `--yes`, show what would
+happen and change nothing.) The check is a speed bump, not a lock: a client with a shell
+tool can fake a terminal or open the database file directly. That's why the profile in
+step 3 gives the client no shell; if it has one, sandbox it away from Coffer's data
+directory and the `coffer` binary.
+
 Saved reports:
 
 ```sh
@@ -306,7 +318,9 @@ coffer inbox delete-report 7 8     # lists what would go; add --yes to delete
 coffer inbox delete-report --client claude-code --before 2026-01-01 --yes
 ```
 
-Each client can keep at most 500 saved reports. Once it reaches that, it can't save more
+A client reads back only its own reports, and only those saved at its current level or
+below: a client lowered to `aggregate` doesn't see the review it wrote at `standard`. You
+see every report. Each client can keep at most 500 saved reports. Once it reaches that, it can't save more
 until you delete some; `coffer inbox reports` flags a client that's at the cap. Only you
 can delete reports: no MCP tool can.
 
