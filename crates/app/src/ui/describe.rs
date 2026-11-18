@@ -9,6 +9,7 @@
 
 use crate::ui::keys::{Key, ViewKeys};
 use crate::ui::list::Keys;
+use crate::ui::panel_cursor::PanelKeys;
 
 /// Something the user can do, as the screen offers it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,6 +51,20 @@ impl Action {
             .collect()
     }
 
+    /// A panel cursor's keys ([`PanelKeys`]): its moves, then Enter and
+    /// Space, which act on the cursor row as a click does, as
+    /// [`PanelKeys::bind`] binds them. Each does something when `rows` (the
+    /// panel has rows).
+    pub fn panel_keys(keys: &PanelKeys, rows: bool) -> Vec<Self> {
+        Self::moves(keys.keys(), rows)
+            .into_iter()
+            .chain(
+                crate::ui::panel_cursor::ACT_KEYS
+                    .map(|stroke| Self::keyed(ACT_ON_ROW, stroke, rows)),
+            )
+            .collect()
+    }
+
     /// A view's keys in declared order, every keystroke of each, then its
     /// list's moves: `enabled` says whether a key does anything now, and
     /// `rows` whether the list has rows to move through.
@@ -66,6 +81,9 @@ impl Action {
             .collect()
     }
 }
+
+/// What Enter and Space do on a panel's cursor row.
+pub const ACT_ON_ROW: &str = "Act on the row";
 
 /// A row of a left panel: what it's called, the count after it, and
 /// whether it's the one open.

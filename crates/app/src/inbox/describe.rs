@@ -1,5 +1,6 @@
-//! What the Inbox shows, as plain data, for tests (ROADMAP U.1): the
-//! toolbar, the groups and their rows, the selection, the suggestion open
+//! What the Inbox shows, as plain data, for tests (ROADMAP U.1): the left
+//! panel with its keyboard cursor (U.9), the toolbar, the groups and their
+//! rows, the selection, the suggestion open
 //! under its row, the inspector, the confirmation bar, and the actions
 //! available with their keys.
 //!
@@ -15,7 +16,12 @@
 //! [`coffer_core::envelope::shown`]. Styling (colours, fonts, markers,
 //! icons) is left out; mixed runs are joined into one string.
 //!
-//! What it leaves out: the left panel, the pointer's hover (✓ and ✕ show
+//! The panel's cursor is described as last drawn: the panel notes which
+//! row it drew the cursor on, since where it is lives with the panel's
+//! element ([`crate::ui::panel_cursor::PanelCursor::keyed`]) and whether
+//! it shows depends on the window's focus.
+//!
+//! What it leaves out: the panel's icons, the pointer's hover (✓ and ✕ show
 //! on a hovered row too; the description lists them only through the
 //! selection's keys), the inspector's "If you approve" and definition
 //! sections, and the lane headings.
@@ -24,7 +30,10 @@ use coffer_core::inbox::SuggestionStatus;
 
 pub use crate::ui::describe::Action;
 
+use crate::checks::Checks;
+
 use super::inspector::{self, CardText, HeaderText, NOTHING_SELECTED, header_text};
+use super::panel::{self, InboxPanelRow};
 use super::store::Entry;
 use super::text::{Part, kind_name};
 use super::view::{
@@ -36,6 +45,8 @@ use super::{Inbox, Outcome};
 /// What the Inbox shows ([`Inbox::describe`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InboxDescription {
+    /// The left panel.
+    pub panel: PanelDescription,
     /// The toolbar's title: the status shown ("Pending").
     pub title: &'static str,
     /// The toolbar's caption: "15 suggestions · nothing changes until you
@@ -56,6 +67,44 @@ pub struct InboxDescription {
     /// The canvas's keys ([`view::KEYS`]: its own, then ↑↓), and whether
     /// each does anything now.
     pub actions: Vec<Action>,
+}
+
+/// The left panel ([`super::panel`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PanelDescription {
+    /// INBOX, CHECKS, KIND, SOURCE.
+    pub sections: Vec<PanelSection>,
+    /// The open row's label: the open queue, else the open status. The
+    /// cursor starts there.
+    pub open: String,
+    /// The panel's keys: ↑↓ move the cursor, Enter and Space act on its
+    /// row ([`panel::KEYS`]).
+    pub keys: Vec<Action>,
+    /// Why the suggestions couldn't be read, under the sections.
+    pub error: Option<String>,
+}
+
+/// A section of the panel: its label and rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PanelSection {
+    pub title: &'static str,
+    pub rows: Vec<PanelRowDescription>,
+}
+
+/// A row of the panel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PanelRowDescription {
+    /// Its label, with its suffix: "Coffer from your edits".
+    pub label: String,
+    pub count: String,
+    /// The `danger` dot: a balance check fails.
+    pub flagged: bool,
+    /// The moldavite dot: an agent with work waiting.
+    pub connected: bool,
+    /// The open status or queue, or a filter that's on.
+    pub selected: bool,
+    /// The keyboard cursor is drawn on it (the panel has keyboard focus).
+    pub cursor: bool,
 }
 
 /// One group of the table: one kind from one source.
@@ -282,32 +331,73 @@ fn inspector(inbox: &Inbox) -> InspectorDescription {
 /// suggestion that's selected, Escape while one is selected, ↑↓ while
 /// there are rows.
 fn actions(pending: bool, selected: bool, has_rows: bool) -> Vec<Action> {
-    let own = view::KEYS.keys().iter().flat_map(|key| {
-        let enabled = if key.label() == view::CLEAR.label() {
-            selected
-        } else {
-            assert!(
-                [view::APPROVE.label(), view::REJECT.label()].contains(&key.label()),
-                "say when the Inbox's new key {:?} works",
-                key.label()
-            );
-            pending && selected
-        };
-        key.keys()
-            .iter()
-            .map(move |stroke| Action::keyed(key.label(), stroke, enabled))
-    });
-    let moves = view::KEYS
-        .list()
-        .moves()
+    Action::view_keys(
+        &view::KEYS,
+        |key| {
+            if key.label() == view::CLEAR.label() {
+                selected
+            } else {
+                assert!(
+                    [view::APPROVE.label(), view::REJECT.label()].contains(&key.label()),
+                    "say when the Inbox's new key {:?} works",
+                    key.label()
+                );
+                pending && selected
+            }
+        },
+        has_rows,
+    )
+}
+
+/// The left panel, section by section, with the cursor as last drawn.
+fn describe_panel(inbox: &Inbox, checks: &Checks) -> PanelDescription {
+    let cursor = inbox.panel_cursor.borrow().clone();
+    let home = panel::home(inbox, checks);
+    let label = |row: &InboxPanelRow| {
+        let text = row.text(inbox, checks);
+        match text.suffix {
+            Some(suffix) => format!("{} {suffix}", text.label),
+            None => text.label,
+        }
+    };
+    let sections: Vec<PanelSection> = panel::sections(inbox)
         .into_iter()
-        .map(|(stroke, to)| Action::keyed(to.label(), stroke, has_rows));
-    own.chain(moves).collect()
+        .map(|(title, rows)| PanelSection {
+            title,
+            rows: rows
+                .iter()
+                .map(|row| {
+                    let text = row.text(inbox, checks);
+                    PanelRowDescription {
+                        label: label(row),
+                        count: text.count.to_string(),
+                        flagged: text.flagged,
+                        connected: text.connected,
+                        selected: text.selected,
+                        cursor: cursor.as_ref() == Some(row),
+                    }
+                })
+                .collect(),
+        })
+        .collect();
+    PanelDescription {
+        open: label(&home),
+        sections,
+        keys: Action::panel_keys(&panel::KEYS, true),
+        error: inbox.load_error().map(ToString::to_string),
+    }
 }
 
 impl Inbox {
-    /// What the Inbox shows now, as plain data (module docs).
-    pub fn describe(&self) -> InboxDescription {
+    /// Notes the panel row the keyboard cursor is drawn on (`None`: no
+    /// row), as the panel draws it.
+    pub(super) fn record_panel_cursor(&self, row: Option<InboxPanelRow>) {
+        *self.panel_cursor.borrow_mut() = row;
+    }
+
+    /// What the Inbox shows now, as plain data (module docs), with the
+    /// panel's CHECKS as `checks` has them.
+    pub fn describe(&self, checks: &Checks) -> InboxDescription {
         let today = view::today(self.data().read_at);
         let pending = self.status() == SuggestionStatus::Pending;
         let (title, caption) = view::toolbar_text(self);
@@ -342,6 +432,7 @@ impl Inbox {
         let selected = self.selected_entry();
         let has_rows = !self.order().is_empty();
         InboxDescription {
+            panel: describe_panel(self, checks),
             title,
             caption,
             toolbar_keys: if pending {

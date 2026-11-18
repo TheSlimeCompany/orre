@@ -67,6 +67,17 @@ const COUNT_CAPTION: &str = "Coffer checks your count against the last one and w
 /// The caption of the first cash count (composed from `EPF-0`).
 const FIRST_COUNT_CAPTION: &str = "This is your first count, so it's the starting point: Coffer counts forward from it and checks every later count against what you enter.";
 
+/// A count's plain save, when it agrees or is the first.
+const SAVE: &str = "Save count";
+
+/// A count's save that adds no difference.
+const SAVE_ONLY: &str = "Save count only";
+
+/// The button that adds the difference and saves: "Add −£5.00 and save".
+fn add_difference_label(difference: Money) -> String {
+    format!("Add {} and save", money(difference, Sign::Negative))
+}
+
 /// What a cash count shows below Counted, once what was typed can be read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Counting {
@@ -478,9 +489,9 @@ impl AddBalanceDialog {
                     .on_click(cancel),
             )
             .when_some(difference, |this, difference| {
-                let label = format!("Add {} and save", money(difference, Sign::Negative));
+                let label = add_difference_label(difference);
                 this.action(
-                    Button::new("count-save-only", "Save count only")
+                    Button::new("count-save-only", SAVE_ONLY)
                         .with_variant(ButtonVariant::Secondary)
                         .with_surface(color::FLOAT)
                         .on_click(cx.listener(|this, _, _, cx| this.save_count(false, cx))),
@@ -494,7 +505,7 @@ impl AddBalanceDialog {
             })
             .when(difference.is_none(), |this| {
                 this.action(
-                    Button::new("count-save", "Save count")
+                    Button::new("count-save", SAVE)
                         .with_variant(ButtonVariant::Primary)
                         .with_surface(color::FLOAT)
                         .on_click(cx.listener(|this, _, _, cx| this.save_count(false, cx))),
@@ -509,7 +520,7 @@ impl AddBalanceDialog {
     /// count is off, unresolved rather than failed (as an unbalanced split);
     /// plain when it agrees.
     fn difference_value(&self, difference: Option<Money>) -> gpui_kit::AnyElement {
-        let shown = difference.unwrap_or(Money::zero(self.currency));
+        let shown = self.difference_text(difference);
         let tone = if difference.is_some() {
             color::WARNING
         } else {
@@ -529,9 +540,87 @@ impl AddBalanceDialog {
                 div()
                     .text_role(typography::MONO_AMOUNT)
                     .text_color(tone)
-                    .child(money(shown, Sign::Negative)),
+                    .child(shown),
             )
             .into_any_element()
+    }
+}
+
+impl AddBalanceDialog {
+    /// The Difference row's amount: £0.00 when the count agrees.
+    fn difference_text(&self, difference: Option<Money>) -> String {
+        money(
+            difference.unwrap_or(Money::zero(self.currency)),
+            Sign::Negative,
+        )
+    }
+
+    /// The caption under the fields of a balance or valuation: a
+    /// liability's says what will be stored for what's typed.
+    fn caption_text(&self, cx: &gpui_kit::App) -> String {
+        match self.kind {
+            AccountKind::Liability => {
+                owed_caption(parse_amount(&self.amount.read(cx).value(), self.currency).ok())
+            }
+            AccountKind::Asset => ASSET_CAPTION.to_owned(),
+            _ => CAPTION.to_owned(),
+        }
+    }
+
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3): each
+    /// field's label and what's in it (the amount's date a row labelled ""
+    /// after it), Coffer's expectation and the Difference on a count, and
+    /// a liability's caption (it names what will be stored) as a row
+    /// labelled "". The fixed captions are left out.
+    #[cfg(test)]
+    pub fn describe(&self, cx: &gpui_kit::App) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        let value = |input: &Entity<InputState>| input.read(cx).value().to_string();
+        let cancel = Action::button("Cancel", true);
+        if self.is_count() {
+            let expected = self
+                .counting
+                .and_then(|counting| counting.expected_text(self.today));
+            let difference = self.counting.and_then(|counting| counting.difference());
+            let mut fields = vec![
+                ("Counted".to_owned(), value(&self.amount)),
+                (String::new(), value(&self.date)),
+            ];
+            let has_base = expected.is_some();
+            fields.extend(expected.map(|expected| ("Coffer".to_owned(), expected)));
+            if has_base && !self.first_count {
+                fields.push(("Difference".to_owned(), self.difference_text(difference)));
+            }
+            let actions = match difference {
+                Some(difference) => vec![
+                    cancel,
+                    Action::button(SAVE_ONLY, true),
+                    Action::button(add_difference_label(difference), true),
+                ],
+                None => vec![cancel, Action::button(SAVE, true)],
+            };
+            return Dialog {
+                title: self.title.to_string(),
+                fields,
+                error: self.error.as_ref().map(ToString::to_string),
+                actions,
+            };
+        }
+        let wording = Wording::of(self.kind);
+        let mut fields = vec![
+            (wording.label.to_owned(), value(&self.amount)),
+            (String::new(), value(&self.date)),
+            ("Note".to_owned(), value(&self.note)),
+        ];
+        if self.kind == AccountKind::Liability {
+            fields.push((String::new(), self.caption_text(cx)));
+        }
+        Dialog {
+            title: self.title.to_string(),
+            fields,
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![cancel, Action::button(wording.button, true)],
+        }
     }
 }
 
@@ -541,13 +630,7 @@ impl Render for AddBalanceDialog {
             return self.render_count(cx).into_any_element();
         }
         let wording = Wording::of(self.kind);
-        let caption_text = match self.kind {
-            AccountKind::Liability => {
-                owed_caption(parse_amount(&self.amount.read(cx).value(), self.currency).ok())
-            }
-            AccountKind::Asset => ASSET_CAPTION.to_owned(),
-            _ => CAPTION.to_owned(),
-        };
+        let caption_text = self.caption_text(cx);
         let fields = div()
             .flex()
             .flex_col()

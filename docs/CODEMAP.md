@@ -188,13 +188,19 @@ per call through its own store and changes data only through core.
   `list::Keys` and its decision keys (`keys::Key`: keystrokes, action, key cap, label;
   Escape `unhinted`). `bind` binds them, `keys::hints(KEYS.hints())` draws the toolbar's
   hints, a test-only `describe()` lists them, and `ViewKeys::assert_bound` (tests) checks
-  the keymap holds exactly them. Used by the Inbox and the review queues (Checks).
-- `ui::panel_cursor` (U.9): the keyboard cursor for a left panel of filters (Rules, later
+  the keymap holds exactly them. Used by the Inbox, the review queues (Checks) and Rules.
+- `ui::panel_cursor` (U.9): the keyboard cursor for a left panel of filters (Rules and
   the Inbox). A Tab stop where ↑↓ move a cursor across sections without changing the
   selection, and Enter or Space act on its row as a click does. `PanelKeys` binds the
   keys, `PanelCursor::keyed` keeps the cursor with the panel's element,
   `panel_cursor(...)` wires the element, and `Frame::mark` gives the cursor row
   `ListRow::current` and the inset ring.
+- `ui::describe` (U.1–U.3, tests only): what the views' test-only `describe()` share
+  (`Action`, `PanelRow`, `Header`, `Section`, `Inspector`, `Dialog`). Each view's own is
+  a `#[cfg(test)] mod describe` beside it (`inbox`, `transactions`, `checks`, `rules`,
+  `settings`, `accounts`), built from the text the view draws; the tests assert on it.
+  Never in a release build or reachable from `coffer mcp` (`docs/architecture/app.md`,
+  2026-11-18).
 - `format`: writes and reads money and dates.
 - `showcase`: the component showcase, `coffer --showcase`.
 
@@ -243,7 +249,8 @@ per call through its own store and changes data only through core.
 ### Inbox and checks (M3.6, M3.14, M3.12)
 
 - `inbox/`: `Inbox` (status, filters, groups, selection, decisions through
-  `store::InboxStore`), `panel`, `view` (the grouped table, the selected suggestion open
+  `store::InboxStore`), `panel` (a Tab stop: ↑↓ move a keyboard cursor through INBOX,
+  CHECKS, KIND and SOURCE, Enter and Space act), `view` (the grouped table, the selected suggestion open
   in place, A / R / ↑↓), `inspector` ("If you approve"), `text` (labels, untrusted text
   made plain with `envelope::shown`), `fixture` (D6.6's samples, seeded through core into
   a scratch database).

@@ -66,12 +66,15 @@ impl PanelKeys {
     pub fn bind(&self, cx: &mut App) {
         self.keys.bind(cx);
         let context = Some(self.context());
-        cx.bind_keys([
-            KeyBinding::new("enter", Confirm { secondary: false }, context),
-            KeyBinding::new("space", Confirm { secondary: false }, context),
-        ]);
+        cx.bind_keys(
+            ACT_KEYS.map(|key| KeyBinding::new(key, Confirm { secondary: false }, context)),
+        );
     }
 }
+
+/// The keys that act on the cursor's row, as a click does: Enter and
+/// Space.
+pub const ACT_KEYS: [&str; 2] = ["enter", "space"];
 
 /// Where a panel's keyboard cursor is, and the panel's focus (a Tab stop).
 pub struct PanelCursor<T> {

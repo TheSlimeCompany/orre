@@ -10,19 +10,19 @@ use tempfile::TempDir;
 
 use super::describe::{
     Action, FooterDescription, GroupDescription, InboxDescription, InspectorDescription,
-    RowDescription, SuggestionDescription,
+    PanelDescription, PanelRowDescription, PanelSection, RowDescription, SuggestionDescription,
 };
 use super::*;
 use crate::accounts::{Accounts, fixture as accounts_fixture};
 use crate::shell::{ShellView, View};
 
-struct Scratch {
+pub(super) struct Scratch {
     _dir: TempDir,
-    path: std::path::PathBuf,
+    pub(super) path: std::path::PathBuf,
 }
 
 impl Scratch {
-    fn new(wide: bool) -> Self {
+    pub(super) fn new(wide: bool) -> Self {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("coffer.db");
         let mut db = Database::open(&path).unwrap();
@@ -84,7 +84,7 @@ fn open<'a>(
     (shell, inbox, cx)
 }
 
-fn redraw(cx: &mut VisualTestContext) {
+pub(super) fn redraw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
 }
@@ -100,8 +100,12 @@ fn shows(id: &str, cx: &mut VisualTestContext) -> bool {
     cx.update(move |window, _| window.try_find(id).is_some())
 }
 
-fn describe(inbox: &Entity<Inbox>, cx: &mut VisualTestContext) -> InboxDescription {
-    cx.update(|_, cx| inbox.read(cx).describe())
+fn describe(
+    shell: &Entity<ShellView>,
+    inbox: &Entity<Inbox>,
+    cx: &mut VisualTestContext,
+) -> InboxDescription {
+    cx.update(|_, cx| inbox.read(cx).describe(shell.read(cx).checks().read(cx)))
 }
 
 /// The rows the view lists, by label, in table order.
@@ -148,8 +152,8 @@ fn button(label: &str, enabled: bool) -> Action {
 #[gpui_kit::test]
 fn groups_follow_the_kind_order_and_the_badge_leaves_coffer_out(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
-    let (_shell, inbox, cx) = open(cx, &scratch);
-    let shown = describe(&inbox, cx);
+    let (shell, inbox, cx) = open(cx, &scratch);
+    let shown = describe(&shell, &inbox, cx);
     let groups: Vec<(&str, &str)> = shown
         .groups
         .iter()
@@ -178,10 +182,10 @@ fn groups_follow_the_kind_order_and_the_badge_leaves_coffer_out(cx: &mut TestApp
 #[gpui_kit::test]
 fn kind_and_source_filter_and_a_second_click_clears(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
-    let (_shell, inbox, cx) = open(cx, &scratch);
+    let (shell, inbox, cx) = open(cx, &scratch);
     click("inbox-kind-rule", cx);
     assert_eq!(
-        labels(&describe(&inbox, cx)),
+        labels(&describe(&shell, &inbox, cx)),
         [
             "Merchant contains DELIVEROO",
             "Merchant contains UBER *EATS",
@@ -190,13 +194,13 @@ fn kind_and_source_filter_and_a_second_click_clears(cx: &mut TestAppContext) {
         "two agent rules and Coffer's"
     );
     click(&format!("inbox-source-{COFFER_SOURCE}"), cx);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(labels(&shown), ["Merchant is WASABI"]);
     assert_eq!(source(&shown.groups[0]), "Coffer");
     // Nothing from Coffer of another kind: the filters say so.
     click("inbox-kind-rule", cx);
     click(&format!("inbox-kind-{}", SuggestionKind::TransferPair), cx);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert!(shown.groups.is_empty());
     assert_eq!(
         shown.empty.map(|(title, _)| title),
@@ -204,7 +208,7 @@ fn kind_and_source_filter_and_a_second_click_clears(cx: &mut TestAppContext) {
     );
     click(&format!("inbox-kind-{}", SuggestionKind::TransferPair), cx);
     click(&format!("inbox-source-{COFFER_SOURCE}"), cx);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(labels(&shown).len(), 15);
     assert_eq!(shown.empty, None);
 }
@@ -213,9 +217,9 @@ fn kind_and_source_filter_and_a_second_click_clears(cx: &mut TestAppContext) {
 fn a_click_opens_a_rule_and_its_check_approves_it_with_history(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
     let uber = scratch.rule("UBER *EATS");
-    let (_shell, inbox, cx) = open(cx, &scratch);
+    let (shell, inbox, cx) = open(cx, &scratch);
     click(&format!("inbox-row-{uber}"), cx);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(
         shown.selected.as_deref(),
         Some("Merchant contains UBER *EATS")
@@ -260,7 +264,7 @@ fn a_click_opens_a_rule_and_its_check_approves_it_with_history(cx: &mut TestAppC
     // Applied to past transactions, settling the UBER categorisation.
     let approved = core_inbox::get(&scratch.db(), uber).unwrap();
     assert!(approved.change_batch.is_some(), "applied to history");
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(
         shown.confirmation.as_deref(),
         Some("Approved rule UBER *EATS: 5 transactions now Eating out")
@@ -278,14 +282,14 @@ fn keys_move_approve_and_reject(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
     let deliveroo = scratch.rule("DELIVEROO");
     let uber = scratch.rule("UBER *EATS");
-    let (_shell, inbox, cx) = open(cx, &scratch);
-    let shown = describe(&inbox, cx);
+    let (shell, inbox, cx) = open(cx, &scratch);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(shown.selected, None);
     assert!(!key_works(&shown, "a") && !key_works(&shown, "r"));
     assert!(key_works(&shown, "down"));
 
     cx.simulate_keystrokes("down");
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(
         shown.selected.as_deref(),
         Some("Merchant contains DELIVEROO")
@@ -293,13 +297,13 @@ fn keys_move_approve_and_reject(cx: &mut TestAppContext) {
     assert!(key_works(&shown, "a") && key_works(&shown, "r"));
     cx.simulate_keystrokes("down");
     assert_eq!(
-        describe(&inbox, cx).selected.as_deref(),
+        describe(&shell, &inbox, cx).selected.as_deref(),
         Some("Merchant contains UBER *EATS")
     );
     cx.simulate_keystrokes("r");
     redraw(cx);
     assert_eq!(scratch.status(uber), SuggestionStatus::Rejected);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert!(!labels(&shown).contains(&"Merchant contains UBER *EATS".to_owned()));
     assert_eq!(
         shown.confirmation, None,
@@ -309,7 +313,7 @@ fn keys_move_approve_and_reject(cx: &mut TestAppContext) {
     redraw(cx);
     assert_eq!(scratch.status(deliveroo), SuggestionStatus::Approved);
     cx.simulate_keystrokes("escape");
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(shown.selected, None);
     assert_eq!(
         shown.inspector,
@@ -324,9 +328,9 @@ fn keys_move_approve_and_reject(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn the_toolbar_hints_every_bound_key(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
-    let (_shell, inbox, cx) = open(cx, &scratch);
+    let (shell, inbox, cx) = open(cx, &scratch);
     cx.update(|_, cx| view::KEYS.assert_bound(cx));
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     let hinted: Vec<&str> = shown.toolbar_keys.iter().map(|(_, label)| *label).collect();
     assert_eq!(hinted, ["Approve", "Reject", "Select"]);
     // Each hint's keys are among the keys `describe()` lists (bound,
@@ -362,8 +366,8 @@ fn approve_all_leaves_a_wide_rule_out(cx: &mut TestAppContext) {
     let scratch = Scratch::new(true);
     let wide = scratch.rule("PAY");
     let deliveroo = scratch.rule("DELIVEROO");
-    let (_shell, inbox, cx) = open(cx, &scratch);
-    let shown = describe(&inbox, cx);
+    let (shell, inbox, cx) = open(cx, &scratch);
+    let shown = describe(&shell, &inbox, cx);
     let footer = shown.groups[0].footer.clone().expect("a pending group");
     assert_eq!(
         footer.actions,
@@ -376,7 +380,7 @@ fn approve_all_leaves_a_wide_rule_out(cx: &mut TestAppContext) {
     click(&format!("inbox-approve-rule-{}", fixture::AGENT), cx);
     assert_eq!(scratch.status(wide), SuggestionStatus::Pending);
     assert_eq!(scratch.status(deliveroo), SuggestionStatus::Approved);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(
         shown.confirmation.as_deref(),
         Some("Approved 2 suggestions")
@@ -390,14 +394,14 @@ fn approve_all_leaves_a_wide_rule_out(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn reject_all_rejects_the_group(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
-    let (_shell, inbox, cx) = open(cx, &scratch);
+    let (shell, inbox, cx) = open(cx, &scratch);
     click(
         &format!("inbox-reject-categorization-{}", fixture::AGENT),
         cx,
     );
     let counts = cx.update(|_, cx| inbox.read(cx).data().counts.clone());
     assert_eq!(counts.rejected, 9);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert!(
         shown
             .groups
@@ -406,7 +410,7 @@ fn reject_all_rejects_the_group(cx: &mut TestAppContext) {
     );
     // Rejected lists them, read-only.
     click("inbox-status-rejected", cx);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(shown.title, "Rejected");
     assert_eq!(shown.caption, "9 suggestions you rejected");
     assert_eq!(labels(&shown).len(), 9);
@@ -421,7 +425,7 @@ fn reject_all_rejects_the_group(cx: &mut TestAppContext) {
     );
     let first = cx.update(|_, cx| inbox.read(cx).order()[0]);
     click(&format!("inbox-row-{first}"), cx);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert!(shown.selected.is_some());
     assert!(!key_works(&shown, "a") && !key_works(&shown, "r"));
     assert!(inspected(&shown).actions.is_empty());
@@ -431,7 +435,7 @@ fn reject_all_rejects_the_group(cx: &mut TestAppContext) {
 fn a_refused_approval_says_why_and_changes_nothing(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
     let pair = scratch.find(|payload| matches!(payload, Payload::TransferPair(_)));
-    let (_shell, inbox, cx) = open(cx, &scratch);
+    let (shell, inbox, cx) = open(cx, &scratch);
     // A side goes after the Inbox read it.
     let Payload::TransferPair(sides) = core_inbox::get(&scratch.db(), pair).unwrap().payload else {
         unreachable!()
@@ -441,7 +445,7 @@ fn a_refused_approval_says_why_and_changes_nothing(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("a");
     redraw(cx);
     assert_eq!(scratch.status(pair), SuggestionStatus::Pending);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     assert_eq!(shown.confirmation, None);
     let card = inspected(&shown);
     // Read again, the gone side says so, and the card says why core
@@ -462,16 +466,74 @@ fn a_refused_approval_says_why_and_changes_nothing(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn a_filtered_group_is_described_in_full(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
-    let (_shell, inbox, cx) = open(cx, &scratch);
+    let (shell, inbox, cx) = open(cx, &scratch);
     click(&format!("inbox-kind-{}", SuggestionKind::MerchantAlias), cx);
     let key = |label: &str, key: &'static str, enabled: bool| Action {
         label: label.to_owned(),
         key: Some(key),
         enabled,
     };
+    // A panel row: its label and count, then the `danger` dot, the
+    // connected dot and whether it's selected (no cursor: not focused).
+    let row = |label: &str, count: &str, flagged: bool, connected: bool, selected: bool| {
+        PanelRowDescription {
+            label: label.to_owned(),
+            count: count.to_owned(),
+            flagged,
+            connected,
+            selected,
+            cursor: false,
+        }
+    };
     assert_eq!(
-        describe(&inbox, cx),
+        describe(&shell, &inbox, cx),
         InboxDescription {
+            panel: PanelDescription {
+                sections: vec![
+                    PanelSection {
+                        title: "Inbox",
+                        rows: vec![
+                            row("Pending", "15", false, false, true),
+                            row("Approved", "0", false, false, false),
+                            row("Rejected", "0", false, false, false),
+                        ],
+                    },
+                    PanelSection {
+                        title: "Checks",
+                        rows: vec![
+                            row("Possible duplicates", "0", false, false, false),
+                            row("Balance checks", "0", false, false, false),
+                            row("Owed to you", "0", false, false, false),
+                        ],
+                    },
+                    PanelSection {
+                        title: "Kind",
+                        rows: vec![
+                            row("Rules", "3", false, false, false),
+                            row("Merchant names", "1", false, false, true),
+                            row("Transfer pairs", "1", false, false, false),
+                            row("Refund links", "1", false, false, false),
+                            row("Categorisations", "9", false, false, false),
+                        ],
+                    },
+                    PanelSection {
+                        title: "Source",
+                        rows: vec![
+                            row(fixture::AGENT, "14", false, true, false),
+                            row("codex", "0", false, false, false),
+                            row("Coffer from your edits", "1", false, false, false),
+                        ],
+                    },
+                ],
+                open: "Pending".to_owned(),
+                keys: vec![
+                    key("Move up", "up", true),
+                    key("Move down", "down", true),
+                    key(crate::ui::describe::ACT_ON_ROW, "enter", true),
+                    key(crate::ui::describe::ACT_ON_ROW, "space", true),
+                ],
+                error: None,
+            },
             title: "Pending",
             caption: "1 suggestion · nothing changes until you approve".to_owned(),
             toolbar_keys: vec![("A", "Approve"), ("R", "Reject"), ("↑↓", "Select")],
@@ -533,9 +595,9 @@ fn untrusted_text_is_described_as_shown(cx: &mut TestAppContext) {
     let filed = scratch.find(
         |payload| matches!(payload, Payload::MerchantAlias(alias) if alias.pattern().contains('\u{200B}')),
     );
-    let (_shell, inbox, cx) = open(cx, &scratch);
+    let (shell, inbox, cx) = open(cx, &scratch);
     click(&format!("inbox-row-{filed}"), cx);
-    let shown = describe(&inbox, cx);
+    let shown = describe(&shell, &inbox, cx);
     // The invisible characters are gone and the line breaks are one space,
     // as `envelope::shown` leaves them.
     assert_eq!(shown.selected.as_deref(), Some("Starts with WASABI"));

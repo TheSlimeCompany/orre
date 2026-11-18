@@ -28,6 +28,8 @@ pub mod add_balance;
 pub mod close;
 pub mod data;
 pub mod delete;
+#[cfg(test)]
+mod describe;
 pub mod fixture;
 pub mod inspector;
 pub mod new_account;
@@ -54,10 +56,14 @@ pub fn init(cx: &mut gpui_kit::App) {
     use gpui_kit::{KeyBinding, KeyBindingContextPredicate};
     panel::KEYS.bind(cx);
     cx.bind_keys([
-        KeyBinding::new("escape", Cancel, Some(panel::CONTEXT)),
+        KeyBinding::new(panel::CLEAR_KEY, Cancel, Some(panel::CONTEXT)),
         // Enter on a flagged account opens its failing check, as its dot
         // does (`DESIGN.md` → "Keyboard paths").
-        KeyBinding::new("enter", Confirm { secondary: false }, Some(panel::CONTEXT)),
+        KeyBinding::new(
+            panel::CHECK_KEY,
+            Confirm { secondary: false },
+            Some(panel::CONTEXT),
+        ),
     ]);
     // ⌘N (Ctrl elsewhere): `KeyBinding::new` can't resolve `secondary-`,
     // so `load` asks the platform, as the shell's shortcuts do.
@@ -65,7 +71,7 @@ pub fn init(cx: &mut gpui_kit::App) {
         let context =
             Rc::new(KeyBindingContextPredicate::parse(context).expect("the key context parses"));
         KeyBinding::load(
-            "secondary-n",
+            panel::ADD_VALUE_KEY,
             Box::new(AddValuation),
             Some(context),
             false,
@@ -161,6 +167,10 @@ pub struct Accounts {
     closed: Option<Closed>,
     /// Why Undo couldn't reopen it, said in the bar.
     closed_error: Option<SharedString>,
+    /// Whether the panel last drew its focus ring, for `describe()`
+    /// (test-only).
+    #[cfg(test)]
+    panel_ring: std::cell::Cell<bool>,
 }
 
 impl EventEmitter<AccountsEvent> for Accounts {}
@@ -175,6 +185,8 @@ impl Accounts {
             load_error: None,
             closed: None,
             closed_error: None,
+            #[cfg(test)]
+            panel_ring: Default::default(),
         };
         accounts.load();
         accounts
@@ -190,6 +202,8 @@ impl Accounts {
             load_error: Some(reason.into()),
             closed: None,
             closed_error: None,
+            #[cfg(test)]
+            panel_ring: Default::default(),
         }
     }
 
@@ -202,6 +216,8 @@ impl Accounts {
             load_error: None,
             closed: None,
             closed_error: None,
+            #[cfg(test)]
+            panel_ring: Default::default(),
         }
     }
 

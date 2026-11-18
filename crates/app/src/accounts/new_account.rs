@@ -41,6 +41,12 @@ use crate::ui::menu::{MenuGroup, Select, SelectState};
 use super::inspector::{currency_groups, kind_groups, kind_label};
 use super::{Accounts, DialogClosed};
 
+/// The dialog's title.
+const TITLE: &str = "New account";
+
+/// Its primary button.
+const ADD: &str = "Add account";
+
 /// The dialog's caption (Paper `8JL-0`).
 const CAPTION: &str = "Owed money on a credit card is a negative balance. Skip the balance if your bank’s export includes one: the first import fills it in. Pots are added from imports, not here.";
 
@@ -328,6 +334,35 @@ impl NewAccountDialog {
     }
 }
 
+impl NewAccountDialog {
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3): each
+    /// field's label and what's in it; the amount's date is a row labelled
+    /// "" after it.
+    #[cfg(test)]
+    pub fn describe(&self, cx: &gpui_kit::App) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        let value = |input: &Entity<InputState>| input.read(cx).value().to_string();
+        let mut fields = vec![("Name".to_owned(), value(&self.name))];
+        if self.kind.is_imported() {
+            fields.push(("Bank".to_owned(), value(&self.bank)));
+        }
+        fields.push(("Kind".to_owned(), kind_label(self.kind).to_owned()));
+        fields.push(("Currency".to_owned(), self.currency.code().to_owned()));
+        let label = super::add_balance::Wording::of(self.kind).label;
+        fields.push((label.to_owned(), value(&self.balance)));
+        fields.push((String::new(), value(&self.date)));
+        if !self.kind.holds_transactions() {
+            fields.push(("Note".to_owned(), value(&self.note)));
+        }
+        Dialog {
+            title: TITLE.to_owned(),
+            fields,
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![Action::button("Cancel", true), Action::button(ADD, true)],
+        }
+    }
+}
+
 impl Render for NewAccountDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let has_bank = self.kind.is_imported();
@@ -372,7 +407,7 @@ impl Render for NewAccountDialog {
         let cancel = cx.listener(|this, _, _, cx| this.cancel(cx));
         let add = cx.listener(|this, _, window, cx| this.submit(window, cx));
         let on_cancel = cx.entity().downgrade();
-        Dialog::new("New account", &self.focus)
+        Dialog::new(TITLE, &self.focus)
             .body(fields)
             .body(caption(if valued { VALUED_CAPTION } else { CAPTION }))
             .when_some(self.error.clone(), |this, error| {
@@ -385,7 +420,7 @@ impl Render for NewAccountDialog {
                     .on_click(cancel),
             )
             .action(
-                Button::new("new-account-add", "Add account")
+                Button::new("new-account-add", ADD)
                     .with_variant(ButtonVariant::Primary)
                     .with_surface(crate::theme::tokens::color::FLOAT)
                     .on_click(add),

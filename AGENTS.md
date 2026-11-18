@@ -21,7 +21,8 @@ charts, and exposes the data to AI clients through an MCP server.
 ## Status and code map
 
 - **Status:** M0, the design track (D1–D6), M1 and M2 are done; every M3 item is built,
-  and M3's exit check on real data is the user's. Detail per item: `docs/ROADMAP.md`.
+  and M3's exit check on real data is the user's. The UI review is done except U.5
+  (deferred). Detail per item: `docs/ROADMAP.md`.
 - **Where things are:** [`docs/CODEMAP.md`](docs/CODEMAP.md), by crate and area. It
   lags the code: check the tree before assuming a module exists, and update the map
   when you add or move a module.

@@ -137,6 +137,9 @@ fn list(names: &[String]) -> String {
     }
 }
 
+/// The dialog's button that closes.
+const CLOSE: &str = "Close account";
+
 /// Close account, for one account.
 pub struct CloseAccountDialog {
     accounts: Entity<Accounts>,
@@ -193,8 +196,38 @@ impl CloseAccountDialog {
         self.error.as_ref()
     }
 
-    fn typed(&self, cx: &Context<Self>) -> Option<NaiveDate> {
+    fn typed(&self, cx: &gpui_kit::App) -> Option<NaiveDate> {
         parse_date(&self.date.read(cx).value(), self.today)
+    }
+
+    /// The title, the body (following the typed day) and the day's label.
+    fn text(&self, cx: &gpui_kit::App) -> (String, String, &'static str) {
+        match &self.facts {
+            Some(facts) => (
+                format!("Close {}?", facts.name),
+                facts.body(self.typed(cx), self.today),
+                facts.day_label(),
+            ),
+            None => ("Close account?".to_owned(), String::new(), "Closed on"),
+        }
+    }
+
+    /// What the dialog shows, as plain data (test-only, ROADMAP U.3): its
+    /// body, which names the day and what leaves net worth, is a field
+    /// labelled "" before the day's.
+    #[cfg(test)]
+    pub fn describe(&self, cx: &gpui_kit::App) -> crate::ui::describe::Dialog {
+        use crate::ui::describe::{Action, Dialog};
+        let (title, body, label) = self.text(cx);
+        Dialog {
+            title,
+            fields: vec![
+                (String::new(), body),
+                (label.to_owned(), self.date.read(cx).value().to_string()),
+            ],
+            error: self.error.as_ref().map(ToString::to_string),
+            actions: vec![Action::button("Cancel", true), Action::button(CLOSE, true)],
+        }
     }
 
     /// Closes the account on the typed day, or says why it can't.
@@ -224,14 +257,7 @@ impl CloseAccountDialog {
 
 impl Render for CloseAccountDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (title, body, label) = match &self.facts {
-            Some(facts) => (
-                format!("Close {}?", facts.name),
-                facts.body(self.typed(cx), self.today),
-                facts.day_label(),
-            ),
-            None => ("Close account?".to_owned(), String::new(), "Closed on"),
-        };
+        let (title, body, label) = self.text(cx);
         let cancel = cx.listener(|this, _, _, cx| this.cancel(cx));
         let close = cx.listener(|this, _, window, cx| this.submit(window, cx));
         let on_cancel = cx.entity().downgrade();
@@ -257,7 +283,7 @@ impl Render for CloseAccountDialog {
                     .on_click(cancel),
             )
             .action(
-                Button::new("close-account-close", "Close account")
+                Button::new("close-account-close", CLOSE)
                     .with_variant(ButtonVariant::Primary)
                     .with_surface(color::FLOAT)
                     .on_click(close),

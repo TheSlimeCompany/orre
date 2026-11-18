@@ -97,14 +97,67 @@ pub const CONTEXT: &str = "CofferAccountsPanel";
 /// The panel's movement keys: ↑↓ through the accounts.
 pub const KEYS: Keys = Keys::new(CONTEXT);
 
-/// Every account in the panel's order: accounts, each followed by its pots,
-/// then the assets and liabilities.
-pub fn order(data: &AccountsData) -> Vec<AccountId> {
-    let (valued, kept): (Vec<&AccountNode>, Vec<&AccountNode>) = data
+/// Escape in the panel: back to all accounts.
+pub const CLEAR_KEY: &str = "escape";
+
+/// Enter in the panel: the selected account's flagged dot.
+pub const CHECK_KEY: &str = "enter";
+
+/// ⌘N in the panel (and on the valuations canvas): add a valuation.
+pub const ADD_VALUE_KEY: &str = "secondary-n";
+
+/// The Accounts section's title.
+pub const ACCOUNTS: &str = "Accounts";
+
+/// The Assets and liabilities section's title.
+pub const VALUED: &str = "Assets and liabilities";
+
+/// What the Accounts section says with no accounts.
+pub const NO_ACCOUNTS: &str = "No accounts yet";
+
+/// What a row says after the name until a balance is entered.
+pub const NO_BALANCE: &str = "No balance";
+
+/// What net worth reads with no accounts.
+pub const NO_NET_WORTH: &str = "—";
+
+/// The Accounts section's `+`, by what it does.
+pub const ADD_ACCOUNT_LABEL: &str = "Add account";
+
+/// The Assets and liabilities section's `+`.
+pub const ADD_VALUED_LABEL: &str = "Add asset or liability";
+
+/// The top-level accounts, split as the panel lists them: the ones that
+/// hold transactions (under ACCOUNTS), then the assets and liabilities.
+pub fn sections(data: &AccountsData) -> (Vec<&AccountNode>, Vec<&AccountNode>) {
+    let (valued, kept) = data
         .tree
         .accounts
         .iter()
         .partition(|node| !node.account.kind.holds_transactions());
+    (kept, valued)
+}
+
+/// Net worth, one line per currency; none with no accounts.
+pub fn net_worth(data: &AccountsData) -> Vec<String> {
+    data.tree
+        .net_worth
+        .iter()
+        .map(|total| money(total, Sign::Negative))
+        .collect()
+}
+
+/// A row's latest balance, and whether it's `danger` (an account that can
+/// be overdrawn, below zero); `None` until one is entered ([`NO_BALANCE`]).
+pub fn latest(node: &AccountNode) -> Option<(String, bool)> {
+    node.latest
+        .map(|latest| (money(latest.balance, Sign::Negative), node.is_overdrawn()))
+}
+
+/// Every account in the panel's order: accounts, each followed by its pots,
+/// then the assets and liabilities.
+pub fn order(data: &AccountsData) -> Vec<AccountId> {
+    let (kept, valued) = sections(data);
     kept.into_iter()
         .flat_map(|node| std::iter::once(node).chain(&node.pots))
         .chain(valued)
@@ -191,15 +244,13 @@ fn account_row(
             focus.focus(window, cx);
             accounts.update(cx, |accounts, cx| accounts.toggle(id, cx))
         });
-    match node.latest {
-        Some(latest) => row
-            .trailing(money(latest.balance, Sign::Negative))
-            .trailing_tone(if node.is_overdrawn() {
-                TrailingTone::Danger
-            } else {
-                TrailingTone::Muted
-            }),
-        None => row.trailing_words("No balance"),
+    match latest(node) {
+        Some((balance, overdrawn)) => row.trailing(balance).trailing_tone(if overdrawn {
+            TrailingTone::Danger
+        } else {
+            TrailingTone::Muted
+        }),
+        None => row.trailing_words(NO_BALANCE),
     }
 }
 
@@ -216,13 +267,10 @@ pub fn render(
     let data = state.data();
     let selected = state.selected();
     let ring = focus.is_focused(window) && window.last_input_was_keyboard();
+    #[cfg(test)]
+    state.record_panel_ring(ring);
 
-    let totals: Vec<String> = data
-        .tree
-        .net_worth
-        .iter()
-        .map(|total| money(total, Sign::Negative))
-        .collect();
+    let totals = net_worth(data);
     let net_worth = div()
         .flex()
         .flex_col()
@@ -243,7 +291,7 @@ pub fn render(
                     div()
                         .text_role(NET_WORTH)
                         .text_color(color::TEXT)
-                        .child("—"),
+                        .child(NO_NET_WORTH),
                 )
             } else {
                 this.children(totals.into_iter().map(|total| {
@@ -255,14 +303,10 @@ pub fn render(
             }
         });
 
-    let (valued, kept): (Vec<&AccountNode>, Vec<&AccountNode>) = data
-        .tree
-        .accounts
-        .iter()
-        .partition(|node| !node.account.kind.holds_transactions());
+    let (kept, valued) = sections(data);
     let add = {
         let accounts = accounts.clone();
-        IconButton::new(ADD_ACCOUNT, Glyph::Plus, "Add account").on_click(move |_, _, cx| {
+        IconButton::new(ADD_ACCOUNT, Glyph::Plus, ADD_ACCOUNT_LABEL).on_click(move |_, _, cx| {
             accounts.update(cx, |accounts, cx| accounts.request_new_account(cx))
         })
     };
@@ -286,10 +330,10 @@ pub fn render(
             )
         }))
     });
-    let accounts_section = list_section(SectionLabelRow::new("Accounts").action(add))
+    let accounts_section = list_section(SectionLabelRow::new(ACCOUNTS).action(add))
         .children(rows)
         .when(kept.is_empty() && state.load_error().is_none(), |this| {
-            this.child(note_row("No accounts yet"))
+            this.child(note_row(NO_ACCOUNTS))
         })
         .when_some(state.load_error().cloned(), |this, error| {
             this.child(
@@ -303,25 +347,24 @@ pub fn render(
 
     let add_valued = {
         let accounts = accounts.clone();
-        IconButton::new(ADD_VALUED_ACCOUNT, Glyph::Plus, "Add asset or liability").on_click(
+        IconButton::new(ADD_VALUED_ACCOUNT, Glyph::Plus, ADD_VALUED_LABEL).on_click(
             move |_, _, cx| {
                 accounts.update(cx, |accounts, cx| accounts.request_new_valued_account(cx))
             },
         )
     };
-    let valued_section = list_section(
-        SectionLabelRow::new("Assets and liabilities").action(add_valued),
-    )
-    .children(valued.iter().map(|node| {
-        account_row(
-            node,
-            false,
-            accounts,
-            selected == Some(node.account.id),
-            ring,
-            focus,
-        )
-    }));
+    let valued_section = list_section(SectionLabelRow::new(VALUED).action(add_valued)).children(
+        valued.iter().map(|node| {
+            account_row(
+                node,
+                false,
+                accounts,
+                selected == Some(node.account.id),
+                ring,
+                focus,
+            )
+        }),
+    );
 
     let add_category = {
         let accounts = accounts.clone();

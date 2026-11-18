@@ -8,7 +8,8 @@
 //!   which opens the database per call), the filters, the selected
 //!   suggestion and the outcome of the last decision. Every decision is
 //!   core's ([`coffer_core::inbox`]): this only picks the IDs.
-//! - [`panel`]: the left panel (INBOX status, KIND, SOURCE).
+//! - [`panel`]: the left panel (INBOX status, CHECKS, KIND, SOURCE), with
+//!   its keyboard cursor.
 //! - [`view::InboxView`]: the toolbar, the grouped table with the selected
 //!   suggestion open in place, and the inspector (`inspector`).
 //!
@@ -47,10 +48,12 @@ pub const KIND_ORDER: [SuggestionKind; 5] = [
 ];
 
 /// Binds the Inbox's keys ([`view::KEYS`]): A approve, R reject, ↑↓
-/// select, Escape clears the selection. Call once, before the first
-/// [`view::InboxView`].
+/// select, Escape clears the selection; and the panel's ([`panel::KEYS`]):
+/// ↑↓ move its cursor, Enter and Space act on its row. Call once, before
+/// the first [`view::InboxView`].
 pub fn init(cx: &mut gpui_kit::App) {
     view::KEYS.bind(cx);
+    panel::KEYS.bind(cx);
 }
 
 /// Where the suggestions come from.
@@ -97,6 +100,10 @@ pub struct Inbox {
     covered: Option<(SuggestionId, Option<Covered>)>,
     outcome: Option<Outcome>,
     load_error: Option<SharedString>,
+    /// The panel row the keyboard cursor was last drawn on, for
+    /// `describe()` (test-only).
+    #[cfg(test)]
+    panel_cursor: std::cell::RefCell<Option<panel::InboxPanelRow>>,
 }
 
 impl Inbox {
@@ -131,6 +138,8 @@ impl Inbox {
             covered: None,
             outcome: None,
             load_error: None,
+            #[cfg(test)]
+            panel_cursor: Default::default(),
         }
     }
 
@@ -458,5 +467,7 @@ impl Inbox {
     }
 }
 
+#[cfg(test)]
+mod panel_tests;
 #[cfg(test)]
 mod tests;
