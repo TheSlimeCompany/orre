@@ -7,8 +7,8 @@ see where your money goes, and talk to your data through any MCP-capable AI clie
 
 Status legend: ✅ done · 🚧 in progress · ⬜ not started
 
-Tasks are numbered `<milestone>.<n>` (e.g. `M1.3`, `D2.4`; `L` for Later) so they can be
-referenced. Numbers are stable: append new tasks rather than renumbering.
+Tasks are numbered `<milestone>.<n>` (e.g. `M1.3`, `D2.4`; `L` for Later, `R` for the
+architecture review, `U` for the UI review) so they can be referenced. Numbers are stable: append new tasks rather than renumbering.
 
 Each milestone ends with something usable, and has explicit exit criteria.
 
@@ -985,6 +985,179 @@ Every tool call appears in the access log.
 
 **Exit criteria:** day-to-day use (import, categorize, split, link refunds, review the inbox
 and duplicates) without the CLI.
+
+---
+
+## Architecture review — findings ⬜
+
+From an adversarial review of `ARCHITECTURE.md` and `docs/architecture/` on 2026-11-17.
+Not a milestone: the items cut across M1–M3's code and are ordered by severity. R.1–R.5
+should land before the open-source release (M5). "Docs only" means the finding was read
+from the decision records and not yet confirmed in the code, so confirm it first. An item
+that changes a decision needs a new decision record in its topic file.
+
+**High**
+
+- ⬜ R.1 Approval is reachable by the agents it contains. `coffer inbox approve <id>…` takes
+  no confirmation and has no terminal check (`crates/app/src/cli/inbox.rs`, `ApproveArgs`),
+  and Claude Code and Codex have a shell by default, so an injected agent can file a
+  suggestion and approve it. Require an interactive terminal for `inbox approve`,
+  `categorize` and `ai-access enable` (and whatever else changes data or access as the
+  user), or say in the invariant that containment depends on the client having no shell.
+  Decision record in `mcp.md`; update `mcp-setup.md`
+- ⬜ R.2 `list_reports` leaks across access levels. It is an `aggregate` tool and returns
+  every client's report bodies (`crates/mcp/src/tools/catalog.rs`), so a `standard`
+  client's review, with merchant names and bank text, reaches an `aggregate` client, and
+  one client can plant text for another. Return only the caller's own reports, or record
+  the author's level on the report (a migration) and filter on it. Add the case to the
+  tool × level matrix
+- ⬜ R.3 A source ID is trusted with no content check. A row with an ID never matches by
+  fingerprint, and near-duplicate review skips imported pairs with identical text
+  (`crates/core/src/duplicate.rs`), so a bank that regenerates `FITID`s on each download,
+  or a file imported again through a mapping without its ID column, duplicates every
+  overlapping row without a flag; only a balance check would notice, and Monzo-style
+  exports have none. When a new row's ID is unknown, look for a stored row on the account
+  with the same date, amount and normalised text from another batch, and queue the pair as
+  a duplicate candidate (a new `reason`) or flag it in the preview. Fixture rows for both
+  cases
+- ⬜ R.4 A bank's correction has no way in. The same source ID with a new amount or date
+  (tips, fuel holds, settled FX) is flagged `SourceIdConflict` and left out
+  (`crates/core/src/import.rs`); source fields are immutable, so the stored row stays
+  wrong, and the only remedy is undoing the whole batch with every user edit on it.
+  Decide a "superseded" resolution: exclude the old row with its own reason and import the
+  new one, moving the user's fields across as a duplicate merge does, as one undoable
+  batch. Overlaps L.21 (pending → posted): decide them together
+- ⬜ R.5 Editing a preset changes dedupe identity without a word (docs only). The
+  fingerprint depends on which columns a preset joins into the description, its date
+  format and whether it maps an ID column, but presets have no version and only the
+  fingerprint's format is frozen by a test. Add a golden test per bundled preset fixture
+  that freezes each row's external ID and fingerprint, and write the rule into
+  `presets/README.md`: a change that moves either needs a new preset ID
+
+**Medium**
+
+- ⬜ R.6 Merchant names are untrusted text outside the envelope. At `standard`,
+  `Call::merchant` (`crates/mcp/src/registry.rs`) strips invisible characters and runs
+  the instruction check, but the field is unlabelled, has no length cap and its domains
+  aren't made inert; the merchant falls back to the raw description, and a payer chooses
+  an incoming transfer's name. Run it through the same sanitising as
+  `description_untrusted` and mark it untrusted in the output, or reword the invariant
+  ("raw text only in `description_untrusted`")
+- ⬜ R.7 `pseudonymous` promises more than it gives (docs only). Stable tokens beside exact
+  amounts, dates and categories re-identify most merchants (a monthly £10.99 under
+  subscriptions), and account names show at this level although they are hidden at
+  `aggregate` because a name can name a person. Either say plainly in `mcp.md`, the
+  Settings copy and `mcp-setup.md` what the level does and doesn't protect, or tighten it
+  (account labels instead of names, coarser amounts)
+- ⬜ R.8 The lock has no single definition (docs only). It "guards balances only", yet any
+  exclusion in a change batch is refused for changing "reported totals", category edits
+  (which change totals too) are allowed, a single-row non-duplicate exclusion is allowed,
+  and a manual row's merchant edit is refused though it moves no balance. Choose one
+  meaning, derive each guard from it in one decision record in `links-and-checks.md`,
+  and change the guards that don't follow
+- ⬜ R.9 Two net worths. The accounts panel leaves out an account with no stated balance
+  (`reporting::account_tree`); `net_worth_history` sums it from zero and marks it
+  `unanchored` (`reporting::net_worth`). Pick one rule for both before M4.5
+- ⬜ R.10 "Transfer" has two sources of truth (docs only): a category of kind `transfer` and
+  a confirmed pair. A suggested pair counts as income and as spending until confirmed, and
+  the table doesn't mark it ("transfer-pair confirmation (built)", point 10), so reports
+  are overstated by default. Mark suggested pairs in the table, decide whether rules skip
+  confirmed legs ("what a transaction can take", point 4), and say how the two mechanisms
+  relate
+- ⬜ R.11 Category keys are "forever" but can be reused (docs only). A deleted category's
+  key is free again and user keys share the key space with future defaults, so a preset's
+  key or a later default can land on an unrelated user category of another kind. Keep
+  deleted keys taken (a tombstone) or give user keys their own prefix; a migration either
+  way
+- ⬜ R.12 Backups keep deleted data with no end (docs only). One automatic backup a month is
+  kept forever and manual ones are never deleted, all unencrypted, so a deleted report or
+  an undone import stays on disk; `mcp.md` F.5's "until they rotate out" isn't true of the
+  monthly ones. Decide a cap or an age limit and show the total size in Settings. User
+  presets live outside the database, so a restore or a move to another computer can leave
+  `account.preset_id` naming nothing: include them in backups or say so
+- ⬜ R.13 A file imported into the wrong account isn't noticed. The OFX account ID is parsed
+  and thrown away, so nothing warns when account A's file goes into account B. Store a
+  keyed hash of it per account (never the number) and warn in the preview when it differs
+- ⬜ R.14 Performance is unmeasured (docs only). Accounts and Inbox read on the main thread,
+  the Inbox runs a rolled-back approval for each pending suggestion when it opens (up to
+  200 per client), `rule::overview` evaluates every rule over every transaction on each
+  reload, and every MCP read is also a synced write to the access log. Measure on a large
+  synthetic ledger first (L.30), then move what is slow off the main thread
+
+**The documents**
+
+- ⬜ R.15 A current-state reference section for the eight topics that are decision records
+  only (accounts, transactions, rules, links and review queues, inbox, reporting,
+  settings and backups, the app), so the rule in force can be read without following
+  amendments across files; the records stay as the history
+- ⬜ R.16 Stale reference text: `data-model.md` lacks `category.hidden` (V18) and the
+  `links` change field (V17), and its migration list stops at V16; `ARCHITECTURE.md`'s
+  command list leaves out `accounts`, `undo-import`, `inbox`, `categorize`, `ai-access`,
+  `budgets` and `schedules`; the Platforms row says "Windows compiles in CI" and there is
+  no CI yet (M5.5); `reporting.md` cites "Inbox impact preview, point 1" for applying a
+  rule to history, which is "Inbox", point 2
+- ⬜ R.17 `AGENTS.md`'s invariant says no names in MCP output, while `mcp.md` A.1 accepts a
+  person's name at `standard`. Reword the invariant to match the decision
+
+**Exit criteria:** every item is fixed, or closed by a decision record that says why it
+stays as it is.
+
+---
+
+## UI review — agent-readable views and keyboard paths ⬜
+
+From reviewing Vercel's UI SDK against Coffer on 2026-11-17 (UI SDK itself is web-only
+and isn't used). Three ideas apply: views that state their contents and actions as data
+instead of pixels, behaviours kept apart from their looks, and a keyboard path for every
+drag. Not a milestone. Order: U.1 with U.4, then U.6. New UI is drawn in Paper first.
+
+**Views that describe themselves**
+
+- ⬜ U.1 A test-only `describe()` on the Inbox: its rows (label, category, amount), the
+  selection, the open dialog and the actions available (Approve, Reject, ↑↓), as plain
+  data, compiled for tests only. Untrusted text goes through `envelope::shown` as the view
+  shows it. Move a few `crates/app/src/inbox/tests.rs` tests onto it, so they assert on
+  what the view shows instead of its internals. The pilot: it decides whether U.2–U.3
+  follow
+- ⬜ U.2 Transactions' `describe()`, replacing the hand-written read-backs
+  (`transactions/write_tests.rs`: `said()`, `Shown`) and their copies in other tests
+- ⬜ U.3 `describe()` on Checks, Rules, Settings and Accounts, in that order, each with its
+  tests moved onto it
+- ⬜ U.4 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`) and a
+  line under `AGENTS.md` → Invariants, before U.1 lands: `describe()` and any path that
+  runs a view's actions exist only in tests or a dev feature, never in the release binary
+  and never reachable from `coffer mcp`. A tool that could press Approve would get round
+  "MCP writes go to the inbox only" and approval in Coffer's own UI. L.7's in-GUI MCP
+  falls under the same record
+- ⬜ U.5 Later, only if U.1–U.3 earn it: a dev-feature-only local socket so an agent can
+  drive a dev build through `describe()` and its actions, against a scratch
+  `COFFER_DATA_DIR`, to check a UI change in the running app instead of reporting it as
+  build-verified. Never against the real database
+
+**Behaviours apart from looks**
+
+- ⬜ U.6 One shared list behaviour in `ui::`. ↑↓ is bound separately in nine places
+  (`transactions.rs`, `accounts.rs`, `inbox.rs`, `checks.rs`, `rules.rs`, `settings.rs`
+  twice, `ui/menu.rs`, `showcase.rs`), each with its own selection code. The behaviour
+  owns the bindings, the selection and scrolling it into view (Home/End and page keys if
+  wanted); each view keeps its look. No visual change. It's also where `describe()` reads
+  the selection and actions from
+- ⬜ U.7 Decision keys as data: A / R in the Inbox and M / N / ←→ in Checks declared as
+  (key, action, label) once, so `describe()` lists them and the `ui::kbd` hints come from
+  the same place and can't drift. Paper first if the hints change
+
+**A keyboard path for every drag**
+
+- ⬜ U.8 Reorder rules from the keyboard: the Rules table is drag-only
+  (`rules/table.rs`, `on_drag`/`on_drop`). ⌥↑ / ⌥↓ on the selected rule through the same
+  `Rules::write` pipeline (undoable), and a line saying where it went ("Moved 'Tesco →
+  Groceries' to position 3 of 12"). Keys, wording and placement in Paper first
+- ⬜ U.9 Audit for other pointer-only actions (drag-only or hover-only) across the views:
+  a list first, then a keyboard path for each, designed in Paper where it shows. Dropping
+  a file already has ⌘I
+
+**Exit criteria:** U.4 is recorded; the Inbox tests run on `describe()` and U.2–U.3 are
+done or closed by a note saying why not; every drag in the app has a keyboard path.
 
 ---
 
