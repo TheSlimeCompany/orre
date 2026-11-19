@@ -5,7 +5,9 @@
 //! everything else (`category.key` in the schema). Keys are one or two
 //! segments of lowercase ASCII letters, digits and `_`, joined by a dot:
 //! `transfer`, `food.groceries`. The second segment is a subcategory of the
-//! first, matching the two-level category tree.
+//! first, matching the two-level category tree. A key the user creates has a
+//! part starting with `u_` (defaults never do), and a deleted category's key
+//! is retired and never handed out again (`category_key_retired`, V22).
 //!
 //! Every new database starts with [`DEFAULT_CATEGORIES`]
 //! (`migrations/V2__default_categories.sql`). [`CategoryTree`] is what a
@@ -36,7 +38,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 pub use defaults::{DEFAULT_CATEGORIES, DefaultCategory, default_category};
 pub use edit::{
     CategorySummary, CategoryUsage, Error, GroupOverview, NewCategory, Placement, add, delete,
-    derive_key, overview, rename, set_hidden, usage,
+    derive_key, is_retired, overview, rename, retired_keys, set_hidden, usage,
 };
 
 use crate::rule::UnknownKey;

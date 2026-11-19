@@ -18,7 +18,7 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
   `-- coffer: foreign_keys=off` and checks them before it commits (R.4);
   `db/superseded_tests.rs` covers V21.
 - Migrations in `crates/core/migrations/`: `V1__initial_schema.sql` (M1.4) to
-  `V21__superseded.sql`. Each feature below names the migration it added.
+  `V23__account_source_identity.sql`. Each feature below names the migration it added.
 - `money`: `Currency`, `Money`, exact decimal parsing (M1.5).
 - `statement`: the normalized import output, `Statement`, `StatementLine`, flagged rows
   (M1.6).
@@ -45,6 +45,11 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
 - `import/supersede.rs`: the bank's corrections (R.4, `V21__superseded.sql`): which stored
   row a file row corrects or why it can't, superseding it in the commit and carrying the
   user's fields across; `import/correction_tests.rs`.
+- `import/source_identity.rs`: a file's account number as a keyed hash (R.13,
+  `V23__account_source_identity.sql`, `setting::IMPORT_ACCOUNT_KEY`): the wrong-account
+  warning (`ImportPreview::source_account_mismatch`), learnt on commit, forgotten on undo;
+  `import/source_identity_tests.rs`. The number is `statement::SourceAccountNumber`,
+  in memory only, `Debug` redacted.
 - `removal` (crate-private): undo and manual deletes go through it. It dissolves transfer
   groups, clears every row that refers to a transaction (checked against the schema's
   foreign keys by a test), then deletes. A row a removed row superseded is restored
@@ -60,7 +65,9 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
   and whether it still needs one, `needs_category` (read by
   `RegisterRow::is_uncategorised` and the import summary's count).
 - `category/edit.rs`: `category::{add, rename, set_hidden, delete, usage, overview,
-  derive_key}`, the categories editor's core (M3.7, `V18__category_hidden.sql`).
+  derive_key, retired_keys}`, the categories editor's core (M3.7,
+  `V18__category_hidden.sql`). New user keys get a `u_` part, and a deleted key is
+  retired for good (R.11, `V22__category_key_retired.sql`).
 
 ### Rules and merchant names
 
@@ -130,7 +137,8 @@ M1.20–M1.27 have no CLI commands yet.
   is `inbox::preview` (`describe`, `preview`, `covered_by`).
 - `envelope`: the untrusted-text envelope, `sanitize`, `strip_invisible`,
   `reads_like_instructions`, merchant pseudonyms (M2.13); `envelope::shown`.
-- `setting`: the kill switch, the pseudonym key, the window state
+- `setting`: the kill switch, the pseudonym key, the import's account key (R.13), the
+  window state
   (`setting::WindowState`).
 - `mcp_client`: enable, level, revoke, ignore, `requested`; `enable_at`,
   `turn_off`/`turn_on` (keeping the level) and `remove` (M3.15). `V11__mcp.sql`.
@@ -140,7 +148,8 @@ M1.20–M1.27 have no CLI commands yet.
 
 ### Backups and export
 
-- `backup`: `VACUUM INTO` snapshots in `<data dir>/backups`, rotation, checked restore;
+- `backup`: `VACUUM INTO` snapshots in `<data dir>/backups`, rotation (`KEEP_RECENT`, and
+  one a month for `KEEP_MONTHS`, R.12), `delete`, `total_size`, checked restore;
   taken before import commits and migrations (M1.28). `backup::restoring`, the restore
   lock; `backup::gate`, the one way every per-call open checks it, before and after
   opening. `backup::detail`: what a backup holds (read `immutable`), reasons, "since",
@@ -297,13 +306,15 @@ per call through its own store and changes data only through core.
 - `settings/`: `SettingsView` (every change through `store::SettingsStore`), the panel,
   `clients` (kill switch, clients, requests, the client inspector), `log` (the access log
   and call inspector; never the result hash), `backups` (list, Back up now, the backup
-  inspector), the `enable`, `remove`, `restore` (checks shown one by one, then
-  `backup::restore` on a background thread) and `export` dialogs, and `fixture`.
+  inspector, the total, Delete backup…), the `enable`, `remove`, `restore` (checks shown
+  one by one, then `backup::restore` on a background thread), `delete` (R.12) and
+  `export` dialogs, and `fixture`.
 
 ### CLI (M1.18)
 
 `coffer_app::cli`: `import` (bundled and saved presets), `accounts` (`list`, `add`,
-`--preset`, `close`, `reopen`), `undo-import`, `backup` (`--list`), `restore <file>
+`--preset`, `close`, `reopen`), `undo-import`, `backup` (`--list`, `--delete <file>
+[--yes]`), `restore <file>
 [--yes]`, `export --format csv|json`, `mcp --client <name>`, `ai-access` (`list`,
 `enable`, `level`, `revoke`, `ignore`, `off`, `on`, `log`), `budgets` (`list`, `set`,
 `remove`), `schedules` (`detect`, `list`, `show`, `confirm`, …), `inbox` (`list`,

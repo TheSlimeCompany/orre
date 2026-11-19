@@ -205,6 +205,55 @@ fn yes_names_everything_it_accepts() {
     }));
 }
 
+/// A file for an account number the account hasn't had (R.13): the preview
+/// and `--dry-run` warn, naming the account the number belongs to; importing
+/// anyway is allowed and teaches the account the number. A file whose
+/// number the account has had, or one with no history, doesn't warn.
+#[test]
+fn a_file_for_another_account_is_warned_about() {
+    let mut scratch = Scratch::new();
+    account::create(
+        &mut scratch.db,
+        &NewAccount::new("Savings", AccountKind::Savings, Currency::GBP),
+    )
+    .unwrap();
+    // `multi-statement.ofx` statements 2 and 1: the second is Savings'.
+    let mut import = |account: &str, statement: usize, dry_run: bool| {
+        let args = ImportArgs {
+            file: fixture("multi-statement.ofx"),
+            account: Some(account.to_owned()),
+            preset: None,
+            statement: NonZeroUsize::new(statement),
+            dry_run,
+            yes: true,
+        };
+        let mut out = Vec::new();
+        run(&mut scratch.db, &scratch.presets, &args, &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    // Savings has no history, and Current's own file isn't a stranger.
+    assert!(!import("Savings", 2, true).contains("Warning:"));
+    import("Savings", 2, false);
+
+    let out = import("Current", 2, true);
+    assert!(
+        out.contains(
+            "Warning:   This file looks like it's from Savings (account 2): its account number \
+             isn't one Current has had before."
+        ),
+        "{out}"
+    );
+    assert!(out.contains("Dry run: nothing was written."), "{out}");
+    // The number is never printed, in any spelling.
+    assert!(!out.contains("2222"), "{out}");
+
+    // Importing anyway is allowed; afterwards Current knows the number.
+    let out = import("Current", 2, false);
+    assert!(out.contains("Warning:"), "{out}");
+    assert!(out.contains("Imported multi-statement.ofx"), "{out}");
+    assert!(!import("Current", 2, true).contains("Warning:"));
+}
+
 /// `coffer undo-import` says what happens to the rows a correction
 /// replaced: undoing the correcting import brings them back, and undoing
 /// the earlier one takes them with it while the corrections stay.

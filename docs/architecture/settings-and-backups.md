@@ -63,7 +63,9 @@ Retention and location were decided by the user.
 3. **Rotation.** Automatic backups (import, migration, restore) keep the 10 most recent
    plus the newest of each earlier calendar month (UTC). Manual backups (`coffer
    backup`, "Back up now") are never deleted automatically. A failed rotation is logged
-   and doesn't fail the backup.
+   and doesn't fail the backup. *Changed 2026-11-19 (R.12):* the monthly ones are kept
+   for the 12 calendar months before the current one, not for ever, and a backup can be
+   deleted by the user ("Decision record: backup retention and presets").
 4. **When.** `import::commit` takes one before its DB transaction (`VACUUM INTO` can't run
    inside one), only when it will write: not for nothing new or a missing confirmation,
    and never for a preview or `--dry-run`. `Database::open` takes one before applying
@@ -123,6 +125,8 @@ the build. Everything else follows `DESIGN.md` → "Settings" or the records abo
    current database's). "Since this backup" counts committed imports, applied change
    batches and suggestions created after it. "Recent" and "One a month" follow
    rotation: an automatic backup outside the 10 most recent automatic ones is a month's.
+   *Changed 2026-11-19 (R.12):* the Backups screen also shows the total size and has
+   Delete backup… ("Decision record: backup retention and presets").
 6. **Restore in the app is the CLI's, with its checks shown one by one.**
    `backup::detail::assess` runs `backup::check` and sorts its answer into "the file is
    intact" (integrity) and "this version can read it" (history, schema); the dialog
@@ -144,3 +148,71 @@ the build. Everything else follows `DESIGN.md` → "Settings" or the records abo
    `refused` icon while it's off, else the fixture's "1 agent connected"; either opens
    Settings → AI clients. The rest of the status bar is still fixture data (it reads the
    database since 2026-11-17: "the status bar reads the database").
+
+### Decision record: backup retention and presets (2026-11-19)
+
+R.12 (the architecture review: backups kept deleted data with no end, and user presets
+aren't in them). Marked **(user)**: decided by the user on 2026-11-19; the rest is
+**(composed)** from the existing specs and records. Supersedes "Decision record: local
+backups" point 3 (rotation) and adds to point 5 of "Settings, AI access and backups
+(built)" (the Backups screen).
+
+1. **Monthly backups are kept for 12 months (user).** Automatic backups (import,
+   migration, restore) keep the 10 most recent (`KEEP_RECENT`) plus the newest of each of
+   the 12 calendar months (UTC) before the current one (`KEEP_MONTHS`: at 19 Nov 2026,
+   November 2025 to October 2026). Older monthly backups are deleted at the next
+   rotation, which runs after each automatic backup; the current month's backups count
+   only among the 10. Months are counted from the file name's time, so a year with gaps
+   keeps what falls in the window and nothing else.
+2. **Manual backups are kept until the user deletes them (user).** Rotation never
+   selects one and never counts one. So a deleted report, an undone import or a
+   removed account can stay on disk in a manual backup, and in an automatic one for up to
+   12 months plus; `docs/architecture/mcp.md` F.5 says so. Backups are unencrypted
+   (unchanged), so deleting is the way to get rid of what they hold.
+3. **Settings shows the total size, and a backup can be deleted (user).** The Backups
+   screen shows "13 backups · 4.2 MB in total" under the table (**composed**: a mono
+   line in `text-secondary` above the existing caption), and the toolbar caption now
+   reads "Taken before every import, restore and update · the last 10 and one a month for
+   a year are kept" (**composed**), with "Backups you take yourself stay until you delete
+   them." first in the caption under the table. The inspector ends
+   with "Delete backup…" (`DestructiveCompact`, as "Remove client…"; **composed**) for any
+   backup, manual or automatic, which opens a destructive confirmation (**composed**
+   from the dialog spec, as the Remove client dialog): "Delete the backup from 10 Nov,
+   14:02?", "The file is deleted for good, not moved to the trash, and can't be undone."
+   (a manual one adds that Coffer would have kept it), Cancel / "Delete backup"
+   (`DestructiveSolid`). A notification says "Deleted the backup · 4.2 MB". The shell opens it
+   (`SettingsEvent::DeleteRequested`, `settings/delete.rs`), as it opens Settings' other
+   dialogs.
+4. **`backup::delete` only deletes a backup (composed).** `backup::delete(db_path,
+   name_or_path)` accepts a file name, or a path whose folder is the backups directory;
+   the name must parse as a backup (`parse_file_name`) and the entry be a regular file
+   (a directory or a symlink with a backup name is refused). Anything else, including a
+   backup-named file in another folder or `..`, is `Error::NotABackup` and nothing is
+   touched. `backup::total_size` adds the sizes.
+5. **`coffer backup --delete <FILE>` (composed).** It lists nothing new: `coffer backup
+   --list` shows the total after the table, and `--delete` names a backup by file name or
+   path. Without `--yes` it says which backup and deletes nothing; with `--yes` it deletes
+   it. With `--yes` it needs an interactive terminal, like the other commands that act as
+   the user (`cli/terminal.rs`; `mcp.md`, "Decision record: approval needs the user's
+   terminal"), so a client with a shell can't remove the user's backups; the preview
+   doesn't.
+6. **User presets aren't in backups, and the app says so (user).** User presets
+   (`<data dir>/presets`, `paths::presets_dir`) are files outside the database, so a
+   backup holds neither them nor the preset a restore needs, and a restore doesn't touch
+   them; moving to another computer with a backup leaves `account.preset_id` naming
+   nothing there. Said in three places: this record, the Restore dialog (a caption: "Your
+   own bank presets aren't in backups, so restoring doesn't change them. An account whose
+   preset isn't on this computer asks for its columns again at the next import.") and
+   `coffer restore`'s check output (the same, with the folder). Not added to backups: the
+   backup is one SQLite file, and copying the presets folder is a file copy the user can
+   do.
+7. **An account's missing preset shows as missing (user).** The accounts inspector's
+   Preset row shows a preset this computer has neither bundled nor saved as "`<id>` ·
+   not on this computer" (**composed**), not the bare ID. The import already copes: the
+   app's import (`import::session`) uses an account's preset only when `Presets::get`
+   finds it, else detects one from the file's header or suggests a mapping from it, so
+   an account with a missing preset imports as one with none. `coffer import` doesn't
+   read `account.preset_id` at all; it takes `--preset` or detects. Nothing in the
+   import was changed.
+8. **Existing old monthly backups** go at the next automatic backup's rotation, not at
+   once; nothing deletes a backup when the app starts.

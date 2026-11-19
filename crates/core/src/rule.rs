@@ -170,7 +170,9 @@ pub use apply::{
     Applied, ApplyError, ApplyPreview, BatchApplied, PlannedChange, PlannedLine, RowPlan,
     SkippedCategory, SkippedSplit, SplitSkip, Target, commit_apply, preview_apply,
 };
-pub(crate) use apply::{commit_apply_in, preview_apply_in};
+pub(crate) use apply::{
+    History, Planned, commit_planned_in, preview_apply_in, preview_apply_planned,
+};
 pub use draft::{
     Draft, DraftPreview, PreviewAfter, PreviewRow, Saved, preview_draft, preview_rows, save_draft,
 };

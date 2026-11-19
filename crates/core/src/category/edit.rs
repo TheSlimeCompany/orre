@@ -7,6 +7,15 @@
 //! - **Add**: a new group with a kind, or a subcategory under a group,
 //!   taking the group's kind. Its key comes from its label once, when it's
 //!   added ([`derive_key`]), and never follows a rename.
+//!   A key has `u_` at the start of the part the user creates, unless it
+//!   already has a `u_` part: a new group "Pets" is `u_pets`, "Snacks" under
+//!   the default `food` is `food.u_snacks`, and "Vet" under `u_pets` is
+//!   `u_pets.vet`. Defaults have no such part (a test checks), so a later
+//!   default can't take a user's key. A key is also kept after its category
+//!   is deleted (`category_key_retired`, V22), so it is never handed out
+//!   again: "taken" means a category has it now, or it is retired. Existing
+//!   user keys are never renamed. `docs/architecture/categories.md` →
+//!   "Decision record: category keys are never reused".
 //! - **Rename** changes the label only; keys and parents are read-only (V1
 //!   trigger), so moving a category between groups isn't possible.
 //! - Labels are trimmed and can't be blank, and two categories side by side
@@ -31,7 +40,7 @@
 //!
 //! Errors name categories by their labels, never by transaction text.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use rusqlite::{Connection, params};
@@ -43,6 +52,10 @@ use crate::inbox::{Payload, SuggestionKind};
 /// The key part used when a label has no ASCII letter or digit to make one
 /// from ("☕", "Café" keeps `caf`).
 const FALLBACK_KEY: &str = "custom";
+
+/// What the part of a key the user creates starts with, so that a default
+/// category, which never has a part starting with it, can't land on it.
+const USER_PREFIX: &str = "u_";
 
 /// Where a new category goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -180,7 +193,10 @@ pub enum Error {
 /// The key a category labelled `label` gets: the label's ASCII letters and
 /// digits in lower case, every other run as one `_` (none at either end),
 /// under `parent`'s key for a subcategory. When nothing is left the part is
-/// `custom`. While `taken` says a key is in use, `_2`, `_3`, … is added.
+/// `custom`. The part starts with `u_` (module docs) unless `parent` already
+/// has a `u_` part or the label's own part starts with it ("U Boat" is
+/// `u_boat`). While `taken` says a key is in use (a category has it or it is
+/// retired), `_2`, `_3`, … is added.
 pub fn derive_key(
     label: &str,
     parent: Option<&CategoryKey>,
@@ -202,6 +218,15 @@ pub fn derive_key(
     if part.is_empty() {
         part.push_str(FALLBACK_KEY);
     }
+    let has_user_part = parent.is_some_and(|parent| {
+        parent
+            .as_str()
+            .split('.')
+            .any(|part| part.starts_with(USER_PREFIX))
+    });
+    if !has_user_part && !part.starts_with(USER_PREFIX) {
+        part.insert_str(0, USER_PREFIX);
+    }
     let make = |part: &str| {
         let text = match parent {
             Some(parent) => format!("{parent}.{part}"),
@@ -217,6 +242,40 @@ pub fn derive_key(
         .map(|n| make(&format!("{part}_{n}")))
         .find(|key| !taken(key))
         .expect("some suffix is free")
+}
+
+/// Every key that can't be handed out: a category has it now, or it is
+/// retired (a category with it was deleted).
+fn taken_keys(conn: &Connection) -> rusqlite::Result<HashSet<String>> {
+    conn.prepare("SELECT key FROM category UNION SELECT key FROM category_key_retired")?
+        .query_map([], |row| row.get(0))?
+        .collect()
+}
+
+/// Whether `key` is retired: a category with it was deleted.
+pub fn is_retired(db: &Database, key: &CategoryKey) -> Result<bool, Error> {
+    Ok(db.conn().query_row(
+        "SELECT EXISTS (SELECT 1 FROM category_key_retired WHERE key = ?1)",
+        [key],
+        |row| row.get(0),
+    )?)
+}
+
+/// Every retired key, sorted: for a caller that previews [`derive_key`]
+/// outside [`add`], so its preview is the key `add` stores.
+pub fn retired_keys(db: &Database) -> Result<Vec<CategoryKey>, Error> {
+    let mut statement = db
+        .conn()
+        .prepare("SELECT key FROM category_key_retired ORDER BY key")?;
+    let keys = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    // A stored key passed V22's CHECK; one that doesn't parse (written
+    // outside Coffer) names nothing a new key could be.
+    Ok(keys
+        .iter()
+        .filter_map(|key| CategoryKey::new(key).ok())
+        .collect())
 }
 
 /// Adds a category (module docs) and returns it as stored.
@@ -237,8 +296,9 @@ pub fn add(db: &mut Database, new: &NewCategory) -> Result<Category, Error> {
         }
     };
     check_label_free(&tree, parent.map(Category::id), &label, None)?;
+    let taken = taken_keys(&tx)?;
     let key = derive_key(&label, parent.map(Category::key), |key| {
-        tree.get(key).is_some()
+        taken.contains(key.as_str())
     });
     tx.execute(
         "INSERT INTO category (parent_id, key, label, kind) VALUES (?1, ?2, ?3, ?4)",

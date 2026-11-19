@@ -39,13 +39,14 @@ use super::approve::{
     Applied, ApproveError, ApproveOptions, Approved, approve_in, plan_categorization,
 };
 use super::payload::{CategorizationItem, RefundLink, TransferPair};
+use super::shared::Shared;
 use super::{Payload, SuggestionId, SuggestionKind, SuggestionStatus, get_in};
 use crate::change;
 use crate::db::Database;
 use crate::id::{AccountId, TransactionId};
 use crate::link::{self, LinkKind};
 use crate::money::{Currency, Money};
-use crate::rule::{self, MatchInput, RuleAction, RuleDefinition, RuleSet};
+use crate::rule::{self, RuleAction, RuleDefinition};
 
 #[cfg(test)]
 #[path = "impact_tests.rs"]
@@ -185,6 +186,15 @@ pub struct LinkImpact {
 /// [`ApproveError::Invalid`]; a categorisation counts its missing targets
 /// instead.
 pub fn impact(db: &Database, id: SuggestionId) -> Result<Impact, ApproveError> {
+    impact_with(db, id, &Shared::default())
+}
+
+/// [`impact`], reading the ledger through `shared`.
+pub(super) fn impact_with(
+    db: &Database,
+    id: SuggestionId,
+    shared: &Shared,
+) -> Result<Impact, ApproveError> {
     let suggestion = get_in(db.conn(), id)?;
     if suggestion.status != SuggestionStatus::Pending {
         return Err(ApproveError::NotPending {
@@ -199,7 +209,7 @@ pub fn impact(db: &Database, id: SuggestionId) -> Result<Impact, ApproveError> {
         Payload::Categorization(items) => Detail::Categorization(categorization(db.conn(), items)?),
         Payload::Rule(definition) => {
             suggestion.payload.check(db.conn())?;
-            Detail::Rule(rule_impact(db, definition)?)
+            Detail::Rule(rule_impact(db, definition, shared)?)
         }
         Payload::TransferPair(pair) => {
             suggestion.payload.check(db.conn())?;
@@ -233,10 +243,23 @@ fn categorization(
     })
 }
 
-fn rule_impact(db: &Database, definition: &RuleDefinition) -> Result<RuleImpact, ApproveError> {
+fn rule_impact(
+    db: &Database,
+    definition: &RuleDefinition,
+    shared: &Shared,
+) -> Result<RuleImpact, ApproveError> {
+    let history = shared.history(db.conn())?;
+    let matched = shared.matched(db.conn(), definition)?;
     change::dry_run(db, |conn| {
         let rule = rule::create_at_in(conn, definition, 0, rule::RuleOrigin::Inbox)?;
-        let preview = rule::preview_apply_in(conn, rule)?;
+        let preview = rule::preview_apply_planned(
+            conn,
+            rule,
+            rule::Planned {
+                history,
+                matched: &matched,
+            },
+        )?;
 
         let is_category = |target: &rule::Target| {
             matches!(
@@ -259,44 +282,20 @@ fn rule_impact(db: &Database, definition: &RuleDefinition) -> Result<RuleImpact,
         }
 
         let spending = sets_spending(conn, definition)?;
-        let rules = RuleSet::load(conn)?;
-        let mut matches = 0;
+        // The rows the rule matches, whether or not it wins a field there.
+        let matches = matched.len();
         let mut merchants = HashSet::new();
         let mut moves_income = false;
-        let mut statement = conn.prepare(
-            "SELECT t.account_id, t.amount_minor, t.merchant, t.description_raw, \
-             t.source_category, t.source_type, t.merchant_display, c.kind \
-             FROM \"transaction\" t LEFT JOIN category c ON c.id = t.category_id ORDER BY t.id",
-        )?;
-        let mut rows = statement.query([])?;
-        while let Some(row) = rows.next()? {
-            let merchant: Option<String> = row.get(2)?;
-            let description: String = row.get(3)?;
-            let source_category: Option<String> = row.get(4)?;
-            let source_type: Option<String> = row.get(5)?;
-            let input = MatchInput {
-                account_id: row.get(0)?,
-                amount_minor: row.get(1)?,
-                merchant: merchant.as_deref(),
-                description: &description,
-                source_category: source_category.as_deref(),
-                source_type: source_type.as_deref(),
-            };
-            if rules.evaluate_rule(rule, &input).is_none() {
-                continue;
-            }
-            matches += 1;
-            if let Some(name) = row.get::<_, Option<String>>(6)? {
+        for position in matched.iter() {
+            let row = &history.rows()[*position];
+            if let Some(name) = row.display() {
                 merchants.insert(name);
             }
-            let kind: Option<String> = row.get(7)?;
             moves_income |=
-                spending && (input.amount_minor > 0 || kind.as_deref() == Some("income"));
+                spending && (row.amount_minor() > 0 || row.category_kind() == Some("income"));
         }
-        drop(rows);
-        drop(statement);
 
-        let history_blocked = rule::commit_apply_in(conn, &preview, &BTreeSet::new())
+        let history_blocked = rule::commit_planned_in(conn, &preview, &BTreeSet::new())
             .err()
             .map(|error| ApproveError::from(error).to_string());
         Ok(RuleImpact {

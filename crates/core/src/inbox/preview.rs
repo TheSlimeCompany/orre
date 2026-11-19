@@ -54,9 +54,10 @@ use chrono::NaiveDate;
 use regex::{Regex, RegexBuilder};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::approve::{Applied, ApproveError, ApproveOptions, approve_in};
-use super::impact::{Detail, Impact, impact};
+use super::approve::{Applied, ApproveError, ApproveOptions, approve_in, approve_in_with};
+use super::impact::{Detail, Impact, impact_with};
 use super::payload::{CategorizationItem, Target};
+use super::shared::Shared;
 use super::{Error, Payload, Suggestion, SuggestionId, SuggestionKind, SuggestionStatus, get_in};
 use crate::category::assign::{self, NoOwnCategory};
 use crate::category::{CategoryKey, CategoryKind};
@@ -66,7 +67,7 @@ use crate::id::{AccountId, RuleId, SplitId, TransactionId};
 use crate::merchant::{self, AliasDefinition, AliasSet};
 use crate::money::{Currency, Money};
 use crate::reporting::{Basis, Ledger, Period, Side, Tally};
-use crate::rule::{self, MatchField, MatchInput, MatchKind, Pattern, RuleDefinition, RuleSet};
+use crate::rule::{self, MatchField, MatchInput, MatchKind, Pattern, RuleDefinition};
 
 #[cfg(test)]
 #[path = "preview_tests.rs"]
@@ -324,13 +325,6 @@ fn transaction(conn: &Connection, id: TransactionId) -> rusqlite::Result<Option<
         .optional()
 }
 
-/// Every transaction, newest first.
-fn all_transactions(conn: &Connection) -> rusqlite::Result<Vec<TransactionRef>> {
-    conn.prepare(&format!("{TRANSACTION} ORDER BY t.date DESC, t.id DESC"))?
-        .query_map([], read_transaction)?
-        .collect()
-}
-
 fn item_ref(conn: &Connection, item: &CategorizationItem) -> rusqlite::Result<ItemRef> {
     let transaction = match item.target {
         Target::Transaction(id) => transaction(conn, id)?,
@@ -558,9 +552,27 @@ pub struct Preview {
 
 /// What approving pending suggestion `id` would change now, row by row
 /// (module docs). Reads only: whatever it runs is rolled back. Fails as
-/// [`impact`] fails.
+/// [`super::impact`] fails.
 pub fn preview(db: &Database, id: SuggestionId) -> Result<Preview, ApproveError> {
-    let impact = impact(db, id)?;
+    preview_with(db, id, &Shared::default())
+}
+
+/// [`preview`] of each of `ids`, in order, each with its own result. Reads
+/// the ledger once for all of them, so it is far cheaper than calling
+/// [`preview`] for each when rules and merchant names are among them (what
+/// the Inbox does for every pending suggestion). The same previews.
+pub fn preview_all(
+    db: &Database,
+    ids: &[SuggestionId],
+) -> Vec<(SuggestionId, Result<Preview, ApproveError>)> {
+    let shared = Shared::default();
+    ids.iter()
+        .map(|id| (*id, preview_with(db, *id, &shared)))
+        .collect()
+}
+
+fn preview_with(db: &Database, id: SuggestionId, shared: &Shared) -> Result<Preview, ApproveError> {
+    let impact = impact_with(db, id, shared)?;
     let suggestion = get_in(db.conn(), id)?;
     let subject = describe_in(db.conn(), &suggestion.payload)?;
     let mut preview = Preview {
@@ -581,8 +593,8 @@ pub fn preview(db: &Database, id: SuggestionId) -> Result<Preview, ApproveError>
     };
     match &suggestion.payload {
         Payload::Categorization(_) => categorization(db, id, &mut preview)?,
-        Payload::Rule(definition) => rule_preview(db, id, definition, &mut preview)?,
-        Payload::MerchantAlias(alias) => alias_preview(db, id, alias, &mut preview)?,
+        Payload::Rule(definition) => rule_preview(db, id, definition, &mut preview, shared)?,
+        Payload::MerchantAlias(alias) => alias_preview(db, id, alias, &mut preview, shared)?,
         Payload::TransferPair(_) => preview.transfer = transfer_effect(db, id, &preview.subject)?,
         Payload::RefundLink(_) => link_effect(db, id, &mut preview)?,
     }
@@ -629,7 +641,7 @@ fn categorization(
         .filter_map(|item| item.transaction.as_ref().map(|row| row.id))
         .collect();
     preview.lines = lines;
-    if let Some(approval) = approval(db, id, &touched)? {
+    if let Some(approval) = approval(db, id, &touched, None)? {
         preview.spending = spending_changes(conn, &approval.change)?;
     }
     Ok(())
@@ -640,7 +652,14 @@ fn rule_preview(
     id: SuggestionId,
     definition: &RuleDefinition,
     preview: &mut Preview,
+    shared: &Shared,
 ) -> Result<(), ApproveError> {
+    let history = shared.history(db.conn())?;
+    let matched_rows = shared.matched(db.conn(), definition)?;
+    let planned = rule::Planned {
+        history,
+        matched: &matched_rows,
+    };
     let rules = rule::load_all(db.conn()).map_err(ApproveError::from)?;
     preview.before_rule = rules.first().map(|stored| stored.definition().clone());
     let by_id: HashMap<RuleId, RuleDefinition> = rules
@@ -649,30 +668,26 @@ fn rule_preview(
         .collect();
 
     let matched = change::dry_run(db, |conn| -> Result<Vec<Line>, ApproveError> {
-        let rows = all_transactions(conn)?;
         let rule_id = rule::create_at_in(conn, definition, 0, rule::RuleOrigin::Inbox)?;
-        let plan = rule::preview_apply_in(conn, rule_id)?;
-        let set = RuleSet::load(conn)?;
+        let plan = rule::preview_apply_planned(conn, rule_id, planned)?;
         let skipped: HashSet<TransactionId> = plan.split_rows.iter().copied().collect();
         let plans: HashMap<TransactionId, &rule::RowPlan> =
             plan.rows.iter().map(|row| (row.transaction, row)).collect();
-        let raw = raw_text(conn)?;
-        let mut lines = Vec::new();
-        for row in rows {
-            let Some((merchant, source_category)) = raw.get(&row.id) else {
+        // The rows it matches, as the whole list would hold them.
+        let mut found: Vec<(NaiveDate, TransactionId)> = matched_rows
+            .iter()
+            .map(|position| {
+                let row = &history.rows()[*position];
+                (row.date(), row.id())
+            })
+            .collect();
+        // Newest first, as the whole list was read.
+        found.sort_by_key(|row| std::cmp::Reverse(*row));
+        let mut lines = Vec::with_capacity(found.len());
+        for (_, id) in found {
+            let Some(row) = transaction(conn, id)? else {
                 continue;
             };
-            let input = MatchInput {
-                account_id: row.account,
-                amount_minor: row.amount.minor(),
-                merchant: merchant.as_deref(),
-                description: &row.bank_text,
-                source_category: source_category.0.as_deref(),
-                source_type: source_category.1.as_deref(),
-            };
-            if set.evaluate_rule(rule_id, &input).is_none() {
-                continue;
-            }
             let plan = plans.get(&row.id);
             let after = match plan.and_then(|plan| category_change(plan)) {
                 Some((_, true)) => After::Stays,
@@ -721,7 +736,7 @@ fn rule_preview(
         .count();
     // Applying the rule changes only rows it matches.
     let touched: Vec<TransactionId> = matched.iter().map(|line| line.transaction.id).collect();
-    if let Some(approval) = approval(db, id, &touched)? {
+    if let Some(approval) = approval(db, id, &touched, Some(planned))? {
         preview.settles = approval.settled;
         preview.spending = spending_changes(db.conn(), &approval.change)?;
     }
@@ -730,18 +745,6 @@ fn rule_preview(
     }
     preview.lines = listed(matched);
     Ok(())
-}
-
-/// The rows' bank merchant, source category and source type, which rules
-/// match and the Inbox doesn't show.
-type RawText = HashMap<TransactionId, (Option<String>, (Option<String>, Option<String>))>;
-
-fn raw_text(conn: &Connection) -> rusqlite::Result<RawText> {
-    conn.prepare("SELECT id, merchant, source_category, source_type FROM \"transaction\"")?
-        .query_map([], |row| {
-            Ok((row.get(0)?, (row.get(1)?, (row.get(2)?, row.get(3)?))))
-        })?
-        .collect()
 }
 
 /// A row plan's category change (a category or a split) and whether it
@@ -796,6 +799,7 @@ fn approval(
     db: &Database,
     id: SuggestionId,
     touched: &[TransactionId],
+    planned: Option<rule::Planned<'_>>,
 ) -> Result<Option<Approval>, ApproveError> {
     let ledger = Ledger::new().transactions(touched.iter().copied());
     change::dry_run(db, |conn| -> Result<Option<Approval>, ApproveError> {
@@ -804,7 +808,7 @@ fn approval(
             Tally::of(&lines, Basis::Personal).map_err(ApproveError::from)
         };
         let before = tally(conn)?;
-        let Ok(approved) = approve_in(conn, id, INBOX_APPROVAL) else {
+        let Ok(approved) = approve_in_with(conn, id, INBOX_APPROVAL, planned) else {
             return Ok(None);
         };
         let after = tally(conn)?;
@@ -982,54 +986,67 @@ fn alias_preview(
     id: SuggestionId,
     alias: &AliasDefinition,
     preview: &mut Preview,
+    shared: &Shared,
 ) -> Result<(), ApproveError> {
-    let lines = change::dry_run(db, |conn| -> Result<Vec<Line>, ApproveError> {
-        let rows = all_transactions(conn)?;
-        let raw = raw_text(conn)?;
-        let Ok(approved) = approve_in(conn, id, ApproveOptions::default()) else {
-            return Ok(Vec::new());
-        };
-        let Applied::MerchantAlias {
-            alias: alias_id, ..
-        } = approved.applied
-        else {
-            return Ok(Vec::new());
-        };
-        let set = AliasSet::load(conn).map_err(ApproveError::from)?;
-        let mut names =
-            conn.prepare("SELECT merchant_display FROM \"transaction\" WHERE id = ?1")?;
-        let pattern = Pattern::new(alias.kind().match_kind(), alias.pattern()).ok();
-        let mut lines = Vec::new();
-        for row in rows {
-            let merchant = raw
-                .get(&row.id)
-                .and_then(|(merchant, _)| merchant.as_deref());
-            let Some(source) = merchant::source_text(merchant, &row.bank_text) else {
-                continue;
+    let history = shared.history(db.conn())?;
+    // The rows the alias would name, newest first, and the name each gets,
+    // read after the approval in a DB transaction that is rolled back.
+    let named = change::dry_run(
+        db,
+        |conn| -> Result<Vec<(NaiveDate, TransactionId, Option<String>)>, ApproveError> {
+            let Ok(approved) = approve_in(conn, id, ApproveOptions::default()) else {
+                return Ok(Vec::new());
             };
-            let cleaned = merchant::clean(source);
-            if set.resolve(&cleaned).alias != Some(alias_id) {
-                continue;
+            let Applied::MerchantAlias {
+                alias: alias_id, ..
+            } = approved.applied
+            else {
+                return Ok(Vec::new());
+            };
+            let set = AliasSet::load(conn).map_err(ApproveError::from)?;
+            let mut named = Vec::new();
+            let mut display =
+                conn.prepare("SELECT merchant_display FROM \"transaction\" WHERE id = ?1")?;
+            for row in history.rows() {
+                let Some(source) = merchant::source_text(row.merchant(), row.description()) else {
+                    continue;
+                };
+                let cleaned = merchant::clean(source);
+                if set.resolve(&cleaned).alias == Some(alias_id) {
+                    named.push((
+                        row.date(),
+                        row.id(),
+                        display.query_row([row.id()], |r| r.get(0))?,
+                    ));
+                }
             }
-            let name: Option<String> = names.query_row([row.id], |r| r.get(0))?;
-            let after = if row.name_kept {
-                After::Stays
-            } else if name == row.merchant {
-                After::Unchanged
-            } else {
-                After::Name(name.unwrap_or_default())
-            };
-            let highlight = pattern
-                .as_ref()
-                .and_then(|pattern| highlight(None, pattern, &row));
-            lines.push(Line {
-                transaction: row,
-                after,
-                highlight,
-            });
-        }
-        Ok(lines)
-    })?;
+            named.sort_by_key(|row| std::cmp::Reverse((row.0, row.1)));
+            Ok(named)
+        },
+    )?;
+    // What they are now: the rolled-back database is as it was.
+    let pattern = Pattern::new(alias.kind().match_kind(), alias.pattern()).ok();
+    let mut lines = Vec::with_capacity(named.len());
+    for (_, row, name) in named {
+        let Some(row) = transaction(db.conn(), row)? else {
+            continue;
+        };
+        let after = if row.name_kept {
+            After::Stays
+        } else if name == row.merchant {
+            After::Unchanged
+        } else {
+            After::Name(name.unwrap_or_default())
+        };
+        let highlight = pattern
+            .as_ref()
+            .and_then(|pattern| highlight(None, pattern, &row));
+        lines.push(Line {
+            transaction: row,
+            after,
+            highlight,
+        });
+    }
     let now: BTreeSet<&str> = lines.iter().map(|line| line.transaction.name()).collect();
     preview.names_now = match now.len() {
         0 => None,
@@ -1065,7 +1082,7 @@ fn transfer_effect(
     else {
         return Ok(None);
     };
-    let change = approval(db, id, &[outflow.id, inflow.id])?
+    let change = approval(db, id, &[outflow.id, inflow.id], None)?
         .map(|approval| approval.change)
         .unwrap_or_default();
     let income = change
@@ -1099,7 +1116,7 @@ fn link_effect(db: &Database, id: SuggestionId, preview: &mut Preview) -> Result
     let Detail::RefundLink(link) = &preview.impact.detail else {
         return Ok(());
     };
-    let change = approval(db, id, &[refund.id, purchase.id])?
+    let change = approval(db, id, &[refund.id, purchase.id], None)?
         .map(|approval| approval.change)
         .unwrap_or_default();
     let income = change
@@ -1200,10 +1217,16 @@ pub fn covered_by(db: &Database, id: SuggestionId) -> Result<Option<Covered>, Ap
             kind: Some(SuggestionKind::Rule),
         },
     )?;
+    let named = NamedRows::read(db.conn(), items)?;
     for rule in rules {
         let Payload::Rule(definition) = &rule.payload else {
             continue;
         };
+        // Approving a rule is a dry run over every transaction: only the
+        // rules that could settle it are tried.
+        if !named.could_be_settled_by(definition) {
+            continue;
+        }
         let changed = change::dry_run(db, |conn| -> Result<Option<usize>, ApproveError> {
             let Ok(approved) = approve_in(
                 conn,
@@ -1241,6 +1264,90 @@ pub fn covered_by(db: &Database, id: SuggestionId) -> Result<Option<Covered>, Ap
         }
     }
     Ok(None)
+}
+
+/// The transactions a categorisation names, as rules read them.
+struct NamedRows {
+    /// Each item's transaction and category. `None` when an item names a
+    /// split line, or a transaction that isn't there: no rule settles it.
+    items: Option<Vec<(CategoryKey, MatchRow)>>,
+}
+
+/// The fields of a transaction that rules match.
+struct MatchRow {
+    account_id: AccountId,
+    amount_minor: i64,
+    merchant: Option<String>,
+    description: String,
+    source_category: Option<String>,
+    source_type: Option<String>,
+}
+
+impl NamedRows {
+    fn read(conn: &Connection, items: &[CategorizationItem]) -> rusqlite::Result<NamedRows> {
+        let mut statement = conn.prepare(
+            "SELECT account_id, amount_minor, merchant, description_raw, source_category, \
+             source_type FROM \"transaction\" WHERE id = ?1",
+        )?;
+        let mut named = Vec::with_capacity(items.len());
+        for item in items {
+            let Target::Transaction(id) = item.target else {
+                return Ok(NamedRows { items: None });
+            };
+            let row = statement
+                .query_row([id], |row| {
+                    Ok(MatchRow {
+                        account_id: row.get(0)?,
+                        amount_minor: row.get(1)?,
+                        merchant: row.get(2)?,
+                        description: row.get(3)?,
+                        source_category: row.get(4)?,
+                        source_type: row.get(5)?,
+                    })
+                })
+                .optional()?;
+            let Some(row) = row else {
+                return Ok(NamedRows { items: None });
+            };
+            named.push((item.category.clone(), row));
+        }
+        Ok(NamedRows { items: Some(named) })
+    }
+
+    /// Whether a rule with `definition` might settle the categorisation:
+    /// it sets the category every item wants, and matches every item's
+    /// transaction (a row that isn't changed isn't settled). Settling needs
+    /// both, so a rule that fails this one doesn't.
+    fn could_be_settled_by(&self, definition: &RuleDefinition) -> bool {
+        let Some(items) = &self.items else {
+            return false;
+        };
+        let sets: Option<&CategoryKey> =
+            definition.actions().iter().find_map(|action| match action {
+                rule::RuleAction::SetCategory(key) => Some(key),
+                _ => None,
+            });
+        let Some(sets) = sets else {
+            return false;
+        };
+        let alone = rule::RuleSet::new([rule::StoredRule::unsaved(
+            RuleId::new(0),
+            definition.clone(),
+        )]);
+        items.iter().all(|(category, row)| {
+            category == sets
+                && !alone
+                    .matching(&MatchInput {
+                        account_id: row.account_id,
+                        amount_minor: row.amount_minor,
+                        merchant: row.merchant.as_deref(),
+                        description: &row.description,
+                        source_category: row.source_category.as_deref(),
+                        source_type: row.source_type.as_deref(),
+                    })
+                    .is_empty()
+        })
+    }
 }
 
 /// The pending rule suggestions from AI clients that would take over

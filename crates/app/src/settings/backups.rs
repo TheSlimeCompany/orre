@@ -11,6 +11,10 @@
 //! restoring would undo, Restore…, and its file (Show in folder, Save a
 //! copy…).
 //!
+//! R.12 adds the total size and count under the table, and "Delete
+//! backup…" at the foot of the inspector (any backup, manual or automatic),
+//! which asks first in a destructive dialog ("The file is deleted for good").
+//!
 //! Composed for M3.16 (decided with the user; not drawn): reasons name the
 //! import's file only where the current database still records it, and a
 //! restore backup reads "Before restoring a backup" (which one isn't
@@ -74,8 +78,46 @@ pub fn reason(detail: &Detail) -> Vec<table::Run> {
 
 /// The toolbar's title and caption.
 pub const TITLE: &str = "Backups";
-pub const CAPTION: &str =
-    "Taken before every import, restore and update · the last 10 and one a month are kept";
+pub const CAPTION: &str = "Taken before every import, restore and update · the last 10 and one a month for a year are kept";
+
+/// The total under the table (composed, R.12): "13 backups · 4.2 MB in
+/// total". `None` with no backups.
+pub fn total(rows: &[BackupRow]) -> Option<String> {
+    if rows.is_empty() {
+        return None;
+    }
+    let size: u64 = rows.iter().map(|row| row.backup.size).sum();
+    Some(format!(
+        "{} {} · {} in total",
+        count(rows.len() as u64),
+        plural(rows.len() as u64, "backup"),
+        file_size(size)
+    ))
+}
+
+/// The Delete backup confirmation's title: "Delete the backup from `10 Nov,
+/// 14:02`?" (composed, R.12).
+pub fn delete_title(taken: &str) -> Vec<table::Run> {
+    vec![
+        plain("Delete the backup from "),
+        mono(taken.to_owned()),
+        plain("?"),
+    ]
+}
+
+/// What the confirmation says (composed, R.12): the deletion is for good.
+pub fn delete_note(reason: Reason) -> &'static str {
+    if reason.is_automatic() {
+        "The file is deleted for good, not moved to the trash, and can't be undone."
+    } else {
+        "You took this backup yourself, so Coffer would keep it. The file is deleted for good, \
+         not moved to the trash, and can't be undone."
+    }
+}
+
+/// The inspector's note above Delete backup… (composed, R.12).
+pub const DELETE_CAPTION: &str = "Everything in a backup stays on disk until it's deleted, \
+                                  including what you've since deleted from Coffer.";
 
 /// The groups' titles.
 pub const RECENT: &str = "Recent";
@@ -329,10 +371,23 @@ impl SettingsView {
                             .when(!empty, |this| {
                                 this.border_t(size::HAIRLINE).border_color(color::HAIRLINE)
                             })
+                            .flex()
+                            .flex_col()
+                            .gap(spacing::S1)
+                            .when_some(total(&rows), |this, total| {
+                                this.child(
+                                    div()
+                                        .id("backups-total")
+                                        .text_role(typography::MONO_VALUE)
+                                        .text_color(color::TEXT_SECONDARY)
+                                        .child(total),
+                                )
+                            })
                             .child(caption(
-                                "Backups stay on this computer, next to your data and readable \
-                                 only by you. They're full copies, so keep any you move \
-                                 elsewhere as safe as your bank statements.",
+                                "Backups you take yourself stay until you delete them. Backups stay on \
+                                 this computer, next to your data and readable only by you. \
+                                 They're full copies, so keep any you move elsewhere as safe as \
+                                 your bank statements.",
                             )),
                     ),
             )
@@ -441,12 +496,21 @@ impl SettingsView {
                     ),
             );
 
+        let delete = section(None).child(caption(DELETE_CAPTION)).child(
+            div().flex().child(
+                Button::new("delete-backup", "Delete backup…")
+                    .with_variant(ButtonVariant::DestructiveCompact)
+                    .on_click(cx.listener(|this, _, _, cx| this.request_delete_selected(cx))),
+            ),
+        );
+
         Some(
             table::inspector("backup-inspector")
                 .child(header)
                 .child(details)
                 .child(restore)
                 .child(file)
+                .child(delete)
                 .into_any_element(),
         )
     }

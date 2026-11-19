@@ -28,15 +28,17 @@ async fn a_call_refused_with_migrations_pending_is_logged_after_migrating() {
 
     // As an older Coffer left it: the last migration not applied. Only its
     // history row is removed, so the server sees it as pending; applying it
-    // again must work on its own result, which holds for the latest one
-    // (V21 rebuilds `"transaction"` from whatever the table holds). A later
-    // migration that can't run twice needs its effect undone here too.
+    // again must work on its own result, so its effect is undone here too
+    // (V23 creates `account_source_identity`). A later migration needs the
+    // same.
     let conn = rusqlite::Connection::open(fixture.path()).unwrap();
     conn.execute(
         "DELETE FROM refinery_schema_history WHERE version = ?1",
         [Database::supported_schema_version()],
     )
     .unwrap();
+    conn.execute("DROP TABLE account_source_identity", [])
+        .unwrap();
     drop(conn);
     assert!(matches!(
         Database::open_existing(fixture.path()),

@@ -1774,7 +1774,7 @@ fn new_category_sections(
         .map(|group| group.group.category.clone());
     let key = (!form.name.trim().is_empty()).then(|| {
         coffer_core::category::derive_key(&form.name, group.as_ref().map(|g| g.key()), |key| {
-            data.category(key).is_some()
+            data.category(key).is_some() || data.retired_keys.contains(key)
         })
     });
     let mut sections = vec![header(window, new_category_header(&form))];

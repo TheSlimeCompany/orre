@@ -760,7 +760,7 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
         [("Create category", true)]
     );
     click("rules-create-category", cx);
-    let created = stored_category(&scratch, "food.coffee_beans").expect("created");
+    let created = stored_category(&scratch, "food.u_coffee_beans").expect("created");
     assert_eq!(created.label(), "Coffee beans");
     assert_eq!(
         created.kind(),
@@ -790,7 +790,7 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
         })
     });
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.create_category(cx)));
-    let group = stored_category(&scratch, "side_income").expect("a new group");
+    let group = stored_category(&scratch, "u_side_income").expect("a new group");
     assert!(group.is_group());
     assert_eq!(group.kind(), coffer_core::category::CategoryKind::Income);
 }
@@ -899,7 +899,11 @@ fn renaming_hiding_and_deleting_a_category_go_to_the_database(cx: &mut TestAppCo
     click("rules-delete-category", cx);
     let described = describe(&shell, cx).dialog.expect("the dialog opens");
     assert_eq!(described.title, "Delete the category “Coffee”?");
-    assert!(described.body.contains("it gets the key food.coffee"));
+    assert!(
+        described
+            .body
+            .contains("under a new key: food.u_coffee is never used again")
+    );
     assert_eq!(
         labels(&described.actions),
         [("Cancel", true), ("Delete category", true)]
@@ -908,7 +912,7 @@ fn renaming_hiding_and_deleting_a_category_go_to_the_database(cx: &mut TestAppCo
     let dialog = dialog.expect("the dialog opens");
     cx.update(|_, cx| dialog.update(cx, |dialog, cx| dialog.submit(cx)));
     redraw(cx);
-    assert!(stored_category(&scratch, "food.coffee").is_none());
+    assert!(stored_category(&scratch, "food.u_coffee").is_none());
     assert_eq!(describe(&shell, cx).dialog, None, "the dialog closes");
     assert!(matches!(
         cx.update(|_, cx| rules.read(cx).selected_category()),

@@ -32,6 +32,7 @@ const GATED: &[&[&str]] = &[
     &["undo-import", "1", "--yes"],
     &["undo-import", "1", "-y"],
     &["restore", "a.db", "--yes"],
+    &["backup", "--delete", "a.db", "--yes"],
     &["categorize", "1", "food.groceries"],
     &["ai-access", "enable", "claude-code"],
     &["ai-access", "on"],
@@ -60,6 +61,7 @@ const PREVIEWS: &[&[&str]] = &[
     &["import", "a.ofx", "--dry-run"],
     &["import", "a.ofx", "--dry-run", "--account", "1"],
     &["undo-import", "1"],
+    &["backup", "--delete", "a.db"],
     &["schedules", "delete", "1"],
     &["inbox", "delete-report", "1"],
     &["inbox", "delete-report", "--client", "claude-code"],
@@ -136,6 +138,12 @@ fn every_gated_command_is_refused_without_a_terminal() {
             .copied()
             .collect::<Vec<_>>()
             .join(" ");
+        // `backup` is gated by its flag, which the refusal names too.
+        let typed = if typed == "backup" {
+            "backup --delete".to_owned()
+        } else {
+            typed
+        };
         assert!(
             message.contains(&format!("`coffer {typed}`")),
             "{args:?}: {message}"

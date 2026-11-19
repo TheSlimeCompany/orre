@@ -84,19 +84,28 @@ fn keys_come_from_labels() {
             .as_str()
             .to_owned()
     };
-    assert_eq!(derived("Coffee", Some("food")), "food.coffee");
-    assert_eq!(derived("  Side  projects! ", None), "side_projects");
-    assert_eq!(derived("Kids' clubs & camps", None), "kids_clubs_camps");
-    assert_eq!(derived("2027 Trip", Some("travel")), "travel.2027_trip");
-    assert_eq!(derived("Café", None), "caf");
-    assert_eq!(derived("☕ ☕", None), "custom");
-    assert_eq!(derived("—", Some("food")), "food.custom");
+    assert_eq!(derived("Coffee", Some("food")), "food.u_coffee");
+    assert_eq!(derived("  Side  projects! ", None), "u_side_projects");
+    assert_eq!(derived("Kids' clubs & camps", None), "u_kids_clubs_camps");
+    assert_eq!(derived("2027 Trip", Some("travel")), "travel.u_2027_trip");
+    assert_eq!(derived("Café", None), "u_caf");
+    assert_eq!(derived("☕ ☕", None), "u_custom");
+    assert_eq!(derived("—", Some("food")), "food.u_custom");
+
+    // The `u_` part is made once: a user group's subcategories don't get a
+    // second one, and a label that already starts with it keeps it.
+    assert_eq!(derived("Pets", None), "u_pets");
+    assert_eq!(derived("Vet", Some("u_pets")), "u_pets.vet");
+    assert_eq!(derived("U Boat", None), "u_boat");
+    assert_eq!(derived("u-boat", Some("food")), "food.u_boat");
+    assert_eq!(derived("U", None), "u_u");
+    assert_eq!(derived("U_", Some("travel")), "travel.u_u");
 
     // A numeric suffix while the key is taken.
-    let taken = ["coffee", "coffee_2"].map(key);
+    let taken = ["u_coffee", "u_coffee_2"].map(key);
     assert_eq!(
         derive_key("Coffee", None, |k| taken.contains(k)).as_str(),
-        "coffee_3"
+        "u_coffee_3"
     );
 }
 
@@ -104,7 +113,7 @@ fn keys_come_from_labels() {
 fn a_new_category_takes_a_free_key_and_its_groups_kind() {
     let mut scratch = Scratch::new();
     let coffee = scratch.add("Coffee", under("food"));
-    assert_eq!(coffee.key().as_str(), "food.coffee");
+    assert_eq!(coffee.key().as_str(), "food.u_coffee");
     assert_eq!(coffee.kind(), CategoryKind::Spending);
     assert_eq!(coffee.parent_id(), Some(scratch.id("food")));
     assert!(!coffee.is_hidden());
@@ -115,24 +124,23 @@ fn a_new_category_takes_a_free_key_and_its_groups_kind() {
     // Keys are free in their own place: `groceries` as a group isn't
     // `food.groceries`.
     let pets = scratch.add("Family pets!", under("travel"));
-    assert_eq!(pets.key().as_str(), "travel.family_pets");
+    assert_eq!(pets.key().as_str(), "travel.u_family_pets");
     let groceries = scratch.add("Groceries", Placement::Group(CategoryKind::Spending));
-    assert_eq!(groceries.key().as_str(), "groceries");
+    assert_eq!(groceries.key().as_str(), "u_groceries");
     let food = scratch.add("Food!", under("other"));
-    assert_eq!(food.key().as_str(), "other.food");
+    assert_eq!(food.key().as_str(), "other.u_food");
     let isa = scratch.add("ISA", Placement::Group(CategoryKind::Transfer));
-    assert_eq!(isa.key().as_str(), "isa");
+    assert_eq!(isa.key().as_str(), "u_isa");
     assert_eq!(isa.kind(), CategoryKind::Transfer);
     assert!(isa.is_group());
-    // `transfer` is a default group's key ("Transfers"), so a new group
-    // labelled "Transfer" gets a suffix.
+    // The `u_` part keeps a new group clear of the default `transfer`.
     let transfer = scratch.add("Transfer", Placement::Group(CategoryKind::Transfer));
-    assert_eq!(transfer.key().as_str(), "transfer_2");
+    assert_eq!(transfer.key().as_str(), "u_transfer");
 
     // A label may repeat in another group ("Hobbies" is under
     // Entertainment too).
     let hobbies = scratch.add("Hobbies", under("family"));
-    assert_eq!(hobbies.key().as_str(), "family.hobbies");
+    assert_eq!(hobbies.key().as_str(), "family.u_hobbies");
 
     assert_eq!(scratch.tree().len(), DEFAULT_CATEGORIES.len() + 8);
 }
@@ -262,10 +270,10 @@ fn deleting_is_refused_while_anything_uses_the_category() {
         .conn()
         .execute(
             "UPDATE \"transaction\" SET category_id = ?1, category_source = 'user' WHERE id = ?2",
-            params![scratch.id("food.coffee"), row],
+            params![scratch.id("food.u_coffee"), row],
         )
         .unwrap();
-    let usage = in_use(&mut scratch, "food.coffee");
+    let usage = in_use(&mut scratch, "food.u_coffee");
     assert_eq!(
         usage,
         CategoryUsage {
@@ -278,7 +286,7 @@ fn deleting_is_refused_while_anything_uses_the_category() {
     // A split line.
     scratch.add("Snacks", under("food"));
     let split = scratch.row(account, -1_000);
-    for (line, minor, category) in [(1, -600, "food.snacks"), (2, -400, "food.groceries")] {
+    for (line, minor, category) in [(1, -600, "food.u_snacks"), (2, -400, "food.groceries")] {
         scratch
             .db
             .conn()
@@ -289,7 +297,7 @@ fn deleting_is_refused_while_anything_uses_the_category() {
             )
             .unwrap();
     }
-    assert_eq!(in_use(&mut scratch, "food.snacks").split_lines, 1);
+    assert_eq!(in_use(&mut scratch, "food.u_snacks").split_lines, 1);
 
     // A rule: by `set_category`, and by a split template's line.
     scratch.add("Lunch", under("food"));
@@ -302,7 +310,7 @@ fn deleting_is_refused_while_anything_uses_the_category() {
             pattern("PRET"),
             AmountBounds::ANY,
             None,
-            vec![RuleAction::SetCategory(key("food.lunch"))],
+            vec![RuleAction::SetCategory(key("food.u_lunch"))],
         )
         .unwrap(),
     )
@@ -316,8 +324,8 @@ fn deleting_is_refused_while_anything_uses_the_category() {
             None,
             vec![RuleAction::SplitTemplate(
                 SplitTemplate::new(vec![
-                    SplitLine::new(key("food.brunch"), Share::new(5_000).unwrap()),
-                    SplitLine::new(key("food.lunch"), Share::new(5_000).unwrap()),
+                    SplitLine::new(key("food.u_brunch"), Share::new(5_000).unwrap()),
+                    SplitLine::new(key("food.u_lunch"), Share::new(5_000).unwrap()),
                 ])
                 .unwrap(),
             )],
@@ -325,8 +333,8 @@ fn deleting_is_refused_while_anything_uses_the_category() {
         .unwrap(),
     )
     .unwrap();
-    assert_eq!(in_use(&mut scratch, "food.lunch").rules, 2);
-    assert_eq!(in_use(&mut scratch, "food.brunch").rules, 1);
+    assert_eq!(in_use(&mut scratch, "food.u_lunch").rules, 2);
+    assert_eq!(in_use(&mut scratch, "food.u_brunch").rules, 1);
 
     // A budget.
     scratch.add("Gym", under("health"));
@@ -336,10 +344,10 @@ fn deleting_is_refused_while_anything_uses_the_category() {
         .execute(
             "INSERT INTO budget (category_id, amount_minor, currency, rollover, group_kind) \
              VALUES (?1, 3000, 'GBP', 0, 'fixed')",
-            [scratch.id("health.gym")],
+            [scratch.id("health.u_gym")],
         )
         .unwrap();
-    assert_eq!(in_use(&mut scratch, "health.gym").budgets, 1);
+    assert_eq!(in_use(&mut scratch, "health.u_gym").budgets, 1);
 
     // A schedule.
     scratch.add("Streaming", under("bills"));
@@ -350,14 +358,14 @@ fn deleting_is_refused_while_anything_uses_the_category() {
             "INSERT INTO schedule (account_id, merchant_display, category_id, cadence, \
              start_date, amount_minor, currency, tolerance_days) \
              VALUES (?1, 'Netflix', ?2, 'monthly', '2026-11-06', -1299, 'GBP', 3)",
-            params![account, scratch.id("bills.streaming")],
+            params![account, scratch.id("bills.u_streaming")],
         )
         .unwrap();
-    let usage = in_use(&mut scratch, "bills.streaming");
+    let usage = in_use(&mut scratch, "bills.u_streaming");
     assert_eq!(usage.schedules, 1);
 
     // Each refusal says why, naming the label, not a transaction.
-    let error = delete(&mut scratch.db, &key("food.lunch")).unwrap_err();
+    let error = delete(&mut scratch.db, &key("food.u_lunch")).unwrap_err();
     assert_eq!(
         error.to_string(),
         "“Lunch” is used by 2 rules, so it can't be deleted; hide it instead"
@@ -407,7 +415,7 @@ fn pending_inbox_suggestions_that_name_a_category_keep_it() {
     let categorisation = file(
         &mut scratch,
         SuggestionKind::Categorization,
-        serde_json::json!({"items": [{"transaction_id": row, "category": "food.coffee"}]}),
+        serde_json::json!({"items": [{"transaction_id": row, "category": "food.u_coffee"}]}),
     );
     let rule = file(
         &mut scratch,
@@ -415,37 +423,37 @@ fn pending_inbox_suggestions_that_name_a_category_keep_it() {
         serde_json::json!({
             "match_field": "merchant", "match_kind": "contains", "pattern": "CAFE",
             "actions": [{"kind": "split_template", "value": [
-                {"category": "food.coffee", "basis_points": 5000},
-                {"category": "food.tea", "basis_points": 5000},
+                {"category": "food.u_coffee", "basis_points": 5000},
+                {"category": "food.u_tea", "basis_points": 5000},
             ]}],
         }),
     );
-    assert_eq!(usage_of(&scratch, "food.coffee").suggestions, 2);
+    assert_eq!(usage_of(&scratch, "food.u_coffee").suggestions, 2);
     assert_eq!(
-        usage_of(&scratch, "food.tea"),
+        usage_of(&scratch, "food.u_tea"),
         CategoryUsage {
             suggestions: 1,
             ..CategoryUsage::default()
         }
     );
-    assert!(usage_of(&scratch, "food.tea").only_suggestions());
+    assert!(usage_of(&scratch, "food.u_tea").only_suggestions());
 
     // Deleting is refused, saying where to decide them, and nothing goes.
-    let error = delete(&mut scratch.db, &key("food.tea")).unwrap_err();
+    let error = delete(&mut scratch.db, &key("food.u_tea")).unwrap_err();
     assert_eq!(
         error.to_string(),
         "“Tea” is used by 1 pending Inbox suggestion, so it can't be deleted; approve or reject \
          them in the Inbox first"
     );
-    assert!(scratch.tree().get(&key("food.tea")).is_some());
+    assert!(scratch.tree().get(&key("food.u_tea")).is_some());
 
     // Decided suggestions don't count: once both are rejected, Tea goes.
     inbox::reject(&mut scratch.db, rule, None).unwrap();
-    assert_eq!(usage_of(&scratch, "food.coffee").suggestions, 1);
-    delete(&mut scratch.db, &key("food.tea")).unwrap();
+    assert_eq!(usage_of(&scratch, "food.u_coffee").suggestions, 1);
+    delete(&mut scratch.db, &key("food.u_tea")).unwrap();
     inbox::reject(&mut scratch.db, categorisation, Some("Not coffee")).unwrap();
-    assert!(usage_of(&scratch, "food.coffee").is_unused());
-    delete(&mut scratch.db, &key("food.coffee")).unwrap();
+    assert!(usage_of(&scratch, "food.u_coffee").is_unused());
+    delete(&mut scratch.db, &key("food.u_coffee")).unwrap();
 }
 
 fn usage_of(scratch: &Scratch, text: &str) -> CategoryUsage {
@@ -456,14 +464,19 @@ fn usage_of(scratch: &Scratch, text: &str) -> CategoryUsage {
 fn an_unused_category_is_deleted() {
     let mut scratch = Scratch::new();
     scratch.add("Coffee", under("food"));
-    set_hidden(&mut scratch.db, &key("food.coffee"), true).unwrap();
-    delete(&mut scratch.db, &key("food.coffee")).unwrap();
-    assert!(scratch.tree().get(&key("food.coffee")).is_none());
+    set_hidden(&mut scratch.db, &key("food.u_coffee"), true).unwrap();
+    delete(&mut scratch.db, &key("food.u_coffee")).unwrap();
+    assert!(scratch.tree().get(&key("food.u_coffee")).is_none());
 
-    // A default nothing uses goes too, and its key is free again.
+    // A default nothing uses goes too, and its key stays taken.
     delete(&mut scratch.db, &key("food.takeaway")).unwrap();
-    let again = scratch.add("Takeaway", under("food"));
-    assert_eq!(again.key().as_str(), "food.takeaway");
+    assert!(is_retired(&scratch.db, &key("food.takeaway")).unwrap());
+    assert!(is_retired(&scratch.db, &key("food.u_coffee")).unwrap());
+    assert!(!is_retired(&scratch.db, &key("food.groceries")).unwrap());
+    assert_eq!(
+        retired_keys(&scratch.db).unwrap(),
+        [key("food.takeaway"), key("food.u_coffee")]
+    );
 
     // A group goes once its subcategories have.
     let side = scratch.add("Side projects", Placement::Group(CategoryKind::Spending));
@@ -472,7 +485,7 @@ fn an_unused_category_is_deleted() {
         delete(&mut scratch.db, side.key()),
         Err(Error::HasSubcategories { count: 1, .. })
     ));
-    delete(&mut scratch.db, &key("side_projects.tools")).unwrap();
+    delete(&mut scratch.db, &key("u_side_projects.tools")).unwrap();
     delete(&mut scratch.db, side.key()).unwrap();
     assert!(scratch.tree().get(side.key()).is_none());
     assert!(matches!(
@@ -549,6 +562,110 @@ fn the_hidden_flag_applies_to_an_existing_database() {
     assert!(
         db.conn()
             .execute("UPDATE category SET hidden = 2 WHERE key = 'food'", [])
+            .is_err()
+    );
+}
+
+#[test]
+fn a_deleted_key_is_never_handed_out_again() {
+    let mut scratch = Scratch::new();
+    let coffee = scratch.add("Coffee", under("food"));
+    delete(&mut scratch.db, coffee.key()).unwrap();
+    assert!(is_retired(&scratch.db, coffee.key()).unwrap());
+    let again = scratch.add("Coffee", under("food"));
+    assert_eq!(
+        again.key().as_str(),
+        "food.u_coffee_2",
+        "not the deleted key"
+    );
+
+    // Every delete retires the key, whichever code path made it.
+    scratch
+        .db
+        .conn()
+        .execute("DELETE FROM category WHERE key = 'food.takeaway'", [])
+        .unwrap();
+    assert!(is_retired(&scratch.db, &key("food.takeaway")).unwrap());
+    // Retiring twice is fine.
+    delete(&mut scratch.db, again.key()).unwrap();
+    let third = scratch.add("Coffee", under("food"));
+    assert_eq!(third.key().as_str(), "food.u_coffee_3");
+}
+
+#[test]
+fn new_keys_have_a_user_part_and_defaults_never_do() {
+    for default in DEFAULT_CATEGORIES {
+        assert!(
+            !default.key.split('.').any(|part| part.starts_with("u_")),
+            "{} would collide with user keys",
+            default.key
+        );
+    }
+    let scratch = Scratch::new();
+    let seeded: Vec<String> = scratch
+        .db
+        .conn()
+        .prepare("SELECT key FROM category")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(seeded.len(), DEFAULT_CATEGORIES.len());
+    assert!(
+        seeded
+            .iter()
+            .all(|key| !key.split('.').any(|part| part.starts_with("u_")))
+    );
+}
+
+#[test]
+fn user_groups_and_their_subcategories_get_one_user_part() {
+    let mut scratch = Scratch::new();
+    let pets = scratch.add("Pets", Placement::Group(CategoryKind::Spending));
+    assert_eq!(pets.key().as_str(), "u_pets", "`pets` is a default's part");
+    let vet = scratch.add("Vet", under("u_pets"));
+    assert_eq!(vet.key().as_str(), "u_pets.vet");
+    let boat = scratch.add("U Boat", Placement::Group(CategoryKind::Spending));
+    assert_eq!(boat.key().as_str(), "u_boat");
+    let snacks = scratch.add("Snacks", under("food"));
+    assert_eq!(snacks.key().as_str(), "food.u_snacks");
+}
+
+#[test]
+fn the_retired_table_applies_to_an_existing_database() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("coffer.db");
+    {
+        let db = crate::db::open_at_version(&path, 21).unwrap();
+        db.conn()
+            .execute("DELETE FROM category WHERE key = 'food.takeaway'", [])
+            .unwrap();
+    }
+    let mut db = Database::open(&path).unwrap();
+    assert_eq!(
+        db.schema_version().unwrap(),
+        Database::supported_schema_version()
+    );
+    // What was deleted before the migration left nothing behind.
+    assert!(!is_retired(&db, &key("food.takeaway")).unwrap());
+    delete(&mut db, &key("food.groceries")).unwrap();
+    assert!(is_retired(&db, &key("food.groceries")).unwrap());
+    // The schema refuses a malformed key and a bad timestamp.
+    assert!(
+        db.conn()
+            .execute(
+                "INSERT INTO category_key_retired (key) VALUES ('A.b.c')",
+                []
+            )
+            .is_err()
+    );
+    assert!(
+        db.conn()
+            .execute(
+                "INSERT INTO category_key_retired (key, retired_at) VALUES ('x', 'soon')",
+                []
+            )
             .is_err()
     );
 }

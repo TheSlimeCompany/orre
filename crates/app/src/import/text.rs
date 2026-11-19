@@ -311,6 +311,8 @@ pub enum Tone {
     Mismatch,
     /// `warning-soft`, the lock: rows in a locked period.
     Locked,
+    /// `warning-soft`, the warning triangle: a file for another account.
+    OtherAccount,
 }
 
 /// One block on the Review step.
@@ -513,6 +515,35 @@ pub fn locked(preview: &ImportPreview) -> Option<Block> {
             mono(count(others)),
             plain(" import as usual."),
         ],
+    })
+}
+
+/// The other-account block (R.13), when the file states an account number
+/// the account has never had imported into it, though it has had others or
+/// another account has had this one: a warning, not a gate. Names the account the number belongs to when
+/// another has it. Never shows the number, or any part of it.
+pub fn other_account(preview: &ImportPreview) -> Option<Block> {
+    let mismatch = preview.source_account_mismatch()?;
+    let account = &preview.account().name;
+    Some(Block {
+        tone: Tone::OtherAccount,
+        title: match &mismatch.other_account {
+            Some(other) => format!("This file looks like it’s from {}", other.name),
+            None => "This file looks like it’s from a different account".to_owned(),
+        },
+        body: vec![plain(match &mismatch.other_account {
+            Some(other) if !mismatch.account_has_others => format!(
+                "Files with this account number have gone into {}. If this is the right \
+                 account, import it anyway: {account} will recognise this file’s account \
+                 number from then on.",
+                other.name
+            ),
+            _ => format!(
+                "{account} has only had files with other account numbers. If this is the \
+                 right account, import it anyway: {account} will recognise this file’s \
+                 account number from then on."
+            ),
+        })],
     })
 }
 

@@ -82,6 +82,7 @@ use crate::rules::dialogs::{DeleteNameDialog, DeleteRuleDialog, UndoChangeDialog
 use crate::rules::store::RulesStore;
 use crate::rules::view::RulesView;
 use crate::rules::{self, Rules, RulesEvent};
+use crate::settings::delete::DeleteBackupDialog;
 use crate::settings::enable::EnableDialog;
 use crate::settings::export::ExportDialog;
 use crate::settings::remove::RemoveDialog;
@@ -315,7 +316,7 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
         ),
     };
     let inbox = match paths::database_path() {
-        Ok(database) => Inbox::from_store(InboxStore::new(database)),
+        Ok(database) => Inbox::unloaded(InboxStore::new(database)),
         Err(error) => Inbox::unavailable(format!("Coffer has no data folder: {error}")),
     };
     let checks = match paths::database_path() {
@@ -1045,6 +1046,10 @@ impl ShellView {
             }
             SettingsEvent::RestoreRequested(target) => {
                 let dialog = cx.new(|cx| RestoreDialog::new(settings, target, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            SettingsEvent::DeleteRequested(target) => {
+                let dialog = cx.new(|cx| DeleteBackupDialog::new(settings, target, window, cx));
                 self.open_dialog(dialog, window, cx);
             }
             SettingsEvent::ExportRequested => {

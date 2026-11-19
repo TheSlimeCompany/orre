@@ -289,6 +289,12 @@ impl SettingsStore {
         Ok((backup, contents))
     }
 
+    /// Deletes a backup for good ([`backup::delete`]: only a backup in the
+    /// backups directory).
+    pub fn delete_backup(&self, file: &Path) -> Result<Backup, StoreError> {
+        Ok(backup::delete(&self.database, file)?)
+    }
+
     /// The restore checks on `file`, without restoring it.
     pub fn assess(&self, file: &Path) -> Result<Assessment, StoreError> {
         Ok(detail::assess(&self.database, file)?)

@@ -231,13 +231,16 @@ pub(super) fn header_caption(node: &AccountNode, data: &AccountsData) -> HeaderC
     }
 }
 
-/// The Preset select's value.
+/// The Preset select's value: the preset's name, "No preset", or, for a
+/// preset this computer has neither bundled nor saved (user presets aren't
+/// in backups, so a restore or a move can leave one), its ID and
+/// "not on this computer" (composed, R.12).
 pub(super) fn preset_value(node: &AccountNode, data: &AccountsData) -> String {
-    node.account
-        .preset
-        .as_deref()
-        .map_or("No preset", |id| data.preset_name(id))
-        .to_owned()
+    match node.account.preset.as_deref() {
+        None => "No preset".to_owned(),
+        Some(id) if data.has_preset(id) => data.preset_name(id).to_owned(),
+        Some(id) => format!("{id} \u{b7} not on this computer"),
+    }
 }
 
 /// The balances section's title and its add button, by kind.
@@ -989,6 +992,31 @@ impl Render for AccountInspector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A preset this computer doesn't have (user presets aren't in backups)
+    /// shows as not found rather than as a bare ID (R.12).
+    #[test]
+    fn a_preset_this_computer_lacks_is_shown_as_not_found() {
+        let mut data = crate::accounts::fixture::accounts();
+        let id = data.tree.accounts[0].account.id;
+        assert_eq!(
+            data.tree.accounts[0].account.preset.as_deref(),
+            Some("uk-monzo")
+        );
+        assert_eq!(preset_value(&data.tree.accounts[0], &data), "Monzo");
+
+        data.tree.accounts[0].account.preset = Some("my-credit-union".to_owned());
+        assert_eq!(
+            preset_value(&data.tree.accounts[0], &data),
+            "my-credit-union \u{b7} not on this computer"
+        );
+        assert!(!data.has_preset("my-credit-union"));
+        assert!(data.has_preset("uk-monzo"));
+
+        data.tree.accounts[0].account.preset = None;
+        assert_eq!(preset_value(&data.tree.accounts[0], &data), "No preset");
+        assert!(data.contains(id));
+    }
 
     #[test]
     fn the_kind_menu_follows_paper_and_fades_refused_kinds() {

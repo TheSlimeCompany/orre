@@ -77,6 +77,9 @@ pub struct RulesData {
     /// Every group with its subcategories and what uses each (the
     /// Categories section).
     pub category_overview: Vec<GroupOverview>,
+    /// Keys of deleted categories, never handed out again (R.11): the new
+    /// category form's key preview skips them as `category::add` does.
+    pub retired_keys: Vec<CategoryKey>,
     pub palette: Palette,
     pub accounts: Vec<AccountOption>,
     pub tags: Vec<TagOption>,
@@ -253,6 +256,7 @@ pub fn load(db: &Database) -> Result<RulesData, StoreError> {
         history_at,
         categories,
         category_overview: category::overview(db)?,
+        retired_keys: category::retired_keys(db)?,
         palette: category_palette(&db.reader()?, today)?,
         accounts,
         tags,

@@ -79,6 +79,8 @@ M1.14, the default category set. The set itself is under "Categories" above.
    follow later renames. It can be a new group or go under any group, taking the group's
    kind. A later Coffer that adds defaults inserts each key only where it's free, so a
    user's category with the same key is kept as it is.
+   *Changed 2026-11-19 (R.11):* new user keys have a `u_` part, and a deleted category's
+   key stays taken. See "Decision record: category keys are never reused".
 5. **Defaults are ordinary rows.** The user can rename them, and can delete one that
    nothing uses. Deleting is refused while a transaction, split line, budget or
    schedule points at it (foreign keys) or a rule action or preset names its key (core
@@ -114,6 +116,8 @@ keys are forever, labels belong to the user, deleting is refused while used). Ma
    and digits, other runs as one `_`, `custom` when nothing is left, `_2`, `_3`, … while
    taken. "Taken" means a category has that key now, so a deleted category's key is free
    again (composed).
+   *Changed 2026-11-19 (R.11):* a deleted category's key is no longer free, and a new key
+   gets a `u_` part. See "Decision record: category keys are never reused".
 5. **Names** are trimmed, can't be blank, and are unique among the categories beside them,
    ignoring case (composed).
 6. **Deleting** is refused while transactions, split lines, budgets, schedules, rule
@@ -179,3 +183,43 @@ were asked.
 6. **Left in the app:** an excluded row isn't categorised in place. The share sign and
    "half each" default, which side of a link is the money in, and why a transfer was
    suggested move later (user, scope).
+
+### Decision record: category keys are never reused (2026-11-19)
+
+From the architecture review, finding R.11. Keys are forever, but a deleted category's key
+was free again, and user keys shared the key space with defaults. A preset's key, a later
+default or a new user category could land on a deleted or unrelated category and read as
+it to a rule, a preset, an MCP client or an old export. **(user)** marks the user's
+choices; **(composed)** what was decided while building.
+
+1. **A deleted category's key is retired (user).** `category_key_retired` (migration
+   `V22__category_key_retired.sql`) holds the key of every deleted category, filled by an
+   `AFTER DELETE ON category` trigger, so every delete from any code path retires its key.
+   A key is taken while a category has it or it is retired. `derive_key` is handed that
+   test; the editor builds it from both tables. Nothing is ever removed from the table.
+2. **Categories deleted before V22 can't be retired.** Nothing recorded them. Their keys
+   stay free. Restoring an older backup runs the migration on that file, which starts the
+   table empty and retires keys from then on.
+3. **New user keys have a `u_` part (user).** The part the user creates starts with `u_`,
+   unless the key already has a `u_` part. A new group "Pets" is `u_pets`; "Snacks" under
+   the default `food` is `food.u_snacks`; "Vet" under the user group `u_pets` is
+   `u_pets.vet`. The fallback is `u_custom`. `_2`, `_3`, … are added to the end while the
+   key is taken, as before. Defaults never have a part starting with `u_` (a test checks
+   `DEFAULT_CATEGORIES` and the keys V2 seeds), so a later default can't land on a user's
+   category.
+4. **The key is still a valid `CategoryKey` (composed).** `u_` is lowercase letters and
+   `_`, so the schema's CHECK and `CategoryKey::new` accept it. A label that already
+   yields a part starting with `u_` ("U Boat" gives `u_boat`) keeps it and gets no second
+   prefix. A label of just "U" gives `u_u`.
+5. **Existing user keys stay as they are.** Keys are forever, and the V1 trigger keeps
+   `key` read-only. A user category made before this change keeps its unprefixed key, and
+   still shares the key space with defaults. Only the retired table protects it, and only
+   after it is deleted.
+6. **The rule for future defaults.** A migration that adds a default inserts it only where
+   its key is neither in `category` nor in `category_key_retired`. A user's category keeps
+   its key whatever happens, so a default whose key is taken is skipped, not merged. Keep
+   the defaults' parts clear of `u_`.
+7. **Amends** "Decision record: categories", point 4 ("User categories share the key
+   space"), and "Decision record: the categories editor (built)", point 4 ("a deleted
+   category's key is free again"). Both carry a note pointing here. Labels, kinds,
+   deleting rules and hiding are unchanged.

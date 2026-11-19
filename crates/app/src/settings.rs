@@ -27,6 +27,7 @@
 pub mod backups;
 pub mod clients;
 pub mod data;
+pub mod delete;
 #[cfg(test)]
 mod describe;
 pub mod enable;
@@ -98,6 +99,15 @@ pub struct RestoreTarget {
     pub local: Option<chrono::NaiveDateTime>,
 }
 
+/// The backup the Delete backup dialog would delete (R.12).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeleteTarget {
+    pub path: PathBuf,
+    /// When it was taken, as the title names it.
+    pub taken: String,
+    pub reason: coffer_core::backup::Reason,
+}
+
 /// Something Settings asks the shell for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettingsEvent {
@@ -107,6 +117,8 @@ pub enum SettingsEvent {
     RemoveRequested(ClientName),
     /// Open the Restore dialog.
     RestoreRequested(RestoreTarget),
+    /// Open the Delete backup dialog (R.12).
+    DeleteRequested(DeleteTarget),
     /// Open the export dialog.
     ExportRequested,
     /// A backup was restored: everything else reads the database again.
@@ -135,6 +147,8 @@ pub enum NoticeMessage {
     Exported { rows: usize, file: String },
     /// After a copy of a backup was saved.
     Copied { file: String },
+    /// After a backup was deleted: the space it freed.
+    Deleted { size: u64 },
     /// After a restore.
     Restored {
         migrated: bool,
@@ -789,6 +803,44 @@ impl SettingsView {
                 cx.notify();
             });
         }));
+    }
+
+    /// "Delete backup…" on the selected backup: the shell opens the Delete
+    /// backup dialog, which asks first.
+    pub fn request_delete_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(row) = self
+            .selected_backup
+            .as_ref()
+            .and_then(|path| self.backups.row(path))
+        else {
+            return;
+        };
+        cx.emit(SettingsEvent::DeleteRequested(DeleteTarget {
+            path: row.backup.path.clone(),
+            taken: backups::taken(row, self.clock.today),
+            reason: row.backup.reason,
+        }));
+    }
+
+    /// Deletes the backup at `path` for good (the Delete backup dialog).
+    /// The error says why it couldn't.
+    pub fn delete_backup(
+        &mut self,
+        path: &Path,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let deleted = self
+            .store()?
+            .delete_backup(path)
+            .map_err(|error| sentence(&format!("Couldn't delete it: {error}")))?;
+        self.notice = Some(Notice {
+            message: NoticeMessage::Deleted { size: deleted.size },
+            reveal: None,
+        });
+        self.reload_section(Section::Backups);
+        self.select_defaults();
+        cx.notify();
+        Ok(())
     }
 
     /// Shows the file at `path` in the system's file manager.

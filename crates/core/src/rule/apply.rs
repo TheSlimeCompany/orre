@@ -857,23 +857,45 @@ pub fn commit_apply(
     Ok(applied)
 }
 
+/// Refuses an included row that has no change needing inclusion.
+fn check_includable(
+    preview: &ApplyPreview,
+    included: &BTreeSet<TransactionId>,
+) -> Result<(), ApplyError> {
+    match included.iter().find(|id| {
+        !preview
+            .rows
+            .iter()
+            .any(|row| row.transaction == **id && row.needs_inclusion())
+    }) {
+        Some(id) => Err(ApplyError::NotIncludable(*id)),
+        None => Ok(()),
+    }
+}
+
 /// [`commit_apply`] inside the caller's DB transaction.
 pub(crate) fn commit_apply_in(
     tx: &Connection,
     preview: &ApplyPreview,
     included: &BTreeSet<TransactionId>,
 ) -> Result<Applied, ApplyError> {
-    if let Some(id) = included.iter().find(|id| {
-        !preview
-            .rows
-            .iter()
-            .any(|row| row.transaction == **id && row.needs_inclusion())
-    }) {
-        return Err(ApplyError::NotIncludable(*id));
-    }
+    check_includable(preview, included)?;
     if plan_history(tx, preview.rule)? != *preview {
         return Err(ApplyError::Stale);
     }
+    commit_planned_in(tx, preview, included)
+}
+
+/// [`commit_apply_in`] for a `preview` that [`preview_apply_in`] just made
+/// on `tx`, with nothing written in between: it can't be stale, so it isn't
+/// planned again (the plan reads every transaction). The Inbox's approval
+/// and its impact do this inside one DB transaction.
+pub(crate) fn commit_planned_in(
+    tx: &Connection,
+    preview: &ApplyPreview,
+    included: &BTreeSet<TransactionId>,
+) -> Result<Applied, ApplyError> {
+    check_includable(preview, included)?;
     let locked: Vec<TransactionId> = preview
         .rows
         .iter()
@@ -912,37 +934,207 @@ pub(crate) fn preview_apply_in(
 /// DB transaction.
 pub(super) fn plan_history(conn: &Connection, rule: RuleId) -> Result<ApplyPreview, ApplyError> {
     let rules = RuleSet::load(conn)?;
-    if !rules.contains(rule) {
-        return Err(StoreError::NotFound(rule).into());
-    }
-    let mut preview = ApplyPreview {
-        rule,
-        rows: Vec::new(),
-        split_rows: Vec::new(),
-        skipped_splits: Vec::new(),
-        skipped_categories: Vec::new(),
-    };
-    let mut planner = Planner::new(conn);
+    let mut plan = Plan::new(conn, &rules, rule)?;
     for row in load_candidates(conn, "1", [])? {
-        let Some(outcome) = rules.evaluate_rule(rule, &row.input()) else {
-            continue;
+        plan.add(&row)?;
+    }
+    Ok(plan.preview)
+}
+
+/// A plan being made: the rows are added in transaction order.
+struct Plan<'a> {
+    rules: &'a RuleSet,
+    planner: Planner<'a>,
+    preview: ApplyPreview,
+}
+
+impl<'a> Plan<'a> {
+    fn new(conn: &'a Connection, rules: &'a RuleSet, rule: RuleId) -> Result<Plan<'a>, ApplyError> {
+        if !rules.contains(rule) {
+            return Err(StoreError::NotFound(rule).into());
+        }
+        Ok(Plan {
+            rules,
+            planner: Planner::new(conn),
+            preview: ApplyPreview {
+                rule,
+                rows: Vec::new(),
+                split_rows: Vec::new(),
+                skipped_splits: Vec::new(),
+                skipped_categories: Vec::new(),
+            },
+        })
+    }
+
+    fn add(&mut self, row: &Candidate) -> Result<(), ApplyError> {
+        let Some(outcome) = self.rules.evaluate_rule(self.preview.rule, &row.input()) else {
+            return Ok(());
         };
         if row.split {
-            preview.split_rows.push(row.id);
-            continue;
+            self.preview.split_rows.push(row.id);
+            return Ok(());
         }
         if outcome.is_empty() {
-            continue;
+            return Ok(());
         }
-        let planned = planner.plan_row(&row, &outcome)?;
-        preview.skipped_splits.extend(planned.skipped_split);
-        preview.skipped_categories.extend(planned.skipped_category);
+        let planned = self.planner.plan_row(row, &outcome)?;
+        self.preview.skipped_splits.extend(planned.skipped_split);
+        self.preview
+            .skipped_categories
+            .extend(planned.skipped_category);
         if !planned.changes.is_empty() {
-            preview.rows.push(RowPlan {
+            self.preview.rows.push(RowPlan {
                 transaction: row.id,
                 changes: planned.changes,
             });
         }
+        Ok(())
     }
-    Ok(preview)
+}
+
+// Reading the ledger once for many previews --------------------------------------
+
+/// Every transaction as the planner and the Inbox's previews read them,
+/// read once. One rule's preview reads every transaction several times
+/// (its impact, its rows, its approval), and the Inbox previews every
+/// pending suggestion in a row: reading them once, and finding the rows a
+/// rule matches once ([`History::matching`]), is what keeps that to a few
+/// seconds at 100,000 transactions.
+///
+/// Only valid while nothing changes the columns it holds: the previews roll
+/// back what they write, and a rule's approval changes categories, names,
+/// tags, notes, exclusions and shares, none of which it holds.
+pub(crate) struct History {
+    rows: Vec<HistoryRow>,
+}
+
+/// One transaction of a [`History`].
+pub(crate) struct HistoryRow {
+    candidate: Candidate,
+    /// Replaced by a bank correction: matched like any row, never planned.
+    superseded: bool,
+    display: Option<String>,
+    category_kind: Option<String>,
+}
+
+impl HistoryRow {
+    pub(crate) fn id(&self) -> TransactionId {
+        self.candidate.id
+    }
+
+    pub(crate) fn date(&self) -> NaiveDate {
+        self.candidate.date
+    }
+
+    pub(crate) fn amount_minor(&self) -> i64 {
+        self.candidate.amount_minor
+    }
+
+    /// The bank's merchant, as imported.
+    pub(crate) fn merchant(&self) -> Option<&str> {
+        self.candidate.merchant.as_deref()
+    }
+
+    /// The bank's description, as imported.
+    pub(crate) fn description(&self) -> &str {
+        &self.candidate.description
+    }
+
+    /// The merchant name the row shows.
+    pub(crate) fn display(&self) -> Option<&str> {
+        self.display.as_deref()
+    }
+
+    /// The kind key of the row's category, if it has one.
+    pub(crate) fn category_kind(&self) -> Option<&str> {
+        self.category_kind.as_deref()
+    }
+}
+
+impl History {
+    /// Reads every transaction, in ID order.
+    pub(crate) fn load(conn: &Connection) -> rusqlite::Result<History> {
+        let mut statement = conn.prepare(
+            "SELECT t.id, t.account_id, t.amount_minor, t.merchant, t.description_raw, \
+             t.source_category, t.source_type, t.date AS date, \
+             EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id), \
+             coalesce(g.status IN ('suggested', 'confirmed'), 0), \
+             EXISTS (SELECT 1 FROM transaction_link l \
+                     WHERE l.inflow_id = t.id AND l.status <> 'rejected'), \
+             t.superseded_by IS NOT NULL, t.merchant_display, c.kind \
+             FROM \"transaction\" t LEFT JOIN transfer_group g ON g.id = t.transfer_group_id \
+             LEFT JOIN category c ON c.id = t.category_id ORDER BY t.id",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(HistoryRow {
+                    candidate: Candidate {
+                        id: row.get(0)?,
+                        account_id: row.get(1)?,
+                        amount_minor: row.get(2)?,
+                        merchant: row.get(3)?,
+                        description: row.get(4)?,
+                        source_category: row.get(5)?,
+                        source_type: row.get(6)?,
+                        date: crate::account::date(row, "date")?,
+                        split: row.get(8)?,
+                        in_transfer: row.get(9)?,
+                        linked: row.get(10)?,
+                    },
+                    superseded: row.get(11)?,
+                    display: row.get(12)?,
+                    category_kind: row.get(13)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(History { rows })
+    }
+
+    /// The rows, by position.
+    pub(crate) fn rows(&self) -> &[HistoryRow] {
+        &self.rows
+    }
+
+    /// The positions of the rows whose conditions `definition` matches,
+    /// superseded rows included, in ID order. Matching is the rule's own:
+    /// which rules sit above it doesn't change it.
+    pub(crate) fn matching(&self, definition: &super::RuleDefinition) -> Vec<usize> {
+        let alone = RuleSet::new([super::store::StoredRule::unsaved(
+            RuleId::new(0),
+            definition.clone(),
+        )]);
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| !alone.matching(&row.candidate.input()).is_empty())
+            .map(|(position, _)| position)
+            .collect()
+    }
+}
+
+/// A [`History`] and the rows of it that one rule matches.
+#[derive(Clone, Copy)]
+pub(crate) struct Planned<'a> {
+    pub(crate) history: &'a History,
+    /// Positions in `history`, as [`History::matching`] gives them.
+    pub(crate) matched: &'a [usize],
+}
+
+/// [`preview_apply_in`] reading the rows from `planned`, which holds the
+/// rows `rule` matches. The same plan: a row the rule doesn't match
+/// contributes nothing to one.
+pub(crate) fn preview_apply_planned(
+    conn: &Connection,
+    rule: RuleId,
+    planned: Planned<'_>,
+) -> Result<ApplyPreview, ApplyError> {
+    let rules = RuleSet::load(conn)?;
+    let mut plan = Plan::new(conn, &rules, rule)?;
+    for position in planned.matched {
+        let row = &planned.history.rows[*position];
+        if !row.superseded {
+            plan.add(&row.candidate)?;
+        }
+    }
+    Ok(plan.preview)
 }

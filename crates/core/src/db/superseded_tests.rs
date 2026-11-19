@@ -37,6 +37,18 @@ const ADDED: [&str; 3] = [
     "transaction_superseded_by_insert",
 ];
 
+/// The objects migrations after V21 add: the test opens the database at the
+/// latest version, so they appear too, and aren't V21's.
+const ADDED_LATER: &[&str] = &[
+    // V22, R.11.
+    "category_key_retired",
+    "category_key_retire",
+    // V23, R.13.
+    "account_source_identity",
+    "account_source_identity_account",
+    "account_source_identity_hash",
+];
+
 #[track_caller]
 fn assert_refused<T: std::fmt::Debug>(result: rusqlite::Result<T>) {
     match result {
@@ -234,6 +246,7 @@ fn the_rebuild_keeps_every_row_reference_and_trigger() {
         .keys()
         .filter(|name| !before.contains_key(*name))
         .map(String::as_str)
+        .filter(|name| !ADDED_LATER.contains(name))
         .collect();
     let mut expected = ADDED.to_vec();
     expected.sort_unstable();

@@ -18,7 +18,8 @@
 //! restores; a damaged file fails the first row and doesn't show the
 //! second; a current database that can't be read, or a restore that was
 //! refused, is said in `danger` with what to do; an earlier restore that
-//! stopped part-way is mentioned, as `coffer restore` does.
+//! stopped part-way is mentioned, as `coffer restore` does. R.12 adds a
+//! caption that user presets aren't in backups ([`PRESETS_NOT_IN_BACKUPS`]).
 
 use coffer_core::backup::Current;
 use coffer_core::backup::detail::{Assessment, Since};
@@ -39,6 +40,12 @@ use gpui_kit::component::Disableable as _;
 use super::store::SettingsStore;
 use super::table::{Run, caption, count, mono, plain, plural, rich};
 use super::{RestoreTarget, SettingsView, sentence};
+
+/// Under the checks (composed, R.12): user presets live outside the
+/// database, so a backup neither holds them nor changes them.
+pub const PRESETS_NOT_IN_BACKUPS: &str = "Your own bank presets aren't in backups, so restoring \
+     doesn't change them. An account whose preset isn't on this computer asks for its columns \
+     again at the next import.";
 
 /// Where the dialog is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -413,6 +420,7 @@ impl Render for RestoreDialog {
                 })
                 .into_any_element(),
             );
+            body.push(caption(PRESETS_NOT_IN_BACKUPS).into_any_element());
             if let Some(Assessment::Ready(check)) = &assessment
                 && check.interrupted.is_some()
             {

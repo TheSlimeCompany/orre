@@ -728,3 +728,63 @@ overlapping file would duplicate rows already in users' databases.
 4. **Saved presets aren't covered.** They live in the data folder, have no fixture in the
    repo, and the user owns them. Rejected: a version field on presets (a second identity
    to keep in step with the ID, and nothing would stop editing without bumping it).
+
+### Decision record: a file's account number is checked, never stored (2026-11-19)
+
+R.13. An OFX file states its own account (`ACCTID`), and the importer parsed it and kept
+only its last four characters for choosing a statement, so a file imported into the wrong
+account went unnoticed until its balances disagreed. Choices marked **(user)** were the
+user's; the rest are **(composed)**.
+
+1. **Warn, and learn on commit. (user)** The preview warns when the account has at least
+   one known hash and the file's isn't among them, and importing anyway is allowed and
+   adds the hash, so a replacement card warns once. No confirmation step: the warning
+   isn't in `Confirmations`, and the CLI's `--yes` doesn't concern it. An account with
+   no hash yet is warned too when another account has had the file's number (composed,
+   lead: a new account is where another account's file most likely goes). A file with
+   no account ID, a CSV, a number no account has had going into an account with no hash,
+   and a database with no key give no warning.
+2. **The number is stored only as a keyed hash. (user)** HMAC-SHA256 under a random
+   per-database key in `setting` (`import.account_key`, 32 bytes as hex, like the
+   pseudonym key; never shown or logged). Created by the first commit that has a number:
+   the preview only reads, and without a key no hash exists to compare. The raw number
+   lives only in memory, on `Statement` as `SourceAccountNumber`, whose `Debug` is
+   redacted, with no `Display`, serialisation or public accessor. It is never in the
+   database, logs, errors, exports or MCP output; a test scans the database file for it.
+   `account_suffix` (last four, for choosing a statement) is unchanged.
+3. **Normalising. (composed)** Whitespace and dashes are dropped and letters uppercased,
+   so `12-3456 78` and `12345678` are one number and an IBAN's case or spacing doesn't
+   matter. Nothing else is touched, and a number that is empty after that has none.
+   Changing it later changes which hashes match, like the fingerprint's normalisation.
+4. **A masked number is an identity. (composed)** Some banks mask it
+   (`XXXX-XXXX-XXXX-9876`). The masked text is hashed as written: it tells accounts
+   apart as far as the bank lets it, and a bank that changes its mask between exports
+   warns once, then is learned.
+5. **Schema: V23 `account_source_identity`. (composed)** One row per committed batch
+   whose file had a number: `id`, `batch_id` (unique), `account_id`, `identity_hash`. An
+   account knows a hash while any live batch has it, so undoing a batch deletes its row
+   (core does it with the batch's flags and balances) and the account forgets a hash only
+   if no other batch brought it. A batch with nothing new isn't recorded, so re-importing
+   an old file into an account that predates V23 doesn't learn its number; the next
+   import with something new does. `account_id` is `ON DELETE CASCADE` (composed), the
+   one exception to "no `ON DELETE`" (V1): in practice an account with a batch can't be
+   deleted, so the cascade is a backstop. `removal`'s foreign-key test is about
+   references to `"transaction"` and the table has none, so it needs no change.
+6. **The preview names the other account. (user)** When the hash is known to another
+   account, the warning reads "This file looks like it's from <account name>"; if it is
+   known to several, the one imported into most recently. Otherwise it says "a different
+   account". The Review step shows it as a `warning-soft` block, and `coffer import`
+   prints a `Warning:` line (also on `--dry-run`). When the account has had no other
+   number, the block's body says only that the other account has had this one ("Files
+   with this account number have gone into Savings."). **(composed)** from the locked-period
+   block's box and the wide rule's `warning` triangle ("Import" in `docs/DESIGN.md`).
+7. **MCP never reads the table. (composed)** No tool queries it and `coffer mcp` has no
+   use for the key; like the pseudonym key it stays in the database and out of every
+   output. Backups contain it as they contain the rest of the database.
+8. **Deterministic. (composed)** No network or model call: the check is a hash and
+   three queries.
+9. **Rejected.** A confirmation step before importing (the user chose a warning, not a
+   gate); storing the number encrypted (a key in the same database protects no better than
+   a hash, and the number is never needed back); a plain unkeyed hash (a short numeric
+   account number could be recovered by trying every number); no warning at all for an
+   account with no hash (it would miss account A's file going into a new account B).

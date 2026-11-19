@@ -334,6 +334,43 @@ pub struct StatementRow {
     pub outcome: Result<StatementLine, RowProblem>,
 }
 
+/// The account number a file states for its own account (OFX `ACCTID`),
+/// kept in memory only to be hashed ([`crate::import`]): it is never stored,
+/// logged, put in an error, exported or shown.
+///
+/// It is normalised on construction: whitespace and dashes are dropped and
+/// letters are uppercased, so `"12-3456 78"` and `"12345678"` are the same
+/// number. A number a bank masks (`XXXX-XXXX-XXXX-9876`) is still an
+/// identity: the masked text is what is hashed.
+///
+/// `Debug` is redacted, and there is no `Display`, `Serialize` or public
+/// accessor for the text.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SourceAccountNumber(String);
+
+impl SourceAccountNumber {
+    /// The normalised number, or `None` when nothing is left of `raw`.
+    pub fn new(raw: &str) -> Option<SourceAccountNumber> {
+        let number: String = raw
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '-')
+            .flat_map(char::to_uppercase)
+            .collect();
+        (!number.is_empty()).then_some(SourceAccountNumber(number))
+    }
+
+    /// The normalised text, for the keyed hash in [`crate::import`].
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SourceAccountNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SourceAccountNumber(..)")
+    }
+}
+
 /// The normalized contents of one file, for one account in one currency.
 ///
 /// Rows keep the file's order: the dedupe fingerprint counts identical rows
@@ -345,6 +382,7 @@ pub struct Statement {
     format: SourceFormat,
     preset_id: Option<String>,
     currency: Currency,
+    source_account: Option<SourceAccountNumber>,
     rows: Vec<StatementRow>,
     balances: Vec<DatedBalance>,
 }
@@ -355,6 +393,7 @@ impl Statement {
             format,
             preset_id: None,
             currency,
+            source_account: None,
             rows: Vec::new(),
             balances: Vec::new(),
         }
@@ -364,6 +403,18 @@ impl Statement {
     pub fn with_preset(mut self, preset_id: impl Into<String>) -> Self {
         self.preset_id = Some(preset_id.into());
         self
+    }
+
+    /// Records the account number the file states for its own account.
+    pub fn with_source_account(mut self, number: SourceAccountNumber) -> Self {
+        self.source_account = Some(number);
+        self
+    }
+
+    /// The account number the file states for its own account, if it does
+    /// (OFX; never CSV).
+    pub fn source_account(&self) -> Option<&SourceAccountNumber> {
+        self.source_account.as_ref()
     }
 
     pub fn format(&self) -> SourceFormat {

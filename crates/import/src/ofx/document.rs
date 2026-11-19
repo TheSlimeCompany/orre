@@ -71,7 +71,8 @@ pub struct OfxStatement {
     pub(super) line: u64,
     /// `CURDEF`, as written.
     pub(super) currency: Option<String>,
-    /// `ACCTID`, as written. Only its end is ever shown.
+    /// `ACCTID`, as written. Only its end is ever shown; normalizing hands
+    /// the whole of it to the statement as a `SourceAccountNumber`.
     pub(super) account_id: Option<String>,
     pub(super) transactions: Vec<Transaction>,
     pub(super) ledger_balance: Option<Element>,

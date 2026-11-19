@@ -402,7 +402,7 @@ impl Inbox {
         let pending = self.status() == SuggestionStatus::Pending;
         let (title, caption) = view::toolbar_text(self);
         let groups = self.groups();
-        let empty = groups.is_empty().then(|| {
+        let empty = (groups.is_empty() && self.loaded()).then(|| {
             let (title, body) = view::empty_text(self);
             (title, body.to_string())
         });

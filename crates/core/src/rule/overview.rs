@@ -87,7 +87,7 @@ pub fn overview(db: &Database) -> Result<Vec<RuleSummary>, StoreError> {
     let mut above: Vec<HashMap<RuleId, usize>> = vec![HashMap::new(); stored.len()];
     for row in &rows {
         let input = row.input();
-        let matching = rules.matching(&input);
+        let (matching, outcome) = rules.matching_and_outcome(&input);
         if matching.is_empty() {
             continue;
         }
@@ -98,7 +98,7 @@ pub fn overview(db: &Database) -> Result<Vec<RuleSummary>, StoreError> {
                 *above[index].entry(*earlier).or_default() += 1;
             }
         }
-        for rule in winners(&rules.evaluate(&input)) {
+        for rule in winners(&outcome) {
             let index = position[&rule];
             decides[index] += 1;
             last[index] = last[index].max(Some(row.date));

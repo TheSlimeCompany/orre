@@ -1089,25 +1089,46 @@ that changes a decision needs a new decision record in its topic file.
   relate. Done: the table marks a suggested pair's legs with a `warning` ⇄
   (composed, user); rules skip the category of rows that take none of their own
   (`ApplyPreview::skipped_categories`); the record says how the two relate
-- ⬜ R.11 Category keys are "forever" but can be reused (docs only). A deleted category's
+- ✅ R.11 Category keys are "forever" but can be reused (docs only). A deleted category's
   key is free again and user keys share the key space with future defaults, so a preset's
   key or a later default can land on an unrelated user category of another kind. Keep
   deleted keys taken (a tombstone) or give user keys their own prefix; a migration either
-  way
-- ⬜ R.12 Backups keep deleted data with no end (docs only). One automatic backup a month is
+  way. Done (user): both. A trigger keeps every deleted key in `category_key_retired`
+  (V22) and `derive_key` never hands one out again; new user keys get a `u_` part
+  (`u_pets`, `food.u_snacks`) that defaults never use. Keys made before V22 stay as they
+  are
+- ✅ R.12 Backups keep deleted data with no end (docs only). One automatic backup a month is
   kept forever and manual ones are never deleted, all unencrypted, so a deleted report or
   an undone import stays on disk; `mcp.md` F.5's "until they rotate out" isn't true of the
   monthly ones. Decide a cap or an age limit and show the total size in Settings. User
   presets live outside the database, so a restore or a move to another computer can leave
-  `account.preset_id` naming nothing: include them in backups or say so
-- ⬜ R.13 A file imported into the wrong account isn't noticed. The OFX account ID is parsed
+  `account.preset_id` naming nothing: include them in backups or say so. Done (user):
+  automatic backups keep the 10 most recent and one a month for 12 months; manual ones
+  stay until deleted. Settings shows the total and has "Delete backup…" (composed, not
+  drawn in Paper); `coffer backup --delete <file> [--yes]` needs a terminal with `--yes`.
+  Presets aren't in backups and the restore dialog and CLI say so; an account whose preset
+  isn't on this computer says "not on this computer"
+- ✅ R.13 A file imported into the wrong account isn't noticed. The OFX account ID is parsed
   and thrown away, so nothing warns when account A's file goes into account B. Store a
-  keyed hash of it per account (never the number) and warn in the preview when it differs
-- ⬜ R.14 Performance is unmeasured (docs only). Accounts and Inbox read on the main thread,
+  keyed hash of it per account (never the number) and warn in the preview when it differs.
+  Done (user): warn, and learn on commit. HMAC-SHA256 under `setting`
+  `import.account_key`, one row per batch (`account_source_identity`, V23), forgotten on
+  undo. The preview warns when the account knows other numbers, or another account has
+  had this one (named); importing anyway learns it. The Review block is composed, not
+  drawn in Paper
+- ✅ R.14 Performance is unmeasured (docs only). Accounts and Inbox read on the main thread,
   the Inbox runs a rolled-back approval for each pending suggestion when it opens (up to
   200 per client), `rule::overview` evaluates every rule over every transaction on each
   reload, and every MCP read is also a synced write to the access log. Measure on a large
-  synthetic ledger first (L.30), then move what is slow off the main thread
+  synthetic ledger first (L.30), then move what is slow off the main thread. Done:
+  measured at 100,606 transactions, 100 rules and 400 pending suggestions
+  (`crates/core/examples/ledger_bench.rs`, release; `app.md`, "Decision record: performance
+  at 100,000 transactions"). The Inbox reads on a background thread, and its previews
+  share one ledger read: all 400 take 22 s instead of 179 s on the UI thread, so at
+  this size it opens about 22 s after the window (not worked on here). Core fixes:
+  `covered_by` 19.8 s → 0.4 ms, `rule::overview` 735 → 412 ms, the ledger's ID query 20
+  → 1 ms. An access-log write costs 2.8 ms with `synchronous = FULL`, kept. Accounts and
+  Rules still read on the UI thread: R.19
 
 **The documents**
 
@@ -1127,6 +1148,14 @@ that changes a decision needs a new decision record in its topic file.
   leave the category of a confirmed transfer leg or a confirmed refund's money in alone
   and list them in `ApplyPreview::skipped_categories`, but the Inbox's "If you approve"
   shows nothing for them. Design the line in Paper, then show it
+
+- ⬜ R.19 Accounts and Rules read on the UI thread (from R.14). At 100,606 transactions the
+  Accounts load takes 117 ms (`reporting::account_tree` 104 ms, up to ~220 ms in one run)
+  and the Rules load 521 ms (`rule::overview` 412 ms, of which reading the transactions
+  the rules see is ~100 ms), against a 50 ms budget. Move both to a background read as
+  the Inbox does (`Inbox::unloaded`, `reload` on `background_spawn`, keeping the last data
+  until the new read lands), and decide what each view does between an edit and its
+  reload
 
 **Exit criteria:** every item is fixed, or closed by a decision record that says why it
 stays as it is.

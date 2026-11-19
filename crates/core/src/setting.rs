@@ -16,6 +16,10 @@
 //!   tokens at `pseudonymous` ([`PseudonymKey`]). Created by
 //!   [`ensure_pseudonym_key`] when a client is first enabled; never shown,
 //!   logged or sent anywhere.
+//! - [`IMPORT_ACCOUNT_KEY`]: 32 random bytes, hex in the table, for the
+//!   keyed hash of the account number a file states
+//!   ([`SourceIdentityKey`]). Created by the first import that needs it;
+//!   never shown, logged or sent anywhere, and no MCP tool reads it.
 //! - [`WINDOW_STATE`]: where the app's window was and which view it showed
 //!   ([`WindowState`]), as JSON. Only the app reads and writes it; it isn't
 //!   exported and no MCP tool reads it. Missing means the app's defaults.
@@ -35,6 +39,10 @@ pub const PSEUDONYM_KEY: &str = "mcp.pseudonym_key";
 
 /// The pseudonym key's length in bytes.
 pub const PSEUDONYM_KEY_LEN: usize = 32;
+
+/// The per-database key for the hash of a file's account number: 64
+/// lowercase hex digits.
+pub const IMPORT_ACCOUNT_KEY: &str = "import.account_key";
 
 /// The app window's state: a [`WindowState`] as JSON.
 pub const WINDOW_STATE: &str = "app.window";
@@ -84,17 +92,70 @@ impl PseudonymKey {
     }
 
     fn parse(hex: &str) -> Option<PseudonymKey> {
-        if hex.len() != PSEUDONYM_KEY_LEN * 2 {
-            return None;
-        }
-        let mut bytes = [0; PSEUDONYM_KEY_LEN];
-        let (pairs, _) = hex.as_bytes().as_chunks::<2>();
-        for (byte, pair) in bytes.iter_mut().zip(pairs) {
-            let pair = std::str::from_utf8(pair).ok()?;
-            *byte = u8::from_str_radix(pair, 16).ok()?;
-        }
-        Some(PseudonymKey(bytes))
+        parse_key(hex).map(PseudonymKey)
     }
+}
+
+fn parse_key(hex: &str) -> Option<[u8; PSEUDONYM_KEY_LEN]> {
+    if hex.len() != PSEUDONYM_KEY_LEN * 2 {
+        return None;
+    }
+    let mut bytes = [0; PSEUDONYM_KEY_LEN];
+    let (pairs, _) = hex.as_bytes().as_chunks::<2>();
+    for (byte, pair) in bytes.iter_mut().zip(pairs) {
+        let pair = std::str::from_utf8(pair).ok()?;
+        *byte = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Some(bytes)
+}
+
+/// The key for the hash of a file's account number ([`IMPORT_ACCOUNT_KEY`]).
+/// Like [`PseudonymKey`], its bytes never leave core.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SourceIdentityKey([u8; PSEUDONYM_KEY_LEN]);
+
+impl SourceIdentityKey {
+    pub(crate) fn bytes(&self) -> &[u8; PSEUDONYM_KEY_LEN] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SourceIdentityKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SourceIdentityKey(..)")
+    }
+}
+
+/// The account-number key, `None` until an import has needed it.
+pub(crate) fn source_identity_key_on(
+    conn: &rusqlite::Connection,
+) -> Result<Option<SourceIdentityKey>, Error> {
+    get(conn, IMPORT_ACCOUNT_KEY)?
+        .map(|hex| {
+            parse_key(&hex)
+                .map(SourceIdentityKey)
+                .ok_or(Error::Invalid {
+                    key: IMPORT_ACCOUNT_KEY,
+                })
+        })
+        .transpose()
+}
+
+/// Creates the account-number key if there is none; an existing key is
+/// kept, or every stored hash would stop matching. Same source of
+/// randomness as [`ensure_pseudonym_key`]. Returns the key.
+pub(crate) fn ensure_source_identity_key_on(
+    conn: &rusqlite::Connection,
+) -> Result<SourceIdentityKey, Error> {
+    conn.execute(
+        "INSERT INTO setting (key, value) \
+         VALUES (?1, lower(hex(randomblob(?2)))) \
+         ON CONFLICT (key) DO NOTHING",
+        params![IMPORT_ACCOUNT_KEY, PSEUDONYM_KEY_LEN as i64],
+    )?;
+    source_identity_key_on(conn)?.ok_or(Error::Invalid {
+        key: IMPORT_ACCOUNT_KEY,
+    })
 }
 
 impl fmt::Debug for PseudonymKey {

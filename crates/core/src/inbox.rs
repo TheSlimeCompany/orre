@@ -49,6 +49,7 @@ pub mod own;
 pub mod payload;
 pub mod preview;
 mod reports;
+mod shared;
 
 use std::fmt;
 use std::str::FromStr;

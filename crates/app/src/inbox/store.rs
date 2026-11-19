@@ -9,7 +9,9 @@
 //! ([`coffer_core::inbox`]): approving and rejecting go through
 //! `approve`/`approve_all`/`reject_all`, which check each suggestion again
 //! against today's data, and the previews are `inbox::preview`, computed
-//! when read (decision record "Inbox impact preview", point 6).
+//! when read (decision record "Inbox impact preview", point 6). Pending ones
+//! are previewed together (`preview::preview_all`), because each rule's
+//! preview reads the whole ledger.
 
 use std::path::PathBuf;
 
@@ -152,16 +154,22 @@ pub fn load(db: &Database, status: SuggestionStatus) -> Result<InboxData, StoreE
             kind: None,
         },
     )?;
+    // One call for every pending suggestion: core reads the ledger once for
+    // all of them, not once per rule.
+    let mut previews = if status == SuggestionStatus::Pending {
+        let ids: Vec<SuggestionId> = suggestions.iter().map(|suggestion| suggestion.id).collect();
+        preview::preview_all(db, &ids)
+    } else {
+        Vec::new()
+    }
+    .into_iter();
     let mut entries = Vec::with_capacity(suggestions.len());
     for suggestion in suggestions {
         let subject = preview::describe(db, &suggestion)?;
-        let (preview, refused) = if status == SuggestionStatus::Pending {
-            match preview::preview(db, suggestion.id) {
-                Ok(preview) => (Some(preview), None),
-                Err(error) => (None, Some(error.to_string())),
-            }
-        } else {
-            (None, None)
+        let (preview, refused) = match previews.next() {
+            Some((_, Ok(preview))) => (Some(preview), None),
+            Some((_, Err(error))) => (None, Some(error.to_string())),
+            None => (None, None),
         };
         entries.push(Entry {
             suggestion,

@@ -41,6 +41,11 @@
 //! - **Locked periods**: a new row dated on or before the account's
 //!   `reconciled_through` is flagged ([`Flag::Locked`]) and stays out until
 //!   the user unlocks.
+//! - **A file for another account** is warned about, not refused: the
+//!   preview carries a [`SourceAccountMismatch`] when the file's account
+//!   number (kept only as a keyed hash) isn't one the account has had, and a
+//!   commit teaches the account the number (`source_identity`; decision
+//!   record "a file's account number is checked, never stored").
 //!
 //! Nothing here logs transaction contents; logs carry counts and IDs only.
 
@@ -48,6 +53,9 @@
 mod correction_tests;
 mod dedupe;
 mod reconcile;
+mod source_identity;
+#[cfg(test)]
+mod source_identity_tests;
 mod supersede;
 #[cfg(test)]
 mod tests;
@@ -82,6 +90,7 @@ pub use reconcile::{
     BalanceCheck, CheckedBalance, FileOrder, Reconciliation, ReconciliationStatus, RunningBalances,
     RunningMismatch,
 };
+pub use source_identity::{OtherAccount, SourceAccountMismatch};
 pub use supersede::{
     AppliedCorrection, CORRECTION_WINDOW_DAYS, Correction, CorrectionBlocked, NotCarried,
 };
@@ -166,6 +175,9 @@ pub enum Error {
     /// (M1.28).
     #[error("couldn't back up the database before importing, so nothing was imported: {0}")]
     Backup(#[source] Box<backup::Error>),
+
+    #[error("{0}")]
+    Setting(#[from] crate::setting::Error),
 
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
@@ -371,6 +383,7 @@ pub struct ImportPreview {
     source_file: String,
     statement: Statement,
     plan: Plan,
+    source_mismatch: Option<SourceAccountMismatch>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -457,6 +470,14 @@ impl ImportPreview {
                 .iter()
                 .any(|outcome| matches!(outcome, RowOutcome::Corrects(_))),
         }
+    }
+
+    /// A warning, not a confirmation: the file states an account number the
+    /// account has never had imported into it, though it has had others.
+    /// Names the account the number is known to belong to, if any.
+    /// Importing anyway is allowed and teaches the account the number.
+    pub fn source_account_mismatch(&self) -> Option<&SourceAccountMismatch> {
+        self.source_mismatch.as_ref()
     }
 
     /// The rows that are the bank's corrections of stored rows, in file
@@ -557,12 +578,14 @@ pub fn preview(
     let account = load_account(&tx, account)?;
     check_target(&account, &statement)?;
     let plan = plan(&tx, &account, &statement)?;
+    let source_mismatch = source_identity::check(&tx, account.id, &statement)?;
     drop(tx);
     Ok(ImportPreview {
         account,
         source_file,
         statement,
         plan,
+        source_mismatch,
     })
 }
 
@@ -714,6 +737,7 @@ fn write_batch(
         ],
     )?;
     let batch = BatchId::new(tx.last_insert_rowid());
+    source_identity::learn(tx, batch, account.id, statement)?;
     let imported_at: String = tx.query_row(
         "SELECT imported_at FROM import_batch WHERE id = ?1",
         [batch],
@@ -1448,6 +1472,7 @@ pub fn undo(db: &mut Database, batch: BatchId) -> Result<UndoPreview, Error> {
     removal::remove(&tx, Scope::Import(batch))?;
     tx.execute("DELETE FROM balance_snapshot WHERE batch_id = ?1", [batch])?;
     tx.execute("DELETE FROM import_flag WHERE batch_id = ?1", [batch])?;
+    source_identity::forget(&tx, batch)?;
     tx.execute(
         "UPDATE import_batch SET status = 'undone' WHERE id = ?1",
         [batch],

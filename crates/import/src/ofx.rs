@@ -15,6 +15,10 @@
 //!   `NAME`/`PAYEE` as the merchant, name and `MEMO` as the description,
 //!   `TRNTYPE` as the source type. One that can't be read is flagged in its
 //!   place, as is a repeated `FITID` and a correction (`CORRECTACTION`).
+//! - **The account number** (`ACCTID`) goes onto the statement as a
+//!   [`SourceAccountNumber`](coffer_core::statement::SourceAccountNumber)
+//!   (redacted in `Debug`), so core can warn about a file for another
+//!   account; it is never stored or shown.
 //! - **Balances**: `LEDGERBAL` becomes the statement's dated balance.
 //!   `AVAILBAL` isn't a ledger balance (holds, credit limits) and isn't
 //!   used.

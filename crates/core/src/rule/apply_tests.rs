@@ -298,6 +298,24 @@ fn input(merchant: &str) -> MatchInput<'_> {
 }
 
 #[test]
+fn matching_and_outcome_is_matching_and_evaluate_in_one_pass() {
+    let rules = rule_set(vec![
+        rule_on("acme", vec![set_category("shopping"), set_note("first")]),
+        rule_on("acme", vec![set_category("food"), set_merchant("Acme")]),
+        rule_on("acme", vec![add_tags(&["work"]), my_share(2_500)]),
+        rule_on("tesco", vec![exclude(ExcludeReason::Disputed)]),
+    ]);
+    for merchant in ["ACME LTD", "TESCO", "Tésco Straße", "NOBODY"] {
+        let input = input(merchant);
+        assert_eq!(
+            rules.matching_and_outcome(&input),
+            (rules.matching(&input), rules.evaluate(&input)),
+            "{merchant}"
+        );
+    }
+}
+
+#[test]
 fn rules_win_field_by_field_tags_included() {
     let rules = rule_set(vec![
         rule_on("acme", vec![set_category("shopping"), set_note("first")]),

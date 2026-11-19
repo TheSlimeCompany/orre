@@ -7,7 +7,13 @@
 //! - [`Inbox`] holds what the screen shows (from [`store::InboxStore`],
 //!   which opens the database per call), the filters, the selected
 //!   suggestion and the outcome of the last decision. Every decision is
-//!   core's ([`coffer_core::inbox`]): this only picks the IDs.
+//!   core's ([`coffer_core::inbox`]): this only picks the IDs. The
+//!   suggestions are read on a background thread ([`Inbox::reload`]): each
+//!   pending one is previewed against the whole ledger, which at 100,000
+//!   transactions takes far longer than a frame (decision record
+//!   "performance at 100,000 transactions", `docs/architecture/app.md`).
+//!   Until the first read is back the table says nothing, as the
+//!   Transactions table does; later reads keep showing the last one.
 //! - [`panel`]: the left panel (INBOX status, CHECKS, KIND, SOURCE), with
 //!   its keyboard cursor.
 //! - [`view::InboxView`]: the toolbar, the grouped table with the selected
@@ -32,7 +38,7 @@ pub mod view;
 
 use coffer_core::inbox::preview::Covered;
 use coffer_core::inbox::{COFFER_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
-use gpui_kit::{Context, SharedString};
+use gpui_kit::{AppContext as _, Context, SharedString, Task};
 
 use crate::ui::list::{self, Move};
 use store::{Entry, InboxData, InboxStore};
@@ -100,6 +106,10 @@ pub struct Inbox {
     covered: Option<(SuggestionId, Option<Covered>)>,
     outcome: Option<Outcome>,
     load_error: Option<SharedString>,
+    /// Whether a read has come back, or there is nothing to read.
+    loaded: bool,
+    /// The background read in flight; a newer one replaces it.
+    loading: Option<Task<()>>,
     /// The panel row the keyboard cursor was last drawn on, for
     /// `describe()` (test-only).
     #[cfg(test)]
@@ -107,11 +117,23 @@ pub struct Inbox {
 }
 
 impl Inbox {
-    /// The suggestions in `store`, read now.
+    /// The suggestions in `store`, read now, on this thread: for tests and
+    /// the snapshot. The app uses [`Inbox::unloaded`].
     pub fn from_store(store: InboxStore) -> Self {
         let mut inbox = Self::with_source(Source::Database(store));
-        inbox.load();
+        inbox.read_now();
         inbox
+    }
+
+    /// The suggestions in `store`, not read yet: [`InboxView::new`] starts
+    /// the first read, on a background thread.
+    ///
+    /// [`InboxView::new`]: view::InboxView::new
+    pub fn unloaded(store: InboxStore) -> Self {
+        Self {
+            loaded: false,
+            ..Self::with_source(Source::Database(store))
+        }
     }
 
     /// No suggestions, because they can't be read: `reason` says why.
@@ -138,9 +160,17 @@ impl Inbox {
             covered: None,
             outcome: None,
             load_error: None,
+            loaded: true,
+            loading: None,
             #[cfg(test)]
             panel_cursor: Default::default(),
         }
+    }
+
+    /// Whether the suggestions have been read (or there are none to read):
+    /// until then an empty table means "not yet", not "nothing to review".
+    pub fn loaded(&self) -> bool {
+        self.loaded
     }
 
     pub fn data(&self) -> &InboxData {
@@ -328,24 +358,70 @@ impl Inbox {
         self.covered = Some((id, covered));
     }
 
-    /// Reads the suggestions again.
+    /// Reads the suggestions again, on a background thread. What is shown
+    /// stays until the read is back; a read asked for meanwhile replaces
+    /// this one.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
-        self.load();
-        cx.notify();
+        let Source::Database(store) = &self.source else {
+            cx.notify();
+            return;
+        };
+        let store = store.clone();
+        let status = self.status;
+        self.loading = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { store.load(status) })
+                .await
+                .map_err(|error| SharedString::from(error.to_string()));
+            this.update(cx, |this, cx| {
+                this.loading = None;
+                this.apply(status, result, cx);
+            })
+            .ok();
+        }));
     }
 
-    fn load(&mut self) {
+    /// Starts the first read, if it hasn't been asked for.
+    pub(crate) fn start_loading(&mut self, cx: &mut Context<Self>) {
+        if !self.loaded && self.loading.is_none() {
+            self.reload(cx);
+        }
+    }
+
+    /// Reads on this thread (tests and the snapshot).
+    fn read_now(&mut self) {
         let Source::Database(store) = &self.source else {
             return;
         };
-        match store.load(self.status) {
+        let result = store
+            .load(self.status)
+            .map_err(|error| SharedString::from(error.to_string()));
+        self.take(result);
+    }
+
+    fn apply(
+        &mut self,
+        status: SuggestionStatus,
+        result: Result<InboxData, SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        // Showing another status has asked for its own read.
+        if status == self.status {
+            self.take(result);
+        }
+        cx.notify();
+    }
+
+    fn take(&mut self, result: Result<InboxData, SharedString>) {
+        self.loaded = true;
+        match result {
             Ok(data) => {
                 self.data = data;
                 self.load_error = None;
             }
             Err(error) => {
                 tracing::warn!(%error, "couldn't read the inbox");
-                self.load_error = Some(error.to_string().into());
+                self.load_error = Some(error);
             }
         }
         self.covered = None;

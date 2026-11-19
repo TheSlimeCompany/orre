@@ -308,11 +308,11 @@ commands that change your data or widen AI access refuse to run unless they're a
 an interactive terminal, so run them yourself, or use the app. (`coffer inbox reject`,
 `coffer ai-access off`, `revoke` and lowering a level work from anywhere, so a script can
 always shut a client out. Previews work from anywhere too: `coffer import --dry-run`, and
-`undo-import`, `schedules delete` and `inbox delete-report` without `--yes`, show what would
-happen and change nothing.) The check is a speed bump, not a lock: a client with a shell
-tool can fake a terminal or open the database file directly. That's why the profile in
-step 3 gives the client no shell; if it has one, sandbox it away from Coffer's data
-directory and the `coffer` binary.
+`undo-import`, `schedules delete`, `inbox delete-report` and `backup --delete` without
+`--yes`, show what would happen and change nothing.) The check is a speed bump, not a lock:
+a client with a shell tool can fake a terminal or open the database file directly. That's
+why the profile in step 3 gives the client no shell; if it has one, sandbox it away from
+Coffer's data directory and the `coffer` binary.
 
 Saved reports:
 
