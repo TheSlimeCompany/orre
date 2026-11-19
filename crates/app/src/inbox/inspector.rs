@@ -147,6 +147,38 @@ fn counted(value: usize, one: &str, many: &str) -> Vec<Part> {
     ]
 }
 
+/// The rows a rule's category skips, by kind ("2 transfers · 1 linked
+/// refund"); `None` when it skips none.
+fn skips_parts(impact: &coffer_core::inbox::RuleImpact) -> Option<Vec<Part>> {
+    let kinds = [
+        (impact.skipped_transfers, "transfer", "transfers"),
+        (impact.skipped_refunds, "linked refund", "linked refunds"),
+    ];
+    let mut parts: Vec<Part> = Vec::new();
+    for (number, one, many) in kinds {
+        if number == 0 {
+            continue;
+        }
+        if !parts.is_empty() {
+            parts.push(muted_parts(" · "));
+        }
+        parts.extend(counted(number, one, many));
+    }
+    (!parts.is_empty()).then_some(parts)
+}
+
+/// The caption under a rule's "If you approve" rows.
+fn rule_note(impact: &coffer_core::inbox::RuleImpact) -> String {
+    let mut note = "Approving never changes a category you set.".to_owned();
+    if skips_parts(impact).is_some() {
+        note.push_str(
+            " A confirmed transfer or a linked refund takes no category of its own, so it \
+             skips theirs.",
+        );
+    }
+    note
+}
+
 fn muted_parts(text: impl Into<String>) -> Part {
     Part::text(text).color(color::TEXT_MUTED)
 }
@@ -497,6 +529,9 @@ fn if_you_approve(inbox: &Inbox, entry: &Entry, preview: &Preview, window: &Wind
                     counted(preview.kept, "category you set", "categories you set"),
                 ));
             }
+            if let Some(parts) = skips_parts(impact) {
+                rows.push(row("Skips", parts));
+            }
             rows.extend(spending_rows(window, preview, palette, None));
             if !preview.settles.is_empty() {
                 let settled = match preview.settles.as_slice() {
@@ -525,7 +560,7 @@ fn if_you_approve(inbox: &Inbox, entry: &Entry, preview: &Preview, window: &Wind
                 };
                 rows.push(row("Settles", settled));
             }
-            note = Some("Approving never changes a category you set.".to_owned());
+            note = Some(rule_note(impact));
             warning = impact
                 .history_blocked
                 .clone()
@@ -1009,4 +1044,72 @@ pub fn render(view: &InboxView, window: &mut Window, cx: &App) -> impl IntoEleme
         .border_l(size::HAIRLINE)
         .border_color(color::HAIRLINE)
         .children(sections)
+}
+
+#[cfg(test)]
+mod tests {
+    use coffer_core::inbox::RuleImpact;
+
+    use super::*;
+
+    fn impact(skipped_transfers: usize, skipped_refunds: usize) -> RuleImpact {
+        RuleImpact {
+            matches: 4,
+            recategorises: 1,
+            changes: 1,
+            user_set: 0,
+            split_rows: 0,
+            skipped_transfers,
+            skipped_refunds,
+            merchants: 1,
+            moves_income: false,
+            wide: false,
+            history_blocked: None,
+        }
+    }
+
+    /// The Skips value's runs: text, and whether mono.
+    fn runs(impact: &RuleImpact) -> Option<Vec<(String, bool)>> {
+        skips_parts(impact).map(|parts| parts.into_iter().map(|p| (p.text, p.mono)).collect())
+    }
+
+    fn run(text: &str, mono: bool) -> (String, bool) {
+        (text.to_owned(), mono)
+    }
+
+    #[test]
+    fn skips_counts_each_kind_and_leaves_out_none() {
+        assert_eq!(runs(&impact(0, 0)), None);
+        assert_eq!(
+            runs(&impact(0, 1)),
+            Some(vec![run("1", true), run(" linked refund", false)])
+        );
+        assert_eq!(
+            runs(&impact(2, 0)),
+            Some(vec![run("2", true), run(" transfers", false)])
+        );
+        assert_eq!(
+            runs(&impact(2, 1)),
+            Some(vec![
+                run("2", true),
+                run(" transfers", false),
+                run(" · ", false),
+                run("1", true),
+                run(" linked refund", false),
+            ])
+        );
+    }
+
+    #[test]
+    fn the_caption_explains_skips_only_when_there_are_some() {
+        assert_eq!(
+            rule_note(&impact(0, 0)),
+            "Approving never changes a category you set."
+        );
+        assert_eq!(
+            rule_note(&impact(1, 0)),
+            "Approving never changes a category you set. A confirmed transfer or a linked \
+             refund takes no category of its own, so it skips theirs."
+        );
+    }
 }

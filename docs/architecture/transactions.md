@@ -6,6 +6,155 @@ Part of [`ARCHITECTURE.md`](../ARCHITECTURE.md), which lists every topic and
 decision record. A section or record named here that isn't in this file is in
 that list.
 
+## Transactions
+
+What a user can do to a row, in core: `manual`, `exclusion`, `split`, `tag`, `note`,
+`merchant`, `edit` (the inspector's edits), `transfer` (detection, decisions, marking),
+`removal`, `category::assign` and `inbox::own::recategorize`. The Transactions view reads
+`reporting::register`; the app's side is `crates/app/src/transactions/`. The records
+below are the history; this section is the rule in force.
+
+### The row
+
+- **Origin** (`transaction.origin`): `imported`, `mirrored` (a pot's side of a transfer,
+  made by the import: "Decision record: sub-accounts") or `manual`. Every row has a UTC
+  `created_at`.
+- **Source fields never change** on an imported or mirrored row (a schema trigger):
+  account, batch, date, time, amount, currency, merchant, descriptions, external ID,
+  fingerprint, source category and type, original amount and the bank's `note`. A wrong
+  imported row is fixed by undoing its batch, excluding it, or an import of the bank's
+  correction ("Decision record: a bank's correction supersedes the stored row").
+- **User-facing fields** can change on any row: category, display merchant, user note,
+  tags, split, share and its label, `reimbursable`, exclusion, links and transfer status.
+  A manual row's own fields (`manual::ManualTransaction`) can change too.
+
+### Edits, undo and the lock
+
+| Edit | Core | Undo | Inside a lock |
+|---|---|---|---|
+| Category | `inbox::own::recategorize` | `bulk_edit` change batch | allowed |
+| Split, tags, note, display merchant | `edit::set_split`, `remove_split`, `add_tag`, `remove_tag`, `add_new_tag`, `set_note`, `set_merchant` | one `bulk_edit` batch each | allowed |
+| Exclude, include again | `exclusion::exclude`, `include_again` | the opposite call, no batch | only if `exclusion::moves_balance` is false |
+| Transfer decisions, marking | `transfer::confirm`, `reject`, `unpair`; `inbox::mark_transfer` | `transfer::undo`, `unmark`, no batch | allowed |
+| Manual rows | `manual::create`, `update`, `delete` | none | see "Manual rows" |
+| Rule applies, merges, bulk edits | `change::Recorder` | `change::undo` | refused only where `Value::moves_balance` holds |
+
+An edit that changes nothing records nothing. A single-row edit shows no undo bar (it is
+undone from the change history); link edits, changes to several rows, a new exclusion
+(`UndoAction::Include`, since the row leaves the table) and transfer decisions
+(`UndoAction::Transfer`) do (`app.md` → "The app" → "Applying edits"). A lock guards balances only ("Decision record: a lock guards
+balances only"): on or before `reconciled_through` nothing may change which rows count in
+the balance, or such a row's account, date or amount.
+
+### Which rows take a category
+
+- **A row takes a category of its own unless** it is split, a leg of a confirmed
+  transfer pair, or the money in of a confirmed refund (`category::assign`,
+  `CategoryFacts`; "Decision record: what a transaction can take, decided in core").
+  Suggested pairs and links don't count.
+- **Who asks:** `recategorize` (the table, the inspector, the bulk-action bar and
+  `coffer categorize`) refuses such a row (`RecategorizeError::NoOwnCategory`), even with
+  the same category. An approved categorisation skips it. Rules skip its category and
+  apply their other actions (`rule::SkippedCategory`; "Decision record: two kinds of
+  transfer, and marking a suggested pair", point 3). Duplicate merges, removing a split
+  and undo don't ask; `manual::update` refuses a category only on a split row.
+- **Needs a category** (`CategoryFacts::needs_category`): takes one and has none, or is
+  split with a line that has none. The Uncategorised chip
+  (`RegisterRow::is_uncategorised`) and the import summary (`needs_category_in_batch`)
+  use it. `Ledger::uncategorized`
+  (MCP) filters ledger lines instead ("Decision record: removing transactions, and which
+  rows need a category", points 3 and 4).
+- **The rule prompt** after a category edit shows only when the pattern matches an
+  earlier row; "Not now" is remembered per pattern ("Decision record: Transactions
+  additions", point 3).
+
+### Splits, tags, notes and names
+
+- **Splits** (`split`): two or more lines, each non-zero with the parent's sign and
+  currency, summing exactly to its amount; a line may be uncategorised. Setting a split
+  replaces every line and clears the parent's category, `rule_id`, share and label;
+  removing it leaves the row uncategorised. `reimbursable`, notes and the exclusion stay
+  on the parent. A row in a suggested or confirmed transfer, or the money in of a
+  confirmed link, can't be split; an excluded row can. The editor's model is
+  `split::draft::SplitDraft`, saved only when balanced.
+- **Tags** (`tag`): trimmed, case kept, at most 64 characters, unique ignoring case with
+  rule matching's folding. Private tags never leave the app: MCP and exports read
+  `tag::public_tags_of` or `without_private`.
+- **Notes** (`note`): `user_note` is trimmed, at most 2,000 characters, blank clears; the
+  bank's `note` is read-only.
+- **Display merchant** (`merchant`): derived from the bank's merchant or raw description
+  by `merchant::clean`, then the aliases (exact, longest prefix, first regex). Alias
+  changes recompute derived names at once, with no batch. A name a rule or the user set
+  (`merchant_display_source`) is never recomputed; a blank user name goes back to the
+  derived one. Rules match the cleaned merchant, never the alias.
+
+### Exclusion
+
+`exclusion::exclude` works on any row, with a reason, an optional note (required for
+`other`) and a date; excluding again changes the reason and resets the date. Every
+excluded row leaves spending, income, budgets and reports; only `duplicate` and
+`superseded` also leave the account's balance (`ExclusionReason::leaves_balance`).
+`superseded` is set only by an import and cleared only by undoing it, so the user can't
+choose it (`ExclusionReason::CHOOSABLE`) or change a superseded row. The Exclude
+dialog's reason starts empty. Excluded rows stay visible under the Excluded chip.
+
+### Manual rows
+
+`manual` creates, edits and deletes `origin = 'manual'` rows only, on any account that
+holds transactions (never `asset` or `liability`). They carry no source ID or
+fingerprint, so near-duplicate review, not the import, pairs one with the bank's row.
+Core needs a description; the app's Merchant field is required and is also the
+description.
+
+- **Lock:** creating or deleting a row on or before the lock, or changing its account,
+  date, amount or currency (old or new date, old or new account), is refused; its time,
+  merchant, description and category can change there.
+- **Closed account:** no row dated after `closed_on`.
+- **Refused edits:** a new account, amount or currency on a row in a suggested or
+  confirmed pair (`manual::Error::Transfer`; unpair it first), a new amount or currency
+  on either side of a confirmed link (`Linked`), and a new amount or a category on a
+  split row (`Split`).
+  A `rejected` group the row was in is dissolved.
+- **Deleting** goes through `removal::remove`. Only manual rows can be deleted; imported
+  rows are excluded instead.
+
+### Transfers
+
+- **Two mechanisms.** A confirmed pair is money between two accounts Coffer holds: both
+  legs are out of income and spending and take no category. A category of kind
+  `transfer` is for one row whose other side Coffer doesn't hold; it counts as neither
+  (`reporting::ledger::Side::of`). A suggested pair counts by its own categories until
+  confirmed, and the table marks its legs with a `warning` ⇄ ("Decision record: two
+  kinds of transfer, and marking a suggested pair").
+- **Decisions** (`transfer::confirm`, `reject`, `unpair`) change only the group's status,
+  re-checked in `BEGIN IMMEDIATE`. Confirming is refused while a row is excluded, split
+  or linked. A rejected pair keeps its rows, so detection doesn't suggest it again. A
+  pot's mirrored pair can't be unpaired. No lock applies, and an agent's pending
+  suggestion for the pair is settled in the same DB transaction
+  (`inbox::decide_transfer`).
+- **Mark as transfer** (`transfer::markable`, `inbox::mark_transfer`): exactly two rows
+  on different accounts, one currency, opposite non-zero amounts, neither in a suggested
+  or confirmed pair, excluded, split or linked. A row may leave a rejected group to be
+  marked ("Decision record: Mark as transfer and Create rule from the bulk-action bar").
+
+### Removing transactions
+
+`removal::remove` is the one place rows are deleted, for `manual::delete` and
+`import::undo`: it dissolves their transfer groups (partners stay as ordinary rows),
+clears every table in `removal::REFERENCES` (a test compares it with the schema), restores
+a row they superseded, and deletes them, inside the caller's DB transaction.
+
+### The register
+
+`reporting::register::Register` reads every transaction once, with its split lines, pair,
+links, tags, source and exclusion, on a background thread; `Register::select` filters,
+groups by day and sorts in memory, so typing never reads the database. Day nets leave
+out transfers and excluded rows. `RegisterRow` says what a row takes (`splittable`,
+`takes_share`, `takes_links`, `no_own_category`), so the app offers only what core
+accepts. Search matches the display merchant, the bank's merchant and the raw
+description; that text is only matched and shown ("Decision record: the Transactions
+view").
+
 ## Decision records
 
 Oldest first.

@@ -21,7 +21,8 @@
 //! - **categorization**: each item, now and after, and the spending change.
 //!   A transaction the approval skips, as it takes no category of its own
 //!   (a leg of a confirmed transfer, a linked refund's money in;
-//!   [`crate::category::assign`]), is listed as [`After::Unchanged`].
+//!   [`crate::category::assign`]), is listed as [`After::NoOwnCategory`],
+//!   as a rule's rows of that kind are.
 //! - **transfer_pair** and **refund_link**: how income and spending change
 //!   in the month of the money.
 //!
@@ -84,7 +85,7 @@ pub const LIST_NEWEST: usize = 6;
 pub const MERCHANTS_SHOWN: usize = 3;
 
 /// How the Inbox approves: a rule is also applied to past transactions
-/// (decision record "Inbox impact preview", point 1).
+/// (decision record "Inbox", point 2).
 const INBOX_APPROVAL: ApproveOptions = ApproveOptions {
     apply_to_history: true,
 };
@@ -395,6 +396,11 @@ pub enum After {
     Unchanged,
     /// A split row: a rule's apply skips it.
     SplitSkipped,
+    /// The rule or suggestion's category is skipped: the row takes no
+    /// category of its own ([`NoOwnCategory::Transfer`], a leg of a
+    /// confirmed transfer; [`NoOwnCategory::Refund`], a confirmed refund's
+    /// money in), so its category stays as it is.
+    NoOwnCategory(NoOwnCategory),
 }
 
 impl After {
@@ -619,13 +625,13 @@ fn categorization(
         };
         // What the approval skips, as `plan_categorization` does.
         let skipped = match item.target {
-            Target::Transaction(id) => matches!(
-                assign::no_own_category_in(conn, id)?,
-                Some(NoOwnCategory::Transfer | NoOwnCategory::Refund)
-            ),
-            Target::SplitLine(_) => false,
+            Target::Transaction(id) => assign::no_own_category_in(conn, id)?
+                .filter(|why| matches!(why, NoOwnCategory::Transfer | NoOwnCategory::Refund)),
+            Target::SplitLine(_) => None,
         };
-        let after = if skipped || transaction.now.category() == Some(&category) {
+        let after = if let Some(why) = skipped {
+            After::NoOwnCategory(why)
+        } else if transaction.now.category() == Some(&category) {
             After::Unchanged
         } else {
             After::Category(category)
@@ -671,6 +677,11 @@ fn rule_preview(
         let rule_id = rule::create_at_in(conn, definition, 0, rule::RuleOrigin::Inbox)?;
         let plan = rule::preview_apply_planned(conn, rule_id, planned)?;
         let skipped: HashSet<TransactionId> = plan.split_rows.iter().copied().collect();
+        let no_own: HashMap<TransactionId, NoOwnCategory> = plan
+            .skipped_categories
+            .iter()
+            .map(|skipped| (skipped.transaction, skipped.reason))
+            .collect();
         let plans: HashMap<TransactionId, &rule::RowPlan> =
             plan.rows.iter().map(|row| (row.transaction, row)).collect();
         // The rows it matches, as the whole list would hold them.
@@ -693,6 +704,7 @@ fn rule_preview(
                 Some((_, true)) => After::Stays,
                 Some((target, false)) => after_target(conn, target)?,
                 None if skipped.contains(&row.id) => After::SplitSkipped,
+                None if no_own.contains_key(&row.id) => After::NoOwnCategory(no_own[&row.id]),
                 None if plan.is_some_and(|plan| plan.has_automatic()) => After::Other,
                 None => After::Unchanged,
             };

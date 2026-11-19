@@ -246,6 +246,46 @@ fn kind_and_source_filter_and_a_second_click_clears(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn an_open_rule_says_why_a_transfer_leg_and_a_linked_refund_stay(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let mut db = scratch.db();
+    // The fixture's transfer and refund are only suggested: approve them.
+    let transfer = scratch.find(|payload| matches!(payload, Payload::TransferPair(_)));
+    let refund = scratch.find(|payload| matches!(payload, Payload::RefundLink(_)));
+    for id in [transfer, refund] {
+        core_inbox::approve(&mut db, id, core_inbox::ApproveOptions::default()).unwrap();
+    }
+    let mut file_rule = |pattern: &str| {
+        core_inbox::file_suggestion(
+            &mut db,
+            &coffer_core::mcp_client::ClientName::new(fixture::AGENT).unwrap(),
+            &core_inbox::NewSuggestion {
+                kind: core_inbox::SuggestionKind::Rule,
+                payload: serde_json::json!({
+                    "match_field": "merchant", "match_kind": "contains", "pattern": pattern,
+                    "actions": [{"kind": "set_category", "value": "income.interest"}]}),
+                rationale: None,
+            },
+        )
+        .unwrap()
+        .id
+    };
+    let (uniqlo, savings) = (file_rule("Uniqlo"), file_rule("From Savings"));
+
+    let (shell, inbox, cx) = open(cx, &scratch);
+    for (rule, words) in [
+        (uniqlo, "Stays, a linked refund"),
+        (savings, "Stays, a transfer"),
+    ] {
+        click(&format!("inbox-row-{rule}"), cx);
+        let shown = describe(&shell, &inbox, cx);
+        let open = shown.open.as_ref().expect("the rule opens under its row");
+        let lanes: Vec<&str> = open.lines.iter().map(|line| line.after.as_str()).collect();
+        assert!(lanes.contains(&words), "{words}: {lanes:?}");
+    }
+}
+
+#[gpui_kit::test]
 fn a_click_opens_a_rule_and_its_check_approves_it_with_history(cx: &mut TestAppContext) {
     let scratch = Scratch::new(false);
     let uber = scratch.rule("UBER *EATS");

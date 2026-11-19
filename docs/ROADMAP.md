@@ -1132,22 +1132,37 @@ that changes a decision needs a new decision record in its topic file.
 
 **The documents**
 
-- ⬜ R.15 A current-state reference section for the eight topics that are decision records
+- ✅ R.15 A current-state reference section for the eight topics that are decision records
   only (accounts, transactions, rules, links and review queues, inbox, reporting,
   settings and backups, the app), so the rule in force can be read without following
-  amendments across files; the records stay as the history
-- ⬜ R.16 Stale reference text: `data-model.md` lacks `category.hidden` (V18) and the
+  amendments across files; the records stay as the history. Done (docs only): each of the
+  eight files opens with a section that states the rule in force, checked against the
+  code and citing the record that set it; `ARCHITECTURE.md` → Contents lists them
+- ✅ R.16 Stale reference text: `data-model.md` lacks `category.hidden` (V18) and the
   `links` change field (V17), and its migration list stops at V16; `ARCHITECTURE.md`'s
   command list leaves out `accounts`, `undo-import`, `inbox`, `categorize`, `ai-access`,
   `budgets` and `schedules`; the Platforms row says "Windows compiles in CI" and there is
   no CI yet (M5.5); `reporting.md` cites "Inbox impact preview, point 1" for applying a
-  rule to history, which is "Inbox", point 2
-- ⬜ R.17 `AGENTS.md`'s invariant says no names in MCP output, while `mcp.md` A.1 accepts a
-  person's name at `standard`. Reword the invariant to match the decision
-- ⬜ R.18 A rule's preview doesn't say why it skipped a row's category. Since R.10, rules
+  rule to history, which is "Inbox", point 2. Done (docs only): all four, plus
+  `data-model.md`'s section is now "Data model" and lists V17–V23, `AGENTS.md`'s command
+  list, the Backups row's retention, a missing Contents entry, and `superseded` rows
+  leaving a balance check's sum in `import.md` and the `reconciliation` docs
+- ✅ R.17 `AGENTS.md`'s invariant says no names in MCP output, while `mcp.md` A.1 accepts a
+  person's name at `standard`. Reword the invariant to match the decision. Done (docs
+  only): no PII below `standard`; account numbers, notes, share labels, private tags,
+  merchant addresses and attachments at no level
+- ✅ R.18 A rule's preview doesn't say why it skipped a row's category. Since R.10, rules
   leave the category of a confirmed transfer leg or a confirmed refund's money in alone
   and list them in `ApplyPreview::skipped_categories`, but the Inbox's "If you approve"
-  shows nothing for them. Design the line in Paper, then show it
+  shows nothing for them. Design the line in Paper, then show it. Done: drawn on the
+  Inbox · D6.6 states board (`EWZ-0`). "If you approve" has a Skips row ("1 transfer ·
+  2 linked refunds") and a caption sentence, and the open preview's AFTER lane says
+  "Stays, a transfer" / "Stays, a linked refund" (`After::NoOwnCategory`, also for a
+  categorisation's skipped rows). A linked refund no longer makes a rule wide; an
+  incoming transfer leg still does, as the rule would categorise the next one at import
+  (`inbox.md`, "the preview says why a rule skips a row's category", point 2). The Rules view's apply preview
+  still doesn't show `skipped_categories` or `skipped_splits`, and the Inbox doesn't show
+  or discount a split template's `skipped_splits`
 
 - ⬜ R.19 Accounts and Rules read on the UI thread (from R.14). At 100,606 transactions the
   Accounts load takes 117 ms (`reporting::account_tree` 104 ms, up to ~220 ms in one run)

@@ -6,6 +6,134 @@ Part of [`ARCHITECTURE.md`](../ARCHITECTURE.md), which lists every topic and
 decision record. A section or record named here that isn't in this file is in
 that list.
 
+## Settings, AI access and backups
+
+The rules in force, drawn from the records below. Where a later record changed an
+earlier one, only the current rule is stated, with the record that set it.
+
+### The Settings view
+
+`coffer_app::settings` (M3.15, M3.16; `DESIGN.md` → "Settings"). The title bar's
+Settings button or ⌘, opens it. Its panel has AI ACCESS (Clients, Access log) and DATA
+(Backups, Export…), with the data file's path at its foot. `SettingsView` makes every
+change through `settings::store::SettingsStore`, which opens the database per call
+through `backup::gate::open` (see `app.md` → "The app"); the rules are core's, and the
+CLI's `ai-access`, `backup`, `restore` and `export` are the reference behaviour.
+Reads run on the UI thread; backing up, checking a backup and restoring run on a
+background thread. The Enable, Remove client, Delete backup, Restore and Export dialogs
+are opened by the shell from `SettingsEvent`s. Times are read and made local through
+SQLite (`coffer_core::clock`; "Settings, AI access and backups (built)", point 4).
+Export… writes the file the system's save dialog names, through `export::to_file`,
+which refuses the database and its sidecar files (`Error::IsDatabase`); the columns are
+in `docs/EXPORT.md` (built, point 7).
+
+### AI clients and access levels
+
+- **The kill switch** is the `setting` `mcp.enabled`, on unless set off, read by the
+  server on every call (`coffer_mcp::access`); off refuses the next call
+  (`refused_off`). The status bar shows "AI access off" while it is
+  ("Settings, AI access and backups (2026-11-10)", point 1).
+- **Clients** are `mcp_client` rows keyed by the `--client` name, which is also the
+  name shown: there is no display name and no "connected now" state, only the last
+  call's time ("Settings, AI access and backups (built)", point 1). An unknown name is
+  recorded as `requested` and refused, even with the kill switch off ("M2: MCP server",
+  B.5). Only the app or CLI enables a client: `mcp_client::enable_at` takes the level
+  the Enable dialog chose, starting at `aggregate`; `ignore` hides a request and
+  revokes.
+- **Off, revoke and remove.** The per-client switch is `mcp_client::turn_off` /
+  `turn_on`, which keep the level; a request or an ignored client can't be turned on,
+  only enabled (`Error::NeverEnabled`). The CLI's `revoke` resets the level to
+  `aggregate`. "Remove client…" is `mcp_client::remove`: the row goes, its log,
+  suggestions and reports stay (they name the client as text), and a later call is
+  `requested` again (built, point 2).
+- **Levels** are `aggregate`, `pseudonymous` and `standard`; the tools at each and what
+  each withholds are `mcp.md` → "MCP surface". Below `standard` accounts are labels
+  (`current 1`, `pot 2`) and the Clients screen says `pseudonymous` isn't anonymous
+  (`mcp.md`, "merchant names are untrusted, and what `pseudonymous` protects", R.7).
+  A lower level applies to the next call, with `notifications/tools/list_changed`.
+- **Widening access needs the user's terminal in the CLI**: `ai-access enable`, `on`,
+  and raising a level; revoking, ignoring, `off` and lowering don't (`mcp.md`,
+  "approval needs the user's terminal", points 3 and 4).
+- **The access log** (`mcp_access_log`, one row per call) is kept for 12 months
+  (`access_log::RETENTION_MONTHS`, deleted by `access_log::expire` when a server
+  starts). Arguments are redacted to their structure (point 4 of the 2026-11-10
+  record; `mcp.md` → "MCP surface"). The Access log screen shows no more than `coffer
+  ai-access log`, never the result hash, reading through `access_log::activity`; which
+  tools write comes from the MCP registry (`ToolSpec::writes`) (built, point 3).
+
+### Local backups
+
+`coffer_core::backup` ("local backups", points 1, 2 and 4).
+
+- **What.** `VACUUM INTO` snapshots in `<data dir>/backups` (`backup::backups_dir`,
+  `0700`; files `0600`), written to a hidden temporary file, synced, then given their
+  name, never overwriting one.
+- **The name is the metadata.** `coffer-<UTC yyyymmddThhmmss.mmmZ>-<reason>.db`, reason
+  `import`, `migration`, `restore` or `manual` (`backup::Reason`). Only names that
+  `backup::parse_file_name` accepts are backups; nothing else there is listed, rotated
+  or deleted. The schema version is read from the file.
+- **When.** `import::commit` takes one before its transaction when it will write;
+  `Database::open` takes one before pending migrations on an existing database;
+  `backup::restore` takes one of the current database first. If it fails, the import,
+  migration or restore doesn't happen. A manual one is `coffer backup` or "Back up now".
+- **Reading one** (`backup::detail`) opens it read-only and `immutable=1`, so nothing
+  is written beside it ("Settings, AI access and backups (built)", point 5).
+
+### Retention
+
+Set by "backup retention and presets" (2026-11-19), points 1, 2, 3, 4, 5 and 8, which
+supersedes "local backups", point 3.
+
+- **Automatic backups** keep the 10 most recent (`KEEP_RECENT`) plus the newest of each
+  of the 12 calendar months (UTC) before the current one (`KEEP_MONTHS`).
+  `backup::rotate` (selection in `backup::to_delete`) runs after each automatic backup;
+  a failed rotation is logged and doesn't fail the backup. Nothing is deleted when the
+  app starts. Settings groups them as Recent and One a month (`backup::detail::monthly`).
+- **Manual backups** are never selected or counted by rotation: they stay until the
+  user deletes them. Backups are unencrypted, so they hold deleted reports and undone
+  imports until deleted.
+- **Deleting one.** `backup::delete` deletes only a regular file in the backups
+  directory whose name parses; anything else is `Error::NotABackup`. In Settings,
+  "Delete backup…" in the inspector, for any backup; in the CLI, `coffer backup
+  --delete <FILE>`, which only says what it would delete without `--yes` and needs an
+  interactive terminal with it.
+- **Size.** `backup::total_size`; shown under the Backups table and after `coffer
+  backup --list`.
+
+### Restore
+
+`backup::restore` ("local backups", points 5 and 6; "M2: MCP server", F.1 and F.9).
+
+- **A copy is checked first:** `PRAGMA integrity_check`, a migration history matching
+  this build's, a schema no newer. The user's file is only read. An older schema is
+  restored, then migrated by `Database::open`; a newer one is refused. `backup::check`
+  runs the checks alone (`coffer restore` without `--yes`), and the app's dialog shows
+  them as "intact" and "this version can read it" (`backup::detail::assess`), restoring
+  only when both pass and the current database is readable (built, point 6).
+- **Never without a safety backup.** The current database is backed up (`restore`)
+  first; if it can't be, or another connection holds it, nothing is restored. Its
+  `-wal`/`-shm` are checkpointed and removed before the rename.
+- **The restore lock.** From the checked copy until the restored database is open,
+  `restore` holds the lock on `<database>-restoring` (`backup::restore_lock_path`).
+  The MCP server and the app open the database through `backup::gate::open` and are
+  refused meanwhile; a second restore is refused.
+- **The access log isn't rolled back:** rows newer than the backup's newest are
+  carried over from the pre-restore backup, then the 12-month retention applied
+  (`access_log::carry_forward`), then refused calls moved in from the pending file.
+- `coffer restore --yes` needs an interactive terminal; so does `coffer restore`
+  without it, since its check stages a copy in the data dir (`mcp.md`, "approval needs
+  the user's terminal", point 4). "Save a copy…" writes a `0600` copy where the user
+  chooses, never over the database.
+
+### Presets and backups
+
+User presets (`<data dir>/presets`, `paths::presets_dir`) are files outside the
+database: no backup holds them and a restore doesn't touch them. The Restore dialog
+(`settings::restore::PRESETS_NOT_IN_BACKUPS`) and `coffer restore`'s check output say
+so. An account whose preset this computer doesn't have shows "`<id>` · not on this
+computer" in the accounts inspector, and the app's import treats it as an account with
+no preset ("backup retention and presets", points 6 and 7).
+
 ## Decision records
 
 Oldest first.

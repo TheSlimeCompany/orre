@@ -20,6 +20,7 @@
 //! 2026-11-14).
 
 use chrono::{DateTime, NaiveDate, Utc};
+use coffer_core::category::assign::NoOwnCategory;
 use coffer_core::inbox::preview::{
     After, ByMerchant, CategoryNow, Deciding, Line, MerchantLine, NamesNow, Now, Preview, Subject,
 };
@@ -781,6 +782,21 @@ fn stays(words: String, icon: bool) -> Vec<AnyElement> {
     cell
 }
 
+/// "Stays, a transfer": a 10px glyph and the words, `text-muted`.
+fn stays_as(words: String, glyph: Option<Glyph>) -> Vec<AnyElement> {
+    let mut cell = Vec::new();
+    if let Some(glyph) = glyph {
+        cell.push(
+            glyph
+                .render_at(size::ICON_XS)
+                .text_color(color::TEXT_MUTED)
+                .into_any_element(),
+        );
+    }
+    cell.push(muted(words));
+    cell
+}
+
 /// The cells of a suggestion's row.
 struct RowCells {
     item: AnyElement,
@@ -1144,7 +1160,17 @@ fn after_cell(after: &After, names: bool, agent: bool) -> Vec<AnyElement> {
     let label = after_label(after, names);
     match after {
         After::Category(_) | After::Name(_) | After::Split(_) => suggested(label, agent),
+        After::NoOwnCategory(why) => stays_as(label, no_own_glyph(*why)),
         other => stays(label, *other == After::Stays),
+    }
+}
+
+/// The glyph that says why a row takes no category of its own.
+fn no_own_glyph(why: NoOwnCategory) -> Option<Glyph> {
+    match why {
+        NoOwnCategory::Transfer => Some(Glyph::Transfer),
+        NoOwnCategory::Refund => Some(Glyph::Link),
+        NoOwnCategory::Split => None,
     }
 }
 

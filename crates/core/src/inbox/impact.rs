@@ -16,7 +16,9 @@
 //!   matches, how many it would recategorise if applied to history (only
 //!   uncategorised rows and rules' categories, point 1), how many have a
 //!   category the user set and are left alone, how many distinct
-//!   `merchant_display` values the matches span, and whether any match is
+//!   `merchant_display` values the matches span, how many are a confirmed
+//!   transfer's leg or a linked refund's money in (their category is
+//!   skipped), and whether any match is
 //!   income (money in, or in an income category) it would put in a spending
 //!   category. Such a rule, or one over [`WIDE_MERCHANTS`] merchants, is
 //!   [wide](RuleImpact::wide) (point 2);
@@ -41,6 +43,7 @@ use super::approve::{
 use super::payload::{CategorizationItem, RefundLink, TransferPair};
 use super::shared::Shared;
 use super::{Payload, SuggestionId, SuggestionKind, SuggestionStatus, get_in};
+use crate::category::assign::NoOwnCategory;
 use crate::change;
 use crate::db::Database;
 use crate::id::{AccountId, TransactionId};
@@ -133,10 +136,21 @@ pub struct RuleImpact {
     pub user_set: usize,
     /// Matched rows that are split: skipped by an apply.
     pub split_rows: usize,
+    /// Matched rows that are a leg of a confirmed transfer: a category the
+    /// rule would set is skipped there, as they take none of their own
+    /// ([`crate::category::assign`]).
+    pub skipped_transfers: usize,
+    /// Matched rows that are a confirmed refund's money in: skipped the same
+    /// way. (A split row is in `split_rows`, never here.)
+    pub skipped_refunds: usize,
     /// Distinct `merchant_display` values among the matches.
     pub merchants: usize,
     /// Whether it would put a match that is income (money in, or in an
-    /// income category) into a spending category.
+    /// income category) into a spending category. A linked refund's money
+    /// in (`skipped_refunds`) doesn't count; a confirmed transfer leg
+    /// (`skipped_transfers`) and a split template's skipped rows still do,
+    /// as the rule would categorise the next one at import, before it is
+    /// paired or linked.
     pub moves_income: bool,
     /// More than [`WIDE_MERCHANTS`] merchants, or moves income.
     pub wide: bool,
@@ -284,6 +298,17 @@ fn rule_impact(
         let spending = sets_spending(conn, definition)?;
         // The rows the rule matches, whether or not it wins a field there.
         let matches = matched.len();
+        // A linked refund's money in keeps the category the link gives it,
+        // and a rule over a merchant is expected to match that merchant's
+        // refunds. A confirmed transfer leg is skipped too, but still counts:
+        // rules run before transfer detection at import, so the next such
+        // leg gets the rule's category before it is paired.
+        let linked_refunds: HashSet<TransactionId> = preview
+            .skipped_categories
+            .iter()
+            .filter(|skipped| skipped.reason == NoOwnCategory::Refund)
+            .map(|skipped| skipped.transaction)
+            .collect();
         let mut merchants = HashSet::new();
         let mut moves_income = false;
         for position in matched.iter() {
@@ -291,10 +316,18 @@ fn rule_impact(
             if let Some(name) = row.display() {
                 merchants.insert(name);
             }
-            moves_income |=
-                spending && (row.amount_minor() > 0 || row.category_kind() == Some("income"));
+            moves_income |= spending
+                && !linked_refunds.contains(&row.id())
+                && (row.amount_minor() > 0 || row.category_kind() == Some("income"));
         }
 
+        let skipped = |wanted: NoOwnCategory| {
+            preview
+                .skipped_categories
+                .iter()
+                .filter(|skipped| skipped.reason == wanted)
+                .count()
+        };
         let history_blocked = rule::commit_planned_in(conn, &preview, &BTreeSet::new())
             .err()
             .map(|error| ApproveError::from(error).to_string());
@@ -304,6 +337,8 @@ fn rule_impact(
             changes: preview.automatic_rows().count(),
             user_set,
             split_rows: preview.split_rows.len(),
+            skipped_transfers: skipped(NoOwnCategory::Transfer),
+            skipped_refunds: skipped(NoOwnCategory::Refund),
             merchants: merchants.len(),
             moves_income,
             wide: moves_income || merchants.len() > WIDE_MERCHANTS,
@@ -448,6 +483,15 @@ impl fmt::Display for Impact {
                 }
                 if r.split_rows > 0 {
                     write!(f, "; {} split ones are skipped", r.split_rows)?;
+                }
+                let skipped = r.skipped_transfers + r.skipped_refunds;
+                if skipped > 0 {
+                    write!(
+                        f,
+                        "; {skipped} {} skipped, as a confirmed transfer or a linked refund \
+                         takes no category of its own",
+                        if skipped == 1 { "is" } else { "are" }
+                    )?;
                 }
                 if r.wide {
                     f.write_str("; wide: ")?;

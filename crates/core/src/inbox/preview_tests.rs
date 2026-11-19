@@ -320,7 +320,7 @@ fn a_categorisation_lists_its_items_and_the_rule_that_covers_it() {
 }
 
 #[test]
-fn a_categorisation_lists_what_approving_skips_as_unchanged() {
+fn a_categorisation_lists_what_approving_skips_with_why() {
     let mut f = Fixture::new();
     let coffee = f.row(day(1), -350, "Coffee", None);
     let out = f.row(day(2), -5000, "To savings", None);
@@ -341,7 +341,19 @@ fn a_categorisation_lists_what_approving_skips_as_unchanged() {
     let p = checked(&f, id);
     assert_eq!(p.matches, 3);
     let afters: Vec<String> = p.lines.iter().map(|line| label(&line.after)).collect();
-    assert_eq!(afters, ["Eating out", "Unchanged", "Unchanged"]);
+    assert_eq!(
+        afters,
+        [
+            "Eating out",
+            "NoOwnCategory(Transfer)",
+            "NoOwnCategory(Refund)"
+        ]
+    );
+    assert!(
+        p.lines
+            .iter()
+            .all(|line| !line.after.changes() || line.transaction.id == coffee)
+    );
     // Only the row that changes moves spending: out of uncategorised, into
     // Eating out.
     let spending: Vec<i64> = p.spending.iter().map(|c| c.change.minor()).collect();
@@ -356,6 +368,42 @@ fn a_categorisation_lists_what_approving_skips_as_unchanged() {
         "sets the category of 1 target; 2 are skipped, as a confirmed transfer or a linked \
          refund takes no category of its own"
     );
+}
+
+#[test]
+fn a_rule_lists_a_transfer_leg_and_a_linked_refund_as_taking_no_category() {
+    let mut f = Fixture::new();
+    let coffee = f.row(day(1), -350, "Acme coffee", None);
+    let out = f.row(day(2), -5000, "Acme to savings", None);
+    let into = f.row_on(f.savings, day(2), 5000, "Acme from current", None);
+    f.transfer(out, into, true);
+    let purchase = f.row(day(3), -6800, "Acme shop", Some("shopping"));
+    let refund = f.row(day(4), 3400, "Acme refund", None);
+    f.refund(refund, purchase, 3400, true);
+    let id = f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "starts_with", "Acme", "food.groceries"),
+    );
+
+    let p = checked(&f, id);
+    let after = |row: TransactionId| {
+        &p.lines
+            .iter()
+            .find(|line| line.transaction.id == row)
+            .unwrap()
+            .after
+    };
+    assert_eq!(label(after(coffee)), "Groceries");
+    assert_eq!(*after(out), After::NoOwnCategory(NoOwnCategory::Transfer));
+    assert_eq!(*after(into), After::NoOwnCategory(NoOwnCategory::Transfer));
+    assert_eq!(*after(refund), After::NoOwnCategory(NoOwnCategory::Refund));
+    // The purchase has a category the user set: it stays.
+    assert_eq!(*after(purchase), After::Stays);
+    assert!(!after(out).changes());
+    let Detail::Rule(impact) = &p.impact.detail else {
+        panic!("expected a rule");
+    };
+    assert_eq!((impact.skipped_transfers, impact.skipped_refunds), (2, 1));
 }
 
 #[test]

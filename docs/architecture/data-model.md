@@ -36,7 +36,7 @@ that list.
   unchanged. Symbols, locale separators, `−` and `+` follow `DESIGN.md` → "Money" in
   the app.
 
-## Data model (initial)
+## Data model
 
 The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
 `crates/core/src/db/schema_tests.rs` check them):
@@ -90,7 +90,8 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   `recurring_dismissal` (V12, M2.6/M2.10), the inbox's decision columns (V13, M2.3) and
   `mcp_access_log` rebuilt with two outcomes, `pending_id` and `summarised_calls` (V14),
   `account.preset_id` (V15, M3.2), and `rule.origin`, `change_batch.rule_id` and
-  `rule_prompt_dismissed` (V16, M3.13); after V18, `report.access_level` (V19, R.2),
+  `rule_prompt_dismissed` (V16, M3.13), `change_item.field` rebuilt with `links` (V17,
+  M3.11), `category.hidden` (V18, M3.7), `report.access_level` (V19, R.2),
   `duplicate_candidate` rebuilt with the `unmatched_source_id` reason (V20, R.3), and
   `"transaction"` rebuilt with `superseded` and `superseded_by` (V21, R.4: the first
   migration run with foreign keys off, marked by its first line),
@@ -99,7 +100,7 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   `db::migrations::embedded` sorts them by version.
 
 - `account(id, parent_id?, name, institution, kind [current|savings|credit_card|pot|cash|
-  asset|liability|...], currency, opening_balance_minor?, opening_date?,
+  asset|liability], currency, opening_balance_minor?, opening_date?,
   reconciled_through?, closed_on?, sub_account_key?, preset_id?)` — pots are child
   accounts of their parent; a pot's parent is a `current` or `savings` account in the same
   currency; `sub_account_key` (V4, pots only, unique per parent, read-only once set) is
@@ -123,11 +124,14 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
 - `change_batch(id, kind [rule_apply|duplicate_merge|bulk_edit], created_at,
   status [applied|undone], undone_at?, rule_id? (V16: the rule a `rule_apply` applied;
   not a foreign key, it outlives its rule))` and `change_item(id, batch_id, transaction_id,
-  field [category|merchant|user_note|tags|exclusion|split|share|reimbursable],
+  field [category|merchant|user_note|tags|exclusion|split|share|reimbursable|links (V17)],
   old_value, new_value)` — undo for changes to existing transactions (V8). Values are
   JSON, one shape per field (`coffer_core::change::Value`); one item per batch,
   transaction and field; items and a batch's kind and date are read-only, and an undone
-  batch stays undone. Deleting a transaction deletes its items
+  batch stays undone. Deleting a transaction deletes its items. A `links` item holds the
+  `transaction_link` rows whose inflow is the item's transaction, in any status, so each
+  link is recorded once ("Decision record: refunds, reimbursements and settlements
+  (built)")
 - `transaction(id, account_id, batch_id?, date, time?, amount_minor, currency, merchant?,
   merchant_display?, merchant_display_source? [rule|user], description_raw, description_normalized, external_id?, fingerprint,
   source_category?, source_type?, original_amount_minor?, original_currency?, category_id?,
@@ -176,10 +180,13 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   assertion; an account's first is its starting point and every later one is a check;
   `note` is user text, not sent over MCP by default. `ofx` and `csv` snapshots belong to
   their import batch and are removed when it is undone; the others have no batch
-- `category(id, parent_id?, key, label, kind [spending|income|transfer])` — two levels,
-  stable keys (`food.groceries` under `food`; key and parent read-only), translatable
-  labels; a subcategory has its group's kind, and kinds are read-only. The defaults are
-  seeded by `V2__default_categories.sql` (see "Categories")
+- `category(id, parent_id?, key, label, kind [spending|income|transfer], hidden)` — two
+  levels, stable keys (`food.groceries` under `food`; key and parent read-only),
+  translatable labels; a subcategory has its group's kind, and kinds are read-only.
+  `hidden` (V18, 0/1) takes a category out of the pickers and menus but keeps its
+  transactions and its place in reports; a hidden group's subcategories drop out with it
+  while each keeps its own flag ("Decision record: the categories editor (built)"). The
+  defaults are seeded by `V2__default_categories.sql` (see "Categories")
 - `category_key_retired(key, retired_at)` (V22, R.11) — the key of every deleted
   category, filled by an `AFTER DELETE ON category` trigger and never removed. A key is
   taken while a category has it or it is retired; categories deleted before V22 left no

@@ -13,6 +13,7 @@
 use std::ops::Range;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use coffer_core::category::assign::NoOwnCategory;
 use coffer_core::envelope;
 use coffer_core::inbox::preview::{After, CategoryRef, Subject};
 use coffer_core::inbox::{COFFER_SOURCE, Payload, SuggestionId, SuggestionKind};
@@ -321,6 +322,9 @@ pub fn after_words(after: &After, names: bool) -> Option<&'static str> {
         After::Unchanged => Some("No change"),
         After::SplitSkipped => Some("Split: skipped"),
         After::Other => Some("Name or tags change"),
+        After::NoOwnCategory(NoOwnCategory::Transfer) => Some("Stays, a transfer"),
+        After::NoOwnCategory(NoOwnCategory::Refund) => Some("Stays, a linked refund"),
+        After::NoOwnCategory(NoOwnCategory::Split) => Some("Split: skipped"),
         _ => None,
     }
 }

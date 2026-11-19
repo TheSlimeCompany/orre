@@ -190,6 +190,64 @@ fn approved_batch(approved: &crate::inbox::Approved) -> Option<crate::id::Change
 // Rules ---------------------------------------------------------------------------
 
 #[test]
+fn a_rule_counts_the_transfer_legs_and_linked_refunds_it_skips() {
+    let mut f = Fixture::new();
+    f.row(day(1), -350, "Acme coffee", None);
+    let out = f.row(day(2), -5000, "Acme to savings", None);
+    let into = f.row_on(f.savings, day(2), 5000, "Acme from current", None);
+    f.transfer(out, into, true);
+    let purchase = f.row(day(3), -6800, "Acme shop", None);
+    let refund = f.row(day(4), 3400, "Acme refund", None);
+    f.refund(refund, purchase, 3400, true);
+    let id = f.file(SuggestionKind::Rule, rule("Acme", "food.groceries"));
+
+    let impact = preview(&f, id);
+    let Detail::Rule(r) = &impact.detail else {
+        panic!("expected a rule");
+    };
+    assert_eq!(r.matches, 5);
+    assert_eq!((r.skipped_transfers, r.skipped_refunds), (2, 1));
+    assert_eq!(r.split_rows, 0);
+    assert_eq!(r.recategorises, 2);
+    // It can't set the incoming leg's category today, but it would set the
+    // next one's at import, before transfer detection pairs it: still wide.
+    assert!(r.moves_income && r.wide);
+    assert_eq!(
+        impact.to_string(),
+        "matches 5 past transactions across 5 merchants; recategorises 2 past transactions \
+         if applied to history; 3 are skipped, as a confirmed transfer or a linked refund \
+         takes no category of its own; wide: it moves income into spending"
+    );
+}
+
+#[test]
+fn a_linked_refund_it_skips_does_not_make_a_rule_wide() {
+    let mut f = Fixture::new();
+    f.row(day(1), -350, "Acme coffee", None);
+    let purchase = f.row(day(3), -6800, "Acme shop", None);
+    let refund = f.row(day(4), 3400, "Acme refund", None);
+    f.refund(refund, purchase, 3400, true);
+    let id = f.file(SuggestionKind::Rule, rule("Acme", "food.groceries"));
+
+    let impact = preview(&f, id);
+    let Detail::Rule(r) = &impact.detail else {
+        panic!("expected a rule");
+    };
+    assert_eq!((r.skipped_transfers, r.skipped_refunds), (0, 1));
+    // A rule over a merchant is expected to match its refunds, and the
+    // link, not the rule, gives this one its category.
+    assert!(!r.moves_income && !r.wide);
+
+    // An unlinked refund is still money in the rule would put in spending.
+    f.row(day(5), 1200, "Acme refund", None);
+    let impact = preview(&f, id);
+    let Detail::Rule(r) = &impact.detail else {
+        panic!("expected a rule");
+    };
+    assert!(r.moves_income && r.wide);
+}
+
+#[test]
 fn a_rule_counts_matches_recategorisations_and_categories_you_set() {
     let mut f = Fixture::new();
     for d in 1..=3 {

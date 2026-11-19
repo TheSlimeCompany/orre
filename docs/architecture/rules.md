@@ -6,6 +6,140 @@ Part of [`ARCHITECTURE.md`](../ARCHITECTURE.md), which lists every topic and
 decision record. A section or record named here that isn't in this file is in
 that list.
 
+## Rules
+
+`coffer_core::rule` (M1.15, M1.24). A rule is a `rule` row and its `rule_action` rows,
+made in the Rules view, from the Transactions prompt or by approving an Inbox suggestion
+(`rule.origin`: `new`, `edit`, `inbox`). Rules run on import. Past transactions change
+only through Apply, never because a rule was edited ("rules", point 4).
+
+### A rule
+
+- **Conditions.** A pattern on one `MatchField` (`merchant`, `description`,
+  `source_category`, `source_type`), tested by a `MatchKind` (`is`, `starts_with`,
+  `contains`, `regex`), with optional inclusive `AmountBounds` on the signed
+  `amount_minor` and an optional account. Every condition must hold.
+- **Matching ignores case.** The plain kinds compare text folded per character
+  (`rule::fold`: `Straße` equals `STRASSE`); `regex` uses the regex crate's
+  case-insensitive mode. The merchant is matched cleaned (`merchant::clean`), before any
+  merchant name applies, so names never change which rules match. The description is
+  matched with whitespace collapsed. A field the row doesn't have never matches ("rules
+  engine, transfer detection and the CLI", point 5).
+- **Actions**: `set_category`, `split_template`, `set_merchant`, `add_tag`, `set_note`,
+  `exclude`, `my_share`. At least one, one per kind, never both `set_category` and
+  `split_template` (`RuleDefinition::new`). `exclude` never takes `other` (a rule has no
+  note) or `superseded`. Shares and split lines are integer basis points.
+- **Validated in core before storing** ("rules", point 9). A regex compiles within
+  `REGEX_SIZE_LIMIT` (1 MiB) and `REGEX_NEST_LIMIT` (32); a pattern is at most
+  `MAX_PATTERN_LEN` (1,000 bytes); each `value_json` has one strict shape
+  (`RuleAction::decode`). A rule naming a missing category is refused when saved.
+  Errors never repeat the pattern or the value.
+- **Order.** Priority ascending, then ID. A new rule goes first; `create_at` and
+  `move_to` place one, and every write renumbers priorities 0, 1, 2, …. `rule::update`
+  keeps the place, origin and date.
+- **Rules win field by field** ("rules", point 1; "M1 wave 4 — change batches, rule
+  actions, links, duplicates, balance checks and export", point 4). In priority order,
+  the first matching rule that sets a field sets it. Category and split are one field;
+  merchant, tags, note, exclusion and share are one rule each (`Outcome`).
+- **Deleting a rule** (`rule::delete`) keeps the values it set and clears their
+  `rule_id` ("rules", point 7).
+
+### What a rule may write
+
+- **Never a value the user set, unless the user includes the row on Apply**
+  (`PlannedChange::user_set`): a category with `category_source` `user` or
+  `ai_approved`, a name with `merchant_display_source = user`, any note, exclusion or
+  share. Notes and shares have no "set by", so one a rule set counts as the user's later
+  ("M1 wave 4", point 9). Tags are only added.
+- **No category on a row that takes none of its own** (`category::assign`): split, a leg
+  of a confirmed transfer pair, the money in of a confirmed refund. The rule's other
+  actions still apply; a suggested pair or refund doesn't count ("rules skip rows that
+  take no category of their own", point 1).
+- **Splits.** A split row is skipped whole. A `split_template` isn't made on a row in a
+  suggested or confirmed transfer, on money in with a suggested or confirmed link, or
+  when a line would get 0 (`SplitSkip`); the row keeps its category. Shares round half
+  away from zero and 10000 bp stores `NULL` (`share_minor`); split lines go by largest
+  remainder (`split_amounts`) ("M1 wave 4", points 5–6).
+- **Locks.** Only an exclusion into or out of `duplicate`, on a row dated on or before
+  its account's `reconciled_through`, meets a lock (`exclusion::moves_balance`, through
+  `change::locked_for` into `PlannedChange::locked`); `bank_error` and `disputed` go
+  through ("a lock guards balances only", point 4, which settles "rules", point 8). See
+  `links-and-checks.md` → "Balance checks and locks".
+
+### At import
+
+`rule::apply_to_batch` runs inside the import's DB transaction, after the preset's
+category map, the pot mirror and merchant names, and before transfer detection,
+duplicates and link suggestions (`import.md` → "Dedupe, reconciliation and the commit").
+It covers every row of the batch, mirrored rows included, and every action. A matching
+`set_category` overrides the preset's category (`category_source = rule`, `rule_id`).
+The rule set is loaded once; a rule whose category no longer exists fails the import
+when it matches a row. The import writes through a `change::Recorder` it never
+finishes, so it records no change batch. New rows are never in a locked period. A pot's
+mirrored pair is confirmed before the rules run, so neither leg gets a rule's category
+("rules skip rows that take no category of their own", point 3). A bank's correction
+then takes the user's fields from the row it replaces (`supersede::carry_over`).
+
+### Applying to history
+
+`rule::preview_apply` plans one rule against every transaction it matches, any account
+or origin, but never a row a bank's correction superseded. It evaluates the whole rule
+set, so the rule changes only the fields it wins. `ApplyPreview` has the `rows` it
+changes, `split_rows`, `skipped_splits` and `skipped_categories`; `user_set_rows`
+change only when included ("Change these too"). `rule::commit_apply` plans again and
+refuses a stale preview (`ApplyError::Stale`), an included row with nothing user-set
+(`NotIncludable`) and a change that meets a lock (`Locked`). It records one `rule_apply`
+batch naming the rule (`Recorder::for_rule`, `change_batch.rule_id`); tags it created
+stay after an undo. A rule not stored yet goes through `rule::preview_draft` and
+`save_draft`. Approving an agent's rule in the Inbox applies it to history with nothing
+included (`inbox.md`, "Inbox", point 2); `coffer inbox approve` only with
+`--apply-to-history`.
+
+### Transfer detection
+
+`transfer::detect_for_batch`, at import after the rules. Two rows pair when they are on
+different accounts (pots included), in one currency, with exactly opposite non-zero
+amounts, at most `TransferWindow::DEFAULT` apart (3 days, both ends; at most 31), and
+neither is excluded, split, in a transfer group of any status, or dated after its
+account's `closed_on`. Closest pairs are taken first (days, then time, then IDs), so the
+result is deterministic ("rules engine, transfer detection and the CLI", points 2–3).
+Each pair is a `suggested` `transfer_group`; detection never changes a category. A
+suggested pair counts by its own categories until confirmed; a confirmed pair is out of
+income and spending; a category of kind `transfer` is for one row whose other side
+Coffer doesn't hold (`transactions.md`, "two kinds of transfer, and marking a suggested
+pair"). Confirming, rejecting, unpairing and marking by hand: `transactions.md`,
+"transfer-pair confirmation (built)" and "Mark as transfer and Create rule from the
+bulk-action bar".
+
+### The CLI
+
+`coffer_app::cli`, in the lib so tests can run it, with `anyhow`; no command edits
+rules. `coffer import` uses only a confident, unique detection (OFX by its format, a
+preset by its own header row, `Detection::Source`), else lists presets for `--preset`.
+`--statement N` picks an OFX statement; `--account` takes an ID or exact name, else the
+only open account in the file's currency that holds transactions, pots left out.
+Flagged rows, a balance mismatch or a bank's correction need `--yes`; `--dry-run`
+writes nothing; `undo-import` without `--yes` only previews. A command that acts as the
+user (`import`, `undo-import --yes`, `accounts add`) needs an interactive terminal
+(`cli/terminal.rs`; `mcp.md`, "approval needs the user's terminal"). The CLI sets up no
+logging and prints no row text it wasn't asked for.
+
+### The Rules view
+
+`crates/app/src/rules.rs` (M3.13): Rules, Merchant names, Change history and Categories
+(`categories.md` → "Categories"). Matches is what a rule decides today
+(`rule::overview`: the rule set over every stored transaction, as an import would); a
+rule that matches rows but decides none is never reached, and `RuleSummary::caught_by`
+names the rule above that catches most of them ("the Rules view (built)", point 3).
+Edits save once valid; a new rule is stored only from its apply preview. The
+Transactions prompt is `rule::propose` (`contains` the `rule::stem`). Writes go through
+one pipeline (`rules/write.rs`, `Rules::write`, `query`, `Rules::reload`) that tells the
+shell only when a transaction changed; each section's state is one value
+(`rules/state.rs`, `RuleEdit`) ("the Rules view's edit pipeline and section state").
+Undo is the bar's or Change history's (`change::undo_preview`, `change::undo`). At
+100,606 transactions the view's load takes about 521 ms on the UI thread
+(`rule::overview` 412 ms; `app.md`, "performance at 100,000 transactions"; ROADMAP R.19).
+
 ## Decision records
 
 Oldest first.

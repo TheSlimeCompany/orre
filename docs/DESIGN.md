@@ -1907,7 +1907,26 @@ can be approved. Nothing in the preview is the agent's own words except the card
   D6.3 undo bar: "Approved rule UBER *EATS: 5 transactions now Eating out", Undo. One
   `change_batch` per approval; Approve all makes one per suggestion.
 - **States board** (`EWZ-0`, 1440 wide): the refund link, transfer pair and categorisation
-  inspectors, Coffer's own card, the wide rule, and the undo bar.
+  inspectors, Coffer's own card, the wide rule, the undo bar, and R.18's rows a rule
+  leaves alone.
+- **Rows a rule leaves alone** (R.18; `EWZ-0`, section "R.18 · Rows a rule leaves
+  alone"). A confirmed transfer leg or a linked refund's money in takes no category of
+  its own, so a rule that matches it skips its category (`ARCHITECTURE` → "Decision
+  record: rules skip rows that take no category of their own"). No new tokens.
+  - *If you approve* gets a **Skips** field row after Keeps, only when there are any: the
+    count per kind, mono figures in `text`, kinds joined by a `text-muted` " · ": "1
+    transfer" / "2 transfers", "1 linked refund" / "2 linked refunds" (drawn: "1 linked
+    refund"). Changes and the Spending rows leave those rows out. A linked refund
+    doesn't make the rule wide; an incoming transfer leg still does, and the Skips row
+    then says why. A split template's skipped rows aren't shown here yet. The caption gains a
+    sentence: "A confirmed transfer or a linked refund takes no category of its own, so
+    it skips theirs."
+  - *The open preview's AFTER lane* says why, like "Stays, you set it": a 10px
+    (`spacing-icon-xs`) `text-muted` icon, the table's link icon for a refund or its ⇄
+    transfer icon for a transfer leg, and "Stays, a linked refund" / "Stays, a transfer"
+    in `text-muted`. It wins over "Name or tags change" on that row, since the lane is
+    the category. Drawn: the UBER *EATS rule with an uncategorised +£18.40 refund on 6
+    Nov. A categorisation's skipped row says the same in its AFTER lane.
 - **Data-model questions: decided** (user, 2026-11-10; `ARCHITECTURE.md` → "Decision
   record: Inbox impact preview"). Each went with the recommendation below, which the
   designs already assume.
