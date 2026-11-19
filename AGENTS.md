@@ -91,8 +91,8 @@ logic out of `app` so it stays testable without a window.
 
 One binary, `coffer`: no subcommand opens the GUI; `mcp` runs the MCP server
 (`coffer mcp --client <name>` names the client, which selects its access level);
-`import`, `accounts`, `undo-import`, `inbox`, `backup`, `restore`, `export` are headless
-CLI commands.
+`import`, `accounts`, `undo-import`, `backup`, `restore`, `export`, `ai-access`,
+`budgets`, `schedules`, `inbox` and `categorize` are headless CLI commands.
 
 ## Invariants
 
@@ -119,11 +119,14 @@ Changing any of these needs an explicit decision recorded in the topic's file un
   (2026-11-18), but that is a speed bump: a client with a shell can fake one or open the
   database, so containment holds only while the client has no shell, or a sandbox denies
   it the data dir.
-- **No PII in MCP output.** No account numbers, sort codes, IBANs, names, or addresses.
-  Merchant addresses and user notes are excluded by default; share labels, private tags,
-  and attachments are never exposed. Per-client access levels (`aggregate`,
-  `pseudonymous`, `standard`) are enforced by not registering tools above the level.
-  Every MCP tool has a test asserting this.
+- **No PII in MCP output below `standard`.** Account numbers, sort codes, IBANs, notes
+  (the bank's and the user's), share labels, private tags, merchant addresses and
+  attachments never appear, at any level. Names (a payee who is a person, account names)
+  and bank text appear only at `standard`, which is full access by design; below it a
+  name never does (`mcp.md`, "Decision record: M2: MCP server", A.1). Per-client access
+  levels (`aggregate`, `pseudonymous`, `standard`) are enforced by not registering tools
+  above the level and by what each tool returns at the caller's level. Every MCP tool has
+  a test asserting this.
 - **Treat transaction text as untrusted input.** Descriptions and notes can contain
   prompt-injection text; never let them drive control flow beyond matching. MCP returns
   bank text only sanitised and labelled untrusted: the `description_untrusted` field, and

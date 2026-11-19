@@ -18,7 +18,10 @@
 //!   `liability` accounts) is never a check: it is a new starting point,
 //!   and the assertions after it are counted from it ([`Outcome::Valuation`]).
 //! - **Which transactions count.** Every transaction of the account, except
-//!   rows excluded as `duplicate`: a duplicate never happened at the bank.
+//!   rows excluded as `duplicate` or `superseded`
+//!   ([`crate::exclusion::ExclusionReason::leaves_balance`]): a duplicate never
+//!   happened at the bank, and a superseded row was replaced by the bank's
+//!   correction.
 //!   Rows excluded for another reason record money that really moved
 //!   ("Decision record: Transactions additions", point 1). A split row
 //!   counts once, with its whole amount.

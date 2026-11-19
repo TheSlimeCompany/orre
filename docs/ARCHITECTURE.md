@@ -39,12 +39,14 @@ How a file becomes rows: the importers, presets, dedupe, reconciliation, the com
 Money as integer minor units, and the SQLite schema.
 
 - Section: Money
-- Section: Data model (initial)
+- Section: Data model
 
 ### [Accounts](architecture/accounts.md)
 
 Accounts and their balances: pots and other sub-accounts, accounts the user keeps by hand, assets and liabilities, closing and deleting, cash counts.
 
+- Section: Accounts (Kinds; Creating and editing; Balances; Locks; Closing, reopening and
+  deleting; Net worth and the panel; What leaves the account)
 - Decision record: accounts you keep yourself (2026-11-10)
 - Decision record: sub-accounts (2026-11-11)
 - Decision record: accounts management (2026-11-14)
@@ -55,6 +57,9 @@ Accounts and their balances: pots and other sub-accounts, accounts the user keep
 
 The Transactions view and what the user can do to a row: splits, tags, notes, merchant names, manual rows, exclusions, transfer pairs, removal.
 
+- Section: Transactions (The row; Edits, undo and the lock; Which rows take a category;
+  Splits, tags, notes and names; Exclusion; Manual rows; Transfers; Removing
+  transactions; The register)
 - Decision record: Transactions additions (2026-11-10)
 - Decision record: splits, tags and notes, manual rows, merchant names (2026-11-12)
 - Decision record: the Transactions view (2026-11-14)
@@ -79,6 +84,8 @@ The category tree, the categories editor, and which rows take a category.
 
 Rules and their actions, the rules engine at import, transfer detection, the CLI, and the Rules view.
 
+- Section: Rules (A rule; What a rule may write; At import; Applying to history; Transfer
+  detection; The CLI; The Rules view)
 - Decision record: rules (2026-11-10)
 - Decision record: rules engine, transfer detection and the CLI (2026-11-11)
 - Decision record: the Rules view (built) (2026-11-14)
@@ -89,6 +96,8 @@ Rules and their actions, the rules engine at import, transfer detection, the CLI
 
 Change batches, refunds, reimbursements and shared costs, possible duplicates, balance checks and lock dates, export.
 
+- Section: Links and checks (Change batches; Refunds, reimbursements and shared costs;
+  Possible duplicates; Balance checks and locks; Export)
 - Decision record: review queues (2026-11-10)
 - Decision record: refunds, reimbursements and shared costs (2026-11-10)
 - Decision record: M1 wave 4 — change batches, rule actions, links, duplicates, balance checks and export (2026-11-13)
@@ -101,8 +110,11 @@ Change batches, refunds, reimbursements and shared costs, possible duplicates, b
 
 Suggestions waiting for the user: the Inbox and its impact preview.
 
+- Section: Inbox (Suggestions; Approving and rejecting; The impact preview; The Inbox
+  screen; Coffer's own suggestions)
 - Decision record: Inbox impact preview (2026-11-10)
 - Decision record: Inbox (2026-11-14)
+- Decision record: the preview says why a rule skips a row's category (2026-11-19)
 
 ### [MCP](architecture/mcp.md)
 
@@ -119,6 +131,8 @@ The MCP server: tools by access level, the gate, the access log, untrusted text,
 
 The Settings view, AI clients and their access, local backups and restore.
 
+- Section: Settings, AI access and backups (The Settings view; AI clients and access
+  levels; Local backups; Retention; Restore; Presets and backups)
 - Decision record: Settings, AI access and backups (2026-11-10)
 - Decision record: local backups (2026-11-11)
 - Decision record: Settings, AI access and backups (built) (2026-11-14)
@@ -128,6 +142,8 @@ The Settings view, AI clients and their access, local backups and restore.
 
 Budgets, the forecast, and how spending is counted over the ledger.
 
+- Section: Reporting (The ledger and the spending rule; Reports; Previews of a change;
+  Net worth; Budgets; Schedules and the forecast)
 - Decision record: budgets and the forecast (2026-11-10)
 - Decision record: one spending rule over the ledger (2026-11-16)
 - Decision record: one net worth rule (2026-11-19)
@@ -136,10 +152,14 @@ Budgets, the forecast, and how spending is counted over the ledger.
 
 The app shell, window state, the status bar, and how the app opens the database and applies edits.
 
+- Section: The app (The shell and navigation; Window state; The status bar; Opening the
+  database; Applying edits; What runs off the UI thread; `describe()` stays out of
+  release builds)
 - Decision record: the app shell and window state (2026-11-14)
 - Decision record: one gate for opening the database, and the Transactions edit pipeline (2026-11-15)
 - Decision record: the status bar reads the database (2026-11-17)
 - Decision record: views that describe themselves stay out of the release binary (2026-11-18)
+- Decision record: performance at 100,000 transactions (2026-11-19)
 
 ### In this file
 
@@ -157,7 +177,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Area | Decision |
 |---|---|
 | Stack | Rust 2024, GPUI via `gpui-kit` / `gpui-component` (charts, `DataTable`, sidebar/dock built in) |
-| Platforms | Linux + macOS official; Windows compiles in CI, community-supported |
+| Platforms | Linux + macOS official; Windows community-supported, to be built in CI once there is one (M5.5; there is no CI yet) |
 | License | `MIT OR Apache-2.0` |
 | Storage | SQLite, WAL mode, `synchronous = FULL`, file mode 0600 (data dir 0700), `coffer.db` in the platform data dir (`~/.local/share/coffer`; `~/Library/Application Support/Coffer` on macOS), overridable with `COFFER_DATA_DIR`. Not encrypted in v1 (SQLCipher possible later) |
 | Money | Integer minor units + ISO 4217 currency per account/transaction. Never floats |
@@ -167,9 +187,9 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Categorization | Local rules engine first; AI-proposed categories/rules land in the Inbox for approval. Approving a categorisation sets those transactions' categories (an undoable `bulk_edit` batch, source `ai_approved`); only approving a `rule` suggestion creates a rule. The app also files `rule` suggestions itself (source `coffer`) after repeated identical manual recategorisations: deterministic counting, no ML. Learned classifiers are not used |
 | Transfers | Auto-detect opposite-amount pairs across own accounts within 3 days (`TransferWindow::DEFAULT`); user confirms; a confirmed pair is excluded from income/spend and its legs take no category. A suggested pair counts by its own category until confirmed, and the table marks it. A category of kind `transfer` is for a single row whose other side Coffer doesn't hold. See "Decision record: two kinds of transfer, and marking a suggested pair" |
 | Pots / sub-accounts | Monzo Pots, Starling Spaces, Revolut Vaults etc. are sub-accounts of their parent. A preset's `[sub_account_transfer]` identifies pot transfers; the import commit creates the pot when its key (the bank's ID for it, or its name where the export has no ID, as Monzo's doesn't) is new, mirrors the row onto it (`origin = mirrored`) and pairs the two as a confirmed transfer. Pots count toward net worth (opening balance entered once per pot). See "Decision record: sub-accounts" |
-| AI integration | `coffer mcp` stdio MCP server (`rmcp`). Read-only query tools + inbox-only writes. No account numbers or PII in tool output |
+| AI integration | `coffer mcp` stdio MCP server (`rmcp`). Read-only query tools + inbox-only writes. No account numbers at any level; names and bank text only at `standard` (see "MCP surface") |
 | Splits | A transaction can be split into lines that sum exactly to its amount, in its currency (enforced in core, in the same DB transaction as the edit). Reports, budgets and MCP read the `ledger_line` view: one row per split line, or the transaction itself when it isn't split |
-| Tags and notes | Many tags per transaction, alongside categories. Tag names are user text: MCP sees them only at `standard` access, and never for tags marked private. The imported note stays read-only; the user's note is a separate field. Neither note is exposed over MCP by default |
+| Tags and notes | Many tags per transaction, alongside categories. Tag names are user text: MCP sees them only at `standard` access, and never for tags marked private. The imported note stays read-only; the user's note is a separate field. Neither note is exposed over MCP, at any level |
 | Manual entries and corrections | Manual rows have `origin = manual` and no import batch. Imported source fields (date, amount, raw description, external ID) are never edited: a bad import is undone, or a row is excluded with a recorded reason and stays visible under an "excluded" filter. User-facing fields (category, display merchant, tags, notes, splits) are editable. Manual rows are the user's own data: every field is editable and they can be deleted. Exclusion reasons and their effect on balances: see the decision record "Transactions additions" |
 | Merchant names | `merchant_display` is derived: deterministic clean-up of the raw text, then the merchant alias table, then rule actions. It can be recomputed at any time; the raw text is untouched. A name set by a rule or the user (`merchant_display_source`) is never recomputed. See "Decision record: splits, tags and notes, manual rows, merchant names" |
 | Refunds, reimbursements, shared costs | `transaction_link` ties a refund to its purchase (it nets against the purchase's category instead of counting as income), a reimbursement to the expense it repays, and a settlement to a share label. `my_share_minor` (default: the full amount) gives personal and gross views; the difference builds an owed-to-me balance per local share label. Share labels never leave the app. Still single-user: no one else's accounts are modelled |
@@ -179,7 +199,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Schedules and forecast | A detected recurring series becomes a schedule only when the user confirms it. The forecast is the last known balance plus schedule occurrences (plus the remaining flex budget), per account per day, in integer arithmetic, using cached FX rates only |
 | Budgets | Per-category monthly amounts with optional rollover. Each budget is in a group: fixed, non-monthly (accrues 1/12 of a yearly amount, seeded from yearly schedules) or flex |
 | Asset and liability accounts | Account kinds `asset` and `liability` hold manually valued items (house, pension, mortgage, loan). Valuations are `balance_snapshot` rows with source `valuation`; net worth uses the last value on or before each date. Investment holdings and prices are deferred (ROADMAP L.14) |
-| Backups and export | Rotating `VACUUM INTO` snapshots (0600) in `<data dir>/backups` (0700) before every import commit, migration and restore; by default the last 10 automatic backups plus the newest of each earlier month are kept, and manual ones are never deleted. Restore runs `PRAGMA integrity_check` and a schema-version check on a copy before swapping files (see "Decision record: local backups"). Export is CSV/JSON with a documented, versioned schema (split lines carry their parent ID); user notes and private tags only with `--include-notes` / `--include-private-tags` (user, 2026-11-12), share labels never. Beancount/hledger journal export follows in M5.8. Local files only, no network |
+| Backups and export | Rotating `VACUUM INTO` snapshots (0600) in `<data dir>/backups` (0700) before every import commit, migration and restore; the 10 most recent automatic backups plus the newest of each of the 12 months before the current one are kept, and manual ones stay until the user deletes them ("Decision record: backup retention and presets"). Restore runs `PRAGMA integrity_check` and a schema-version check on a copy before swapping files (see "Decision record: local backups"). Export is CSV/JSON with a documented, versioned schema (split lines carry their parent ID); user notes and private tags only with `--include-notes` / `--include-private-tags` (user, 2026-11-12), share labels never. Beancount/hledger journal export follows in M5.8. Local files only, no network |
 | MCP access | MCP is off until the user enables a client. Each client has an access level (`aggregate`, `pseudonymous` or `standard`); tools above it are never registered. The client is named by `coffer mcp --client <name>` in its configuration. This is a guardrail against over-sharing, not authentication: any local process can read the database file (at-rest encryption is L.6). Every tool call is recorded in `mcp_access_log`. Approval happens only in Coffer's own window or CLI; MCP elicitation, sampling and MCP Apps are not used for it |
 
 ### Decision record: feature research (2026-11-09)
@@ -226,9 +246,11 @@ binary is built from `coffer-app`, which depends on the other three; shared file
 repository root (`assets/` for fonts and brand marks, `design/` for the exported tokens).
 
 Single binary: `coffer` (GUI: the app shell around the views, see "Decision record: the
-app shell and window state"), `coffer mcp` (stdio MCP server),
-`coffer import <file>` (headless import, used from M1), `coffer backup [--list]` /
-`coffer restore <file> [--yes]` (M1.28), `coffer export`.
+app shell and window state"), `coffer mcp --client <name>` (stdio MCP server), and the
+headless commands (`coffer_app::cli::Command`): `coffer import <file>`, `coffer
+accounts`, `coffer undo-import`, `coffer backup [--list | --delete <file>]` / `coffer
+restore <file> [--yes]` (M1.28), `coffer export`, `coffer ai-access`, `coffer budgets`,
+`coffer schedules`, `coffer inbox` and `coffer categorize`.
 
 The GUI and MCP processes share the SQLite file; WAL allows concurrent readers.
 

@@ -433,7 +433,7 @@ steps and rolls them back, for the Review step's figures (M3.4). `undo_preview(d
   balances (entered, earlier files, the opening balance, and this file's) are sorted by
   date; the first is the starting point and each later one must equal the last passing
   one plus the transactions after it, up to and including its day. Rows excluded as
-  `duplicate` leave the sum. The preview runs it with and without the import and reports
+  `duplicate` or `superseded` leave the sum. The preview runs it with and without the import and reports
   the checks this file adds, the stored ones whose result it changes, and stored ones
   the file states again. `ReconciliationStatus`: `NoBalances`, `StartingPoint`,
   `Reconciled` or `Mismatch` (the import screen's reconciliation block).

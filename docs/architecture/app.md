@@ -6,6 +6,112 @@ Part of [`ARCHITECTURE.md`](../ARCHITECTURE.md), which lists every topic and
 decision record. A section or record named here that isn't in this file is in
 that list.
 
+## The app
+
+The rules in force, drawn from the records below. Where a later record changed an
+earlier one, only the current rule is stated, with the record that set it.
+
+### The shell and navigation
+
+`coffer_app::shell` (M3.1; "the app shell and window state", points 1 and 6). `coffer`
+with no subcommand opens one window: the title bar with eight view tabs (Overview,
+Transactions, Trends, Budgets, Net worth, Inbox, Reviews, Rules) and a Settings button,
+the body (the view's own left panel, canvas and inspector), and the status bar. There
+is no sidebar: the five views of the money share the accounts panel, and Inbox,
+Reviews, Rules and Settings have their own lists. ⌘1–⌘8 open the views in tab order,
+⌘, opens Settings, ⌘I imports and ⌘N adds a transaction on Transactions (Ctrl on Linux
+and Windows). The Settings button toggles back to the view it was opened from.
+Transactions, Inbox, Rules and Settings are built (`View::is_built`); the others show
+the shell around an empty state ("{View} isn't built yet") with ⌘2 to Transactions.
+The shell opens every dialog over everything when a view asks.
+
+### Window state
+
+Key `app.window` in the `setting` table, a JSON `coffer_core::setting::WindowState`:
+mode (windowed, maximised, full screen), restore bounds in whole logical pixels and the
+open view's key. Core refuses an out-of-range write and reads a bad value as an error
+("the app shell and window state", point 2). `shell::window_state::WindowStore` saves
+500 ms after the window stops moving, resizing or changing view (`SAVE_DELAY`), on a
+background thread, and at once on the UI thread when the window closes or the app
+quits. On open, a window whose title bar wouldn't show 40×40 px on any display opens
+centred at 1440×900, a smaller one grows to the minimum, and an unknown view key opens
+Transactions (points 4 and 5; `window_state::restored_bounds`). Any failure, a restore
+in progress included, leaves the defaults with a warning on stderr and never stops the
+app (point 3).
+
+### The status bar
+
+`shell::status::Status`, built from what the views already hold, so it adds no reads
+("the status bar reads the database", which supersedes point 8 of "Settings, AI access
+and backups (built)" on the fixture data). An item with nothing true to say is left
+out. "AI access off" while the kill switch is off, else "N agents connected" counting
+the enabled clients (none enabled: left out); either opens Settings → AI clients.
+"Reconciled" needs at least one balance check, and failing checks replace it. The
+import line is the newest committed import in an open account, its time reread every
+30 seconds (`ShellView::keep_time`). The transaction count, with excluded rows when
+there are some. The currency only when every open account shares one. "3 new" is left
+out. With the sample data (`transactions::Counts`' `sample`) it keeps Paper's
+artboard for snapshots.
+
+### Opening the database
+
+- **One gate.** Every per-call open, in the app and the MCP server, goes through
+  `coffer_core::backup::gate::open`: it checks the restore lock, runs the caller's
+  opener, and checks again, refusing ("A backup is being restored; try again when it's
+  done.") and closing what it opened if a restore held the lock at either check. The
+  lock is checked for an instant, not held for the call ("one gate for opening the
+  database, and the Transactions edit pipeline", points 1 and 2).
+- **No connection is held.** The app opens with `Database::open` (creating and
+  migrating as the CLI does, with the migration backup) at start-up and again for each
+  read or write, through its stores (`AccountStore`, `TransactionStore`, `InboxStore`,
+  `ChecksStore`, `RulesStore`, `SettingsStore`, `ImportStore`, `WindowStore`), so a
+  restore can swap the file ("the app shell and window state", point 3; "one gate for
+  opening the database, and the Transactions edit pipeline", point 5, which updates
+  "accounts management", point 6, "Inbox", point 8, and "the import flow"). After a
+  restore, Settings and the accounts read the database again.
+
+### Applying edits
+
+Transactions and Rules write through one edit pipeline each
+(`TransactionsView::write`/`query` in `transactions/write.rs`, `Rules::write`/`query`
+in `rules/write.rs`): a change is a policy (where its error is said, the undo-bar
+offer, the event for the shell) and one call to core on the database the pipeline
+opens; the pipeline owns the no-database refusal, the reload and the event. Their
+stores keep only opening and reading ("one gate for opening the database, and the
+Transactions edit pipeline", point 3; `rules.md`, "the Rules view's edit pipeline and
+section state"). Accounts, Inbox, Checks, Settings and Import
+still forward calls through their store's methods (point 4). A single-row edit on
+Transactions shows no undo bar; links, changes to several rows, exclusions and
+transfer decisions do.
+
+### What runs off the UI thread
+
+The budget is 50 ms on the UI thread at 100,000 transactions ("performance at 100,000
+transactions"; `crates/core/examples/ledger_bench.rs` measures it).
+
+- **Background:** the Transactions register (read at start and after each change, then
+  filtered in memory); the Inbox (`Inbox::reload` on `background_spawn`; the shell
+  builds it with `Inbox::unloaded`, and `InboxStore::load` previews every pending
+  suggestion with `inbox::preview::preview_all`); everything in the import dialog that
+  touches the disk or database (`ImportStore`); backing up, checking a backup and
+  restoring in Settings; the delayed window-state save.
+- **UI thread:** the Accounts load (117 ms at that size) and the Rules load (521 ms),
+  both over the budget, until roadmap R.19; the Checks and Settings reads; Inbox
+  decisions (then a background reload) and `covered_by` on selection; every other
+  write.
+
+### `describe()` stays out of release builds
+
+A view's `describe()` (its rows, selection, dialog and actions as plain data) and
+anything that runs a view's actions from outside the window are `#[cfg(test)]`
+(`ui::describe` and each view's `describe` module). A later driver (U.5) would sit
+behind an off-by-default Cargo feature never enabled in a release build, work only
+against a scratch `COFFER_DATA_DIR` and listen only on a local socket. No MCP tool,
+resource or prompt reaches them, in any build. `describe()` is built from the same
+functions the view renders with and the same sanitising (`envelope::shown`), so it
+shows what a person sees ("views that describe themselves stay out of the release
+binary", points 1 to 5).
+
 ## Decision records
 
 Oldest first.

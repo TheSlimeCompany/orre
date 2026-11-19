@@ -6,6 +6,138 @@ Part of [`ARCHITECTURE.md`](../ARCHITECTURE.md), which lists every topic and
 decision record. A section or record named here that isn't in this file is in
 that list.
 
+## Accounts
+
+`coffer_core::account` (with `account::close` and `account::count`); pots are made by
+imports (`coffer_core::sub_account`); the accounts panel's figures are
+`reporting::account_tree`. The app's side is `crates/app/src/accounts/`, whose
+`AccountStore` opens the database for each read or write through `backup::gate`, on the
+main thread. The CLI is `coffer accounts` (`list`, `add`, `close`, `reopen`). The records
+below are the history; this section is the rule in force.
+
+### Kinds
+
+| Kind | Holds | Preset | Notes |
+|---|---|---|---|
+| `current`, `savings` | transactions, balances | yes | can have pots |
+| `credit_card` | transactions, balances | yes | |
+| `pot` | transactions, balances | no | under a `current` or `savings` account, in its currency |
+| `cash` | transactions, balances, counts | no | |
+| `asset`, `liability` | valuations only | no | no transactions; a liability's value is ≤ 0 |
+
+`AccountKind::holds_transactions` is false for `asset` and `liability`;
+`AccountKind::is_imported` is true for the kinds that take a preset. A payment toward a
+loan stays on the account that paid it, and net worth catches up at the next valuation
+("Decision record: accounts you keep yourself", point 2). Schema triggers back every rule
+here; core checks first so the error says why.
+
+### Creating and editing
+
+- **Create** (`account::create`, `create_with_balance`): the name is trimmed and can't be
+  blank; a blank bank or preset is none; a preset on a kind that isn't imported is
+  refused (`PresetNotImported`). The New account dialog's optional balance is the first
+  entered balance, written in the same DB transaction, so a refused balance adds no
+  account ("Decision record: accounts management", point 3).
+- **Edit** (`account::update` with an `AccountEdit`): name, bank, kind, currency and
+  preset together; not a change batch, since no transaction changes. `account::usage`
+  decides the rest: the currency is fixed once the account has transactions, balances,
+  pots or a rule with amount bounds, and always for a pot (`CurrencyLocked`). The kind
+  (`Usage::kind_change_refused`, `KindLock`): a pot stays a pot and nothing becomes one;
+  an account with transactions can't become an asset or liability; one with balances
+  can't move in or out of the valuation kinds; one with pots stays current or savings.
+- **Preset** (`account.preset_id`): a preset's ID, not checked against the presets. The
+  app's import uses it when the preset exists, else detects one; `coffer import` doesn't
+  read it. A preset this computer doesn't have shows as "`<id>` · not on this computer"
+  ("Decision record: backup retention and presets", point 7).
+- **Pots** are found by `account.sub_account_key`, exactly, under one parent; an import
+  creates a missing one and never renames one. Monzo's key is the pot's name
+  ("Decision record: sub-accounts", points 1 and 8). Pots made by an import stay when it
+  is undone, and aren't a default `coffer import` target (points 6 and 7). A pot added by hand
+  has no key and isn't matched.
+
+### Balances
+
+- **Every balance is an assertion** (`coffer_core::reconciliation`): the account's
+  first is its starting point, each later one is checked against the last that passed
+  plus the transactions between. Rows excluded as `duplicate` or `superseded` leave the
+  sum; other exclusions stay in it. A valuation sets the balance and is never checked.
+  `account.opening_balance_minor` is still read as an assertion, but nothing writes it.
+- **Entered balances** (`account::add_balance`, an `EnteredBalance`; `balance_snapshot`
+  with no batch): `manual` or `statement` on accounts that hold transactions,
+  `valuation` on asset and liability accounts and nowhere else
+  (`EnteredSource::for_kind`; `HoldsValuations`, `NotValued`). One per account and day
+  (`BalanceExists`), in its currency, none on or before the lock date (`Locked`) or after
+  `closed_on` (`AfterClosing`). A liability's valuation above zero is refused
+  (`LiabilityAboveZero`); the app's Owed field is unsigned and negated. The optional
+  note is user text, not sent over MCP by default. Editing or deleting one entered
+  balance isn't built. File balances (`ofx`, `csv`) belong to their batch and go when it
+  is undone.
+- **Cash counts** (`account::count::expectation`, `count::record`; cash accounts only,
+  `NotCash`): a count is a `manual` entered balance. Coffer expects the last passing
+  balance (or the starting point) plus the transactions after it, up to the count's day.
+  When asked, `record` also writes a manual "Cash count difference" row in Other
+  (uncategorised if Other was deleted), in the same `IMMEDIATE` DB transaction; Coffer
+  never posts a difference on its own. The dialog refuses a negative count; core
+  doesn't ("Decision record: cash counts (built)").
+
+### Locks
+
+`account.reconciled_through` is set by `reconciliation::lock`, only on the date of a
+passing check with no failure on or before it; moving it later is allowed, earlier is
+refused, and `reconciliation::unlock` clears it. Valuation accounts have no checks, so
+they can't be locked. A lock guards balances only ("Decision record: a lock guards
+balances only"): for an account that means no entered balance on or before the date, no
+closing before it, and no deleting a locked account. The guards on rows (imports,
+manual rows, exclusions, change batches, the pot mirror) are in that record and in
+`transactions.md`.
+
+### Closing, reopening and deleting
+
+- **Closing** (`account::close`; `account::closing` gives the `Closing` plan) sets
+  `closed_on` and deletes nothing. Open pots close with it on the same day; an asset or
+  liability also gets a £0 valuation that day. The earliest day: for a valuation
+  account, the day after its last valuation; otherwise the day of its, or a closing
+  pot's, last transaction, balance or opening balance (`CloseTooEarly`). Never before
+  any closing account's `reconciled_through` (`CloseLocked`); on it is fine.
+- **After closing**, no entered balance and no manual row may be dated after
+  `closed_on`, and transfer detection skips rows dated after it. An import into a closed
+  account is still allowed, and a closed pot still takes mirrored rows ("Decision record:
+  asset and liability accounts, closing and deleting (built)", point 7, left open). A
+  closed account leaves the panel and every month-end after `closed_on`.
+- **Reopening** (`account::reopen`) clears `closed_on` on the account and on the pots
+  closed the same day, and deletes the £0 valuation on the closing day. A pot whose
+  parent is closed can't reopen alone (`ParentClosed`). The app offers it on the undo
+  bar after closing; later only `coffer accounts reopen`. There is no panel UI for
+  closed accounts; `coffer accounts list` has a CLOSED column.
+- **Deleting** (`account::delete`; `account::deletion` counts what goes) is for an
+  account added by mistake: refused (`Undeletable(DeleteLock)`) while it has
+  transactions, imports (an undone batch counts), pots, rules or schedules, or a lock.
+  Its entered balances and valuations go with it in one DB transaction. Not undoable.
+
+### Net worth and the panel
+
+- **What counts** (`reporting::net_worth::counts`, for both `account_tree` and
+  `net_worth_history`): an account other than a pot with no stated balance (nothing
+  entered, no file balance, no valuation) is left out until one is entered; a pot is
+  counted from its transfers ("Decision record: one net worth rule"). The history still
+  lists such an account, flagged `unanchored`, adding zero.
+- **Net worth** is per currency, never converted, from each counted account's balance at
+  the end of its own last active day; a liability always subtracts.
+- **The panel** (`account_tree`): open accounts in creation order, each pot under its
+  parent, assets and liabilities in their own section. "No balance" for an account
+  without one; `danger` for a current, savings, cash or pot account below zero
+  (`AccountNode::is_overdrawn`); a dot when a balance check failed.
+
+### What leaves the account
+
+- **A file's account number** (OFX) is stored only as a keyed hash, one row per committed
+  batch (`account_source_identity`, V23); the import preview warns when the file looks
+  like another account's (`SourceAccountMismatch`), and committing learns it ("Decision
+  record: a file's account number is checked, never stored").
+- **MCP** never returns account numbers. Below `standard`, accounts are labels
+  (`current 1`, `pot 2`) with `name: null` ("Decision record: merchant names are
+  untrusted, and what `pseudonymous` protects", point 1).
+
 ## Decision records
 
 Oldest first.

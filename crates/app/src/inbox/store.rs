@@ -109,8 +109,8 @@ impl InboxStore {
     }
 
     /// Approves `ids` together, all or none. A rule is also applied to
-    /// past transactions, never over a category the user set (decision
-    /// record "Inbox impact preview", point 1).
+    /// past transactions (decision record "Inbox", point 2), never over a
+    /// category the user set ("Inbox impact preview", point 1).
     pub fn approve(&self, ids: &[SuggestionId]) -> Result<Vec<Approved>, StoreError> {
         let mut db = self.open()?;
         Ok(inbox::approve_all(

@@ -6,6 +6,142 @@ Part of [`ARCHITECTURE.md`](../ARCHITECTURE.md), which lists every topic and
 decision record. A section or record named here that isn't in this file is in
 that list.
 
+## Links and checks
+
+What the user reviews and links after an import, and how many rows change at once.
+"M1 wave 4" below is "M1 wave 4 — change batches, rule actions, links, duplicates,
+balance checks and export".
+
+### Change batches
+
+`coffer_core::change` (V8). A change to user-facing fields on stored transactions is one
+`change_batch` with a `change_item` per transaction and `Field` (category, merchant,
+user note, tags, exclusion, split, share, `reimbursable`, links), holding the value
+before and after. Imported source fields are never among them. The kinds
+(`ChangeKind`) are `rule_apply` (`rule::commit_apply`), `duplicate_merge`
+(`duplicate::merge`) and `bulk_edit`: the user's category edits
+(`inbox::own::recategorize`) and the inspector's splits, tags, notes, names, links and
+shares (`edit`). Transfer-pair decisions and merchant name aliases aren't batches.
+
+- **Recording.** A `Recorder` sets a field (`set`) or watches core's own code write it
+  (`track`), reads the value back and keeps old and new; `finish` writes the batch, or
+  nothing when nothing changed. It runs in the caller's DB transaction, so a preview is
+  the same code rolled back (`change::dry_run`) ("M1 wave 4", point 1; "refunds,
+  reimbursements and settlements (built)", point 2).
+- **Undo** (`change::undo`, `undo_preview`) restores items newest first, and only where
+  the field still holds the batch's value; the rest, and values that can't be written
+  any more, are counted as changed since (`UndoSummary::changed_since`) ("rules", point
+  6). Undoing a merge puts its candidates back to `pending`. Change history is
+  `change::history` and `history_items`.
+- **What can't be written** (`change::unwritable`): a category on a split row, a split
+  or share on linked money in, links that no longer fit, the reason `superseded`, and
+  any exclusion change on a superseded row. Other writers don't ask `category::assign`
+  ("rules skip rows that take no category of their own", point 4).
+
+### Refunds, reimbursements and shared costs
+
+`coffer_core::link` (V9). A `transaction_link` ties money in to a purchase (`refund`,
+`reimbursement` of a purchase claimed back) or to a person (`settlement`). One link per
+pair in any status; only `confirmed` counts. A `rejected` pair keeps its row and is
+never suggested again, and unlinking is rejecting ("M1 wave 4", point 10). Both sides
+are in one currency, and a link is capped by what the money in has left, what the
+purchase can still take (`inflow_left`, `purchase_left`) and what the person owes
+(`owed_to`).
+
+- **How it counts.** A confirmed refund or reimbursement adds `ledger_line` rows on the
+  money in's date, in the purchase's category, so a late refund leaves the purchase's
+  month alone ("refunds, reimbursements and shared costs", point 1; "M1 wave 4", point
+  11). Confirmed refund money in takes no category of its own (`category::assign`).
+  Spending is the user's share (`personal_minor`); balances stay gross.
+- **Sharing** (`link::Sharing`: just me, shared with a person, claim back) is for money
+  out only, per line on a split purchase. Linked money in can't be split or shared, and
+  a linked row's amount and currency can't change.
+- **Suggestions** (`suggest_for_batch` at import, `suggest_all`) skip money in that is
+  excluded as `duplicate` or `superseded`, in a transfer, shared, split, or already has a
+  suggestion. A refund: a purchase on the same account with the same `merchant_display`
+  (ASCII case ignored) within `REFUND_WINDOW_DAYS` (90) with enough left. Otherwise a
+  reimbursement: a set of the `REIMBURSEMENT_CANDIDATES` (12) newest claims that sums to
+  the payment exactly, the newest within `REIMBURSEMENT_WINDOW_DAYS` (60) ("M1 wave 4",
+  point 14). They show in the inspector and Owed to you; an agent's `refund_link` goes to
+  the Inbox.
+- **Edits** (`edit::link`, `confirm_links`, `reject_links`, `set_sharing`,
+  `rename_person`) are one `bulk_edit` batch each, recorded on the `links` field; undo
+  restores a set of links only where it still fits ("refunds, reimbursements and
+  settlements (built)", point 1). Owed to you is `link::owed::queue`.
+- Locks don't apply, and share labels never leave the app.
+
+### Possible duplicates
+
+`coffer_core::duplicate` (V10, V20). `detect_for_batch` (at import) and `scan` raise a
+`pending` `duplicate_candidate` for two rows on one account, same currency and non-zero
+amount, at most `DuplicateWindow::DEFAULT` apart (3 days, both ends), neither excluded,
+not from one import, at least one imported or mirrored. Its `CandidateReason`:
+`overlapping_import` (both imported, different `description_normalized`),
+`manual_entry` (one manual), or `unmatched_source_id` (both imported, the same day,
+amount and text, source IDs differing; a row the same import matched by source ID is no
+counterpart) ("a source ID is checked against the row's content"). A pair recorded in
+any status isn't raised again. Pairs are taken closest first, then by agreeing names,
+then IDs ("M1 wave 4", point 17).
+
+A merge (`merge_preview`, `merge`) is one `duplicate_merge` batch that excludes the
+duplicate as `duplicate`, never deleting it, and moves what the user set on it to the
+kept row where that row has nothing ("M1 wave 4", point 18). The default keeps a row in
+a transfer, then one with a source ID, then imported over manual, then the earlier
+import (`default_keep`). `dismiss` is final for that pair; `reopen` is its undo. The
+Inbox's CHECKS shows the queue through `coffer_core::checks` (`checks::merge_effect`:
+the merge planned and rolled back, a locked one as if unlocked) ("review queues
+(built)", points 1–3).
+
+### Balance checks and locks
+
+`coffer_core::reconciliation`. An account's balances (the opening balance, then
+snapshots) are ordered by date. The first is the starting point; each later one is
+checked against the last passing one plus the transactions between, with rows excluded
+as `duplicate` or `superseded` left out and a split row counted once. A `valuation`
+sets the balance and is never a check. A failure names its window and is never the base
+for the next check
+("review queues", point 1; "M1 wave 4", point 20).
+
+`reconciliation::lock` sets `account.reconciled_through` only to the date of a passing
+check with no failure on or before it; moving it later is allowed, earlier is refused,
+and `unlock` clears it entirely ("review queues", point 2; "M1 wave 4", point 21).
+
+**A lock guards balances only** ("a lock guards balances only"; the statement is in the
+`reconciliation` module docs). On or before the lock date, nothing may change which rows
+count in the account's balance, or the amount, date or account of such a row. For
+exclusions the one predicate is `exclusion::moves_balance(old, new)`: one side leaves
+the balance (`duplicate`, `superseded`) and the other doesn't. Refused there:
+
+- an import's new row or file balance (flagged and left out,
+  `FileBalanceStatus::Locked`), a bank's correction (`CorrectionBlocked::Locked`), and
+  undoing an import that touches the period;
+- creating or deleting a manual row, or changing its account, date, amount or currency
+  (`manual`);
+- an exclusion that `moves_balance`, whether single-row (`exclusion::exclude`,
+  `include_again`) or in a change batch or its undo (`Recorder::set`, `track`, `undo`;
+  previews ask `change::locked_for`): a rule's `duplicate` exclusion, a merge, undoing
+  either;
+- an entered balance (`account::add_balance`), closing the account before the lock
+  (`CloseLocked`) or deleting a locked one, and a pot mirror row (`PotLocked`).
+
+Allowed there: category, merchant name, a manual row's description and time, notes,
+tags, splits, shares, links, transfer-pair decisions, schedules, and exclusions between
+reasons that keep the row in the balance (`bank_error`, `disputed`, `other`).
+
+### Export
+
+`coffer_core::export`, `coffer export` and the app's export dialog: one row per
+`ledger_line` row, split lines and link parts with their own IDs, rows of a transaction
+summing to its amount. Filters AND together, a filter's values OR. Money is an exact
+decimal string beside its `*_minor` integer, with no floats; JSON is versioned
+(`coffer.export`, `schema_version` 1). Notes (`include_notes`) and private tags
+(`include_private_tags`) are opt-in columns that come last; share labels are never
+exported ("M1 wave 4", points 2 and 22). `Options::include_excluded` is on for the CLI
+and the dialog's toggle ("Settings, AI access and backups (built)", point 7). A file is
+created `0600`, an existing one is replaced atomically only with `--force`, and the
+database and its side files are refused. The columns are in the module's docs and
+`docs/EXPORT.md`.
+
 ## Decision records
 
 Oldest first.
