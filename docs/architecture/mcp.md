@@ -271,8 +271,9 @@ as built). Everything else follows an earlier decision record or invariant.
    cadence and position, stable as payments arrive; kept out of MCP output (a guessed
    merchant could be checked against one). The CLI shows them (user).
 5. Matching runs at import (that import's rows, active schedules) and when a schedule is
-   created or confirmed (the account's earlier rows after its lock date). The window for
-   occurrence *k* is `[nth(k) − tolerance_days, nth(k+1) − tolerance_days)`; it compares
+   created or confirmed (the account's earlier rows after its lock date; all of them
+   since 2026-11-19, point 7). The window for occurrence *k* is
+   `[nth(k) − tolerance_days, nth(k+1) − tolerance_days)`; it compares
    the whole amount, the normalised merchant and the sign; excluded rows and transfers
    never match automatically; the lower schedule ID wins a tie; `update` and `resume`
    match nothing, so an unmatched payment stays unmatched (user).
@@ -283,7 +284,10 @@ as built). Everything else follows an earlier decision record or invariant.
    match and unmatch are refused on or before the lock, and deleting a schedule with a
    match or skip there. A payment arriving late but within its window can fulfil an
    occurrence dated on or before the lock, so an import's matches *can* touch a locked
-   period: the earlier assumption that they never do was wrong.
+   period: the earlier assumption that they never do was wrong. *Amended 2026-11-19:* a
+   lock guards balances only and a schedule moves none, so these are no longer refused,
+   and creating a schedule matches rows on or before the lock too (`links-and-checks.md`,
+   "a lock guards balances only", point 8).
 8. Ended is final; a paused schedule can still be skipped, matched and edited; an ended
    one refuses skips, matches and edits, but its matches and skips can be removed and it
    can be deleted (user).

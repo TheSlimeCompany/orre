@@ -58,7 +58,7 @@
 //!   row is never matched again, so the lower schedule ID wins.
 //! - **When matching runs**: on each import, for that batch's rows; and
 //!   when a schedule is created ([`create`], [`confirm`]), over every row of
-//!   the account after its lock date. [`update`] and [`resume`] match
+//!   the account. [`update`] and [`resume`] match
 //!   nothing: from then on imports do, and earlier rows are matched by hand.
 //!   So a row the user unmatched is never matched again automatically.
 //! - **The user's match** ([`match_occurrence`]) takes any transaction on
@@ -81,16 +81,13 @@
 //!
 //! # Lock dates
 //!
-//! Skipping, unskipping, matching or unmatching an occurrence dated on or
-//! before its account's `reconciled_through` is refused, and so is deleting
-//! a schedule with a match or skip there (end it instead, or unlock).
-//!
-//! The lock is on the occurrence's date. Automatic matching only takes rows
-//! dated after the lock (an import's rows always are), but a row paid late
-//! within its window can fulfil an occurrence on or before the lock date:
-//! that match is then locked like any other. The user may match an open
-//! occurrence after the lock to a row on or before it (a payment made
-//! early): the row itself doesn't change.
+//! A lock (`reconciled_through`) guards balances only, and nothing here
+//! moves one: a schedule creates no rows, and matching or skipping an
+//! occurrence changes no row. So skipping, matching, their undo and
+//! deleting a schedule are allowed on any date, and matching takes rows
+//! on or before the lock as readily as later ones
+//! (`docs/architecture/links-and-checks.md` → "a lock guards balances
+//! only", amended 2026-11-19).
 
 #[cfg(test)]
 mod tests;
@@ -382,9 +379,6 @@ pub enum Error {
     #[error("schedule {0} is already {1}")]
     AlreadyInStatus(ScheduleId, ScheduleStatus),
 
-    #[error("{date} is on or before {through}, which is locked; unlock the account first")]
-    Locked { date: NaiveDate, through: NaiveDate },
-
     #[error("recurring series: {0}")]
     Recurring(#[from] recurring::Error),
 
@@ -394,7 +388,7 @@ pub enum Error {
 
 /// Creates a schedule and, in the same DB transaction, matches the
 /// account's existing transactions from its start (oldest first, as an
-/// import would; never rows on or before the account's lock date).
+/// import would).
 pub fn create(db: &mut Database, schedule: &NewSchedule) -> Result<ScheduleId, Error> {
     let tx = db.conn_mut().transaction()?;
     let (id, matched) = create_in(&tx, schedule)?;
@@ -515,25 +509,7 @@ pub fn end(db: &mut Database, id: ScheduleId) -> Result<(), Error> {
 /// Deletes a schedule with its matches and skips.
 pub fn delete(db: &mut Database, id: ScheduleId) -> Result<Deleted, Error> {
     let tx = db.conn_mut().transaction()?;
-    let schedule = load(&tx, id)?;
-    if let Some(through) = lock_date(&tx, schedule.account)? {
-        let earliest: Option<String> = tx.query_row(
-            "SELECT min(occurrence_date) FROM ( \
-                 SELECT occurrence_date FROM schedule_match WHERE schedule_id = ?1 \
-                 UNION ALL \
-                 SELECT occurrence_date FROM schedule_skip WHERE schedule_id = ?1)",
-            [id],
-            |row| row.get(0),
-        )?;
-        if let Some(earliest) = earliest.as_deref().and_then(parse_date)
-            && earliest <= through
-        {
-            return Err(Error::Locked {
-                date: earliest,
-                through,
-            });
-        }
-    }
+    load(&tx, id)?; // NotFound for an unknown ID
     let matches = tx.execute("DELETE FROM schedule_match WHERE schedule_id = ?1", [id])?;
     let skips = tx.execute("DELETE FROM schedule_skip WHERE schedule_id = ?1", [id])?;
     tx.execute("DELETE FROM schedule WHERE id = ?1", [id])?;
@@ -550,7 +526,6 @@ pub fn skip(db: &mut Database, id: ScheduleId, date: NaiveDate) -> Result<(), Er
         return Err(Error::Ended(id));
     }
     check_occurrence(&schedule, date)?;
-    check_lock(&tx, schedule.account, date)?;
     match decision(&tx, id, date)? {
         Some(Decision::Skipped) => return Err(Error::AlreadySkipped(date)),
         Some(Decision::Matched) => return Err(Error::AlreadyMatched(date)),
@@ -570,7 +545,6 @@ pub fn unskip(db: &mut Database, id: ScheduleId, date: NaiveDate) -> Result<(), 
     let tx = db.conn_mut().transaction()?;
     let schedule = load(&tx, id)?;
     check_occurrence(&schedule, date)?;
-    check_lock(&tx, schedule.account, date)?;
     let removed = tx.execute(
         "DELETE FROM schedule_skip WHERE schedule_id = ?1 AND occurrence_date = ?2",
         params![id, date_key(date)],
@@ -598,7 +572,6 @@ pub fn match_occurrence(
         return Err(Error::Ended(id));
     }
     check_occurrence(&schedule, date)?;
-    check_lock(&tx, schedule.account, date)?;
     let on_account: AccountId = tx
         .query_row(
             "SELECT account_id FROM \"transaction\" WHERE id = ?1",
@@ -641,7 +614,6 @@ pub fn unmatch(db: &mut Database, id: ScheduleId, date: NaiveDate) -> Result<(),
     let tx = db.conn_mut().transaction()?;
     let schedule = load(&tx, id)?;
     check_occurrence(&schedule, date)?;
-    check_lock(&tx, schedule.account, date)?;
     let removed = tx.execute(
         "DELETE FROM schedule_match WHERE schedule_id = ?1 AND occurrence_date = ?2",
         params![id, date_key(date)],
@@ -669,7 +641,6 @@ pub(crate) fn match_batch(conn: &Connection, batch: BatchId) -> Result<usize, Er
     };
     let mut matched = 0;
     for account in accounts {
-        let lock = lock_date(conn, account)?;
         let schedules = {
             let mut statement = conn.prepare(&format!(
                 "SELECT {COLUMNS} FROM {FROM} \
@@ -680,7 +651,7 @@ pub(crate) fn match_batch(conn: &Connection, batch: BatchId) -> Result<usize, Er
                 .collect::<Result<Vec<_>, _>>()?
         };
         for schedule in &schedules {
-            let rows = candidates(conn, account, Some(batch), lock)?;
+            let rows = candidates(conn, account, Some(batch))?;
             matched += match_rows(conn, schedule, &rows)?;
         }
     }
@@ -790,7 +761,7 @@ fn create_in(conn: &Connection, schedule: &NewSchedule) -> Result<(ScheduleId, u
     )?;
     let id = ScheduleId::new(conn.last_insert_rowid());
     let stored = load(conn, id)?;
-    let rows = candidates(conn, account.id, None, account.reconciled_through)?;
+    let rows = candidates(conn, account.id, None)?;
     let matched = match_rows(conn, &stored, &rows)?;
     Ok((id, matched))
 }
@@ -842,21 +813,6 @@ fn set_status(db: &mut Database, id: ScheduleId, to: ScheduleStatus) -> Result<(
     tx.commit()?;
     tracing::info!(schedule = %id, status = to.as_str(), "changed a schedule's status");
     Ok(())
-}
-
-/// The account's lock date (`reconciled_through`).
-fn lock_date(conn: &Connection, account: AccountId) -> Result<Option<NaiveDate>, Error> {
-    Ok(account::find(conn, account)?
-        .ok_or(Error::AccountNotFound(account))?
-        .reconciled_through)
-}
-
-/// Refuses an occurrence dated on or before the account's lock date.
-fn check_lock(conn: &Connection, account: AccountId, date: NaiveDate) -> Result<(), Error> {
-    match lock_date(conn, account)? {
-        Some(through) if date <= through => Err(Error::Locked { date, through }),
-        _ => Ok(()),
-    }
 }
 
 /// What is stored about one occurrence.
@@ -1030,7 +986,7 @@ struct Candidate {
 }
 
 /// The account's candidates, oldest first then by ID: of batch `batch`
-/// only, when given, and after `lock` (the account's lock date), when set.
+/// only, when given.
 /// A correction that took its replaced row's match ([`move_match`]) is
 /// skipped as already matched; one whose replaced row had none is a
 /// candidate like any new row (a pending row for 0 that posts as the
@@ -1039,7 +995,6 @@ fn candidates(
     conn: &Connection,
     account: AccountId,
     batch: Option<BatchId>,
-    lock: Option<NaiveDate>,
 ) -> rusqlite::Result<Vec<Candidate>> {
     let mut statement = conn.prepare(
         "SELECT t.id, t.date, t.amount_minor, t.currency, \
@@ -1047,7 +1002,6 @@ fn candidates(
          FROM \"transaction\" t \
          WHERE t.account_id = ?1 \
            AND (?2 IS NULL OR t.batch_id = ?2) \
-           AND (?3 IS NULL OR t.date > ?3) \
            AND t.excluded_reason IS NULL \
            AND NOT EXISTS (SELECT 1 FROM transfer_group g \
                            WHERE g.id = t.transfer_group_id AND g.status <> 'rejected') \
@@ -1055,7 +1009,7 @@ fn candidates(
          ORDER BY t.date, t.id",
     )?;
     statement
-        .query_map(params![account, batch, lock.map(date_key)], |row| {
+        .query_map(params![account, batch], |row| {
             let merchant: Option<String> = row.get("merchant")?;
             Ok(Candidate {
                 id: row.get("id")?,

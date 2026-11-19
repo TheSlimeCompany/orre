@@ -866,13 +866,13 @@ pub(super) fn lock_text(
     };
     let mut words: Vec<Part> = match account.locked_through {
         Some(through) => vec![
-            Part::text("An import, edit, merge or undo that touches "),
+            Part::text("An import, edit, merge or undo that would change the balance on "),
             Part::mono(text::date(through, today)),
             Part::text(" or earlier is flagged and waits for an unlock."),
         ],
         None => vec![Part::text(
             "Locking an account flags any later import, edit, merge or undo that would change \
-             its checked history.",
+             its checked balance.",
         )],
     };
     let failing = row.filter(|row| row.check.outcome.is_failed());

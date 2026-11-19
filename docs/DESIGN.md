@@ -1511,7 +1511,7 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
     what gets flagged and that nothing changes now, a Through select (passing check dates
     only, latest first: "31 Oct 2026 · latest passing check"), Cancel / "Lock" (neutral
     primary).
-  - **Unlock dialog**: "Unlock Joint account?", a body (changes dated on or before the lock
+  - **Unlock dialog**: "Unlock Joint account?", a body (changes to the balance on or before the lock
     stop being flagged; the checks keep running; lock again once they pass), Cancel /
     "Unlock" (neutral primary: unlocking is reversible and changes no data). Unlock clears
     the lock; locking again picks a date.
