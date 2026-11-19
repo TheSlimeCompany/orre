@@ -397,7 +397,9 @@ as built). Everything else follows an earlier decision record or invariant.
    none. `--before` is the start of that day in UTC, as `created_at` is stored; a client
    with no matching reports deletes nothing and isn't an error. No backup is taken first
    (deleting reports changes no money data); a report stays in backups taken before it
-   was deleted until they rotate out. Nothing else refers to a report by ID: no foreign
+   was deleted until they're deleted: automatic ones rotate out (the monthly ones after 12
+   months), and manual ones stay until the user deletes them in Settings or with `coffer
+   backup --delete` ("Decision record: backup retention and presets", 2026-11-19). Nothing else refers to a report by ID: no foreign
    key, suggestion payload, `applied_json` or change batch names one, and the access log
    keeps only a hash of `save_report`'s result; `report.id` is `AUTOINCREMENT`, so a
    deleted ID is never reused. No MCP tool or server code path deletes a report: the
@@ -474,13 +476,13 @@ go to the inbox only".
    client isn't enabled); writing transactions, rules, categories, accounts, budgets or
    schedules as the user (`import`, `undo-import --yes`, `categorize`, `accounts
    add|close|reopen`, `budgets set|remove`, every `schedules` command that writes);
-   `restore`; and `inbox delete-report --yes`, so a client can't remove the reports it
-   saved.
+   `restore`; `inbox delete-report --yes`, so a client can't remove the reports it
+   saved; and `backup --delete --yes` (R.12), so it can't remove the user's backups.
 4. **What stays usable without a terminal.** Everything read-only, `backup`, `export`,
    `mcp`, `inbox reject`, and the ways to contain AI access: `ai-access revoke`, `ignore`,
    `off`, and lowering a level. A script can still contain a client; it can't widen one.
    The check gates the write, not the preview: `import --dry-run`, and `undo-import`,
-   `schedules delete` and `inbox delete-report` without `--yes`, read and print and write
+   `schedules delete`, `inbox delete-report` and `backup --delete` without `--yes`, read and print and write
    nothing, so they don't act as the user. `restore` without `--yes` stays gated: its check
    stages a copy of the backup in the data directory.
 5. **A speed bump, not a boundary.** A process with a shell can fake a terminal (`script`)

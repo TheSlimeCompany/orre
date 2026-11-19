@@ -1,5 +1,6 @@
-//! `coffer backup`, `coffer backup --list` and `coffer restore <file>`
-//! (M1.28): local backups in `<data dir>/backups` ([`coffer_core::backup`]).
+//! `coffer backup`, `coffer backup --list`, `coffer backup --delete <file>`
+//! and `coffer restore <file>` (M1.28, R.12): local backups in `<data
+//! dir>/backups` ([`coffer_core::backup`]).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,6 +16,15 @@ pub struct BackupArgs {
     /// List the backups instead of taking one.
     #[arg(long, short = 'l')]
     pub list: bool,
+
+    /// Delete one backup, automatic or manual, for good. Without --yes,
+    /// only shows what would be deleted.
+    #[arg(long, value_name = "FILE", conflicts_with = "list")]
+    pub delete: Option<PathBuf>,
+
+    /// Delete it. Only with --delete.
+    #[arg(long, short = 'y', requires = "delete")]
+    pub yes: bool,
 }
 
 #[derive(Debug, Args)]
@@ -30,10 +40,14 @@ pub struct RestoreArgs {
 }
 
 /// `coffer backup`: a manual backup of an existing database (kept until
-/// the user deletes it), or with `--list` the backups, newest first.
+/// the user deletes it), or with `--list` the backups, newest first, or
+/// with `--delete` one backup deleted (`terminal` gates `--delete --yes`).
 pub fn run(database: &Path, args: &BackupArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     if args.list {
         return list(database, out);
+    }
+    if let Some(file) = &args.delete {
+        return delete(database, file, args.yes, out);
     }
     let db = super::open_existing(database)?;
     let backup = backup::create(&db, Reason::Manual).context("couldn't back up the database")?;
@@ -76,9 +90,68 @@ fn list(database: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
     write_table(out, &["TAKEN (UTC)", "REASON", "SIZE", "FILE"], &rows)?;
     writeln!(
         out,
+        "Total: {} {}, {}.",
+        backups.len(),
+        if backups.len() == 1 {
+            "backup"
+        } else {
+            "backups"
+        },
+        human_size(backup::total_size(&backups))
+    )?;
+    writeln!(
+        out,
         "Automatic backups (import, migration, restore) rotate: the {} most recent are kept, \
-         plus the newest of each earlier month. Manual ones stay until you delete them.",
-        backup::KEEP_RECENT
+         plus the newest of each of the {} months before this one. Manual ones stay until \
+         you delete them (`coffer backup --delete <FILE>`).",
+        backup::KEEP_RECENT,
+        backup::KEEP_MONTHS
+    )?;
+    Ok(())
+}
+
+/// `coffer backup --delete <file>`. Without `--yes` it says which backup it
+/// would delete and deletes nothing.
+fn delete(database: &Path, file: &Path, yes: bool, out: &mut dyn Write) -> anyhow::Result<()> {
+    let dir = backup::backups_dir(database);
+    let in_dir = file
+        .parent()
+        .is_none_or(|parent| parent.as_os_str().is_empty() || parent == dir);
+    let found = backup::list(database)
+        .context("couldn't list the backups")?
+        .into_iter()
+        .find(|backup| in_dir && backup.path.file_name() == file.file_name());
+    let Some(found) = found else {
+        bail!(
+            "there is no backup {} in {}; `coffer backup --list` lists the backups",
+            file.display(),
+            dir.display()
+        );
+    };
+    writeln!(
+        out,
+        "Backup: {}\n  taken {}, {}, {}",
+        found.path.display(),
+        found.taken_at.format("%Y-%m-%d %H:%M:%S UTC"),
+        describe(found.reason),
+        human_size(found.size)
+    )?;
+    if !yes {
+        writeln!(out)?;
+        writeln!(
+            out,
+            "Nothing was deleted. Run the command again with --yes to delete it for good: \
+             it can't be undone."
+        )?;
+        return Ok(());
+    }
+    let deleted = backup::delete(database, &found.path)?;
+    writeln!(out)?;
+    writeln!(
+        out,
+        "Deleted {} ({} freed).",
+        deleted.path.display(),
+        human_size(deleted.size)
     )?;
     Ok(())
 }
@@ -216,6 +289,13 @@ fn write_check(
             )?;
         }
     }
+
+    writeln!(
+        out,
+        "Your own bank presets ({}) aren't in backups: restoring doesn't change them, and an \
+         account whose preset isn't on this computer needs its mapping chosen again at import.",
+        coffer_core::paths::presets_dir(database).display()
+    )?;
 
     if let Some(interrupted) = &checked.interrupted {
         let started = interrupted

@@ -490,6 +490,74 @@ fn back_up_now_then_restore_it(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn the_backups_total_and_deleting_a_backup(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, settings, cx) = open(cx, &scratch);
+    click("settings-backups", cx);
+    click("back-up-now", cx);
+    let manual = backup::list(&scratch.path).unwrap().remove(0);
+    let automatic = backup::file_name(
+        backup::Reason::Import,
+        manual.taken_at - chrono::TimeDelta::days(1),
+    );
+    std::fs::write(backup::backups_dir(&scratch.path).join(&automatic), "x").unwrap();
+    click("settings-clients", cx);
+    click("settings-backups", cx);
+
+    let shown = describe(&shell, &settings, cx);
+    let Body::Backups(body) = &shown.body else {
+        panic!("not Backups: {shown:?}")
+    };
+    let total = body.total.clone().expect("the total");
+    assert!(total.starts_with("2 backups · "), "{total}");
+    assert!(total.ends_with(" MB in total"), "{total}");
+    let inspector = shown.inspector.expect("the newest is selected");
+    assert_eq!(
+        inspector.sections.last().unwrap().actions,
+        [button("Delete backup…", true)]
+    );
+    assert!(shown.caption.contains("for a year"), "{}", shown.caption);
+
+    // Cancel changes nothing.
+    click("delete-backup", cx);
+    let dialog = describe(&shell, &settings, cx).dialog.expect("the dialog");
+    assert!(
+        dialog.title.starts_with("Delete the backup from "),
+        "{dialog:?}"
+    );
+    assert_eq!(
+        dialog.actions,
+        [button("Cancel", true), button("Delete backup", true)]
+    );
+    click("delete-backup-cancel", cx);
+    assert_eq!(describe(&shell, &settings, cx).dialog, None);
+    assert_eq!(backup::list(&scratch.path).unwrap().len(), 2);
+
+    // Deleting the manual one removes the file for good.
+    click("delete-backup", cx);
+    click("delete-backup-confirm", cx);
+    let shown = describe(&shell, &settings, cx);
+    assert_eq!(shown.dialog, None);
+    assert!(
+        shown
+            .notice
+            .as_ref()
+            .is_some_and(|notice| notice.message.starts_with("Deleted the backup · ")),
+        "{shown:?}"
+    );
+    let left = backup::list(&scratch.path).unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(
+        left[0].path.file_name().unwrap().to_str().unwrap(),
+        automatic
+    );
+    let Body::Backups(body) = &shown.body else {
+        panic!("not Backups: {shown:?}")
+    };
+    assert!(body.total.as_deref().unwrap().starts_with("1 backup · "));
+}
+
+#[gpui_kit::test]
 fn the_export_dialog_counts_and_follows_its_toggles(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let (shell, settings, cx) = open(cx, &scratch);

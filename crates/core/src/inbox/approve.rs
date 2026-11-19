@@ -343,6 +343,18 @@ pub(crate) fn approve_in(
     id: SuggestionId,
     options: ApproveOptions,
 ) -> Result<Approved, ApproveError> {
+    approve_in_with(conn, id, options, None)
+}
+
+/// [`approve_in`], planning a rule's application to history from `planned`
+/// (the ledger and the rows the suggestion's rule matches) instead of
+/// reading every transaction again.
+pub(crate) fn approve_in_with(
+    conn: &Connection,
+    id: SuggestionId,
+    options: ApproveOptions,
+    planned: Option<rule::Planned<'_>>,
+) -> Result<Approved, ApproveError> {
     let suggestion = get_in(conn, id)?;
     if suggestion.status != SuggestionStatus::Pending {
         return Err(ApproveError::NotPending {
@@ -369,8 +381,11 @@ pub(crate) fn approve_in(
         Payload::Rule(definition) => {
             let rule = rule::create_at_in(conn, definition, 0, rule::RuleOrigin::Inbox)?;
             let history = if options.apply_to_history {
-                let preview = rule::preview_apply_in(conn, rule)?;
-                rule::commit_apply_in(conn, &preview, &BTreeSet::new())?.batch
+                let preview = match planned {
+                    Some(planned) => rule::preview_apply_planned(conn, rule, planned)?,
+                    None => rule::preview_apply_in(conn, rule)?,
+                };
+                rule::commit_planned_in(conn, &preview, &BTreeSet::new())?.batch
             } else {
                 None
             };

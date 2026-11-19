@@ -296,8 +296,8 @@ impl DeleteCategoryDialog {
                     format!("Delete the {what} “{}”?", category.label()),
                     format!(
                         "No transaction, split, rule, budget or schedule uses it, so nothing else \
-                         changes. This can’t be undone, but you can add a category with this \
-                         name again; it gets the key {} while that’s free.",
+                         changes. This can’t be undone. You can add a category with this name \
+                         again, under a new key: {} is never used again.",
                         category.key()
                     ),
                 )

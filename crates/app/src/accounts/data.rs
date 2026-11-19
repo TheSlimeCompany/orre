@@ -82,6 +82,11 @@ impl AccountsData {
         self.details.get(&id)
     }
 
+    /// Whether this computer has the preset with ID `id`, bundled or saved.
+    pub fn has_preset(&self, id: &str) -> bool {
+        self.presets.iter().any(|preset| preset.id == id)
+    }
+
     /// The name of the preset with ID `id`; the ID itself for one this build
     /// doesn't have.
     pub fn preset_name<'a>(&'a self, id: &'a str) -> &'a str {

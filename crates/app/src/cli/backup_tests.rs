@@ -85,12 +85,16 @@ fn parses_backup_and_restore() {
     let cli = Cli::try_parse_from(["coffer", "backup"]).unwrap();
     assert!(matches!(
         cli.command,
-        Some(Command::Backup(BackupArgs { list: false }))
+        Some(Command::Backup(BackupArgs {
+            list: false,
+            delete: None,
+            yes: false
+        }))
     ));
     let cli = Cli::try_parse_from(["coffer", "backup", "--list"]).unwrap();
     assert!(matches!(
         cli.command,
-        Some(Command::Backup(BackupArgs { list: true }))
+        Some(Command::Backup(BackupArgs { list: true, .. }))
     ));
 
     let cli = Cli::try_parse_from(["coffer", "restore", "some.db"]).unwrap();
@@ -106,6 +110,16 @@ fn parses_backup_and_restore() {
     ));
 
     assert!(Cli::try_parse_from(["coffer", "restore"]).is_err());
+
+    let cli = Cli::try_parse_from(["coffer", "backup", "--delete", "a.db", "--yes"]).unwrap();
+    let Some(Command::Backup(args)) = cli.command else {
+        panic!("not backup");
+    };
+    assert_eq!(args.delete, Some(PathBuf::from("a.db")));
+    assert!(args.yes);
+    // --yes only goes with --delete, and --delete isn't a listing.
+    assert!(Cli::try_parse_from(["coffer", "backup", "--yes"]).is_err());
+    assert!(Cli::try_parse_from(["coffer", "backup", "--list", "--delete", "a.db"]).is_err());
 }
 
 #[test]
@@ -161,7 +175,98 @@ fn backup_list() {
     assert!(lines[2].ends_with(&names[0]), "{out}");
     assert!(lines[3].ends_with(&names[1]), "{out}");
     assert!(lines[2].contains(" manual "), "{out}");
-    assert!(lines[4].starts_with("Automatic backups"), "{out}");
+    assert!(lines[4].starts_with("Total: 2 backups, "), "{out}");
+    assert!(lines[5].starts_with("Automatic backups"), "{out}");
+    assert!(lines[5].contains("12 months before this one"), "{out}");
+}
+
+#[test]
+fn backup_delete_previews_then_deletes_any_backup() {
+    let scratch = Scratch::with_account();
+    scratch.ok(&["backup"]);
+    scratch.ok(&["backup"]);
+    let backups = scratch.backups();
+    let name = backups[0]
+        .path
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let out = scratch.ok(&["backup", "--delete", &name]);
+
+    assert!(
+        out.starts_with(&format!("Backup: {}\n", backups[0].path.display())),
+        "{out}"
+    );
+    assert!(out.contains("by hand"), "{out}");
+    assert!(out.contains("Nothing was deleted."), "{out}");
+    assert_eq!(scratch.backups(), backups);
+
+    let out = scratch.ok(&["backup", "--delete", &name, "--yes"]);
+
+    assert!(
+        out.contains(&format!("Deleted {} (", backups[0].path.display())),
+        "{out}"
+    );
+    assert_eq!(scratch.backups(), [backups[1].clone()]);
+    // An automatic one too.
+    let auto = backup::file_name(
+        Reason::Import,
+        backups[1].taken_at - chrono::TimeDelta::days(1),
+    );
+    std::fs::write(backup::backups_dir(&scratch.db).join(&auto), "x").unwrap();
+    scratch.ok(&["backup", "--delete", &auto, "--yes"]);
+    assert_eq!(scratch.backups(), [backups[1].clone()]);
+}
+
+#[test]
+fn backup_delete_refuses_anything_that_isnt_a_backup() {
+    let scratch = Scratch::with_account();
+    scratch.ok(&["backup"]);
+    let dir = backup::backups_dir(&scratch.db);
+    std::fs::write(dir.join("notes.txt"), "x").unwrap();
+    let outside = scratch
+        ._dir
+        .path()
+        .join(scratch.backups()[0].path.file_name().unwrap());
+    std::fs::write(&outside, "x").unwrap();
+
+    for target in [
+        "notes.txt".to_owned(),
+        "missing.db".to_owned(),
+        "coffer.db".to_owned(),
+        outside.display().to_string(),
+    ] {
+        let error = scratch.err(&["backup", "--delete", &target, "--yes"]);
+        assert!(
+            error.starts_with("there is no backup "),
+            "{target}: {error}"
+        );
+    }
+    assert!(dir.join("notes.txt").exists());
+    assert!(outside.exists());
+    assert!(scratch.db.exists());
+    assert_eq!(scratch.backups().len(), 1);
+}
+
+#[test]
+fn restore_says_user_presets_are_not_in_backups() {
+    let scratch = Scratch::with_account();
+    scratch.ok(&["backup"]);
+    let backup = scratch.backups().remove(0);
+
+    let out = scratch.ok(&["restore", backup.path.to_str().unwrap()]);
+
+    let presets = coffer_core::paths::presets_dir(&scratch.db);
+    assert!(
+        out.contains(&format!(
+            "Your own bank presets ({}) aren't in backups",
+            presets.display()
+        )),
+        "{out}"
+    );
 }
 
 #[test]

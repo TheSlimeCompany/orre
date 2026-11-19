@@ -1099,6 +1099,10 @@ replace it with their own lists.
   - *Read-only kind*: a pot's Kind is shown like the locked Currency ("Pot" and the
     lock); a pot has no Bank or Preset, and nor does a cash account (D6.9's cash
     inspector). A pot's header caption reads "Balance on 9 Nov · in Current account".
+  - *A preset that isn't here* (R.12, composed 2026-11-19): the Preset row reads
+    "`uk-myco` · not on this computer" (the ID in mono) when the account names a preset
+    that is neither bundled nor among the user's saved presets, as after a restore or a
+    move; the next import chooses its columns again.
   - *No balance yet*: the header has no figure, and its caption reads "No balance yet:
     add one below, or import a file that has balances."
   - *Balances caption*: the artboard's Monzo sentence when the preset is Monzo, otherwise
@@ -1264,6 +1268,15 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
     transactions from `monzo-november.csv`" with Undo and dismiss, centred over the
     body (the window minus title and status bars) rather than the canvas alone; after
     Undo, "Undid the import of `monzo-november.csv`".
+  - *A file for another account* (R.13, composed 2026-11-19): the first block on Review,
+    the locked-period block's box (`warning-soft` fill, 12px padding, `radius-surface`)
+    with the 14px `warning` triangle. Title in `warning`: "This file looks like it's
+    from Savings", or "…from a different account" when no account has the number. Body
+    in `text-secondary`: "Current has only had files with other account numbers. If
+    this is the right account, import it anyway: Current will recognise this file's
+    account number from then on." (for an account with no number yet: "Files with this
+    account number have gone into Savings. …"). No button, no confirmation; the number
+    is never shown.
 
 **Budgets** (`6OE-0`). Transactions shell (left panel, inspector) with the Overview canvas
 padding (16px top, 24px inline).
@@ -1989,7 +2002,8 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
     reads "text, 24 characters". Purpose: the text and a caption to treat it as the
     client's claim.
 - **Backups** (`F63-0`). Toolbar: "Backups", caption "Taken before every import, restore
-  and update · the last 10 and one a month are kept", outline "Restore from a file…" and
+  and update · the last 10 and one a month are kept" (since R.12: "… one a month for a
+  year …", below), outline "Restore from a file…" and
   "Back up now".
   - Two groups, Recent (10) and One a month (3): TAKEN (140, mono date) · REASON (flex:
     "Before importing `monzo-november.csv`" with the file name in mono, "Backed up by
@@ -2121,7 +2135,21 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
     can't be read, or a refused restore, is said in `danger` with what to do; an earlier
     restore that stopped part-way is mentioned, as `coffer restore` does. After a
     restore, the notification bar says so, with "Show in folder" for the backup of what
-    it replaced.
+    it replaced. A caption says your own bank presets aren't in backups, so restoring
+    doesn't change them, and an account whose preset isn't on this computer asks for its
+    columns again at the next import (R.12).
+  - *Retention, total and Delete* (R.12, composed 2026-11-19): the toolbar caption reads
+    "Taken before every import, restore and update · the last 10 and one a month for a
+    year are kept". Under the table, a mono `text-secondary` line "13 backups · 4.2 MB
+    in total" above the caption, which starts "Backups you take yourself stay until you
+    delete them." The inspector ends with a caption ("Everything in a backup stays on
+    disk until it's deleted, including what you've since deleted from Coffer.") and
+    `DestructiveCompact` "Delete backup…", for any backup. Its dialog is composed as the
+    Remove client dialog: "Delete the backup from `10 Nov, 14:02`?", "The file is
+    deleted for good, not moved to the trash, and can't be undone." (a manual backup
+    first says "You took this backup yourself, so Coffer would keep it."), Cancel /
+    `DestructiveSolid` "Delete backup". The notification reads "Deleted the backup ·
+    4.2 MB".
   - *Notifications*: the D6.3 bar also reports an export ("Exported 1,327 rows to
     `file`"), a saved copy, and failures (the 12px `alert` and the message in `danger`).
   - *Export dialog*: the dates start at the ledger's first and last days (everything);

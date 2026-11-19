@@ -93,7 +93,8 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   `rule_prompt_dismissed` (V16, M3.13); after V18, `report.access_level` (V19, R.2),
   `duplicate_candidate` rebuilt with the `unmatched_source_id` reason (V20, R.3), and
   `"transaction"` rebuilt with `superseded` and `superseded_by` (V21, R.4: the first
-  migration run with foreign keys off, marked by its first line).
+  migration run with foreign keys off, marked by its first line),
+  `category_key_retired` (V22, R.11) and `account_source_identity` (V23, R.13).
 - refinery embeds migrations in file-name order (`V10__` before `V1__`);
   `db::migrations::embedded` sorts them by version.
 
@@ -109,6 +110,12 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
 - `import_batch(id, account_id, source_file, format [csv|ofx|qif|camt053|mt940],
   preset_id?, imported_at, status [committed|undone])` — `source_file` is the file name
   without its directory; QFX is `ofx`
+- `account_source_identity(id, batch_id UNIQUE → import_batch, account_id → account ON
+  DELETE CASCADE, identity_hash)` (V23, R.13) — HMAC-SHA256 of a file's normalised
+  account number under `setting` `import.account_key`, one row per committed batch whose
+  file had a number; undoing the batch deletes its row. The number itself is never
+  stored and MCP never reads the table ("Decision record: a file's account number is
+  checked, never stored")
 - `import_flag(id, batch_id, location_kind [line|entry], location, kind [unreadable|
   source_id_conflict|locked|running_balance], detail)` — a row the import left out or
   doubts (M1.11–M1.13, V3): its place in the file and core's reason, never the row's
@@ -173,6 +180,10 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   stable keys (`food.groceries` under `food`; key and parent read-only), translatable
   labels; a subcategory has its group's kind, and kinds are read-only. The defaults are
   seeded by `V2__default_categories.sql` (see "Categories")
+- `category_key_retired(key, retired_at)` (V22, R.11) — the key of every deleted
+  category, filled by an `AFTER DELETE ON category` trigger and never removed. A key is
+  taken while a category has it or it is retired; categories deleted before V22 left no
+  record ("Decision record: category keys are never reused")
 - `rule(id, priority, match_field [merchant|description|source_category|source_type],
   match_kind [is|starts_with|contains|regex], pattern, amount_min?, amount_max?,
   account_id?, created_at, origin? [new|edit|inbox] (V16))` and `rule_action(id, rule_id, kind [set_category|
@@ -235,4 +246,5 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   "M2: MCP server", F.8). Rows older than 12 months are deleted when a server starts
 - `setting(key, value)` (V11) — `mcp.enabled` (the kill switch; on unless set off) and
   `mcp.pseudonym_key` (32 random bytes, created by `coffer ai-access enable`, never
-  exposed)
+  exposed); `import.account_key` (32 random bytes, created by the first import commit
+  whose file states an account number, never exposed; R.13)

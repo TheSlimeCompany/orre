@@ -681,3 +681,39 @@ fn an_unreadable_ledger_balance_fails_the_file() {
         "no file text in errors: {error}"
     );
 }
+
+// A file for another account (R.13) -----------------------------------------------
+
+#[test]
+fn a_file_for_another_account_is_warned_about_and_learned_on_commit() {
+    let mut scratch = Scratch::new();
+    let current = scratch.current("Current", Currency::GBP);
+    let savings = scratch.current("Savings", Currency::GBP);
+    let file = "multi-statement.ofx";
+
+    // Nothing is known yet: no warning anywhere.
+    let preview = scratch.preview(current, file, read_ofx_statement(file, 0));
+    assert!(preview.source_account_mismatch().is_none());
+    scratch.import_batch(current, file, read_ofx_statement(file, 0));
+    scratch.import_batch(savings, file, read_ofx_statement(file, 1));
+
+    // The savings file into Current is the wrong account, and names it.
+    let wrong = scratch.preview(current, file, read_ofx_statement(file, 1));
+    let mismatch = wrong.source_account_mismatch().expect("a warning");
+    let other = mismatch.other_account.as_ref().expect("the other account");
+    assert_eq!((other.id, other.name.as_str()), (savings, "Savings"));
+
+    // The card's number is nobody's: the warning names no account.
+    let card = scratch.preview(current, file, read_ofx_statement(file, 2));
+    assert!(
+        card.source_account_mismatch()
+            .unwrap()
+            .other_account
+            .is_none()
+    );
+
+    // Importing anyway is allowed, and learns the number.
+    scratch.import_batch(current, file, read_ofx_statement(file, 2));
+    let again = scratch.preview(current, file, read_ofx_statement(file, 2));
+    assert!(again.source_account_mismatch().is_none());
+}

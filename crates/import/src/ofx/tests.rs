@@ -4,7 +4,7 @@
 use chrono::NaiveDate;
 use coffer_core::money::{Currency, Money, ParseAmountError};
 use coffer_core::statement::{
-    DatedBalance, Field, RowProblem, SourceLocation, Statement, StatementLine,
+    DatedBalance, Field, RowProblem, SourceAccountNumber, SourceLocation, Statement, StatementLine,
 };
 
 use super::*;
@@ -544,4 +544,62 @@ fn every_line_is_in_the_statement_currency() {
             .lines()
             .all(|(_, line): (_, &StatementLine)| line.amount.currency() == Currency::EUR)
     );
+}
+
+// The account number the file states ----------------------------------------------
+
+fn source_account_of(statement: &Statement) -> Option<SourceAccountNumber> {
+    statement.source_account().cloned()
+}
+
+#[test]
+fn the_statements_account_number_reaches_the_statement() {
+    let expected = [
+        ("00001111", 0),
+        ("00002222", 1),
+        // A masked number is still an identity.
+        ("XXXXXXXXXXXX3333", 2),
+    ];
+    for (number, index) in expected {
+        let statement = OfxImporter::for_statement(index)
+            .import(&fixture!("multi-statement.ofx"))
+            .unwrap();
+        assert_eq!(
+            source_account_of(&statement),
+            SourceAccountNumber::new(number),
+            "statement {index}"
+        );
+    }
+    // `bank-sgml.ofx` and its follow-up are the same account.
+    let first = import(&fixture!("bank-sgml.ofx")).unwrap();
+    let next = import(&fixture!("bank-sgml-next.ofx")).unwrap();
+    assert_eq!(source_account_of(&first), source_account_of(&next));
+    assert!(source_account_of(&first).is_some());
+}
+
+#[test]
+fn a_missing_or_blank_account_number_is_none() {
+    let with = |acctid: &str| {
+        format!(
+            "<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>GBP\
+             <BANKACCTFROM><BANKID>0{acctid}<ACCTTYPE>CHECKING</BANKACCTFROM>\
+             <BANKTRANLIST></BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>"
+        )
+    };
+    let blank = import_text(&with("<ACCTID> - ")).unwrap();
+    assert_eq!(source_account_of(&blank), None);
+    let there = import_text(&with("<ACCTID>12-3456 78")).unwrap();
+    assert_eq!(
+        source_account_of(&there),
+        SourceAccountNumber::new("12345678")
+    );
+    assert_eq!(source_account_of(&import_text(&with("")).unwrap()), None);
+}
+
+#[test]
+fn the_statement_never_prints_the_account_number() {
+    let statement = import(&fixture!("edge-cases.ofx")).unwrap();
+    assert!(statement.source_account().is_some());
+    let debug = format!("{statement:?}");
+    assert!(!debug.contains("DE00000000000000000000"), "{debug}");
 }

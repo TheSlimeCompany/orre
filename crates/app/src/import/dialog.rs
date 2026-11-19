@@ -1977,6 +1977,9 @@ impl ImportDialog {
                 || "This file’s rows".to_owned(),
                 |preset| format!("{} exports", text::bank_name(preset.name())),
             );
+        if let Some(other_account) = text::other_account(preview) {
+            body.push(block(&other_account, None).into_any_element());
+        }
         body.push(block(&text::reconciliation(preview, &exporter), None).into_any_element());
         if let Some(corrections) = text::corrections(preview) {
             body.push(block(&corrections, None).into_any_element());
@@ -2192,6 +2195,13 @@ fn block(block: &text::Block, action: Option<Button>) -> Div {
         ),
         Tone::Locked => (
             Glyph::LockedPeriod,
+            color::WARNING,
+            color::WARNING,
+            color::TEXT_SECONDARY,
+            Some(color::WARNING_SOFT),
+        ),
+        Tone::OtherAccount => (
+            Glyph::Warning,
             color::WARNING,
             color::WARNING,
             color::TEXT_SECONDARY,

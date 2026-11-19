@@ -27,6 +27,7 @@ use gpui_kit::{AnyView, App};
 pub use crate::ui::describe::{Action, Dialog, Header, Inspector, PanelRow, Section};
 
 use super::data::{BackupRow, LogRow};
+use super::delete::DeleteBackupDialog;
 use super::enable::EnableDialog;
 use super::export::ExportDialog;
 use super::remove::RemoveDialog;
@@ -147,6 +148,8 @@ pub struct BackupsDescription {
     pub groups: Vec<(&'static str, Vec<BackupDescription>)>,
     /// What it says with no backups.
     pub empty: Option<&'static str>,
+    /// The count and total size of every backup under the table.
+    pub total: Option<String>,
 }
 
 /// A backup's row, lane by lane.
@@ -363,6 +366,7 @@ impl SettingsView {
             groups,
             empty: (self.backups.rows.is_empty() && self.backups_error.is_none())
                 .then_some(backups::NO_BACKUPS),
+            total: backups::total(&self.backups.rows),
         })
     }
 
@@ -399,7 +403,12 @@ impl SettingsView {
                 figure: row.contents.map(|contents| count(contents.transactions)),
                 caption: Some(backups::backup_caption(row).to_owned()),
             },
-            sections: vec![details, since, file],
+            sections: vec![
+                details,
+                since,
+                file,
+                Section::default().action(Action::button("Delete backup…", true)),
+            ],
         })
     }
 
@@ -487,6 +496,10 @@ impl SettingsDescription {
             };
             let dialog = match dialog.downcast::<RemoveDialog>() {
                 Ok(remove) => return Some(remove.read(cx).describe()),
+                Err(dialog) => dialog,
+            };
+            let dialog = match dialog.downcast::<DeleteBackupDialog>() {
+                Ok(delete) => return Some(delete.read(cx).describe()),
                 Err(dialog) => dialog,
             };
             let dialog = match dialog.downcast::<RestoreDialog>() {

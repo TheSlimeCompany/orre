@@ -150,3 +150,131 @@ without a person at the window.
 5. **L.7's in-GUI MCP falls under this record.** An MCP server inside the running GUI may
    read what the MCP surface already allows, and file suggestions to the inbox; it may
    not call `describe()` or run a view's actions.
+
+### Decision record: performance at 100,000 transactions (2026-11-19)
+
+R.14 (ROADMAP → "Architecture review", also L.30). Performance was unmeasured: the
+Accounts and Inbox views read on the main thread, the Inbox ran a rolled-back approval
+for each pending suggestion when it opened, `rule::overview` evaluated every rule over
+every transaction on each reload, and every MCP call is a synced write to the access
+log. The budget set for the work is **50 ms on the UI thread** (median, release build,
+100,000 transactions). **(composed)** The numbers below are the measurement; the
+decisions marked **(composed)** are the implementer's, for the user to confirm.
+
+**How it was measured.** `crates/core/examples/ledger_bench.rs` builds a deterministic
+synthetic ledger in a directory it is given (never the platform data dir; it refuses to
+run without one) and times each core call a UI-thread or per-MCP-call path makes, as
+the app's store makes it, `backup::gate::open` included: median of several runs after a
+warm-up (a call over 10 s is timed once). The ledger: 100,606 transactions over five
+years on 5 accounts and 2 pots (current, joint, savings, credit card, cash), the
+default categories plus 4 of the user's, 100 rules, transfers (pot mirrors and
+suggested pairs) and refund links found by the import commits, 400 pending suggestions
+(200 from each of two clients: 240 categorisations, 100 rules, 20 each of merchant
+names, transfer pairs and refund links) and 5,100 access-log rows. Everything is made
+up, through core's public API (statements committed as imports). Machine: AMD Ryzen 9
+3900XT (12 cores, `nproc` 24), 31 GiB, NVMe, ext4, Linux 6.18; rustc 1.99.1, the
+default `release` profile (no LTO). To run it:
+
+```sh
+devenv shell -- cargo run --release -p coffer-core --example ledger_bench -- <empty dir>
+```
+
+The first run builds the ledger (about 2 minutes) and measures (about 6 minutes, most
+of it the Inbox); a later run in the same directory only measures. Delete the directory
+afterwards.
+
+| Call (thread it runs on) | Before | After |
+|---|---|---|
+| `Database::open` through the gate (UI) | 3.0 ms | 3.1 ms |
+| Accounts view load (UI) | 118 ms | 117 ms |
+| Inbox: counts, sources, list, subjects (UI) | 17 ms | 17 ms |
+| Inbox: the previews of the 400 pending suggestions | 179 s (UI) | 22 s (background) |
+| Inbox: one categorisation / transfer / refund-link preview | 33 ms | 2.2 ms |
+| Inbox: one rule preview, alone | 1.18 s | 0.20 s |
+| Inbox: one merchant-name preview, alone | 707 ms | 465 ms |
+| Inbox: selecting a categorisation (`covered_by`) (UI) | 19.8 s | 0.4 ms |
+| Rules view: `rule::overview` (UI) | 735 ms | 412 ms |
+| Rules view load (UI) | 840 ms | 521 ms |
+| Transactions register load (background) | 910 ms | 932 ms |
+| `monthly_summary`, 12 months (MCP tool) | 101 ms | 102 ms |
+| `net_worth_history`, 12 months (MCP tool) | 54 ms | 53 ms |
+| `spending_by_category`, `budget_status`, one month (MCP tools) | 24 ms | 24 ms |
+| One access-log record, `synchronous = FULL` (per MCP call) | 2.7 ms | 2.8 ms |
+| Pending-file check before it (per MCP call) | 4.5 µs | 3.6 µs |
+| Import: preview of 1,000 rows (background) | 14 ms | 13 ms |
+| Import: commit of 1,000 rows, backup included (background) | 431 ms | 420 ms |
+| Import: the Review step's "After import" (background) | 248 ms | 248 ms |
+
+"Before" is the code at `db6bfec`; "after" is this change, on the same ledger. The
+Inbox's 22 s is `InboxStore::load` for all 400; it is 100 rule previews of about 0.2 s
+each and a merchant-name preview of about 0.45 s each, and the rest take 2 ms.
+
+1. **The Inbox reads on a background thread.** `Inbox::reload` spawns the read, as the
+   Transactions register does; what is shown stays until the new read replaces it, and
+   a read asked for while one runs replaces it. Until the first read is back the table
+   says nothing (not "Nothing to review"), as the Transactions table does. `Inbox::
+   unloaded(store)` makes an Inbox with nothing read, and `InboxView::new` starts its
+   first read. `Inbox::from_store` still reads on the calling thread: tests and the
+   snapshot use it. **(composed)** The shell has to build its Inbox with `unloaded`,
+   or the first read still blocks the window at start-up (`shell.rs` is not part of
+   this change; see the hand-off). A decision (approve, reject) still runs on the UI
+   thread (writes are not part of R.14) and then reloads in the background; the
+   suggestion stays listed until the reload is back, and a second click on it is
+   refused by core's recheck like any stale decision.
+2. **One ledger read for a batch of previews.** A rule's preview read every transaction
+   about nine times (its impact's plan, re-plan and scan, its rows' plan, scan and
+   full read, its approval's plan and re-plan), each a read of every row with a
+   correlated query per row. `inbox::preview::
+   preview_all(db, ids)` reads the ledger once (`rule::History`, kept in `inbox::
+   shared::Shared`), finds the rows a rule matches once per definition, and plans from
+   that; `preview(db, id)` is the same code with its own read. `InboxStore::load`
+   calls `preview_all`. The previews of all 400 suggestions on the benchmark ledger
+   were compared before and after (`Debug` output, byte for byte): identical.
+3. **Fixed in core, behaviour unchanged.**
+   - `Ledger::transactions(ids)`: the `OR` between `transaction_id` and `target_id`
+     made SQLite read the whole `ledger_line` view (20 ms at 100,000 rows) for every
+     tally of a preview. A line with a `target_id` is on a link whose inflow is its
+     transaction, so the query also asks for that, and finds the lines by index (1 ms).
+     This took the fixed 33 ms off every preview and is the same rows.
+   - `rule::commit_planned_in`: the impact and the Inbox's approval planned a rule
+     against history, then `commit_apply_in` planned it again to check it wasn't stale,
+     in the same transaction with nothing written between. The second plan is skipped
+     there; `commit_apply` and the Rules view's apply still check.
+   - A preview of a rule or merchant name no longer reads every transaction in full
+     (`all_transactions`, 280 ms) to find its few matches: it matches on the columns
+     rules read and reads only the matching rows in full.
+   - `covered_by` approved every pending rule in turn (a dry run over the ledger each,
+     20 s for a categorisation nothing covers). It now tries only the rules that set
+     the category every item wants and match every item's transaction, which settling
+     needs; the first rule that settles it is the same one.
+   - `RuleSet::matching_and_outcome` gives the Rules table's two answers in one pass
+     (it ran every rule's conditions twice per transaction), and `fold` skips its
+     three passes for ASCII text, which is almost all bank text. `rule::overview`
+     735 ms to 412 ms.
+4. **Left, and why.**
+   - **Accounts view load (117 ms) and Rules view load (521 ms)** are over the budget
+     on the UI thread and need to move to a background read like the Inbox's: they are
+     other lanes' views. Reading the transactions the rules see is 100 ms by itself, so
+     `rule::overview` can't get under the budget by evaluating faster alone; a faster
+     match (one Aho-Corasick pass per field for the `contains` patterns, the dependency
+     is already there) would take it to roughly that floor. `account_tree` is 104 ms of
+     the Accounts load (balances and reconciliation for 7 accounts); it was not
+     profiled further.
+   - **The Inbox still takes 22 s to open at 100,000 transactions with 400 pending
+     suggestions,** on a background thread. A rule is previewed in 0.2 s because it is
+     applied to history twice in a rolled-back transaction (its impact, its approval).
+     Cutting that further means previewing only what is on screen or selected, which
+     changes what the list shows before the previews are back (for example the "Approve
+     all" count): not decided here. A client files at most 200 (`MAX_PENDING_PER_
+     SOURCE`), and most pending suggestions are categorisations, which take 2 ms.
+   - **The access log: no change.** One record is 2.8 ms with `synchronous = FULL`
+     (worst of 101: 6 ms), against 24 to 100 ms for the cheapest and dearest read tool
+     (`monthly_summary`), and it isn't on the UI thread. Durability settings and what
+     is logged are as they were. Recommendation: keep `FULL` and the
+     write where it is.
+   - **Register load (0.93 s), the MCP reports (0.1 s) and the import (0.42 s to
+     commit, its backup included)** are off the UI thread already. The import's backup
+     copies the whole database on each commit, so it grows with the ledger.
+5. **Not covered by this measurement.** Clicking through the real window, and frame
+   times: only database reads were timed. The Inbox's `covered_by` still runs on the UI
+   thread when a categorisation is selected (0.4 ms now).

@@ -885,3 +885,81 @@ fn a_rules_spending_change_is_what_the_report_moves() {
     );
     assert_preview_agrees_with_the_report(&mut f, id);
 }
+
+#[test]
+fn previewing_a_batch_gives_each_suggestions_own_preview() {
+    let mut f = Fixture::new();
+    let a = f.row(day(1), -1840, "UBER *EATS HELP", None);
+    f.row(day(2), -2215, "UBER *EATS HELP", Some("food.groceries"));
+    f.row(day(3), -345, "LIME*RIDE 3HX9QP", None);
+    f.row(day(4), -510, "LIME*RIDE 7KD2LM", None);
+    f.row(day(5), -900, "Tesco", None);
+    let out = f.row(day(6), -777, "Move", None);
+    let into = f.row_on(f.savings, day(6), 777, "Move", None);
+    let ids = vec![
+        f.file(
+            SuggestionKind::Rule,
+            rule_json("merchant", "contains", "UBER *EATS", "food.eating_out"),
+        ),
+        f.file(
+            SuggestionKind::Rule,
+            rule_json("merchant", "starts_with", "Tesco", "food.groceries"),
+        ),
+        f.file(
+            SuggestionKind::MerchantAlias,
+            json!({"match_kind": "prefix", "pattern": "LIME*RIDE", "display_name": "Lime"}),
+        ),
+        f.file(
+            SuggestionKind::Categorization,
+            json!({"items": [{"transaction_id": a.get(), "category": "food.eating_out"}]}),
+        ),
+        f.file(
+            SuggestionKind::TransferPair,
+            json!({"outflow_id": out.get(), "inflow_id": into.get()}),
+        ),
+    ];
+
+    let batch = preview_all(&f.db, &ids);
+    assert_eq!(batch.len(), ids.len());
+    for (id, batched) in batch {
+        let alone = preview(&f.db, id).unwrap();
+        assert_eq!(batched.unwrap(), alone, "suggestion {id}");
+    }
+}
+
+#[test]
+fn only_a_rule_that_sets_the_category_on_every_row_covers_a_categorisation() {
+    let mut f = Fixture::new();
+    let a = f.row(day(1), -1840, "UBER *EATS HELP", None);
+    let b = f.row(day(2), -2215, "UBER *EATS HELP", None);
+    let id = f.file(
+        SuggestionKind::Categorization,
+        json!({"items": [
+            {"transaction_id": a.get(), "category": "food.eating_out"},
+            {"transaction_id": b.get(), "category": "food.eating_out"},
+        ]}),
+    );
+    // Another category, rows it doesn't match, only one of the rows: none
+    // settles it.
+    f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "contains", "UBER *EATS", "food.takeaway"),
+    );
+    f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "contains", "WASABI", "food.eating_out"),
+    );
+    f.file(
+        SuggestionKind::Rule,
+        json!({"match_field": "merchant", "match_kind": "contains", "pattern": "UBER *EATS",
+               "amount_max": -2000,
+               "actions": [{"kind": "set_category", "value": "food.eating_out"}]}),
+    );
+    assert_eq!(covered_by(&f.db, id).unwrap(), None);
+
+    let rule = f.file(
+        SuggestionKind::Rule,
+        rule_json("merchant", "starts_with", "UBER", "food.eating_out"),
+    );
+    assert_eq!(covered_by(&f.db, id).unwrap().unwrap().rule, rule);
+}

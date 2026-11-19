@@ -116,6 +116,8 @@ pub struct InboxView {
 impl InboxView {
     pub fn new(inbox: Entity<Inbox>, cx: &mut Context<Self>) -> Self {
         let subscriptions = vec![cx.observe(&inbox, |_, _, cx| cx.notify())];
+        // An Inbox made with `Inbox::unloaded` is read in the background.
+        inbox.update(cx, |inbox, cx| inbox.start_loading(cx));
         Self {
             inbox,
             focus: cx.focus_handle(),
@@ -203,12 +205,14 @@ impl InboxView {
         let inbox = self.inbox.read(cx);
         let groups = inbox.groups();
         let body: AnyElement = if groups.is_empty() {
+            // Before the first read is back the table says nothing, as the
+            // Transactions table does: "Nothing to review" would be a guess.
             div()
                 .flex()
                 .flex_1()
                 .items_center()
                 .justify_center()
-                .child(empty_state(inbox))
+                .when(inbox.loaded(), |this| this.child(empty_state(inbox)))
                 .into_any_element()
         } else {
             let mut sections = Vec::new();

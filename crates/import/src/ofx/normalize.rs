@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use chrono::{NaiveDate, NaiveTime};
 use coffer_core::money::{Currency, DecimalMark, Money};
 use coffer_core::statement::{
-    DatedBalance, Field, RowProblem, SourceFormat, SourceLocation, Statement, StatementLine,
+    DatedBalance, Field, RowProblem, SourceAccountNumber, SourceFormat, SourceLocation, Statement,
+    StatementLine,
 };
 
 use super::document::{OfxStatement, OfxStatementKind, Transaction};
@@ -41,6 +42,9 @@ pub(super) fn statement(ofx: &OfxStatement) -> Result<Statement, ImportError> {
     })?;
 
     let mut statement = Statement::new(SourceFormat::Ofx, currency);
+    if let Some(number) = ofx.account_id.as_deref().and_then(SourceAccountNumber::new) {
+        statement = statement.with_source_account(number);
+    }
     let mut first_seen: HashMap<&str, SourceLocation> = HashMap::new();
     for transaction in &ofx.transactions {
         let location = SourceLocation::Entry(transaction.entry);

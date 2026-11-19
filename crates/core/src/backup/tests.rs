@@ -321,9 +321,63 @@ fn keeps_the_newest_of_each_earlier_month() {
         file_name(Reason::Migration, at("2026-10-01 00:00:00.000")),
         file_name(Reason::Import, at("2026-09-10 08:00:00.000")),
         file_name(Reason::Import, at("2025-12-01 00:00:00.000")),
+        // More than 12 months back: gone, though it's January's newest.
+        file_name(Reason::Import, at("2025-01-01 00:00:00.000")),
     ];
     expected.sort();
     assert_eq!(deleted(&backups, "2026-11-20 00:00:00.000"), expected);
+}
+
+#[test]
+fn monthly_backups_are_kept_for_exactly_twelve_months() {
+    // At 2026-11-19 the window is 2025-11 to 2026-10.
+    let mut backups = daily("2026-11-05", 10);
+    backups.extend([
+        backup(Reason::Import, "2026-10-31 23:59:59.999"),
+        backup(Reason::Import, "2025-11-01 00:00:00.000"),
+        backup(Reason::Import, "2025-10-31 23:59:59.999"),
+    ]);
+    assert_eq!(
+        deleted(&backups, "2026-11-19 00:00:00.000"),
+        [file_name(Reason::Import, at("2025-10-31 23:59:59.999"))]
+    );
+    // A month later the window moves on: 2025-11 goes too.
+    let mut expected = [
+        file_name(Reason::Import, at("2025-10-31 23:59:59.999")),
+        file_name(Reason::Import, at("2025-11-01 00:00:00.000")),
+    ];
+    expected.sort();
+    assert_eq!(deleted(&backups, "2026-12-01 00:00:00.000"), expected);
+}
+
+#[test]
+fn a_year_with_gaps_keeps_what_is_in_the_window() {
+    let mut backups = daily("2026-11-05", 10);
+    for stamp in [
+        "2025-03-10 00:00:00.000",
+        "2025-07-10 00:00:00.000",
+        "2025-12-10 00:00:00.000",
+        "2026-05-10 00:00:00.000",
+    ] {
+        backups.push(backup(Reason::Import, stamp));
+    }
+    let mut expected = [
+        file_name(Reason::Import, at("2025-03-10 00:00:00.000")),
+        file_name(Reason::Import, at("2025-07-10 00:00:00.000")),
+    ];
+    expected.sort();
+    assert_eq!(deleted(&backups, "2026-11-19 00:00:00.000"), expected);
+}
+
+#[test]
+fn old_manual_backups_survive_rotation_of_old_automatic_ones() {
+    let mut backups = daily("2026-11-05", 10);
+    backups.push(backup(Reason::Manual, "2019-01-01 00:00:00.000"));
+    backups.push(backup(Reason::Import, "2019-01-01 00:00:00.000"));
+    assert_eq!(
+        deleted(&backups, "2026-11-19 00:00:00.000"),
+        [file_name(Reason::Import, at("2019-01-01 00:00:00.000"))]
+    );
 }
 
 #[test]
@@ -423,6 +477,69 @@ fn rotate_only_touches_backup_names() {
     for name in foreign {
         assert!(left.contains(&name.to_owned()), "{name}");
     }
+}
+
+#[test]
+fn delete_removes_only_a_backup_in_the_backups_dir() {
+    let dir = TempDir::new().unwrap();
+    let path = db_path(&dir);
+    let backups = backups_dir(&path);
+    fs::create_dir_all(&backups).unwrap();
+    let manual = file_name(Reason::Manual, at("2026-01-01 09:00:00.000"));
+    let other = file_name(Reason::Import, at("2026-01-02 09:00:00.000"));
+    fs::write(backups.join(&manual), "12345").unwrap();
+    fs::write(backups.join(&other), "").unwrap();
+    fs::write(backups.join("notes.txt"), "").unwrap();
+    // A valid backup name outside the backups directory.
+    let outside = dir.path().join(&manual);
+    fs::write(&outside, "").unwrap();
+    // A directory and a symlink with backup names.
+    let directory = file_name(Reason::Import, at("2020-01-01 00:00:00.000"));
+    fs::create_dir(backups.join(&directory)).unwrap();
+    let link = file_name(Reason::Import, at("2020-01-02 00:00:00.000"));
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, backups.join(&link)).unwrap();
+
+    let mut refused = vec![
+        PathBuf::from("notes.txt"),
+        PathBuf::from("missing.db"),
+        PathBuf::from("../coffer.db"),
+        PathBuf::from(".."),
+        PathBuf::new(),
+        outside.clone(),
+        PathBuf::from(&directory),
+    ];
+    #[cfg(unix)]
+    refused.push(PathBuf::from(&link));
+    for name in refused {
+        assert!(
+            matches!(delete(&path, &name), Err(Error::NotABackup { .. })),
+            "{}",
+            name.display()
+        );
+    }
+    assert!(outside.exists());
+
+    // By name, then by path.
+    let gone = delete(&path, Path::new(&manual)).unwrap();
+    assert_eq!((gone.reason, gone.size), (Reason::Manual, 5));
+    assert!(!backups.join(&manual).exists());
+    delete(&path, &backups.join(&other)).unwrap();
+    assert!(!backups.join(&other).exists());
+    assert!(backups.join("notes.txt").exists());
+    assert!(outside.exists());
+}
+
+#[test]
+fn total_size_adds_up_every_backup() {
+    let mut backups = vec![
+        backup(Reason::Manual, "2026-01-01 00:00:00.000"),
+        backup(Reason::Import, "2026-01-02 00:00:00.000"),
+    ];
+    backups[0].size = 1500;
+    backups[1].size = 20;
+    assert_eq!(total_size(&backups), 1520);
+    assert_eq!(total_size(&[]), 0);
 }
 
 #[test]

@@ -467,6 +467,11 @@ pub fn notice_text(message: &NoticeMessage) -> NoticeText {
         NoticeMessage::Copied { file } => {
             NoticeText::Rich(vec![plain("Saved a copy as "), mono(file.clone())])
         }
+        NoticeMessage::Deleted { size } => NoticeText::Rich(vec![
+            plain("Deleted the backup"),
+            plain(" · ").color(color::TEXT_MUTED),
+            mono(file_size(*size)).color(color::TEXT_MUTED),
+        ]),
         NoticeMessage::Restored { migrated, log_kept } => {
             let mut text = String::from("Restored the backup");
             if *migrated {

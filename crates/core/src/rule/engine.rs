@@ -199,6 +199,24 @@ impl RuleSet {
             .collect()
     }
 
+    /// [`matching`](RuleSet::matching) and [`evaluate`](RuleSet::evaluate) in
+    /// one pass, so each rule's conditions are tested once: the Rules
+    /// table's figures need both for every transaction.
+    pub fn matching_and_outcome(&self, input: &MatchInput<'_>) -> (Vec<RuleId>, Outcome) {
+        let row = Prepared::new(input);
+        let mut matching = Vec::new();
+        let mut outcome = Outcome::default();
+        for rule in &self.rules {
+            if rule.matches(&row) {
+                matching.push(rule.id);
+                if rule.could_add_to(&outcome) {
+                    rule.add_to(&mut outcome);
+                }
+            }
+        }
+        (matching, outcome)
+    }
+
     /// The rules' IDs, in evaluation order.
     pub fn ids(&self) -> impl Iterator<Item = RuleId> + '_ {
         self.rules.iter().map(|rule| rule.id)
@@ -462,6 +480,11 @@ pub(crate) fn collapse_whitespace(text: &str) -> String {
 /// `strasse`, and final `ς` to `σ`. Plain patterns and the fields they test
 /// are folded the same way.
 pub(crate) fn fold(text: &str) -> String {
+    // ASCII folds to its lowercase, which is most bank text: skip the three
+    // passes (the Rules table folds every transaction's text).
+    if text.is_ascii() {
+        return text.to_ascii_lowercase();
+    }
     text.chars()
         .flat_map(char::to_lowercase)
         .flat_map(char::to_uppercase)
@@ -485,6 +508,19 @@ mod tests {
         assert_eq!(fold("οδο\u{3C2}"), fold("οδο\u{3C3}"));
         assert_eq!(fold("ДОМ"), "дом");
         assert_eq!(fold(""), "");
+    }
+
+    #[test]
+    fn ascii_folds_as_the_three_passes_do() {
+        let slow = |text: &str| -> String {
+            text.chars()
+                .flat_map(char::to_lowercase)
+                .flat_map(char::to_uppercase)
+                .flat_map(char::to_lowercase)
+                .collect()
+        };
+        let every_ascii: String = (0u8..128).map(char::from).collect();
+        assert_eq!(fold(&every_ascii), slow(&every_ascii));
     }
 
     #[test]

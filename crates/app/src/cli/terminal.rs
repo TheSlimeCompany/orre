@@ -6,8 +6,8 @@
 //! no flag or environment variable to skip the check: an agent would use it.
 //!
 //! The check gates the write, not the preview. A command that only shows
-//! what it would do (`import --dry-run`, `undo-import`, `schedules delete`
-//! and `inbox delete-report` without `--yes`) changes none of the user's
+//! what it would do (`import --dry-run`, `undo-import`, `schedules delete`,
+//! `inbox delete-report` and `backup --delete` without `--yes`) changes none of the user's
 //! data, so it doesn't act as the user and needs no terminal; an agent can
 //! usefully preview. The flag that commits it needs one.
 //!
@@ -91,7 +91,8 @@ fn needs_terminal(command: &Command, database: &Path) -> anyhow::Result<Option<&
         Command::UndoImport(args) => args.yes.then_some("undo-import"),
         Command::Restore(_) => Some("restore"),
         Command::Categorize(_) => Some("categorize"),
-        Command::Backup(_) | Command::Export(_) | Command::Mcp(_) => None,
+        Command::Backup(args) => (args.delete.is_some() && args.yes).then_some("backup --delete"),
+        Command::Export(_) | Command::Mcp(_) => None,
         Command::Accounts(AccountsArgs { command }) => match command {
             None | Some(AccountsCommand::List) => None,
             Some(AccountsCommand::Add(_)) => Some("accounts add"),

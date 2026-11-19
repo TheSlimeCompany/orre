@@ -14,8 +14,12 @@
 //!
 //! **Rotation.** Automatic backups (before an import commit, a migration or
 //! a restore) rotate: the [`KEEP_RECENT`] most recent are kept, plus the
-//! newest of each earlier calendar month (UTC). Manual backups (`coffer
-//! backup`, "Back up now") are never deleted automatically.
+//! newest of each of the [`KEEP_MONTHS`] calendar months (UTC) before the
+//! current one; older monthly backups are deleted. Manual backups (`coffer
+//! backup`, "Back up now") are never deleted automatically: they stay until
+//! the user deletes them ([`delete`]). Backups hold what the database held,
+//! deleted reports and undone imports included, so the user can see their
+//! total size and delete any of them.
 //!
 //! **Restore** checks a copy of the backup (SQLite's `integrity_check`,
 //! Coffer's migration history, a schema no newer than this build's) before
@@ -95,9 +99,13 @@ use crate::db::{self, Database, SchemaVersion};
 pub const BACKUPS_DIR: &str = "backups";
 
 /// How many of the most recent automatic backups rotation keeps (besides
-/// one per earlier month). A default, not an invariant (`ARCHITECTURE.md`
+/// one per earlier month in [`KEEP_MONTHS`]). A default, not an invariant (`ARCHITECTURE.md`
 /// → "Decision record: feature research", point 4).
 pub const KEEP_RECENT: usize = 10;
+
+/// How many calendar months before the current one (UTC) rotation keeps the
+/// newest automatic backup of. Older monthly backups are deleted.
+pub const KEEP_MONTHS: i32 = 12;
 
 const NAME_PREFIX: &str = "coffer-";
 const NAME_SUFFIX: &str = ".db";
@@ -199,6 +207,11 @@ pub enum Error {
         lock.display()
     )]
     RestoreLocked { lock: PathBuf },
+
+    /// [`delete`] was given something that isn't a backup in the backups
+    /// directory.
+    #[error("{} isn't a backup in {}", name.display(), dir.display())]
+    NotABackup { name: PathBuf, dir: PathBuf },
 }
 
 fn io_error(action: &'static str, path: &Path) -> impl FnOnce(io::Error) -> Error {
@@ -422,7 +435,9 @@ fn newest_first(a: &Backup, b: &Backup) -> std::cmp::Ordering {
 
 /// Which of `backups` rotation deletes at `now`: the automatic backups that
 /// are neither among the [`KEEP_RECENT`] most recent automatic ones nor the
-/// newest automatic backup of a calendar month (UTC) before `now`'s. Manual
+/// newest automatic backup of one of the [`KEEP_MONTHS`] calendar months
+/// (UTC) before `now`'s (so at `2026-11-19`, November 2025 to October 2026;
+/// November 2026's own backups only count among the recent ones). Manual
 /// backups are never selected. Equal times are ordered by path, so the
 /// choice doesn't depend on the order of `backups`.
 pub fn to_delete(backups: &[Backup], now: DateTime<Utc>) -> Vec<&Backup> {
@@ -432,19 +447,25 @@ pub fn to_delete(backups: &[Backup], now: DateTime<Utc>) -> Vec<&Backup> {
         .collect();
     automatic.sort_by(|a, b| newest_first(a, b));
 
-    let this_month = (now.year(), now.month());
+    let this_month = month_number(now);
     let mut months_kept = HashSet::new();
     let mut delete = Vec::new();
     for (index, backup) in automatic.into_iter().enumerate() {
-        let month = (backup.taken_at.year(), backup.taken_at.month());
+        let month = month_number(backup.taken_at);
         let recent = index < KEEP_RECENT;
         // Newest first, so the first one seen in a month is its newest.
-        let monthly = month < this_month && months_kept.insert(month);
+        let monthly =
+            (this_month - KEEP_MONTHS..this_month).contains(&month) && months_kept.insert(month);
         if !recent && !monthly {
             delete.push(backup);
         }
     }
     delete
+}
+
+/// Months counted from year 0, so a January follows a December.
+fn month_number(at: DateTime<Utc>) -> i32 {
+    at.year() * 12 + at.month0() as i32
 }
 
 /// Deletes the automatic backups [`to_delete`] selects at `now`, and
@@ -469,6 +490,49 @@ pub fn rotate(db_path: &Path, now: DateTime<Utc>) -> Result<Vec<PathBuf>, Error>
         Some(err) => Err(err),
         None => Ok(deleted),
     }
+}
+
+/// Deletes one backup, named by its file name or by its path in the backups
+/// directory, and returns it. Only a regular file in the backups directory
+/// whose name parses ([`parse_file_name`]) is deleted: any other name, a path
+/// into another directory, a directory or a symlink is refused
+/// ([`Error::NotABackup`]) and nothing is touched. Manual backups can be
+/// deleted this way; rotation never does.
+pub fn delete(db_path: &Path, name_or_path: &Path) -> Result<Backup, Error> {
+    let dir = backups_dir(db_path);
+    let refuse = || Error::NotABackup {
+        name: name_or_path.to_path_buf(),
+        dir: dir.clone(),
+    };
+    let name = name_or_path.file_name().ok_or_else(refuse)?;
+    let in_dir = match name_or_path.parent() {
+        None => true,
+        Some(parent) => parent.as_os_str().is_empty() || parent == dir,
+    };
+    let (reason, taken_at) = name
+        .to_str()
+        .and_then(parse_file_name)
+        .filter(|_| in_dir)
+        .ok_or_else(refuse)?;
+    let path = dir.join(name);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() => metadata,
+        Ok(_) => return Err(refuse()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Err(refuse()),
+        Err(err) => return Err(io_error("read", &path)(err)),
+    };
+    fs::remove_file(&path).map_err(io_error("delete", &path))?;
+    Ok(Backup {
+        path,
+        reason,
+        taken_at,
+        size: metadata.len(),
+    })
+}
+
+/// The total size in bytes of `backups`.
+pub fn total_size(backups: &[Backup]) -> u64 {
+    backups.iter().map(|backup| backup.size).sum()
 }
 
 /// What restoring a backup would do: [`check`]'s answer.

@@ -481,6 +481,19 @@ fn write_preview(
     writeln!(out, "File:      {}", preview.source_file())?;
     writeln!(out, "Format:    {format}")?;
     writeln!(out, "Account:   {}", accounts::describe(preview.account()))?;
+    if let Some(mismatch) = preview.source_account_mismatch() {
+        let from = match &mismatch.other_account {
+            Some(other) => format!("{} (account {})", other.name, other.id),
+            None => "a different account".to_owned(),
+        };
+        writeln!(
+            out,
+            "Warning:   This file looks like it's from {from}: its account number isn't one \
+             {} has had before. Importing it anyway is allowed, and {} then recognises it.",
+            preview.account().name,
+            preview.account().name
+        )?;
+    }
     write!(
         out,
         "Rows:      {} new, {} already imported, {} flagged",

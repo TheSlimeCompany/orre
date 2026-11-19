@@ -19,9 +19,11 @@ use super::Database;
 /// migration.
 const TABLES: &[&str] = &[
     "account",
+    "account_source_identity",
     "balance_snapshot",
     "budget",
     "category",
+    "category_key_retired",
     "change_batch",
     "change_item",
     "duplicate_candidate",

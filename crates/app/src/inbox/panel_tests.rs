@@ -7,9 +7,7 @@
 
 use coffer_core::inbox::{COFFER_SOURCE, SuggestionKind, SuggestionStatus};
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{
-    AppContext as _, Entity, SharedString, TestAppContext, VisualTestContext, WindowOptions,
-};
+use gpui_kit::{Entity, SharedString, TestAppContext, VisualTestContext, WindowOptions};
 
 use super::describe::{InboxDescription, PanelDescription};
 use super::store::InboxStore;

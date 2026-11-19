@@ -314,3 +314,115 @@ fn the_banks_corrections_are_shown_and_accepted_by_import(cx: &mut TestAppContex
         .count();
     assert_eq!(superseded, 3);
 }
+
+/// What the Review step says about a file's account number, for the file
+/// opened in the dialog.
+fn other_account_block(
+    cx: &mut TestAppContext,
+    scratch: &Scratch,
+    file: &str,
+) -> Option<(text::Tone, String, String)> {
+    let (shell, cx) = open(cx, scratch);
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import(Some(fixture(file)), window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    click("import-review", cx);
+    cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert_eq!(dialog.step(), Step::Review);
+        text::other_account(&dialog.review().unwrap().preview)
+            .map(|block| (block.tone, block.title, text::joined(&block.body)))
+    })
+}
+
+#[gpui_kit::test]
+fn a_file_for_another_account_number_is_warned_about_in_review(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    // The account has no hash yet: nothing to compare with.
+    assert_eq!(other_account_block(cx, &scratch, "ofx/bank-sgml.ofx"), None);
+
+    // Current has had `multi-statement.ofx`'s first statement.
+    {
+        let mut db = Database::open(&scratch.path).unwrap();
+        let file = coffer_import::SourceFile::read(&fixture("ofx/multi-statement.ofx")).unwrap();
+        let statement = coffer_import::AnyImporter::import(
+            &coffer_import::ofx::OfxImporter::for_statement(0),
+            &file,
+        )
+        .unwrap();
+        let preview =
+            core_import::preview(&db, scratch.account, "multi-statement.ofx", statement).unwrap();
+        core_import::commit(&mut db, &preview, preview.needs_confirmation()).unwrap();
+    }
+
+    let (tone, title, body) = other_account_block(cx, &scratch, "ofx/bank-sgml.ofx")
+        .expect("a warning: the file's account number is another");
+    assert_eq!(tone, text::Tone::OtherAccount);
+    assert_eq!(title, "This file looks like it’s from a different account");
+    assert!(
+        body.starts_with("Current account has only had files with other account numbers."),
+        "{body}"
+    );
+    for shown in [&title, &body] {
+        assert!(!shown.contains("0000"), "no part of the number: {shown}");
+    }
+}
+
+#[test]
+fn the_warning_names_the_account_the_file_belongs_to() {
+    let scratch = Scratch::new();
+    {
+        let mut db = Database::open(&scratch.path).unwrap();
+        let savings = account::create(
+            &mut db,
+            &NewAccount::new("Savings", AccountKind::Savings, Currency::GBP),
+        )
+        .unwrap();
+        let file = coffer_import::SourceFile::read(&fixture("ofx/multi-statement.ofx")).unwrap();
+        for (account, index) in [(scratch.account, 0), (savings, 1)] {
+            let statement = coffer_import::AnyImporter::import(
+                &coffer_import::ofx::OfxImporter::for_statement(index),
+                &file,
+            )
+            .unwrap();
+            let preview =
+                core_import::preview(&db, account, "multi-statement.ofx", statement).unwrap();
+            core_import::commit(&mut db, &preview, preview.needs_confirmation()).unwrap();
+        }
+        // The savings statement into Current: the warning is the account's
+        // name, as the dialog would show it.
+        let statement = coffer_import::AnyImporter::import(
+            &coffer_import::ofx::OfxImporter::for_statement(1),
+            &file,
+        )
+        .unwrap();
+        let preview =
+            core_import::preview(&db, scratch.account, "multi-statement.ofx", statement).unwrap();
+        let block = text::other_account(&preview).expect("a warning");
+        assert_eq!(block.title, "This file looks like it’s from Savings");
+
+        // An account that has had no file yet is warned only that another
+        // account has had this number.
+        let spare = account::create(
+            &mut db,
+            &NewAccount::new("Spare", AccountKind::Current, Currency::GBP),
+        )
+        .unwrap();
+        let statement = coffer_import::AnyImporter::import(
+            &coffer_import::ofx::OfxImporter::for_statement(1),
+            &file,
+        )
+        .unwrap();
+        let preview = core_import::preview(&db, spare, "multi-statement.ofx", statement).unwrap();
+        let block = text::other_account(&preview).expect("a warning");
+        assert_eq!(block.title, "This file looks like it’s from Savings");
+        assert!(
+            text::joined(&block.body)
+                .starts_with("Files with this account number have gone into Savings."),
+            "{}",
+            text::joined(&block.body)
+        );
+    }
+}

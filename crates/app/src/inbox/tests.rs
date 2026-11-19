@@ -5,7 +5,7 @@
 use coffer_core::db::Database;
 use coffer_core::inbox::{self as core_inbox, Filter, Payload, SuggestionId, SuggestionStatus};
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
 use super::describe::{
@@ -147,6 +147,38 @@ fn button(label: &str, enabled: bool) -> Action {
         key: None,
         enabled,
     }
+}
+
+#[gpui_kit::test]
+fn reads_in_the_background_and_says_nothing_until_it_is_back(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+    });
+    // Made, not yet read: no rows, and no "Nothing to review" either.
+    let unread = Inbox::unloaded(InboxStore::new(scratch.path.clone()));
+    assert!(!unread.loaded());
+    assert!(unread.data().entries.is_empty());
+    assert!(unread.groups().is_empty());
+
+    // The view asks for the read when it is made, and it comes back later.
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+        let inbox = cx.new(|_| unread);
+        ShellView::with_data(View::Inbox, accounts, inbox, window, cx)
+    });
+    let inbox = cx.update(|_, cx| shell.read(cx).inbox().clone());
+    redraw(cx);
+    assert!(cx.update(|_, cx| inbox.read(cx).loaded()));
+    let after = describe(&shell, &inbox, cx);
+    assert_eq!(after.empty, None);
+    assert_eq!(
+        after.caption,
+        "15 suggestions · nothing changes until you approve"
+    );
+    assert!(!after.groups.is_empty());
 }
 
 #[gpui_kit::test]

@@ -106,7 +106,10 @@ Everything else follows `DESIGN.md` → "Accounts panel" or an earlier record.
    ID against the presets (they live in `coffer-import`, and user presets come in M3.5);
    the app and `coffer accounts add --preset` offer only presets they have, and an
    import whose preset has gone falls back to detection. The import flow (M3.4) is what
-   reads it; `coffer import` doesn't yet.
+   reads it; `coffer import` doesn't yet. *Changed 2026-11-19 (R.12):* user presets aren't
+   in backups, so a restore or a move can leave the ID naming nothing; the inspector then
+   reads "`<id>` · not on this computer" in the Preset row ("Decision record: backup
+   retention and presets", point 7).
 2. **Editing is core's (`account::update`).** Name, bank, kind, currency and preset change
    together through `AccountEdit`; the name is trimmed and can't be blank, a blank bank
    or preset is none, and a kind that isn't imported keeps no preset. What the account

@@ -32,6 +32,7 @@ How a file becomes rows: the importers, presets, dedupe, reconciliation, the com
 - Decision record: the import flow (2026-11-14)
 - Decision record: a bank's correction supersedes the stored row (2026-11-18)
 - Decision record: a preset's dedupe identity is frozen (2026-11-18)
+- Decision record: a file's account number is checked, never stored (2026-11-19)
 
 ### [Money and the data model](architecture/data-model.md)
 
@@ -72,6 +73,7 @@ The category tree, the categories editor, and which rows take a category.
 - Decision record: categories (2026-11-11)
 - Decision record: the categories editor (built) (2026-11-15)
 - Decision record: what a transaction can take, decided in core (2026-11-16)
+- Decision record: category keys are never reused (2026-11-19)
 
 ### [Rules](architecture/rules.md)
 
@@ -120,6 +122,7 @@ The Settings view, AI clients and their access, local backups and restore.
 - Decision record: Settings, AI access and backups (2026-11-10)
 - Decision record: local backups (2026-11-11)
 - Decision record: Settings, AI access and backups (built) (2026-11-14)
+- Decision record: backup retention and presets (2026-11-19)
 
 ### [Reporting](architecture/reporting.md)
 
