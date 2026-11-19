@@ -445,7 +445,9 @@ fn the_lower_schedule_id_wins_a_row() {
 // Creating ------------------------------------------------------------------
 
 #[test]
-fn create_matches_history_after_the_lock_date() {
+fn create_matches_history_through_a_lock() {
+    // A lock guards balances only, and a match moves none: a new schedule
+    // matches the rows on or before the lock too.
     let mut f = Fixture::new();
     f.import(vec![
         paid(date(2026, 1, 15), -1000, MERCHANT),
@@ -457,8 +459,8 @@ fn create_matches_history_after_the_lock_date() {
     assert_eq!(
         f.states(id, date(2026, 4, 1)),
         [
-            (date(2026, 1, 15), Missed),
-            (date(2026, 2, 15), Missed),
+            (date(2026, 1, 15), Matched),
+            (date(2026, 2, 15), Matched),
             (date(2026, 3, 15), Matched),
             (date(2026, 4, 15), Upcoming),
         ]
@@ -705,7 +707,9 @@ fn the_user_matches_and_unmatches() {
 }
 
 #[test]
-fn lock_dates_freeze_occurrences_on_or_before_them() {
+fn a_lock_leaves_occurrences_open_to_change() {
+    // A lock guards balances only: skipping, matching, their undo and
+    // deleting the schedule move none, so all go through on locked dates.
     let mut f = Fixture::new();
     let id = f.create(&f.monthly(date(2026, 1, 15)));
     f.import(vec![
@@ -713,43 +717,22 @@ fn lock_dates_freeze_occurrences_on_or_before_them() {
         paid(date(2026, 2, 15), -1000, MERCHANT),
         other(date(2026, 3, 20)),
     ]);
-    let (jan, feb, mar) = (date(2026, 1, 15), date(2026, 2, 15), date(2026, 3, 15));
+    let (jan, feb) = (date(2026, 1, 15), date(2026, 2, 15));
     let feb_row = f.transaction(feb, -1000);
 
     f.lock(Some(feb));
-    let locked = |result: Result<(), Error>, at: NaiveDate| {
-        assert!(
-            matches!(result, Err(Error::Locked { date, through }) if date == at && through == feb),
-            "{result:?}"
-        );
-    };
-    locked(unmatch(&mut f.db, id, feb), feb);
-    locked(unmatch(&mut f.db, id, jan), jan);
-    assert!(matches!(
-        delete(&mut f.db, id),
-        Err(Error::Locked { date, .. }) if date == jan
-    ));
-    // After the lock, fine.
-    skip(&mut f.db, id, mar).unwrap();
-    unskip(&mut f.db, id, mar).unwrap();
-
-    f.lock(Some(date(2026, 1, 31)));
     unmatch(&mut f.db, id, feb).unwrap();
     skip(&mut f.db, id, feb).unwrap();
-    f.lock(Some(feb));
-    locked(unskip(&mut f.db, id, feb), feb);
-    f.lock(Some(date(2026, 1, 31)));
     unskip(&mut f.db, id, feb).unwrap();
-    f.lock(Some(feb));
-    locked(skip(&mut f.db, id, feb), feb);
-    locked(match_occurrence(&mut f.db, id, feb, feb_row), feb);
-
-    // A lock before every decision lets the schedule go.
-    f.lock(Some(date(2026, 1, 1)));
+    match_occurrence(&mut f.db, id, feb, feb_row).unwrap();
+    assert_eq!(
+        f.states(id, date(2026, 3, 1))[..2],
+        [(jan, Matched), (feb, Matched)]
+    );
     assert_eq!(
         delete(&mut f.db, id).unwrap(),
         Deleted {
-            matches: 1,
+            matches: 2,
             skips: 0
         }
     );

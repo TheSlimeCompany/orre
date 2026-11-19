@@ -1074,8 +1074,8 @@ that changes a decision needs a new decision record in its topic file.
   and change the guards that don't follow. Done (user): balances only; one
   predicate, `exclusion::moves_balance`, for single-row exclusions and change batches
   (rule applies, merges, undo); a manual row's time, merchant and description are editable
-  in a lock; the 2026-11-12 amendment is reversed. Schedule guards are left as they are
-  (open in the record)
+  in a lock; the 2026-11-12 amendment is reversed. Schedules' lock guards are gone too,
+  since a schedule moves no balance (record, point 8)
 - ✅ R.9 Two net worths. The accounts panel leaves out an account with no stated balance
   (`reporting::account_tree`); `net_worth_history` sums it from zero and marks it
   `unanchored` (`reporting::net_worth`). Pick one rule for both before M4.5. Done (user):
@@ -1123,6 +1123,10 @@ that changes a decision needs a new decision record in its topic file.
   rule to history, which is "Inbox", point 2
 - ⬜ R.17 `AGENTS.md`'s invariant says no names in MCP output, while `mcp.md` A.1 accepts a
   person's name at `standard`. Reword the invariant to match the decision
+- ⬜ R.18 A rule's preview doesn't say why it skipped a row's category. Since R.10, rules
+  leave the category of a confirmed transfer leg or a confirmed refund's money in alone
+  and list them in `ApplyPreview::skipped_categories`, but the Inbox's "If you approve"
+  shows nothing for them. Design the line in Paper, then show it
 
 **Exit criteria:** every item is fixed, or closed by a decision record that says why it
 stays as it is.

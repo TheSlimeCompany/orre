@@ -427,9 +427,11 @@ Each guard follows from it:
    a locked account can't be deleted. Unchanged.
 7. **The pot mirror** (`sub_account`): an import that would add a mirrored row on or
    before a pot's lock fails (`PotLocked`). Unchanged.
-8. **Schedules** (`schedule`) create no rows. Their guard on skipping, matching and
-   their undo on or before the lock is the user's own decision ("Decision record: M2:
-   MCP server", D point 7) and is left as it is; whether it still belongs under this
-   meaning is open.
+8. **Schedules** (`schedule`) create no rows, and skipping or matching an occurrence
+   changes no row, so none of it moves a balance. **Changed (follow-up, 2026-11-19):**
+   skipping, matching, their undo and deleting a schedule now go through on any date,
+   and a new schedule matches rows on or before the lock as well as later ones. This
+   amends "Decision record: M2: MCP server", D points 5 and 7, which were written under
+   the old meaning.
 9. **Links, transfer-pair decisions, splits, shares, tags, notes and names** were never
    guarded and still aren't.

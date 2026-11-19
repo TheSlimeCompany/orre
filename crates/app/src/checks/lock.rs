@@ -230,8 +230,9 @@ impl Render for LockDialog {
             vec![
                 Part::text(format!("Every balance check up to {date} passes. ")),
                 Part::text(format!(
-                    "Once locked, an import, edit, merge or undo that touches {date} or earlier \
-                     is flagged and waits until you unlock. Nothing changes now."
+                    "Once locked, an import, edit, merge or undo that would change the balance \
+                     on {date} or earlier is flagged and waits until you unlock. Nothing changes \
+                     now."
                 )),
             ],
         ));
@@ -360,7 +361,7 @@ impl Render for UnlockDialog {
         let mut words = Vec::new();
         if let Some(through) = self.through {
             words.push(Part::text(format!(
-                "Changes dated {} or earlier won’t be flagged any more. ",
+                "Changes to the balance on {} or earlier won’t be flagged any more. ",
                 text::date(through, self.today)
             )));
         }
