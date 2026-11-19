@@ -18,7 +18,7 @@ use coffer_core::rule::{ExcludeReason, MatchField, MatchKind};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::aggregate::reporting_error;
+use super::aggregate::{account_labels, label_of, reporting_error};
 use crate::output::{Amount, MerchantLabel};
 use crate::registry::{AccessLevel, Call, NoArgs, Registry, Reply, ToolError, ToolSpec, Writes};
 
@@ -122,8 +122,10 @@ fn list_categories(call: &Call<'_>, _args: NoArgs) -> Result<Reply<CategoryList>
 
 pub const LIST_ACCOUNTS: ToolSpec = ToolSpec {
     name: "list_accounts",
-    description: "The user's accounts, in the order they were added: each with its ID, the \
-                  user's name for it, kind, currency, parent account (for a pot), closing date \
+    description: "The user's accounts, in the order they were added: each with its ID, a \
+                  `label` (its kind and a number, e.g. `pot 2`, the same in every tool until an \
+                  account is deleted or changes kind; `id` is the stable key), the \
+                  user's name for it (at standard access only), kind, currency, parent account (for a pot), closing date \
                   and latest balance. Balances are gross, like the bank's, at the end of the \
                   account's last active day. No account numbers or other identifiers.",
     level: AccessLevel::Pseudonymous,
@@ -142,8 +144,14 @@ pub struct AccountList {
 pub struct AccountEntry {
     /// Coffer's ID for the account. Other tools take it as `account_id`.
     pub id: i64,
-    /// The user's own name for the account, e.g. `Everyday`.
-    pub name: String,
+    /// The account's kind and its number among the accounts of that kind, in
+    /// the order the user added them: `current 1`, `pot 2`. The same in
+    /// every tool until an account is deleted or changes kind; `id` is the
+    /// stable key.
+    pub label: String,
+    /// The user's own name for the account, e.g. `Everyday`; `null` below
+    /// `standard` access, since a name can name a person or a merchant.
+    pub name: Option<String>,
     pub kind: AccountType,
     /// ISO 4217 code of the account's currency, e.g. `GBP`.
     pub currency: String,
@@ -203,11 +211,14 @@ impl From<AccountKind> for AccountType {
 
 fn list_accounts(call: &Call<'_>, _args: NoArgs) -> Result<Reply<AccountList>, ToolError> {
     let summaries = catalog::accounts(call.reader()).map_err(reporting_error)?;
+    let labels = account_labels(call.reader())?;
+    let names = call.level() >= AccessLevel::Standard;
     let accounts: Vec<AccountEntry> = summaries
         .into_iter()
         .map(|account| AccountEntry {
             id: account.id.get(),
-            name: account.name,
+            label: label_of(&labels, account.id.get(), account.kind.as_str()),
+            name: names.then_some(account.name),
             kind: account.kind.into(),
             currency: account.currency.code().to_owned(),
             parent_id: account.parent.map(|parent| parent.get()),

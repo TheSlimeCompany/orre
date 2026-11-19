@@ -981,8 +981,8 @@ fn a_failure_after_the_first_write_rolls_everything_back() {
 
 #[test]
 fn locks_guard_balances_only_so_no_suggestion_kind_meets_one() {
-    // `reconciled_through` guards exclusions only (rules decision point 8,
-    // M1 wave 4 point 3), and a suggestion never excludes. Categories,
+    // `reconciled_through` guards balances only ("a lock guards balances
+    // only", 2026-11-19), and a suggestion never excludes. Categories,
     // splits, rules, transfers, names and links all go through under a
     // lock.
     let mut f = Fixture::new();

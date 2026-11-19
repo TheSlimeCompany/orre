@@ -8,7 +8,9 @@
 //! - **No balance**: an account other than a pot with no stated balance
 //!   (nothing entered, no balance from a file, no valuation) shows "No
 //!   balance" and is left out of net worth until one is entered: its sum
-//!   from zero is right only if it started empty. A pot is counted from its
+//!   from zero is right only if it started empty. `net_worth_history`
+//!   follows the same rule ([`net_worth::counts`]): it lists such an
+//!   account, flagged, but leaves it out of its totals. A pot is counted from its
 //!   transfers even without one ("Decision record: sub-accounts"), as the
 //!   balance checks treat it ("pots follow their transfers").
 //! - **Net worth** is per currency, never converted: the latest balance of
@@ -127,7 +129,7 @@ pub fn account_tree(reader: &Reader) -> Result<AccountTree, Error> {
 /// it counts.
 fn node(reader: &Reader, account: Account, net_worth: &mut Totals) -> Result<AccountNode, Error> {
     let latest = balance::latest_balance(reader, &account)?
-        .filter(|latest| account.kind == AccountKind::Pot || latest.anchor != Anchor::Unanchored);
+        .filter(|latest| net_worth::counts(account.kind, latest.anchor != Anchor::Unanchored));
     if let Some(latest) = latest {
         net_worth.add(net_worth::counted(&account, latest.balance)?)?;
     }

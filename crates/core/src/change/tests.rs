@@ -438,50 +438,102 @@ fn a_split_needs_the_category_cleared_first() {
 }
 
 #[test]
-fn an_exclusion_in_a_locked_period_is_refused_whatever_the_reason() {
+fn only_an_exclusion_that_moves_the_balance_meets_a_lock() {
     let mut f = Fixture::new();
     let a = f.manual(3, -1200);
     let b = f.manual(9, -800);
     f.lock(5);
+    let excluded = |reason| Value::Exclusion(Some(ExclusionValue::now(reason)));
 
-    for reason in [ExclusionReason::Duplicate, ExclusionReason::Disputed] {
+    // Into `duplicate` takes the row out of the locked balance: refused, and
+    // the preview says so.
+    {
         let tx = f.db.conn_mut().transaction().unwrap();
+        let duplicate = excluded(ExclusionReason::Duplicate);
+        assert_eq!(locked_for(&tx, a, &duplicate).unwrap(), Some(day(5)));
+        assert_eq!(locked(&tx, a, Field::Exclusion).unwrap(), Some(day(5)));
         let mut recorder = Recorder::new(ChangeKind::RuleApply);
-        assert_eq!(
-            locked(&tx, a, Field::Exclusion).unwrap(),
-            Some(day(5)),
-            "{reason:?}"
-        );
         assert!(matches!(
-            recorder.set(&tx, a, Value::Exclusion(Some(ExclusionValue::now(reason)))),
+            recorder.set(&tx, a, duplicate),
             Err(Error::Locked { transaction, through, .. }) if transaction == a && through == day(5)
         ));
     }
+    // A reason that keeps the row in the balance is allowed, and so is
+    // changing it to another such reason, and including the row again.
+    assert_eq!(
+        locked_for(f.db.conn(), a, &excluded(ExclusionReason::Disputed)).unwrap(),
+        None
+    );
+    let disputed = f
+        .apply(
+            ChangeKind::RuleApply,
+            vec![(a, excluded(ExclusionReason::Disputed))],
+        )
+        .unwrap();
+    f.apply(
+        ChangeKind::BulkEdit,
+        vec![(a, excluded(ExclusionReason::BankError))],
+    )
+    .unwrap();
+    // From a reason that keeps it to `duplicate` moves it: refused.
+    assert_eq!(
+        locked_for(f.db.conn(), a, &excluded(ExclusionReason::Duplicate)).unwrap(),
+        Some(day(5))
+    );
     // Other fields aren't guarded, and rows after the lock aren't either.
     assert_eq!(locked(f.db.conn(), a, Field::UserNote).unwrap(), None);
+    assert_eq!(locked_for(f.db.conn(), a, &note("fine")).unwrap(), None);
     f.apply(ChangeKind::RuleApply, vec![(a, note("fine"))]);
     let batch = f
         .apply(
             ChangeKind::DuplicateMerge,
-            vec![(
-                b,
-                Value::Exclusion(Some(ExclusionValue::now(ExclusionReason::Duplicate))),
-            )],
+            vec![(b, excluded(ExclusionReason::Duplicate))],
         )
         .unwrap();
 
-    // Undoing it once the row is locked needs an unlock.
+    // Undoing the merge once its row is locked would put the row back in
+    // the balance: it needs an unlock.
     f.lock(10);
     assert!(matches!(
         undo(&mut f.db, batch),
         Err(Error::Locked { transaction, .. }) if transaction == b
     ));
     assert!(undo_preview(&f.db, batch).is_err());
+    // Undoing a `disputed` exclusion inside the lock moves no balance. The
+    // bulk edit since changed it, so it stays as that edit left it.
+    let undone = undo(&mut f.db, disputed).unwrap();
+    assert_eq!(undone.changed_since, 1);
+    assert!(matches!(
+        f.read(a, Field::Exclusion),
+        Value::Exclusion(Some(ExclusionValue {
+            reason: ExclusionReason::BankError,
+            ..
+        }))
+    ));
     f.db.conn()
         .execute("UPDATE account SET reconciled_through = NULL", [])
         .unwrap();
     undo(&mut f.db, batch).unwrap();
     assert_eq!(f.read(b, Field::Exclusion), Value::Exclusion(None));
+}
+
+#[test]
+fn undoing_an_exclusion_that_keeps_the_balance_works_inside_a_lock() {
+    let mut f = Fixture::new();
+    let a = f.manual(3, -1200);
+    let batch = f
+        .apply(
+            ChangeKind::RuleApply,
+            vec![(
+                a,
+                Value::Exclusion(Some(ExclusionValue::now(ExclusionReason::Disputed))),
+            )],
+        )
+        .unwrap();
+    f.lock(5);
+    let undone = undo(&mut f.db, batch).unwrap();
+    assert_eq!(undone.restored, 1);
+    assert_eq!(f.read(a, Field::Exclusion), Value::Exclusion(None));
 }
 
 #[test]

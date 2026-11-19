@@ -18,11 +18,15 @@
 //!   ([`Exclusion::superseded_by`]), and only undoing that import clears it.
 //!   [`exclude`] and [`include_again`] refuse a superseded row
 //!   ([`Error::Superseded`]).
-//! - So only a change to whether a row counts in the balance meets the
-//!   account's lock: excluding a row as `duplicate`, including a `duplicate`
-//!   row again, or changing a reason to or from `duplicate`, on a row dated
-//!   on or before its account's `reconciled_through`, is refused
-//!   ([`Error::Locked`]). Every other exclusion is allowed there.
+//! - A lock guards balances only (`docs/architecture/links-and-checks.md` →
+//!   "Decision record: a lock guards balances only"), so only a change to
+//!   whether a row counts in the balance meets the account's lock
+//!   ([`moves_balance`]): into or out of a reason that leaves the balance,
+//!   on a row dated on or before its account's `reconciled_through`, is
+//!   refused ([`Error::Locked`]). Every other exclusion is allowed there.
+//!   [`moves_balance`] is the one rule for every writer of an exclusion:
+//!   this module, and change batches (rule applies, merges, their undo;
+//!   [`crate::change`]).
 //! - The reason of an excluded row can change; each [`exclude`] records a
 //!   new `excluded_at`. [`include_again`] clears the reason, the note and
 //!   the date together.
@@ -111,6 +115,15 @@ impl ExclusionReason {
     }
 }
 
+/// Whether changing a row's exclusion from `old` to `new` (`None`: not
+/// excluded) changes whether it counts in its account's balance: one side
+/// leaves the balance ([`ExclusionReason::leaves_balance`]) and the other
+/// doesn't. Only such a change meets the account's lock (module docs).
+pub fn moves_balance(old: Option<ExclusionReason>, new: Option<ExclusionReason>) -> bool {
+    old.is_some_and(ExclusionReason::leaves_balance)
+        != new.is_some_and(ExclusionReason::leaves_balance)
+}
+
 /// A stored exclusion.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Exclusion {
@@ -182,8 +195,7 @@ pub fn exclude(
     let tx = db.conn_mut().transaction()?;
     let stored = load(&tx, id)?;
     stored.check_not_superseded(id)?;
-    let was_out = stored.reason.is_some_and(ExclusionReason::leaves_balance);
-    check_lock(&stored, id, was_out != reason.leaves_balance())?;
+    check_lock(&stored, id, moves_balance(stored.reason, Some(reason)))?;
     tx.execute(
         "UPDATE \"transaction\" SET excluded_reason = ?1, excluded_note = ?2, \
          excluded_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?3",
@@ -204,7 +216,7 @@ pub fn include_again(db: &mut Database, id: TransactionId) -> Result<(), Error> 
         return Err(Error::NotExcluded(id));
     };
     stored.check_not_superseded(id)?;
-    check_lock(&stored, id, reason.leaves_balance())?;
+    check_lock(&stored, id, moves_balance(Some(reason), None))?;
     tx.execute(
         "UPDATE \"transaction\" SET excluded_reason = NULL, excluded_note = NULL, \
          excluded_at = NULL WHERE id = ?1",

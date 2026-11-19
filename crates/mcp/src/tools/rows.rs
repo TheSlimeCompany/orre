@@ -22,6 +22,7 @@
 use std::collections::HashMap;
 
 use coffer_core::category::CategoryKey;
+use coffer_core::envelope;
 use coffer_core::id::{AccountId, TransactionId};
 use coffer_core::reporting::period::parse_date;
 use coffer_core::reporting::rows::{self, MerchantSummary, Search};
@@ -77,7 +78,13 @@ pub const MERCHANT_HISTORY: ToolSpec = ToolSpec {
                   case), newest first, and a summary over all of them: how many, the \
                   user's share summed per currency, the first and last date. Rows are \
                   ledger lines, as in search_transactions; `my_amount` is the user's \
-                  share.",
+                  share. Pass the merchant as \
+                  search_transactions returned it; a name shown with `[.]` in a domain is \
+                  matched with plain dots. A name that was capped (280 characters), withheld \
+                  as instructions, or changed by cleaning (repeated spaces joined, fullwidth \
+                  letters folded, a literal `[.]`) may match nothing: use \
+                  search_transactions' account, date and category filters to reach those \
+                  rows.",
     level: AccessLevel::Standard,
     writes: Writes::Nothing,
 };
@@ -138,7 +145,9 @@ pub struct UncategorizedArgs {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct MerchantHistoryArgs {
     /// The merchant's display name, as other tools return it; case doesn't
-    /// matter.
+    /// matter. `[.]` in a domain is read as a dot. A capped or withheld name,
+    /// or one the cleaning changed otherwise (repeated spaces, fullwidth
+    /// letters, a literal `[.]`), may match nothing.
     pub merchant: String,
     /// How many rows, 1–200; 50 when not given. The summary covers every
     /// row regardless.
@@ -211,7 +220,9 @@ pub struct TransactionRow {
     /// The category key (see list_categories); null when uncategorised.
     pub category: Option<String>,
     /// The merchant, as a display name or (at pseudonymous access) a stable
-    /// token; null when there is none, or its name holds account details.
+    /// token; null when there is none, or its name holds account details. A
+    /// display name is untrusted text from the bank, sanitised like
+    /// `description_untrusted`.
     pub merchant: Option<MerchantLabel>,
     /// The transaction's tag names, at standard access; null otherwise.
     pub tags: Option<Vec<String>>,
@@ -326,7 +337,9 @@ fn merchant_history(
         ));
     }
     require_standard_for_description(call, args.include_description)?;
-    let history = rows::merchant_history(call.reader(), &args.merchant, Limit::new(args.limit))
+    // The merchants a client gets have their domains made inert.
+    let merchant = args.merchant.replace(envelope::INERT_DOT, ".");
+    let history = rows::merchant_history(call.reader(), &merchant, Limit::new(args.limit))
         .map_err(reporting_error)?;
     let summary = history_summary(call, &history.summary);
     let rows = shape(call, history.lines.items, args.include_description)?;

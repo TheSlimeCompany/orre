@@ -21,6 +21,7 @@ const FIELDS: &[&str] = &[
     "currency",
     "id",
     "kind",
+    "label",
     "name",
     "parent_id",
 ];
@@ -69,6 +70,49 @@ fn by_name<'a>(accounts: &'a [Value], name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no account {name}: {accounts:#?}"))
 }
 
+fn by_label<'a>(accounts: &'a [Value], label: &str) -> &'a Value {
+    accounts
+        .iter()
+        .find(|account| account["label"] == label)
+        .unwrap_or_else(|| panic!("no account {label}: {accounts:#?}"))
+}
+
+/// The user's account names in the fixture database (plus the pot the test
+/// adds). Below `standard` they never appear; a label stands in.
+const ACCOUNT_NAMES: &[&str] = &["Everyday", "Rainy Day", "Holiday Fund", "Bills", "Test Pot"];
+
+#[tokio::test]
+async fn names_are_given_only_at_standard_and_labels_always() {
+    let fixture = Fixture::new();
+    add_pot(&fixture, fixture.seeded.bank, "Test Pot");
+    for &level in &[AccessLevel::Pseudonymous, AccessLevel::Standard] {
+        let client = fixture.connect("claude-code", level).await;
+        let result = client.call_ok(TOOL, json!({})).await;
+        let accounts = result["accounts"].as_array().unwrap();
+        let labels: Vec<&str> = accounts
+            .iter()
+            .map(|account| account["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            labels,
+            ["current 1", "pot 1", "pot 2", "current 2", "pot 3"],
+            "at {level}"
+        );
+        let names: Vec<&Value> = accounts.iter().map(|account| &account["name"]).collect();
+        if level == AccessLevel::Standard {
+            let expected: Vec<Value> = ACCOUNT_NAMES.iter().map(|name| json!(name)).collect();
+            assert_eq!(names, expected.iter().collect::<Vec<_>>());
+        } else {
+            assert!(names.iter().all(|name| name.is_null()), "{names:?}");
+            let text = result.to_string().to_lowercase();
+            for name in ACCOUNT_NAMES {
+                assert!(!text.contains(&name.to_lowercase()), "{name} at {level}");
+            }
+        }
+        client.close().await;
+    }
+}
+
 #[tokio::test]
 async fn returns_the_accounts_with_their_balances() {
     let fixture = Fixture::new();
@@ -99,7 +143,7 @@ async fn returns_the_accounts_with_their_balances() {
 
     // The Monzo export has no balances: its rows summed from zero, up to
     // the last row's day.
-    let everyday = by_name(accounts, "Everyday");
+    let everyday = by_label(accounts, "current 1");
     assert_eq!(everyday["id"], seeded.monzo.get());
     assert_eq!(everyday["kind"], "current");
     assert_eq!(everyday["currency"], "GBP");
@@ -114,7 +158,7 @@ async fn returns_the_accounts_with_their_balances() {
 
     // The OFX statement's ledger balance anchors it; the manual row on
     // 20 Nov is before it.
-    let bills = by_name(accounts, "Bills");
+    let bills = by_label(accounts, "current 2");
     assert_eq!(bills["id"], seeded.bank.get());
     assert_eq!(bills["kind"], "current");
     assert_eq!(
@@ -130,7 +174,7 @@ async fn returns_the_accounts_with_their_balances() {
     for pot in &pots[..2] {
         assert_eq!(pot["parent_id"], seeded.monzo.get());
     }
-    let test_pot = by_name(accounts, "Test Pot");
+    let test_pot = by_label(accounts, "pot 3");
     assert_eq!(test_pot["parent_id"], seeded.bank.get());
     assert_eq!(test_pot["balance"]["minor"], 12_345);
     assert_eq!(test_pot["balance_date"], "2026-12-01");

@@ -651,6 +651,25 @@ pub fn transfer_register(status: TransferStatus) -> Register {
     Register::new(rows, register_accounts(), categories())
 }
 
+/// [`transfer_register`] for a suggested pair whose money-out leg is
+/// excluded (`disputed`): it doesn't count, so the table doesn't mark it.
+pub fn suggested_transfer_with_an_excluded_leg() -> Register {
+    let (out, _) = transfer_ids();
+    let register = transfer_register(TransferStatus::Suggested);
+    let rows = register
+        .rows()
+        .iter()
+        .cloned()
+        .map(|mut row| {
+            if row.id == out {
+                row.excluded = Some(ExclusionReason::Disputed);
+            }
+            row
+        })
+        .collect();
+    Register::new(rows, register_accounts(), categories())
+}
+
 /// The rows of the Transactions artboards (`18E-0`, `1NP-0`) as a
 /// [`Register`]: what the view shows without a database.
 pub fn register() -> Register {

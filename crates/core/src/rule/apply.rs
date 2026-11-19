@@ -16,6 +16,7 @@ use super::allocate::{share_minor, split_amounts};
 use super::engine::{MatchInput, Outcome, RuleSet, SetBy};
 use super::store::{InvalidRule, StoreError};
 use crate::category::CategoryKey;
+use crate::category::assign::{self, NoOwnCategory};
 use crate::change::{
     self, CategorySource, CategoryValue, ChangeKind, ExclusionValue, Field, MerchantValue,
     NameSource, Recorder, ShareValue, SplitLineValue, Value,
@@ -101,7 +102,9 @@ pub struct PlannedChange {
     /// on rows the user includes, never on import.
     pub user_set: bool,
     /// The lock date it meets: `Some(reconciled_through)` for an exclusion
-    /// change on a row dated on or before it. Applying it needs an unlock.
+    /// change that moves the row into or out of its account's balance
+    /// (`change::locked_for`), on a row dated on or before the lock.
+    /// Applying it needs an unlock.
     pub locked: Option<NaiveDate>,
 }
 
@@ -161,6 +164,20 @@ pub enum SplitSkip {
     /// purchase's category and share, so it is neither split nor shared
     /// (M1.25). A share the rules give it is skipped too.
     Linked,
+}
+
+/// A row whose category a rule won but didn't set, because the row takes
+/// no category of its own ([`assign`]): a leg of a confirmed transfer pair
+/// or the money in of a confirmed refund. The rule's other actions still
+/// apply to it. (A split row is skipped whole: [`ApplyPreview::split_rows`].)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SkippedCategory {
+    /// The transaction.
+    pub transaction: TransactionId,
+    /// The rule with the category.
+    pub rule: RuleId,
+    /// Why the row takes no category of its own.
+    pub reason: NoOwnCategory,
 }
 
 /// A row a split rule won but didn't split. The row keeps its category.
@@ -284,13 +301,8 @@ impl<'c> Planner<'c> {
         Ok(id)
     }
 
-    /// What `outcome` changes on `row`, which isn't split, and the split it
-    /// skips, if any.
-    fn plan_row(
-        &mut self,
-        row: &Candidate,
-        outcome: &Outcome,
-    ) -> Result<(Vec<PlannedChange>, Option<SkippedSplit>), StoreError> {
+    /// What `outcome` changes on `row`, which isn't split.
+    fn plan_row(&mut self, row: &Candidate, outcome: &Outcome) -> Result<RowOutcome, StoreError> {
         let conn = self.conn;
         let id = row.id;
         let mut changes = Vec::new();
@@ -370,7 +382,8 @@ impl<'c> Planner<'c> {
             let now = read_exclusion(conn, id)?;
             if now.as_ref().map(|exclusion| exclusion.reason) != Some(reason) {
                 let user_set = now.is_some();
-                let locked = change::locked(conn, id, Field::Exclusion)?;
+                let new = Value::Exclusion(Some(ExclusionValue::now(reason)));
+                let locked = change::locked_for(conn, id, &new)?;
                 push(
                     *rule,
                     Value::Exclusion(now),
@@ -386,7 +399,23 @@ impl<'c> Planner<'c> {
             category.source,
             Some(CategorySource::User | CategorySource::AiApproved)
         );
-        if let Some(SetBy { value: key, rule }) = &outcome.category {
+        // A row that takes no category of its own (a confirmed transfer leg,
+        // a confirmed refund's money in) gets none from a rule either. A
+        // split template on such a row is already skipped below, as a row
+        // in a transfer or linked money in.
+        let skipped_category = match &outcome.category {
+            Some(SetBy { rule, .. }) => {
+                assign::no_own_category_in(conn, id)?.map(|reason| SkippedCategory {
+                    transaction: id,
+                    rule: *rule,
+                    reason,
+                })
+            }
+            None => None,
+        };
+        if skipped_category.is_none()
+            && let Some(SetBy { value: key, rule }) = &outcome.category
+        {
             let category_id = self.category_id(key, *rule)?;
             let target = CategoryValue {
                 category_id: Some(category_id),
@@ -473,13 +502,23 @@ impl<'c> Planner<'c> {
             }
         }
 
-        let skipped = skipped.map(|(rule, reason)| SkippedSplit {
-            transaction: id,
-            rule,
-            reason,
-        });
-        Ok((changes, skipped))
+        Ok(RowOutcome {
+            changes,
+            skipped_split: skipped.map(|(rule, reason)| SkippedSplit {
+                transaction: id,
+                rule,
+                reason,
+            }),
+            skipped_category,
+        })
     }
+}
+
+/// What the planner decided for one row.
+struct RowOutcome {
+    changes: Vec<PlannedChange>,
+    skipped_split: Option<SkippedSplit>,
+    skipped_category: Option<SkippedCategory>,
 }
 
 fn read_category(conn: &Connection, id: TransactionId) -> Result<CategoryValue, StoreError> {
@@ -670,9 +709,9 @@ pub(super) fn apply_to_batch(
         if outcome.is_empty() {
             continue;
         }
-        let (changes, skipped) = planner.plan_row(row, &outcome)?;
-        summary.splits_skipped += usize::from(skipped.is_some());
-        let written = writer.write(conn, row.id, &changes, false, &mut recorder)?;
+        let planned = planner.plan_row(row, &outcome)?;
+        summary.splits_skipped += usize::from(planned.skipped_split.is_some());
+        let written = writer.write(conn, row.id, &planned.changes, false, &mut recorder)?;
         summary.rows += usize::from(written.changed);
         summary.categorized += usize::from(written.categorized);
         summary.split += usize::from(written.split);
@@ -704,6 +743,9 @@ pub struct ApplyPreview {
     pub split_rows: Vec<TransactionId>,
     /// Rows whose split the rule wins but can't make.
     pub skipped_splits: Vec<SkippedSplit>,
+    /// Rows whose category the rule wins but doesn't set: they take no
+    /// category of their own. Its other changes on them are in `rows`.
+    pub skipped_categories: Vec<SkippedCategory>,
 }
 
 impl ApplyPreview {
@@ -720,8 +762,9 @@ impl ApplyPreview {
         self.rows.iter().filter(|row| row.needs_inclusion())
     }
 
-    /// Rows with an exclusion change in a locked period. The commit refuses
-    /// while it would make one: the user unlocks first.
+    /// Rows with an exclusion change that moves them into or out of their
+    /// account's balance in a locked period. The commit refuses while it
+    /// would make one: the user unlocks first.
     pub fn locked_rows(&self) -> impl Iterator<Item = &RowPlan> {
         self.rows.iter().filter(|row| row.locked().is_some())
     }
@@ -755,11 +798,12 @@ pub enum ApplyError {
     #[error("the transactions or rules changed since the preview; preview the apply again")]
     Stale,
 
-    /// The apply would exclude rows (or change their exclusion) on or
-    /// before their account's `reconciled_through`.
+    /// The apply would move rows into or out of their account's balance
+    /// (an exclusion into or out of `duplicate`) on or before their
+    /// account's `reconciled_through`.
     #[error(
-        "{} transaction(s) would change whether they count on or before their account's \
-         locked date; unlock the account first",
+        "{} transaction(s) would change whether they count in their account's balance on or \
+         before its locked date; unlock the account first",
         .0.len()
     )]
     Locked(Vec<TransactionId>),
@@ -876,6 +920,7 @@ pub(super) fn plan_history(conn: &Connection, rule: RuleId) -> Result<ApplyPrevi
         rows: Vec::new(),
         split_rows: Vec::new(),
         skipped_splits: Vec::new(),
+        skipped_categories: Vec::new(),
     };
     let mut planner = Planner::new(conn);
     for row in load_candidates(conn, "1", [])? {
@@ -889,12 +934,13 @@ pub(super) fn plan_history(conn: &Connection, rule: RuleId) -> Result<ApplyPrevi
         if outcome.is_empty() {
             continue;
         }
-        let (changes, skipped) = planner.plan_row(&row, &outcome)?;
-        preview.skipped_splits.extend(skipped);
-        if !changes.is_empty() {
+        let planned = planner.plan_row(&row, &outcome)?;
+        preview.skipped_splits.extend(planned.skipped_split);
+        preview.skipped_categories.extend(planned.skipped_category);
+        if !planned.changes.is_empty() {
             preview.rows.push(RowPlan {
                 transaction: row.id,
-                changes,
+                changes: planned.changes,
             });
         }
     }

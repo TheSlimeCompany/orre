@@ -36,10 +36,11 @@
 //! approval ([`ApproveError::Invalid`]). Approving a decided suggestion is
 //! [`ApproveError::NotPending`].
 //!
-//! **Locks.** `reconciled_through` guards exclusions only (decision records
-//! "rules", point 8, and "M1 wave 4", point 3), and a suggestion can't
-//! exclude anything: categories, splits, names, tags, links and transfers
-//! don't change a balance. So no suggestion kind meets a lock today. Should
+//! **Locks.** `reconciled_through` guards balances only (decision record
+//! "a lock guards balances only", 2026-11-19), and a suggestion can't
+//! change a balance: categories, splits, names, tags, links and transfers
+//! don't, and a suggestion can't exclude anything. So no suggestion kind
+//! meets a lock today. Should
 //! a write underneath refuse for a lock, the approval is refused as
 //! [`ApproveError::Locked`].
 //!

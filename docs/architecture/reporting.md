@@ -95,3 +95,25 @@ Inbox's "If you approve" amounts (point 3) and the review queue's "If you merge"
 6. A wide rule's per-merchant `total` stays a gross listing sum; it lists the rows, it
    doesn't report spending. `inbox::impact`'s own "moves income" test is not changed
    here.
+
+### Decision record: one net worth rule (2026-11-19)
+
+The accounts panel and `net_worth_history` disagreed about an account with no stated
+balance (nothing entered, no balance from a file, no valuation). The panel showed "No
+balance" and left it out of net worth; the history summed it from zero, added it to the
+totals and only marked it `unanchored`.
+
+1. **One rule, in both (user).** An account other than a pot with no stated balance is
+   left out of net worth until a balance is entered, because its sum from zero is right
+   only if it started empty. A pot is counted from its transfers even without one
+   ("Decision record: sub-accounts"). A valuation account is still left out before its
+   first valuation. `net_worth::counts` is the one function that says which, used by
+   `account_tree` and `net_worth_history`, so they can't drift.
+2. **What changed in `net_worth_history`.** Such an account is still listed for each
+   month, flagged `unanchored`, so nothing is silently dropped, but its `counted` is
+   zero and it adds nothing to the month's totals (`AccountWorth::is_counted` says
+   which). A pot stays counted from its transfers, as before, and is still flagged
+   `unanchored`. The MCP tool's description says so.
+3. **Rejected: count it from zero and mark it everywhere.** An account opened
+   mid-history with money already in it would understate or overstate net worth without
+   the user seeing a number to doubt.

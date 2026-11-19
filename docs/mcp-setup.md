@@ -44,9 +44,14 @@ There are three levels:
 
 | Level | The client sees |
 |---|---|
-| `aggregate` | Totals only: monthly summaries, spending by category, budgets, net worth (accounts by type, not name), categories and its own saved reports. It can save reports. No transaction rows. |
-| `pseudonymous` | Also transaction rows and recurring payments, with every merchant replaced by a stable token (`M-3f9a0c…`), account names, and filters by date, account, category and amount. No bank descriptions, no text search, no tags. |
-| `standard` | Everything above with real merchant names, bank descriptions (as labelled, sanitised untrusted text), text search, public tags, rules and merchant history, and the `propose_*` tools. Full access by design: a merchant name or bank description can be a person's name. |
+| `aggregate` | Totals only: monthly summaries, spending by category, budgets, net worth (accounts by type and number, not name), categories and its own saved reports. It can save reports. No transaction rows. |
+| `pseudonymous` | Also transaction rows and recurring payments, with every merchant replaced by a stable token (`M-3f9a0c…`), accounts shown as labels (`current 1`, `pot 2`) rather than names, and filters by date, account, category and amount. No bank descriptions, no text search, no tags. |
+| `standard` | Everything above with real merchant names, account names, bank descriptions (as labelled, sanitised untrusted text), text search, public tags, rules and merchant history, and the `propose_*` tools. Full access by design: a merchant name or bank description can be a person's name. Merchant names are untrusted text, like descriptions: capped, with domains shown as `example[.]com`, and withheld if they read like instructions. |
+
+`pseudonymous` limits casual exposure; it isn't anonymity. Tokens hide merchant names,
+but amounts, dates and categories are exact, and they can identify a merchant: a £10.99
+payment on the 3rd of every month under subscriptions is easy to guess. Choose
+`aggregate` if that matters.
 
 Notes, share labels, private tags, merchant addresses, account numbers, sort codes and
 IBANs are never sent at any level.

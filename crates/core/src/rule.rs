@@ -72,6 +72,13 @@
 //! ## What each action writes
 //!
 //! - `set_category`: `category_id`, `category_source = 'rule'` and `rule_id`.
+//!   Not on a row that takes no category of its own
+//!   ([`crate::category::assign`]: a leg of a confirmed transfer pair, the
+//!   money in of a confirmed refund), at import or on Apply
+//!   ([`SkippedCategory`]; decision record "rules skip rows that take no
+//!   category of their own"). The rule's other actions still apply there.
+//!   At import the pot's mirrored pairs are confirmed before the rules run,
+//!   so both legs of a pot transfer get no category from a rule.
 //! - `split_template`: clears the category and the share, then stores the
 //!   lines ([`split_amounts`]; a line's category is the template's, its
 //!   share the rule's `my_share` of the line). A row that is in a
@@ -113,11 +120,15 @@
 //! so the rule changes only the fields it wins (decision record "rules",
 //! point 1), tags included. Split rows are skipped entirely
 //! (decision record "splits, tags and notes…", point 3; listed in
-//! [`ApplyPreview::split_rows`]). An exclusion on a row dated on or before
-//! its account's `reconciled_through` meets the lock
-//! ([`PlannedChange::locked`]; decided by the user, 2026-11-12): the commit
-//! refuses while it would make one ([`ApplyError::Locked`]), and the user
-//! unlocks first. Other fields aren't guarded by locks (point 8).
+//! [`ApplyPreview::split_rows`]); a category on a row that takes none of
+//! its own is skipped and listed ([`ApplyPreview::skipped_categories`]).
+//! A lock guards balances only (decided by the user, 2026-11-19;
+//! [`crate::reconciliation`]): an exclusion that moves a row dated on or
+//! before its account's `reconciled_through` into or out of the balance
+//! (into or out of `duplicate`) meets the lock ([`PlannedChange::locked`]):
+//! the commit refuses while it would make one ([`ApplyError::Locked`]), and
+//! the user unlocks first. Exclusions between other reasons, and every
+//! other field, aren't guarded.
 //!
 //! [`commit_apply`] plans again inside its DB transaction, refuses as stale
 //! when the plan differs from the preview, then makes every change that
@@ -157,7 +168,7 @@ pub use action::{
 pub use allocate::{share_minor, share_of, split_amounts};
 pub use apply::{
     Applied, ApplyError, ApplyPreview, BatchApplied, PlannedChange, PlannedLine, RowPlan,
-    SkippedSplit, SplitSkip, Target, commit_apply, preview_apply,
+    SkippedCategory, SkippedSplit, SplitSkip, Target, commit_apply, preview_apply,
 };
 pub(crate) use apply::{commit_apply_in, preview_apply_in};
 pub use draft::{

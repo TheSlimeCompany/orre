@@ -779,6 +779,69 @@ fn the_note_and_the_name_are_kept_when_the_row_is_left(cx: &mut TestAppContext) 
 }
 
 #[gpui_kit::test]
+fn only_a_suggested_pairs_legs_are_marked(cx: &mut TestAppContext) {
+    use coffer_core::transfer::TransferStatus;
+
+    let (view, cx) = open_fixture(cx);
+    let (out, inn) = fixture::transfer_ids();
+    let glyphs = |cx: &mut VisualTestContext| {
+        cx.update(|window, _| window.find_all("suggested-transfer").len())
+    };
+    let marked = |status: TransferStatus, cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            view.update(cx, |view, cx| {
+                view.show_fixture(fixture::transfer_register(status), cx)
+            })
+        });
+        redraw(cx);
+        let description = describe(&view, cx);
+        let leg = |id| {
+            let row = description.row(id).expect("the pair's leg is listed");
+            (row.suggested_transfer, row.transfer)
+        };
+        (leg(out), leg(inn))
+    };
+
+    assert_eq!(
+        marked(TransferStatus::Suggested, cx),
+        ((true, false), (true, false)),
+        "a suggested pair counts, so its legs are marked and not dimmed as transfers"
+    );
+    assert_eq!(glyphs(cx), 2, "each leg draws the ⇄ in `warning`");
+    assert_eq!(
+        marked(TransferStatus::Confirmed, cx),
+        ((false, true), (false, true)),
+        "a confirmed pair's legs look like transfers"
+    );
+    assert_eq!(glyphs(cx), 0);
+    assert_eq!(
+        marked(TransferStatus::Rejected, cx),
+        ((false, false), (false, false)),
+        "a rejected pair shows nothing"
+    );
+    let plain = describe(&view, cx);
+    assert!(
+        plain.rows().all(|row| !row.suggested_transfer),
+        "no other row is marked"
+    );
+
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.show_fixture(fixture::suggested_transfer_with_an_excluded_leg(), cx);
+            view.set_excluded(true, cx);
+        })
+    });
+    redraw(cx);
+    let excluded = describe(&view, cx);
+    let suggested = |id| excluded.row(id).expect("listed").suggested_transfer;
+    assert_eq!(
+        (suggested(out), suggested(inn)),
+        (false, true),
+        "an excluded leg doesn't count, so it isn't marked as counted until confirmed"
+    );
+}
+
+#[gpui_kit::test]
 fn a_transfer_has_no_split_section_and_the_fixture_cant_split(cx: &mut TestAppContext) {
     let (view, cx) = open_fixture(cx);
     click(row_id(fixture::id("txn-rainy-day-09")), cx);
@@ -879,6 +942,7 @@ fn the_description_reads_the_screen_in_full(cx: &mut TestAppContext) {
         category: "Eating out".to_owned(),
         counts_as: None,
         transfer: false,
+        suggested_transfer: false,
         excluded: false,
         account: Some("Current account".to_owned()),
         amount: amount.to_owned(),

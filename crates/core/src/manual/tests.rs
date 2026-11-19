@@ -353,14 +353,24 @@ fn locked_dates_are_refused() {
     );
     assert_eq!(get(&f.db, early).unwrap(), entry(account, 3, -100));
 
-    // The category is a user-facing field, editable on a locked row.
-    let mut categorised = entry(account, 3, -100);
-    categorised.category = Some(key("food.groceries"));
-    update(&mut f.db, early, &categorised).unwrap();
-    assert_eq!(get(&f.db, early).unwrap(), categorised);
-    let mut amount = categorised.clone();
+    // The category, merchant, description and time within the day move no
+    // balance (a lock guards balances only), so they're editable on a
+    // locked row.
+    let mut edited = entry(account, 3, -100);
+    edited.category = Some(key("food.groceries"));
+    edited.merchant = Some("Corner shop".into());
+    edited.description = "Milk and bread".into();
+    edited.time = Some(chrono::NaiveTime::from_hms_opt(8, 30, 0).unwrap());
+    update(&mut f.db, early, &edited).unwrap();
+    assert_eq!(get(&f.db, early).unwrap(), edited);
+    // Its amount and date do.
+    let mut amount = edited.clone();
     amount.amount = gbp(-200);
     locked(update(&mut f.db, early, &amount).map(|_| ()), 3);
+    let mut date = edited.clone();
+    date.date = day(2);
+    locked(update(&mut f.db, early, &date).map(|_| ()), 3);
+    assert_eq!(get(&f.db, early).unwrap(), edited);
 
     // After the lock everything works.
     create(&mut f.db, &entry(account, 6, -1)).unwrap();

@@ -97,12 +97,20 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
    `closed_on`. Changing a paired row's account or amount, or deleting it, dissolves its
    transfer group. Deleting clears its split lines and tag links first
    (`manual::release_references`, where later referencing tables join).
+   *Amended 2026-11-19 by the user:* a lock guards balances only. Creating or deleting a
+   manual row, or changing its account, date, amount or currency, on or before
+   `reconciled_through` (old or new date) is refused; its time within the day, merchant,
+   description and category can be edited there. See `links-and-checks.md`, "Decision
+   record: a lock guards balances only".
 8. **Exclusion** (`coffer_core::exclusion`) applies to any row, with the reason, note
    and date of "Transactions additions" point 1. Excluding again changes the reason and
    resets the date. Only a change into or out of `duplicate` is refused inside a lock,
    since only `duplicate` moves the balance among the reasons a user can choose;
    `superseded` (set only by an import, cleared only by undoing it: import.md, "a bank's
-   correction supersedes the stored row") also leaves the balance.
+   correction supersedes the stored row") also leaves the balance. *Amended 2026-11-19:*
+   the rule is `exclusion::moves_balance`, and change batches (rule applies, merges, bulk
+   edits and their undo) now follow it too, in place of refusing every exclusion change.
+   See "Decision record: a lock guards balances only".
 9. **Merchant clean-up** (`merchant::clean`) is deterministic and keeps the bank's case
    (title-casing gets McDonald's, IKEA and eBay wrong and can't be undone; comparisons
    ignore case). It strips processor prefixes (`SQ *`, `SUMUP *`, `IZ *`, `ZETTLE_`,
@@ -340,6 +348,8 @@ section's rows and Coffer's refund card (D6.5) and the undo bar (D6.3). Marked
     with…" for rows detection didn't pair; both need a design. (The bulk-action bar's
     "Mark as transfer" now pairs two rows by hand: "Mark as transfer and Create rule
     from the bulk-action bar" below.)
+    *Amended 2026-11-19: the table now marks a suggested pair's rows ("two kinds of
+    transfer, and marking a suggested pair" below). "Pair with…" is still open.*
 
 ### Decision record: removing transactions, and which rows need a category (2026-11-16)
 
@@ -418,3 +428,33 @@ migration.**
    when every row gives the same rule: same field, pattern and category. Otherwise it says
    why under the selection's Category select. It is enabled whenever several rows are
    selected, since knowing whether they agree needs a database read.
+
+### Decision record: two kinds of transfer, and marking a suggested pair (2026-11-19)
+
+From the architecture review (R.10): "transfer" had two sources of truth, and a
+suggested pair counted as income and spending with nothing in the table to say so.
+
+1. **The two mechanisms.** A *confirmed pair* is money between two of the user's
+   accounts where Coffer holds both sides. Both legs are out of income and spending
+   whatever their category, and take no category of their own ("what a transaction can
+   take, decided in core", point 1, in `categories.md`). A category of kind `transfer` is
+   for a single row whose other side Coffer doesn't hold, such as an account that isn't
+   in Coffer. It counts as neither income nor spending (`reporting::ledger::Side::of`).
+   A *suggested pair* is only a guess: it counts by its own category until it is
+   confirmed, which is why the table marks it.
+2. **The marker (composed, user 2026-11-19).** A row that is a leg of a suggested pair
+   shows the ⇄ glyph in `warning` beside the merchant, in the slot a confirmed
+   transfer's glyph uses. DESIGN.md maps "unconfirmed transfer pair" to `warning`. The
+   row isn't dimmed and its category cell keeps the row's own category, because the row
+   still counts. Hover text: "Suggested transfer: counted as income or spending until
+   you confirm it". An excluded leg isn't marked, since it doesn't count. A confirmed
+   pair keeps its look, and a rejected pair shows nothing.
+   The status comes from `RegisterRow::pair`. DESIGN.md's Transactions row table has it
+   as "Suggested transfer" (composed, no Paper artboard).
+3. **Rules skip the category of rows that take no category of their own** (a confirmed
+   transfer's legs, a confirmed refund's money in), as they skip split rows. Other rule
+   actions still apply. Decided by the lead, following the user's 2026-11-16 choice;
+   built in `crates/core/src/rule`. It answers the question left open in "what a
+   transaction can take, decided in core", point 4.
+4. **Rejected: counting a suggested pair as a transfer before it is confirmed.** A wrong
+   guess would hide real spending from the reports with no visible sign.

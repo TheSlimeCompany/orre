@@ -195,12 +195,16 @@ impl<'a> Call<'a> {
     ///   stripped, so one can't split a number. Not counted in the access
     ///   log's `withheld_count`, which counts only text withheld as
     ///   instructions (decision record M2, C.6).
-    /// - `standard`: the display name, without invisible characters
-    ///   ([`envelope::strip_invisible`]). A display name comes from bank
-    ///   text too (a row without a merchant takes its description), so one
-    ///   that reads like instructions ([`envelope::reads_like_instructions`])
-    ///   is withheld like a description: the marker, counted in the access
-    ///   log's `withheld_count`.
+    /// - `standard`: the display name as untrusted text, sanitised like
+    ///   `description_untrusted` ([`envelope::sanitize`]): invisible
+    ///   characters stripped, domains made inert, capped at
+    ///   [`envelope::MAX_UNTRUSTED_CHARS`], and withheld (the marker,
+    ///   counted in the access log's `withheld_count`) when it reads like
+    ///   instructions. A display name comes from bank text (a row without a
+    ///   merchant takes its description, and a payer chooses an incoming
+    ///   transfer's name), so it is as untrusted as a description. The
+    ///   account-identifier check runs again on the sanitised text, which
+    ///   folds fullwidth digits to ASCII.
     /// - `pseudonymous`: a stable token, `M-` and 12 hex digits
     ///   ([`envelope::pseudonym`]): the same name gives the same token in
     ///   this database, a different one in another.
@@ -214,23 +218,18 @@ impl<'a> Call<'a> {
             return None;
         }
         if self.level == AccessLevel::Standard {
-            if envelope::reads_like_instructions(&visible).is_some() {
-                return Some(MerchantLabel::new(self.withhold(&visible)));
+            let sanitized = envelope::sanitize(&visible);
+            if sanitized.is_withheld() {
+                self.withheld.set(self.withheld.get() + 1);
+            } else if rows::has_account_identifier(&sanitized.text) {
+                return None;
             }
-            return Some(MerchantLabel::new(visible));
+            return Some(MerchantLabel::new(sanitized.text));
         }
         Some(MerchantLabel::new(match &self.pseudonym_key {
             Some(key) => envelope::pseudonym(key, display),
             None => HIDDEN_MERCHANT.to_owned(),
         }))
-    }
-
-    /// The withheld marker for `text`, counted for the access log.
-    fn withhold(&self, text: &str) -> String {
-        self.withheld.set(self.withheld.get() + 1);
-        let sanitized = envelope::sanitize(text);
-        debug_assert!(sanitized.is_withheld());
-        sanitized.text
     }
 
     /// Bank text as `description_untrusted`: sanitised and capped, or

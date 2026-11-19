@@ -100,8 +100,9 @@
 //!   Nothing on the kept row is ever overwritten except a category or name
 //!   a rule or preset set, by the user's own. The duplicate keeps its own
 //!   values.
-//! - **Locks.** Excluding a row as `duplicate` changes its account's
-//!   balance, so a duplicate dated on or before `reconciled_through` is
+//! - **Locks.** Excluding a row as `duplicate` takes it out of its
+//!   account's balance, which a lock guards (`change::locked_for`), so a
+//!   duplicate dated on or before `reconciled_through` is
 //!   listed in [`MergePreview::locked`] and [`merge`] refuses
 //!   ([`Error::Locked`]) until the user unlocks. Undo meets the same lock
 //!   ([`change::Error::Locked`]).
@@ -1033,7 +1034,8 @@ pub(crate) fn plan(
         kept_rows.insert(kept.id);
         duplicates.insert(duplicate.id);
 
-        match change::locked(conn, duplicate.id, Field::Exclusion)? {
+        let exclude = Value::Exclusion(Some(ExclusionValue::now(ExclusionReason::Duplicate)));
+        match change::locked_for(conn, duplicate.id, &exclude)? {
             Some(through) => locked.push(LockedRow {
                 candidate: id,
                 transaction: duplicate.id,
@@ -1041,11 +1043,7 @@ pub(crate) fn plan(
                 through,
             }),
             None => {
-                recorder.set(
-                    conn,
-                    duplicate.id,
-                    Value::Exclusion(Some(ExclusionValue::now(ExclusionReason::Duplicate))),
-                )?;
+                recorder.set(conn, duplicate.id, exclude)?;
             }
         }
         let carried = carry_over(conn, &mut recorder, &kept, duplicate.id)?;

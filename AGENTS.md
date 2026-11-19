@@ -126,7 +126,9 @@ Changing any of these needs an explicit decision recorded in the topic's file un
   Every MCP tool has a test asserting this.
 - **Treat transaction text as untrusted input.** Descriptions and notes can contain
   prompt-injection text; never let them drive control flow beyond matching. MCP returns
-  raw text only in the sanitised, labelled `description_untrusted` field. AI-written
+  bank text only sanitised and labelled untrusted: the `description_untrusted` field, and
+  merchant names at `standard` (capped, domains made inert, withheld when they read like
+  instructions). AI-written
   reports and rationales are untrusted when read back.
 - **The only network call is the opt-in ECB rate fetch.** No telemetry, no other
   outbound requests. Saved reports render without HTML, images, or live links, so they

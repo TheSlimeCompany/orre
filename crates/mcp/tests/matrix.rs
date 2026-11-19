@@ -10,8 +10,7 @@
 //!   (the fixture includes recurring payments, one a standing order whose
 //!   merchant holds account details),
 //!   and at `pseudonymous` [`assert_no_display_merchants`]; below
-//!   `standard` no account name (at `aggregate`) or person's name in bank
-//!   text appears;
+//!   `standard` no account name or person's name in bank text appears;
 //! - each call writes exactly one access-log row, for that tool, level and
 //!   outcome;
 //! - no tool writes outside `suggestion` and `report`, and only the tools
@@ -156,7 +155,8 @@ const MATRIX: &[Entry] = &[
     }),
 ];
 
-/// Account names in the fixture database that no other output contains
+/// Account names in the fixture database that no other output contains,
+/// which no tool shows below `standard`
 /// (`Bills` is also a category label).
 const ACCOUNT_NAMES: &[&str] = &["Everyday", "Rainy Day", "Holiday Fund"];
 
@@ -165,39 +165,6 @@ fn contains_ignoring_case(value: &Value, needle: &str) -> bool {
         .to_string()
         .to_lowercase()
         .contains(&needle.to_lowercase())
-}
-
-/// `value` without account names (`accounts[].name`, in any object): at
-/// `pseudonymous` and above a client may see the user's account names
-/// (decision record "M2: MCP server (2026-11-13)", point 2), and a pot's
-/// name is also the display merchant of the transfers into it.
-fn without_account_names(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(key, item)| {
-                    let item = match (key.as_str(), item) {
-                        ("accounts", Value::Array(accounts)) => Value::Array(
-                            accounts
-                                .iter()
-                                .map(|account| {
-                                    let mut account = without_account_names(account);
-                                    if let Some(name) = account.get_mut("name") {
-                                        *name = Value::Null;
-                                    }
-                                    account
-                                })
-                                .collect(),
-                        ),
-                        _ => without_account_names(item),
-                    };
-                    (key.clone(), item)
-                })
-                .collect(),
-        ),
-        Value::Array(items) => Value::Array(items.iter().map(without_account_names).collect()),
-        other => other.clone(),
-    }
 }
 
 #[test]
@@ -299,7 +266,7 @@ async fn every_tool_at_every_level() {
             if expected {
                 let result = client.call_ok(entry.tool, args).await;
                 if level == Pseudonymous {
-                    assert_no_display_merchants(&fixture, &without_account_names(&result));
+                    assert_no_display_merchants(&fixture, &result);
                 }
                 if entry.tool == "list_reports" {
                     // Only the caller's own reports, saved at its level or
@@ -312,7 +279,7 @@ async fn every_tool_at_every_level() {
                 if level < Standard {
                     assert!(!contains_ignoring_case(&result, PAYEE_NAME), "{at}");
                 }
-                if level == Aggregate {
+                if level < Standard {
                     for name in ACCOUNT_NAMES {
                         assert!(!contains_ignoring_case(&result, name), "{name} in {at}");
                     }

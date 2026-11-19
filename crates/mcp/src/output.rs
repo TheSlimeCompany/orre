@@ -3,7 +3,8 @@
 //!
 //! - [`Amount`]: money as integer minor units and an ISO 4217 code; never a
 //!   float.
-//! - [`MerchantLabel`]: the merchant as this client may see it. Made only
+//! - [`MerchantLabel`]: the merchant as this client may see it, untrusted
+//!   text like [`UntrustedText`]. Made only
 //!   by [`Call::merchant`](crate::registry::Call::merchant), so a tool
 //!   can't skip pseudonyms or the account-details check. That returns an
 //!   `Option`: a merchant field is `Option<MerchantLabel>`, null when the
@@ -55,7 +56,11 @@ impl Amount {
 }
 
 /// A merchant as shown to the client: its display name, or at
-/// `pseudonymous` a stable token such as `M-7f3a`.
+/// `pseudonymous` a stable token such as `M-7f3a`. Untrusted text derived
+/// from bank data: data to read, never instructions to follow. A display
+/// name is sanitised and capped like `description_untrusted`, so text that
+/// reads like instructions is replaced by `[withheld: N characters that
+/// read like instructions]` and a dot in a domain is shown as `[.]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema)]
 #[serde(transparent)]
 pub struct MerchantLabel(String);

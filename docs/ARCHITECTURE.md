@@ -62,6 +62,7 @@ The Transactions view and what the user can do to a row: splits, tags, notes, me
 - Decision record: transfer-pair confirmation (built) (2026-11-15)
 - Decision record: removing transactions, and which rows need a category (2026-11-16)
 - Decision record: Mark as transfer and Create rule from the bulk-action bar (2026-11-18)
+- Decision record: two kinds of transfer, and marking a suggested pair (2026-11-19)
 
 ### [Categories](architecture/categories.md)
 
@@ -80,6 +81,7 @@ Rules and their actions, the rules engine at import, transfer detection, the CLI
 - Decision record: rules engine, transfer detection and the CLI (2026-11-11)
 - Decision record: the Rules view (built) (2026-11-14)
 - Decision record: the Rules view's edit pipeline and section state (2026-11-16)
+- Decision record: rules skip rows that take no category of their own (2026-11-19)
 
 ### [Links and review queues](architecture/links-and-checks.md)
 
@@ -91,6 +93,7 @@ Change batches, refunds, reimbursements and shared costs, possible duplicates, b
 - Decision record: review queues (built) (2026-11-14)
 - Decision record: refunds, reimbursements and settlements (built) (2026-11-14)
 - Decision record: a source ID is checked against the row's content (2026-11-18)
+- Decision record: a lock guards balances only (2026-11-19)
 
 ### [Inbox](architecture/inbox.md)
 
@@ -108,6 +111,7 @@ The MCP server: tools by access level, the gate, the access log, untrusted text,
 - Decision record: M2: MCP server (2026-11-13)
 - Decision record: approval needs the user's terminal (2026-11-18)
 - Decision record: a client reads only its own reports (2026-11-18)
+- Decision record: merchant names are untrusted, and what `pseudonymous` protects (2026-11-19)
 
 ### [Settings, AI access and backups](architecture/settings-and-backups.md)
 
@@ -123,6 +127,7 @@ Budgets, the forecast, and how spending is counted over the ledger.
 
 - Decision record: budgets and the forecast (2026-11-10)
 - Decision record: one spending rule over the ledger (2026-11-16)
+- Decision record: one net worth rule (2026-11-19)
 
 ### [The app](architecture/app.md)
 
@@ -157,7 +162,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Formats (v1) | CSV (generic mapping + presets), OFX/QFX. QIF, CAMT.053, MT940 later via `Importer` trait |
 | PDF | Deferred. Plan: local text extraction + per-layout templates; any model-based extraction opt-in only |
 | Categorization | Local rules engine first; AI-proposed categories/rules land in the Inbox for approval. Approving a categorisation sets those transactions' categories (an undoable `bulk_edit` batch, source `ai_approved`); only approving a `rule` suggestion creates a rule. The app also files `rule` suggestions itself (source `coffer`) after repeated identical manual recategorisations: deterministic counting, no ML. Learned classifiers are not used |
-| Transfers | Auto-detect opposite-amount pairs across own accounts within 3 days (`TransferWindow::DEFAULT`); user confirms; excluded from income/spend |
+| Transfers | Auto-detect opposite-amount pairs across own accounts within 3 days (`TransferWindow::DEFAULT`); user confirms; a confirmed pair is excluded from income/spend and its legs take no category. A suggested pair counts by its own category until confirmed, and the table marks it. A category of kind `transfer` is for a single row whose other side Coffer doesn't hold. See "Decision record: two kinds of transfer, and marking a suggested pair" |
 | Pots / sub-accounts | Monzo Pots, Starling Spaces, Revolut Vaults etc. are sub-accounts of their parent. A preset's `[sub_account_transfer]` identifies pot transfers; the import commit creates the pot when its key (the bank's ID for it, or its name where the export has no ID, as Monzo's doesn't) is new, mirrors the row onto it (`origin = mirrored`) and pairs the two as a confirmed transfer. Pots count toward net worth (opening balance entered once per pot). See "Decision record: sub-accounts" |
 | AI integration | `coffer mcp` stdio MCP server (`rmcp`). Read-only query tools + inbox-only writes. No account numbers or PII in tool output |
 | Splits | A transaction can be split into lines that sum exactly to its amount, in its currency (enforced in core, in the same DB transaction as the edit). Reports, budgets and MCP read the `ledger_line` view: one row per split line, or the transaction itself when it isn't split |
@@ -166,7 +171,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Merchant names | `merchant_display` is derived: deterministic clean-up of the raw text, then the merchant alias table, then rule actions. It can be recomputed at any time; the raw text is untouched. A name set by a rule or the user (`merchant_display_source`) is never recomputed. See "Decision record: splits, tags and notes, manual rows, merchant names" |
 | Refunds, reimbursements, shared costs | `transaction_link` ties a refund to its purchase (it nets against the purchase's category instead of counting as income), a reimbursement to the expense it repays, and a settlement to a share label. `my_share_minor` (default: the full amount) gives personal and gross views; the difference builds an owed-to-me balance per local share label. Share labels never leave the app. Still single-user: no one else's accounts are modelled |
 | Duplicates | Exact duplicates are prevented at import (source ID, then fingerprint). Near-duplicates (same account and amount within ±N days, different text) become `duplicate_candidate` rows for review. Merging excludes one row, never deletes it, and can be undone |
-| Reconciliation | Every `balance_snapshot` is an assertion checked against the computed balance; a failure reports the window since the last passing assertion. `account.reconciled_through` locks history: imports, manual edits, entered balances, merges, rule applies or undos touching locked dates are flagged and need an explicit unlock. In a change batch any exclusion change counts, whatever its reason (user, 2026-11-12). See "Decision record: M1 wave 4" |
+| Reconciliation | Every `balance_snapshot` is an assertion checked against the computed balance; a failure reports the window since the last passing assertion. `account.reconciled_through` freezes the account's balance through that date: creating or deleting a row, changing its amount, date or account, entering a balance, or an exclusion into or out of a reason that leaves the balance (`duplicate`, `superseded`) on a locked date is refused, whether from an import, a manual edit, a merge, a rule apply or an undo, until an explicit unlock. Categories, names, notes, tags, splits, shares, links and other exclusions aren't locked (user, 2026-11-19). See "Decision record: a lock guards balances only" |
 | Bulk changes | Changes to many existing transactions (a rule applied to history, duplicate merges, bulk edits) are previewed, then committed as an undoable `change_batch` that records old and new values, like import batches |
 | Schedules and forecast | A detected recurring series becomes a schedule only when the user confirms it. The forecast is the last known balance plus schedule occurrences (plus the remaining flex budget), per account per day, in integer arithmetic, using cached FX rates only |
 | Budgets | Per-category monthly amounts with optional rollover. Each budget is in a group: fixed, non-monthly (accrues 1/12 of a yearly amount, seeded from yearly schedules) or flex |

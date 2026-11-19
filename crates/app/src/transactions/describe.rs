@@ -119,6 +119,9 @@ pub struct RowDescription {
     pub counts_as: Option<String>,
     /// A transfer: the row dims, the merchant has ⇄.
     pub transfer: bool,
+    /// A leg of a suggested pair: ⇄ in `warning` beside the merchant, the
+    /// row not dimmed, because it counts until the pair is confirmed.
+    pub suggested_transfer: bool,
     /// Excluded: the row is muted and its amount struck through.
     pub excluded: bool,
     /// The Account column, when it shows.
@@ -272,6 +275,7 @@ fn row(
         amount,
         original,
         editable: _,
+        suggested_transfer,
     } = RowText::of(view, row);
     let (category, transfer, excluded) = match cell.kind {
         CellKind::Category { name, .. } => (name, false, false),
@@ -287,6 +291,7 @@ fn row(
         category,
         counts_as: cell.suffix,
         transfer,
+        suggested_transfer,
         excluded,
         account,
         amount,

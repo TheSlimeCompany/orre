@@ -10,6 +10,10 @@
 //! [`coffer_core::reporting`]; these handlers only parse the months and
 //! shape the results.
 
+use std::collections::HashMap;
+
+use coffer_core::db::Reader;
+use coffer_core::reporting::balance;
 use coffer_core::reporting::budget_status::{self as core_budget, BudgetLine};
 use coffer_core::reporting::net_worth::{self, AccountWorth, NetWorthMonth};
 use coffer_core::reporting::spending::{self, GroupSpending, SubcategorySpending};
@@ -348,10 +352,11 @@ pub const NET_WORTH_HISTORY: ToolSpec = ToolSpec {
                   day and the total per currency, never converted. Balances are gross, like \
                   the bank's. Pots are accounts of their own; asset and liability accounts \
                   hold their last valuation, and a liability always lowers the total. Closed \
-                  accounts are left out after closing. An account marked `unanchored` has no \
-                  known balance, so its figure is its transactions summed from zero. Each \
-                  account has a `label` (its kind and a number, e.g. `pot 2`); its `name` is \
-                  given only at `pseudonymous` access and above.",
+                  accounts are left out after closing. An account with no stated balance is \
+                  marked `unanchored`: a pot still counts from its transfers; any other is \
+                  listed but left out of the totals until a balance is entered. Each account has a `label` (its kind and a number, \
+                  e.g. `pot 2`, the same in list_accounts); its `name` is given only at \
+                  `standard` access.",
     level: AccessLevel::Aggregate,
     writes: Writes::Nothing,
 };
@@ -386,10 +391,11 @@ pub struct AccountBalance {
     pub account_id: i64,
     /// The account's kind and its number among the accounts of that kind,
     /// in the order the user added them: `current 1`, `pot 2`. The same in
-    /// every month of one call.
+    /// every month of one call, and as `list_accounts` gives it until an
+    /// account is deleted or changes kind; `account_id` is the stable key.
     pub label: String,
-    /// The user's name for the account; `null` at `aggregate` access, since
-    /// a name can name a person.
+    /// The user's name for the account; `null` below `standard` access,
+    /// since a name can name a person or a merchant. Use `label`.
     pub name: Option<String>,
     /// `current`, `savings`, `credit_card`, `pot`, `cash`, `asset` or
     /// `liability`.
@@ -398,31 +404,46 @@ pub struct AccountBalance {
     /// what is owed, below zero.
     pub balance: Amount,
     /// What the account adds to net worth: the balance, except a
-    /// liability, which always subtracts what is owed.
+    /// liability, which always subtracts what is owed; zero for an
+    /// `unanchored` account other than a pot, which is left out of the
+    /// totals until a balance is entered.
     pub counted: Amount,
     /// The account has no known balance (opening balance, statement or
-    /// valuation): its transactions are summed from zero.
+    /// valuation): its transactions are summed from zero. A pot is still
+    /// counted from its transfers; any other account adds zero.
     pub unanchored: bool,
 }
 
 /// Each account's `label`: its kind and its number among the accounts of
-/// that kind, by account ID (the order they were added). No name, so it is
-/// safe at `aggregate` (decision record "M2: MCP server (2026-11-13)").
-fn account_labels<'a>(
-    accounts: impl Iterator<Item = &'a AccountWorth>,
-) -> std::collections::HashMap<i64, String> {
-    let kinds: std::collections::BTreeMap<i64, &'static str> = accounts
-        .map(|worth| (worth.account.get(), worth.kind.as_str()))
-        .collect();
-    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    kinds
+/// that kind, by account ID (the order they were added), counted over every
+/// account in the database, so an account has the same label in every tool
+/// (`list_accounts`, `net_worth_history`) while the accounts stay as they
+/// are: deleting an account or changing its kind renumbers the later ones
+/// of that kind, so `account_id` is the stable key. No name, so it is
+/// safe at every level (decision records "M2: MCP server (2026-11-13)" and
+/// "merchant names are untrusted, and what `pseudonymous` protects
+/// (2026-11-19)").
+pub(crate) fn account_labels(reader: &Reader) -> Result<HashMap<i64, String>, ToolError> {
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    Ok(balance::accounts(reader)
+        .map_err(reporting_error)?
         .into_iter()
-        .map(|(id, kind)| {
+        .map(|account| {
+            let kind = account.kind.as_str();
             let n = counts.entry(kind).or_default();
             *n += 1;
-            (id, format!("{kind} {n}"))
+            (account.id.get(), format!("{kind} {n}"))
         })
-        .collect()
+        .collect())
+}
+
+/// `account`'s label from [`account_labels`], or its bare kind if it isn't
+/// there (an account deleted between the two reads): never a panic.
+pub(crate) fn label_of(labels: &HashMap<i64, String>, account: i64, kind: &str) -> String {
+    labels
+        .get(&account)
+        .cloned()
+        .unwrap_or_else(|| kind.to_owned())
 }
 
 fn net_worth_history(
@@ -431,11 +452,11 @@ fn net_worth_history(
 ) -> Result<Reply<NetWorthHistory>, ToolError> {
     let (from, to) = (month(&args.from)?, month(&args.to)?);
     let history = net_worth::net_worth_history(call.reader(), from, to).map_err(reporting_error)?;
-    let labels = account_labels(history.items.iter().flat_map(|month| &month.accounts));
-    let names = call.level() >= AccessLevel::Pseudonymous;
+    let labels = account_labels(call.reader())?;
+    let names = call.level() >= AccessLevel::Standard;
     let account = |worth: &AccountWorth| AccountBalance {
         account_id: worth.account.get(),
-        label: labels[&worth.account.get()].clone(),
+        label: label_of(&labels, worth.account.get(), worth.kind.as_str()),
         name: names.then(|| worth.name.clone()),
         kind: worth.kind.as_str().to_owned(),
         balance: call.amount(worth.balance),

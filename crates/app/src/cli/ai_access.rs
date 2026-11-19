@@ -90,7 +90,8 @@ pub struct LevelArgs {
     pub name: ClientName,
 
     /// `aggregate`: totals only. `pseudonymous`: transaction rows with
-    /// merchants as tokens. `standard`: everything the tools offer.
+    /// merchants as tokens and accounts as labels; amounts and dates stay
+    /// exact, so it isn't anonymous. `standard`: everything the tools offer.
     #[arg(value_name = "LEVEL", value_parser = level_parser())]
     pub level: AccessLevel,
 }

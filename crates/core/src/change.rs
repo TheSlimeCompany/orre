@@ -19,13 +19,18 @@
 //!   [`UndoSummary::changed_since`]. Items are restored newest first, so a
 //!   split made after clearing a category is removed before the category
 //!   comes back.
-//! - **Locks.** `reconciled_through` guards balances only (rules decision
-//!   point 8), so of the fields here only the exclusion meets it. Any change
-//!   to an exclusion in a batch, on a row dated on or before its account's
-//!   `reconciled_through`, is refused ([`Error::Locked`]), whichever reason
-//!   and whichever way: a rule's exclusion (decided by the user,
-//!   2026-11-12), a duplicate merge, and the undo of either. The user
-//!   unlocks first.
+//! - **Locks.** `reconciled_through` guards balances only
+//!   ([`crate::reconciliation`] module docs; decided by the user,
+//!   2026-11-19), so of the fields here only an exclusion can meet it, and
+//!   only one that moves the row into or out of the balance
+//!   ([`exclusion::moves_balance`]): on a row dated on or before its
+//!   account's `reconciled_through` such a change is refused
+//!   ([`Error::Locked`]), whether it is set ([`Recorder::set`],
+//!   [`Recorder::track`]) or restored ([`undo`]): a rule's `duplicate`
+//!   exclusion, a duplicate merge, and the undo of either. The user unlocks
+//!   first. An exclusion between reasons that keep the row in the balance
+//!   (`bank_error`, `disputed`, `other`), and every other field, is allowed
+//!   there. [`locked_for`] answers the same question for a preview.
 //! - **Deleting a transaction deletes its items.** Undoing an import or
 //!   deleting a manual row removes the row's items first (`removal`): the
 //!   batch stays in the history with what is left.
@@ -50,7 +55,7 @@ use serde::{Deserialize, Serialize};
 use crate::account;
 use crate::db::Database;
 use crate::duplicate;
-use crate::exclusion::ExclusionReason;
+use crate::exclusion::{self, ExclusionReason};
 use crate::id::{ChangeBatchId, RuleId, TagId, TransactionId};
 use crate::link::{LinkKind, LinkStatus};
 use crate::merchant;
@@ -144,12 +149,6 @@ impl Field {
 
     pub fn from_key(key: &str) -> Option<Field> {
         Self::ALL.into_iter().find(|field| field.as_str() == key)
-    }
-
-    /// Whether a change to this field on a row in a locked period needs an
-    /// unlock first (module docs, "Locks").
-    pub const fn guarded_by_lock(self) -> bool {
-        matches!(self, Field::Exclusion)
     }
 }
 
@@ -399,6 +398,19 @@ impl Value {
         Some(value)
     }
 
+    /// Whether changing the field from `old` to `new` moves the row into or
+    /// out of its account's balance, so a lock refuses it (module docs,
+    /// "Locks"): only an exclusion can ([`exclusion::moves_balance`]).
+    pub fn moves_balance(old: &Value, new: &Value) -> bool {
+        match (old, new) {
+            (Value::Exclusion(old), Value::Exclusion(new)) => exclusion::moves_balance(
+                old.as_ref().map(|value| value.reason),
+                new.as_ref().map(|value| value.reason),
+            ),
+            _ => false,
+        }
+    }
+
     /// Whether the field, now `self`, still holds what a batch set it to
     /// (`recorded`), so undo may restore it. A category or a derived
     /// merchant compares only what the batch decided: the category and its
@@ -433,7 +445,8 @@ pub enum Error {
 
     #[error(
         "transaction {transaction} is dated {date}, on or before {through}, which is locked, \
-         and this changes whether it counts; unlock the account first"
+         and this changes whether it counts in the account's balance there; unlock the account \
+         first"
     )]
     Locked {
         transaction: TransactionId,
@@ -476,8 +489,28 @@ struct Row {
 }
 
 impl Row {
+    /// The lock the row is under: `Some(reconciled_through)` when it is
+    /// dated on or before it.
     fn locked(&self) -> Option<NaiveDate> {
         self.locked_through.filter(|through| self.date <= *through)
+    }
+
+    /// Refuses changing a field of the row from `old` to `new` when the
+    /// change moves the row's balance and the row is under a lock.
+    fn check_lock(
+        &self,
+        transaction: TransactionId,
+        old: &Value,
+        new: &Value,
+    ) -> Result<(), Error> {
+        match self.locked() {
+            Some(through) if Value::moves_balance(old, new) => Err(Error::Locked {
+                transaction,
+                date: self.date,
+                through,
+            }),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -499,16 +532,34 @@ fn load_row(conn: &Connection, transaction: TransactionId) -> Result<Row, Error>
     .ok_or(Error::TransactionNotFound(transaction))
 }
 
-/// The lock date that a change to `field` on `transaction` would meet:
-/// `Some(reconciled_through)` when the field is guarded and the row is
-/// dated on or before it. For previews; [`Recorder::set`] and [`undo`]
-/// refuse such changes.
+/// The lock date that setting `transaction`'s field to `value` would
+/// meet: `Some(reconciled_through)` when the change moves the row into or
+/// out of its account's balance ([`Value::moves_balance`], against what the
+/// field holds now) and the row is dated on or before the lock. For
+/// previews; [`Recorder::set`] refuses such a change by the same rule.
+pub fn locked_for(
+    conn: &Connection,
+    transaction: TransactionId,
+    value: &Value,
+) -> Result<Option<NaiveDate>, Error> {
+    let row = load_row(conn, transaction)?;
+    let Some(through) = row.locked() else {
+        return Ok(None);
+    };
+    let now = read_field(conn, transaction, value.field())?;
+    Ok(Value::moves_balance(&now, value).then_some(through))
+}
+
+/// The lock date a change to `field` on `transaction` could meet, before
+/// the new value is known: `Some(reconciled_through)` when some change to
+/// the field can move the row's balance (only [`Field::Exclusion`]) and the
+/// row is dated on or before the lock. [`locked_for`] answers for a value.
 pub fn locked(
     conn: &Connection,
     transaction: TransactionId,
     field: Field,
 ) -> Result<Option<NaiveDate>, Error> {
-    if !field.guarded_by_lock() {
+    if field != Field::Exclusion {
         return Ok(None);
     }
     Ok(load_row(conn, transaction)?.locked())
@@ -1065,15 +1116,7 @@ fn apply(
     {
         return Ok(None);
     }
-    if field.guarded_by_lock()
-        && let Some(through) = row.locked()
-    {
-        return Err(Error::Locked {
-            transaction,
-            date: row.date,
-            through,
-        });
-    }
+    row.check_lock(transaction, &old, &value)?;
     if let Some(reason) = unwritable(conn, transaction, &row, &value)? {
         return Err(Error::Unwritable {
             transaction,
@@ -1129,8 +1172,9 @@ impl Recorder {
     /// nothing and isn't recorded. Setting the same field twice records one
     /// change, from the first old value to the last new one.
     ///
-    /// Refuses a change to an exclusion in a locked period
-    /// ([`Error::Locked`]) and a value the row can't take now
+    /// Refuses a change that moves a row into or out of its balance in a
+    /// locked period ([`Error::Locked`]; module docs, "Locks") and a value
+    /// the row can't take now
     /// ([`Error::Unwritable`], [`Error::NoteRequired`]). On an error nothing
     /// was written for this call; the caller rolls its transaction back.
     pub fn set(
@@ -1160,9 +1204,11 @@ impl Recorder {
     /// Records what `change` does to `fields` (each a transaction and a
     /// field): reads them, runs `change`, reads them again and records each
     /// that changed. For changes core makes with its own checks (a link, a
-    /// share), so the batch holds exactly what they wrote. Refuses, before
-    /// running anything, a change to a field the lock guards on a locked
-    /// row; links, shares and splits aren't guarded (module docs, "Locks").
+    /// share), so the batch holds exactly what they wrote. Refuses, after
+    /// `change` ran, a change that moves a row into or out of its balance
+    /// in a locked period, as [`Recorder::set`] does; the caller rolls its
+    /// transaction back. Links, shares and splits never do (module docs,
+    /// "Locks").
     pub fn track<T, E>(
         &mut self,
         conn: &Connection,
@@ -1175,24 +1221,15 @@ impl Recorder {
         let mut before = Vec::with_capacity(fields.len());
         for &(transaction, field) in fields {
             let row = load_row(conn, transaction)?;
-            if field.guarded_by_lock()
-                && let Some(through) = row.locked()
-            {
-                return Err(Error::Locked {
-                    transaction,
-                    date: row.date,
-                    through,
-                }
-                .into());
-            }
-            before.push(read_field(conn, transaction, field)?);
+            before.push((row, read_field(conn, transaction, field)?));
         }
         let result = change()?;
-        for (&(transaction, field), old) in fields.iter().zip(before) {
+        for (&(transaction, field), (row, old)) in fields.iter().zip(before) {
             let new = read_field(conn, transaction, field)?;
             if new == old {
                 continue;
             }
+            row.check_lock(transaction, &old, &new)?;
             match self.index.get(&(transaction, field)) {
                 Some(&at) => self.changes[at].new = new,
                 None => {
@@ -1423,8 +1460,9 @@ pub fn undo_preview(db: &Database, batch: ChangeBatchId) -> Result<UndoSummary, 
 
 /// Undoes `batch` in one DB transaction: restores each item whose field
 /// still holds the batch's new value, newest item first, and marks the
-/// batch `undone`. Refuses an exclusion change in a locked period
-/// ([`Error::Locked`]).
+/// batch `undone`. Refuses restoring a change that moves a row into or out
+/// of its balance in a locked period ([`Error::Locked`]; module docs,
+/// "Locks").
 pub fn undo(db: &mut Database, batch: ChangeBatchId) -> Result<UndoSummary, Error> {
     let tx = db
         .conn_mut()
@@ -1460,15 +1498,7 @@ pub fn undo_in(conn: &Connection, batch: ChangeBatchId) -> Result<UndoSummary, E
         if current == item.old {
             continue;
         }
-        if item.field().guarded_by_lock()
-            && let Some(through) = row.locked()
-        {
-            return Err(Error::Locked {
-                transaction: item.transaction,
-                date: row.date,
-                through,
-            });
-        }
+        row.check_lock(item.transaction, &current, &item.old)?;
         if unwritable(conn, item.transaction, &row, &item.old)?.is_some() {
             changed_since += 1;
             continue;

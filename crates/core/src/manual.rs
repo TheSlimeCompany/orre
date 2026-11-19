@@ -15,13 +15,14 @@
 //!   credit card, pot, cash). `asset` and `liability` accounts hold
 //!   valuations only ([`Error::HoldsValuations`]). The amount is in the
 //!   account's currency.
-//! - **Locked periods**: the row's account, date, time, amount, merchant and
-//!   description are what a bank row's source fields are, so creating,
-//!   deleting, or changing any of those on a row dated on or before its
-//!   account's `reconciled_through` is refused ([`Error::Locked`]); for an
-//!   edit both the old and the new date (on the old and the new account)
-//!   count. The category is a user-facing field, editable on a locked row
-//!   like on an imported one.
+//! - **Locked periods**: a lock guards balances only
+//!   ([`crate::reconciliation`]; decided by the user, 2026-11-19). Creating
+//!   or deleting a row dated on or before its account's
+//!   `reconciled_through`, or changing such a row's account, date, amount or
+//!   currency, is refused ([`Error::Locked`]); for an edit both the old and
+//!   the new date (on the old and the new account) count. The time within
+//!   the day, the merchant, the description and the category move no
+//!   balance, so they can be edited on a locked row.
 //! - **Closed accounts**: a row can't be dated after its account's
 //!   `closed_on` ([`Error::AfterClosing`]); one on or before the closing
 //!   date (the last cash spend before closing a wallet) is fine. Deleting is
@@ -322,12 +323,9 @@ pub fn update(
     let moves_money = entry.account != stored.account
         || entry.amount.minor() != stored.amount_minor
         || entry.amount.currency() != stored.currency;
-    let changes_source = moves_money
-        || entry.date != stored.date
-        || entry.time.map(time_key) != stored.time.map(time_key)
-        || entry.merchant != stored.merchant
-        || entry.description != stored.description;
-    if changes_source {
+    // What a lock guards (module docs): the account's balance on each day.
+    let moves_balance = moves_money || entry.date != stored.date;
+    if moves_balance {
         let old_account = if stored.account == account.id {
             account.clone()
         } else {

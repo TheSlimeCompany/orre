@@ -18,7 +18,13 @@
 //! - **Closed accounts** are left out of every month that ends after their
 //!   `closed_on` date; the month they close on its last day still has them.
 //! - **Unanchored** accounts (no stated balance at all) are summed from
-//!   zero and marked: the sum is right only if the account started empty.
+//!   zero and marked [`AccountWorth::unanchored`]. One rule decides whether
+//!   they count, here and in the accounts panel ([`counts`]): an account
+//!   other than a pot is listed but left out of the totals until a balance
+//!   is entered ([`AccountWorth::is_counted`]), because its sum from zero
+//!   is right only if it started empty; a pot is counted from its
+//!   transfers. See [`super::account_tree`], which applies the same rule to
+//!   the latest balance.
 
 use chrono::NaiveDate;
 
@@ -39,7 +45,9 @@ pub struct NetWorthMonth {
     /// Every account open on that day with a balance, in the order they
     /// were created.
     pub accounts: Vec<AccountWorth>,
-    /// The sum of [`AccountWorth::counted`] per currency.
+    /// The sum of [`AccountWorth::counted`] per currency, over the accounts
+    /// that are [counted](AccountWorth::is_counted): a currency held only by
+    /// accounts left out has no total.
     pub total: Totals,
 }
 
@@ -53,10 +61,19 @@ pub struct AccountWorth {
     /// The balance as stored and computed, gross.
     pub balance: Money,
     /// What it adds to net worth: the balance, except a liability, which
-    /// is minus the size of its balance (module docs).
+    /// is minus the size of its balance; zero when it is not
+    /// [counted](AccountWorth::is_counted) (module docs).
     pub counted: Money,
     /// Summed from zero: the account has no stated balance.
     pub unanchored: bool,
+}
+
+impl AccountWorth {
+    /// Whether it counts toward net worth: not an unanchored account other
+    /// than a pot ([`counts`]).
+    pub fn is_counted(&self) -> bool {
+        counts(self.kind, !self.unanchored)
+    }
 }
 
 /// Net worth at the end of every month from `first` through `last` (module
@@ -88,15 +105,23 @@ pub fn net_worth_history(
             if account.closed_on.is_some_and(|closed| closed < month.date) {
                 continue;
             }
-            let counted = counted(&account, balance.balance)?;
-            month.total.add(counted)?;
+            let unanchored = balance.anchor == Anchor::Unanchored;
+            let counted = if counts(account.kind, !unanchored) {
+                let counted = counted(&account, balance.balance)?;
+                month.total.add(counted)?;
+                counted
+            } else {
+                // Not added at all, so a currency held only by accounts
+                // left out has no total, as in the accounts panel.
+                Money::zero(balance.balance.currency())
+            };
             month.accounts.push(AccountWorth {
                 account: account.id,
                 name: account.name.clone(),
                 kind: account.kind,
                 balance: balance.balance,
                 counted,
-                unanchored: balance.anchor == Anchor::Unanchored,
+                unanchored,
             });
         }
     }
@@ -104,6 +129,14 @@ pub fn net_worth_history(
         items: months,
         truncated: periods.truncated,
     })
+}
+
+/// Whether a balance of an account of this kind counts toward net worth:
+/// one that is stated does, and so does a pot's, counted from its
+/// transfers; an unanchored account other than a pot does not, until a
+/// balance is entered (module docs). Shared by `account_tree`.
+pub fn counts(kind: AccountKind, stated: bool) -> bool {
+    stated || kind == AccountKind::Pot
 }
 
 /// What `balance` adds to net worth: a liability always subtracts.

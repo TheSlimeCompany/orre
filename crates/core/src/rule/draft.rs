@@ -115,6 +115,9 @@ fn renamed(preview: &ApplyPreview, rule: RuleId) -> ApplyPreview {
     for skipped in &mut renamed.skipped_splits {
         skipped.rule = swap(skipped.rule);
     }
+    for skipped in &mut renamed.skipped_categories {
+        skipped.rule = swap(skipped.rule);
+    }
     renamed
 }
 

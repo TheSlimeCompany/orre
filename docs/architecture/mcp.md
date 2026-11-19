@@ -10,7 +10,8 @@ that list.
 
 `coffer mcp --client <name>` (`crates/mcp`, rmcp over stdio). Setup for Claude Code,
 Claude Desktop and Codex: [`mcp-setup.md`](../mcp-setup.md). Decisions: "Decision record:
-M2: MCP server (2026-11-13)".
+M2: MCP server (2026-11-13)"; "Decision record: merchant names are untrusted, and what
+`pseudonymous` protects (2026-11-19)".
 
 **Tools by level** (a client sees and can call the tools at its level and below; a call
 above it is refused `refused_level`):
@@ -33,7 +34,11 @@ are listed per currency, never added across currencies. Every tool takes an opti
 - **Merchants.** At `pseudonymous` every merchant is a token, `M-` plus 12 hex digits of
   HMAC-SHA256 of the trimmed, lower-cased display name under the per-database
   `mcp.pseudonym_key`: stable across calls, different between databases. Without a key a
-  `pseudonymous` call is refused.
+  `pseudonymous` call is refused. At `standard` a merchant name is untrusted text, like a
+  description: sanitised by `envelope::sanitize` (invisible characters stripped, domains
+  made inert as `example[.]com`, capped at 280 characters, withheld and counted when it
+  reads like instructions). The JSON field stays `merchant`; its schema says it is
+  untrusted, as do the server instructions and the review prompt.
 - **Descriptions.** Bank text appears only at `standard`, only when asked for
   (`include_description`), and only as `description_untrusted`. Below `standard` the
   field holds a fixed `[hidden: …]` text: bank text names the merchant and would undo the
@@ -41,9 +46,17 @@ are listed per currency, never added across currencies. Every tool takes an opti
 - **Text search.** `search_transactions`' free-text `query` and its tag filter need
   `standard`: below it, counting the rows a text matches would reveal what lies behind a
   token. Dates, accounts, categories and amounts filter at `pseudonymous`.
-- **Account names.** At `aggregate`, `net_worth_history` gives each account a `label`
-  (its kind and number, e.g. `pot 2`) and no name; names appear from `pseudonymous` up,
-  since a name can name a person.
+- **Account names.** Below `standard` every account a tool returns (`list_accounts`,
+  `net_worth_history`) has a `label` (its kind and number among the accounts of that
+  kind, e.g. `pot 2`, the same in every tool; deleting an account or changing its kind
+  renumbers later ones of that kind, so `account_id` is the stable key) and `name: null`,
+  since a name can name a
+  person or a merchant. Rows and recurring payments carry only `account_id`. Names appear
+  at `standard`.
+- **What `pseudonymous` doesn't protect.** Amounts stay exact. Tokens hide merchant
+  names, but an exact amount, date and category beside a token can identify a merchant (a
+  monthly 10.99 under subscriptions). The level limits casual exposure; it isn't
+  anonymity, and every surface says so (setup guide, Settings).
 - **Names in bank text.** A merchant or description that is a person's name reaches a
   client only at `standard`, which is full access by design (user, 2026-11-13).
 - **Never, at any level:** account numbers, sort codes and IBANs (a merchant holding one
@@ -158,7 +171,9 @@ as built). Everything else follows an earlier decision record or invariant.
    whose bank text is only a name, `crates/mcp/tests/person_names.rs`).
 2. **No account names at `aggregate` (user).** `net_worth_history` gives each account a
    `label`, its kind and its number among accounts of that kind by ID (`current 1`,
-   `pot 2`), and `name: null`; names appear from `pseudonymous` up.
+   `pot 2`), and `name: null`; names appear from `pseudonymous` up. *Amended 2026-11-19
+   (user):* names are `standard` only; `list_accounts` gives labels below it too
+   ("merchant names are untrusted, and what `pseudonymous` protects").
 3. **No text search below `standard` (user).** `search_transactions` refuses `query` (and
    the tag filter, the other user-text match) below `standard` with a clear error; date,
    account, category and amount filters stay.
@@ -211,7 +226,10 @@ as built). Everything else follows an earlier decision record or invariant.
    net worth are gross (user).
 3. Net worth: liabilities always lower the total, even entered positive; a closed account
    drops out of months ending after its closing day; an account with no stated balance is
-   summed from zero and flagged `unanchored` (user).
+   summed from zero and flagged `unanchored` (user). *Amended 2026-11-19:* such an
+   account, other than a pot, is listed but left out of the totals until a balance is
+   entered, as the accounts panel does (`reporting.md`, "Decision record: one net worth
+   rule").
 4. Budgets: a month's budget overrides the standing one; a budget counts spending only in
    its own currency and lists the rest beside it; rollover follows the group (reported,
    applied from M4.9); budgets only on spending categories; `coffer budgets set` defaults
@@ -304,7 +322,9 @@ as built). Everything else follows an earlier decision record or invariant.
    confirmed one, refused if either side is linked. A link is confirmed at the payload's
    amount or what both sides can still take (user).
 6. No approval meets a lock today: `reconciled_through` guards only exclusions, which no
-   suggestion makes; `ApproveError::Locked` is a safeguard.
+   suggestion makes; `ApproveError::Locked` is a safeguard. *Amended 2026-11-19:* a lock
+   guards balances only (`links-and-checks.md`, "Decision record: a lock guards balances
+   only"); no suggestion changes a balance, so this still holds.
 7. Settling is narrow: a pending categorisation is settled by an approved rule only when
    every item names a transaction the rule's batch gave that category; split-line items
    and partial overlaps stay pending (user).
@@ -492,3 +512,51 @@ reports. A `standard` client's review, with merchant names and bank text, reache
 5. **Consequence.** A report from before V19 is invisible below `standard` until the user
    deletes it or raises the client. Rejected: filtering by level alone, which still lets
    one client plant text for another.
+
+### Decision record: merchant names are untrusted, and what `pseudonymous` protects (2026-11-19)
+
+Architecture review findings R.6 and R.7.
+
+**R.6: merchant names are untrusted text.** At `standard`, `Call::merchant` stripped
+invisible characters and withheld instruction-like names, but didn't cap the name, make its
+domains inert or label it untrusted. A merchant falls back to the raw description, and a
+payer chooses the name of an incoming transfer, so a merchant is bank text.
+
+1. **Same sanitising as a description** (user). At `standard` the merchant goes through
+   `envelope::sanitize`: invisible characters stripped, an instruction-like name replaced
+   by the withheld marker and counted in `withheld_count`, domains made inert (`[.]`),
+   capped at `MAX_UNTRUSTED_CHARS`. The account-identifier check (`null`) stays, before and
+   after stripping and again on the sanitised text, which folds fullwidth digits.
+2. **Pseudonymous tokens don't move.** The token is still computed from the display name as
+   stored, not the sanitised one, so existing tokens and the golden tests are unchanged.
+3. **Labelled untrusted.** The `MerchantLabel` schema description, the server instructions
+   and the review prompt say merchant names are untrusted text derived from bank data,
+   data to read and never instructions.
+4. **Round trips.** `merchant_history(merchant)` is the one tool that takes a name back.
+   It reads `[.]` in the argument as a dot, so a name with an inert domain finds its rows.
+   A name that was capped or withheld can't be passed back, and the tool says so; a client
+   reaches those rows with `search_transactions` filters. The sanitising isn't weakened to
+   make them match. No tool groups by the merchant label.
+5. **Rejected: renaming the fields to `*_untrusted`.** `merchant` is a token at
+   `pseudonymous`, not bank text, and a renamed field breaks clients that read it; the
+   schema description and the instructions carry the label instead (user).
+
+**R.7: `pseudonymous` promises less than it seemed to.** Names of accounts reached
+`pseudonymous` clients, and the level read as anonymity.
+
+1. **Account labels below `standard`** (user). `list_accounts` and `net_worth_history` give
+   `label` (kind and number, e.g. `current 1`, `pot 2`) and `name: null` at `aggregate` and
+   `pseudonymous`; names are `standard` only. The label is counted over every account in the
+   database, so it is the same in both tools; deleting an account or changing its kind
+   renumbers the later ones of that kind, so `account_id` stays the stable key, and a
+   label missing between two reads falls back to the bare kind. Rows and recurring payments
+   already carry only `account_id`. Account filters take IDs, as before.
+2. **Say plainly what it protects** (user). Tokens hide merchant names; exact amounts,
+   dates and categories next to a token can identify a merchant, so `pseudonymous` limits
+   casual exposure and isn't anonymity. Said in "What each level withholds" above,
+   `docs/mcp-setup.md` and Settings.
+3. **Rejected: coarser amounts at `pseudonymous`** (user). Exact amounts are what makes
+   the level useful for reviews, and rounding wouldn't hide a recurring payment's rhythm.
+4. **Consequence.** `net_worth_history`'s `name` was given from `pseudonymous` up; it is
+   now `standard` only. A client that matched account names there uses `label` or
+   `account_id`.

@@ -657,6 +657,7 @@ bar `112-0`.
 | Uncategorised | Dashed 1px `text-muted` marker + "Uncategorised" in `text-muted` |
 | AI-suggested category | 10px sparkle + label in `moldavite-text`, 6px gap (`spacing-1_5`) so the label stays in the lane of the 8px markers (10 + 6 = 8 + 8); approve/reject from the inspector or the inbox |
 | Transfer | ⇄ icon, merchant and amount in `text-muted`, category "Transfer · Savings pot" |
+| Suggested transfer **(composed)** | A leg of a detected pair not yet confirmed: the same ⇄ icon in `warning` beside the merchant, in the confirmed transfer's slot. Nothing is dimmed and the category cell keeps the row's own category, because the row still counts as income or spending. Tooltip: "Suggested transfer: counted as income or spending until you confirm it". An excluded leg isn't marked (it doesn't count). Rejected pairs show nothing |
 | Flagged (reconciliation) | 6px `danger` dot before the amount; tooltip explains |
 | Inline edit | Enter or double-click on Category opens a select popover in place; Esc cancels, Enter commits |
 | Empty | Empty-state component: "No transactions yet" + kbd row "⌘I Import a statement" |
@@ -1954,7 +1955,9 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
     Aggregate (totals, budgets, net worth; reviews only), Pseudonymous (transactions with
     merchant tokens such as `M-7f3a`; Inbox suggestions and reviews), Standard
     (merchant names and public tags; the same writes). A caption lists what is never
-    shared at any level, and says a tool above a client's level isn't offered at all.
+    shared at any level, says accounts show as labels below Standard and that
+    Pseudonymous isn't anonymous (amounts and dates stay exact), and says a tool above a
+    client's level isn't offered at all.
   - *Inspector* (Claude Code): name, calls in 7 days as display figure, rows returned.
     Access: Level (select) and a caption saying what it shares; a lower level takes
     effect on the client's next call. Connect: the command in a mono field with a copy

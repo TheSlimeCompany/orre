@@ -90,7 +90,11 @@ Points 2 and 3 were decided by the user on 2026-11-12.
    account's `reconciled_through` is refused, and so is undoing one there: rule applies,
    merges and their undos all need an unlock first. This amends rules decision point 8
    (which flagged only `duplicate`). Single-row exclusions (`exclusion::exclude`) still
-   meet the lock only into or out of `duplicate`.
+   meet the lock only into or out of `duplicate`. *Amended 2026-11-19 by the user:* a
+   lock guards balances only, so in a change batch too only an exclusion into or out of
+   a reason that leaves the balance (`duplicate`, `superseded`) meets it; a rule's
+   `bank_error` or `disputed` exclusion and its undo go through. See "Decision record: a
+   lock guards balances only".
 
 **A — rule actions (M1.24, `coffer_core::rule`)**
 
@@ -371,3 +375,61 @@ Monzo-style exports have none.
 4. **Schema: V20** rebuilds `duplicate_candidate` to widen the reason's CHECK, with its
    rows, IDs, indexes and triggers as they were. No other table references it, so the
    rebuild runs with foreign keys on.
+
+### Decision record: a lock guards balances only (2026-11-19)
+
+Review finding R.8. `account.reconciled_through` was said to guard balances only, but the
+guards disagreed: a change batch refused any exclusion change (the 2026-11-12 amendment,
+"it changes reported totals") while category edits, which change totals too, went
+through; a single-row exclusion was refused only into or out of `duplicate`; and a manual
+row's merchant or description edit was refused though it moves no balance.
+
+**The meaning (user, 2026-11-19).** A lock freezes the account's balance through the lock
+date. On or before `reconciled_through` (the old or the new date), nothing may change
+which rows count in that account's balance, or the amount, date or account of such a
+row. Allowed there: category, merchant name, a manual row's description, its time within
+the day, notes, tags, splits, shares, links, transfer-pair decisions, and exclusions
+between reasons that keep the row in the balance. This reverses the 2026-11-12
+amendment (rules decision point 8; "M1 wave 4", point 3). The statement lives once in
+core, in the `reconciliation` module docs; for exclusions the one predicate is
+`exclusion::moves_balance(old, new)`: one side leaves the balance (`duplicate`,
+`superseded`) and the other doesn't.
+
+Each guard follows from it:
+
+1. **Import** (`import`): a new row on or before the lock is flagged and left out, a file
+   balance there is left out (`FileBalanceStatus::Locked`), a bank's correction of a row
+   on either side of the lock is refused (`CorrectionBlocked::Locked`), and undoing an
+   import with a row, a replaced row or a balance there is refused. Unchanged.
+2. **Manual rows** (`manual`): creating, deleting, or changing the account, date, amount
+   or currency of a row on or before the lock (old or new date, old or new account) is
+   refused. **Changed:** the merchant, the description and the time within the day are
+   now editable there, like the category already was.
+3. **A single-row exclusion** (`exclusion::exclude`, `include_again`): refused only when
+   it moves the row into or out of the balance (`moves_balance`). Unchanged in effect;
+   it now calls the shared predicate.
+4. **Change batches** (`change`: rule applies, duplicate merges, bulk edits, and their
+   undo): `Recorder::set`, `Recorder::track` and `undo` refuse a change only when
+   `Value::moves_balance(old, new)` holds on a locked row, comparing the value the field
+   holds with the one written or restored. **Changed:** a rule's `bank_error`,
+   `disputed` (or `other`) exclusion, a change between those reasons, and the undo of
+   either, now go through inside a lock; into or out of `duplicate` is still refused,
+   and so is undoing a merge there. `Field::guarded_by_lock` (field-wide) is gone.
+   Previews ask the same question: `change::locked_for(conn, transaction, &value)`
+   feeds `PlannedChange::locked` (so `ApplyPreview::locked_rows` and the commit's
+   `ApplyError::Locked` agree with the write) and `MergePreview::locked`.
+   `change::locked(conn, transaction, field)` stays for a caller that doesn't know the
+   value yet (`checks::merge_effect`; a merge always excludes as `duplicate`, so the
+   two agree there).
+5. **Entered balances** (`account::add_balance`, cash counts): none on or before the
+   lock. Unchanged.
+6. **Closing an account** (`account::close`): never before the lock (`CloseLocked`), and
+   a locked account can't be deleted. Unchanged.
+7. **The pot mirror** (`sub_account`): an import that would add a mirrored row on or
+   before a pot's lock fails (`PotLocked`). Unchanged.
+8. **Schedules** (`schedule`) create no rows. Their guard on skipping, matching and
+   their undo on or before the lock is the user's own decision ("Decision record: M2:
+   MCP server", D point 7) and is left as it is; whether it still belongs under this
+   meaning is open.
+9. **Links, transfer-pair decisions, splits, shares, tags, notes and names** were never
+   guarded and still aren't.

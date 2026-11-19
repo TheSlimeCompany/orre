@@ -352,6 +352,9 @@ struct RowText {
     original: Option<String>,
     /// Whether the category can be set in place (Enter, a double-click).
     editable: bool,
+    /// The row is a leg of a suggested pair: it counts by its own category
+    /// until the pair is confirmed, and the table says so.
+    suggested_transfer: bool,
 }
 
 impl RowText {
@@ -374,6 +377,12 @@ impl RowText {
                 format::money(unsigned, Sign::Negative)
             }),
             editable: row.takes_category() && row.excluded.is_none(),
+            // An excluded leg isn't counted, so the marker's "counted until
+            // you confirm it" wouldn't be true of it.
+            suggested_transfer: row.excluded.is_none()
+                && row
+                    .pair
+                    .is_some_and(|pair| pair.status == core_transfer::TransferStatus::Suggested),
         }
     }
 }
@@ -1744,8 +1753,10 @@ impl TransactionsView {
             amount,
             original,
             editable,
+            suggested_transfer,
         } = RowText::of(self, row);
         TransactionRow::new(format!("txn-{id}"), merchant, cell.cell(), amount)
+            .suggested_transfer(suggested_transfer)
             .when_some(account, |this, account| this.account(account))
             .when_some(original, |this, original| this.original_amount(original))
             .selected(self.selection.contains(id))

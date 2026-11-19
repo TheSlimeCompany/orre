@@ -96,6 +96,42 @@ async fn output_has_no_personal_data() {
     client.close().await;
 }
 
+/// Merchant names go out with their domains made inert (`[.]`); passing one
+/// back finds the same rows.
+#[tokio::test]
+async fn a_merchant_with_an_inert_domain_can_be_passed_back() {
+    use chrono::NaiveDate;
+    use coffer_core::manual::{self, ManualTransaction};
+    use coffer_core::money::{Currency, Money};
+
+    let fixture = Fixture::new();
+    manual::create(
+        &mut fixture.open(),
+        &ManualTransaction::new(
+            fixture.seeded.bank,
+            NaiveDate::from_ymd_opt(2026, 11, 21).unwrap(),
+            Money::new(-100, Currency::GBP),
+            "PAYPAL *NETFLIX.COM",
+        ),
+    )
+    .unwrap();
+    let client = fixture.connect("claude-code", AccessLevel::Standard).await;
+    let found = client
+        .call_ok("search_transactions", json!({ "query": "netflix" }))
+        .await;
+    let merchant = rows(&found)
+        .iter()
+        .filter_map(|row| row["merchant"].as_str())
+        .find(|name| name.contains("[.]"))
+        .unwrap_or_else(|| panic!("no inert merchant: {found:#}"))
+        .to_owned();
+
+    let history = client.call_ok(TOOL, json!({ "merchant": merchant })).await;
+    assert_eq!(rows(&history).len(), 1, "{history:#}");
+    assert_eq!(rows(&history)[0]["merchant"], merchant);
+    client.close().await;
+}
+
 #[tokio::test]
 async fn the_summary_covers_every_row_even_when_capped() {
     let fixture = Fixture::new();

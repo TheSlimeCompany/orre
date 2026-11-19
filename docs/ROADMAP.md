@@ -1047,34 +1047,48 @@ that changes a decision needs a new decision record in its topic file.
 
 **Medium**
 
-- ⬜ R.6 Merchant names are untrusted text outside the envelope. At `standard`,
+- ✅ R.6 Merchant names are untrusted text outside the envelope. At `standard`,
   `Call::merchant` (`crates/mcp/src/registry.rs`) strips invisible characters and runs
   the instruction check, but the field is unlabelled, has no length cap and its domains
   aren't made inert; the merchant falls back to the raw description, and a payer chooses
   an incoming transfer's name. Run it through the same sanitising as
   `description_untrusted` and mark it untrusted in the output, or reword the invariant
-  ("raw text only in `description_untrusted`")
-- ⬜ R.7 `pseudonymous` promises more than it gives (docs only). Stable tokens beside exact
+  ("raw text only in `description_untrusted`"). Done: a merchant at `standard` goes
+  through `envelope::sanitize` (capped, domains inert, withheld and counted) and is labelled
+  untrusted in its schema, the server instructions and the review prompt; the invariant is
+  reworded
+- ✅ R.7 `pseudonymous` promises more than it gives (docs only). Stable tokens beside exact
   amounts, dates and categories re-identify most merchants (a monthly £10.99 under
   subscriptions), and account names show at this level although they are hidden at
   `aggregate` because a name can name a person. Either say plainly in `mcp.md`, the
   Settings copy and `mcp-setup.md` what the level does and doesn't protect, or tighten it
-  (account labels instead of names, coarser amounts)
-- ⬜ R.8 The lock has no single definition (docs only). It "guards balances only", yet any
+  (account labels instead of names, coarser amounts). Done (user): say it, and below
+  `standard` accounts are labels (`current 1`, `pot 2`) with `name: null`; `mcp.md`,
+  `mcp-setup.md`, Settings and the CLI help say amounts and dates stay exact, so it isn't
+  anonymous. Amounts stay exact
+- ✅ R.8 The lock has no single definition (docs only). It "guards balances only", yet any
   exclusion in a change batch is refused for changing "reported totals", category edits
   (which change totals too) are allowed, a single-row non-duplicate exclusion is allowed,
   and a manual row's merchant edit is refused though it moves no balance. Choose one
   meaning, derive each guard from it in one decision record in `links-and-checks.md`,
-  and change the guards that don't follow
-- ⬜ R.9 Two net worths. The accounts panel leaves out an account with no stated balance
+  and change the guards that don't follow. Done (user): balances only; one
+  predicate, `exclusion::moves_balance`, for single-row exclusions and change batches
+  (rule applies, merges, undo); a manual row's time, merchant and description are editable
+  in a lock; the 2026-11-12 amendment is reversed. Schedule guards are left as they are
+  (open in the record)
+- ✅ R.9 Two net worths. The accounts panel leaves out an account with no stated balance
   (`reporting::account_tree`); `net_worth_history` sums it from zero and marks it
-  `unanchored` (`reporting::net_worth`). Pick one rule for both before M4.5
-- ⬜ R.10 "Transfer" has two sources of truth (docs only): a category of kind `transfer` and
+  `unanchored` (`reporting::net_worth`). Pick one rule for both before M4.5. Done (user):
+  the panel's; `net_worth::counts` decides for both, and the history lists such an
+  account, flagged, adding zero
+- ✅ R.10 "Transfer" has two sources of truth (docs only): a category of kind `transfer` and
   a confirmed pair. A suggested pair counts as income and as spending until confirmed, and
   the table doesn't mark it ("transfer-pair confirmation (built)", point 10), so reports
   are overstated by default. Mark suggested pairs in the table, decide whether rules skip
   confirmed legs ("what a transaction can take", point 4), and say how the two mechanisms
-  relate
+  relate. Done: the table marks a suggested pair's legs with a `warning` ⇄
+  (composed, user); rules skip the category of rows that take none of their own
+  (`ApplyPreview::skipped_categories`); the record says how the two relate
 - ⬜ R.11 Category keys are "forever" but can be reused (docs only). A deleted category's
   key is free again and user keys share the key space with future defaults, so a preset's
   key or a later default can land on an unrelated user category of another kind. Keep

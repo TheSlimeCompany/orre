@@ -364,12 +364,30 @@ fn m1_exit_criteria_end_to_end() {
     change::undo(&mut scratch.db, applied.batch.unwrap()).unwrap();
     assert_eq!(category_of(&scratch, streaming), None);
 
+    //    A lock guards balances only: an exclusion that keeps the row in the
+    //    balance (`disputed`) goes through inside it, one that takes the
+    //    row out (`duplicate`) doesn't.
     let dispute = rule::create(
         &mut scratch.db,
         &description_rule("ENERGY", vec![RuleAction::Exclude(ExcludeReason::Disputed)]),
     )
     .unwrap();
     let preview = rule::preview_apply(&scratch.db, dispute).unwrap();
+    assert_eq!(preview.locked_rows().count(), 0);
+    let disputed = rule::commit_apply(&mut scratch.db, &preview, &BTreeSet::new()).unwrap();
+    assert_eq!(disputed.transactions, 1);
+    change::undo(&mut scratch.db, disputed.batch.unwrap()).unwrap();
+    rule::delete(&mut scratch.db, dispute).unwrap();
+
+    let duplicate_rule = rule::create(
+        &mut scratch.db,
+        &description_rule(
+            "ENERGY",
+            vec![RuleAction::Exclude(ExcludeReason::Duplicate)],
+        ),
+    )
+    .unwrap();
+    let preview = rule::preview_apply(&scratch.db, duplicate_rule).unwrap();
     assert_eq!(preview.locked_rows().count(), 1);
     assert!(matches!(
         rule::commit_apply(&mut scratch.db, &preview, &BTreeSet::new()),
@@ -396,7 +414,7 @@ fn m1_exit_criteria_end_to_end() {
 
     // With an explicit unlock, the rule's exclusion goes through.
     reconciliation::unlock(&mut scratch.db, current).unwrap();
-    let preview = rule::preview_apply(&scratch.db, dispute).unwrap();
+    let preview = rule::preview_apply(&scratch.db, duplicate_rule).unwrap();
     let excluded = rule::commit_apply(&mut scratch.db, &preview, &BTreeSet::new()).unwrap();
     assert_eq!(excluded.transactions, 1);
     change::undo(&mut scratch.db, excluded.batch.unwrap()).unwrap();

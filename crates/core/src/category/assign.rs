@@ -28,9 +28,12 @@
 //! a batch's rows for the import summary; the register's Uncategorised chip
 //! reads the same rule from its rows (`RegisterRow::is_uncategorised`).
 //!
-//! Other writers of a category (rules at import and applied to history,
-//! duplicate merges, removing a split, undo) don't ask: what they write is
-//! theirs to decide.
+//! Rules ask too, at import and applied to history: a rule's category (or
+//! split) is skipped on a row that takes none of its own, and its other
+//! actions still apply (`rule::SkippedCategory`; `docs/architecture/rules.md`
+//! → "Decision record: rules skip rows that take no category of their
+//! own"). Other writers of a category (duplicate merges, removing a split,
+//! undo) don't ask: what they write is theirs to decide.
 
 use std::fmt;
 

@@ -33,10 +33,21 @@
 //!   locks again. Valuation accounts have no checks, so they can't be
 //!   locked.
 //!
-//! What a lock guards is enforced where history changes: imports and undos
-//! (`import`), manual rows (`manual`), exclusions (`exclusion`), change
-//! batches (`change`), the pot mirror (`sub_account`) and entered balances
-//! ([`crate::account::add_balance`]).
+//! **A lock guards balances only** (`docs/architecture/links-and-checks.md`
+//! → "Decision record: a lock guards balances only"). It freezes the
+//! account's balance through the lock date: on or before it (the old or the
+//! new date), nothing may change which rows count in that balance, or the
+//! amount, date or account of such a row. Creating or deleting a row,
+//! changing its amount, date or account, entering a balance, and an
+//! exclusion change into or out of a reason that leaves the balance
+//! ([`crate::exclusion::moves_balance`]) are refused; categories, names,
+//! notes, tags, splits, shares, links, transfer decisions and exclusions
+//! between reasons that keep the row in the balance aren't. It is enforced
+//! where history changes: imports and undos (`import`), manual rows
+//! (`manual`), exclusions (`exclusion`), change batches and their undo
+//! (`change`, so rule applies and merges), the pot mirror (`sub_account`),
+//! entered balances ([`crate::account::add_balance`]) and closing an
+//! account (`account::close`).
 //!
 //! The pure part ([`check`]) needs no database. Nothing here reads
 //! transaction text, so nothing can log it.

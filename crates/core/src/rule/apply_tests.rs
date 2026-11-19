@@ -10,11 +10,13 @@ use tempfile::TempDir;
 use super::*;
 use crate::account::{self, AccountKind, NewAccount, date_key};
 use crate::category::CategoryKey;
+use crate::category::assign::NoOwnCategory;
 use crate::change::{self, Field, Value};
 use crate::db::Database;
 use crate::exclusion::{self, ExclusionReason};
 use crate::id::{AccountId, BatchId, RuleId, TransactionId};
 use crate::import::{self, Committed};
+use crate::link;
 use crate::manual::{self, ManualTransaction};
 use crate::merchant::{self, DisplayName};
 use crate::money::{Currency, Money};
@@ -855,12 +857,12 @@ fn only_rows_with_user_values_can_be_included() {
 }
 
 #[test]
-fn a_locked_exclusion_is_flagged_and_refused_until_unlocked() {
+fn a_locked_duplicate_exclusion_is_flagged_and_refused_until_unlocked() {
     let mut f = Fixture::new();
     let rows = f.import(&[(3, -1_000, "ACME"), (10, -1_000, "ACME")]);
     let rule = f.rule(
         "acme",
-        vec![exclude(ExcludeReason::Disputed), set_category("shopping")],
+        vec![exclude(ExcludeReason::Duplicate), set_category("shopping")],
     );
     f.lock(5);
     let preview = f.preview(rule);
@@ -870,7 +872,7 @@ fn a_locked_exclusion_is_flagged_and_refused_until_unlocked() {
         .iter()
         .filter_map(|change| change.locked.map(|through| (change.new.field(), through)))
         .collect();
-    // Only the exclusion meets the lock, whatever its reason.
+    // Only the exclusion meets the lock: it takes the row out of the balance.
     assert_eq!(locked, [(Field::Exclusion, day(5))]);
     let err = commit_apply(&mut f.db, &preview, &BTreeSet::new()).unwrap_err();
     assert!(
@@ -883,10 +885,11 @@ fn a_locked_exclusion_is_flagged_and_refused_until_unlocked() {
     let preview = f.preview(rule);
     assert_eq!(ids(preview.locked_rows()), []);
     let batch = f.commit(&preview, &[]).batch.unwrap();
-    assert_eq!(f.excluded(rows[0]), Some(ExclusionReason::Disputed));
-    assert_eq!(f.excluded(rows[1]), Some(ExclusionReason::Disputed));
+    assert_eq!(f.excluded(rows[0]), Some(ExclusionReason::Duplicate));
+    assert_eq!(f.excluded(rows[1]), Some(ExclusionReason::Duplicate));
 
-    // Undoing it under a lock is refused too.
+    // Undoing it under a lock would put the row back in the balance:
+    // refused too.
     f.lock(5);
     assert!(matches!(
         change::undo(&mut f.db, batch),
@@ -895,27 +898,56 @@ fn a_locked_exclusion_is_flagged_and_refused_until_unlocked() {
 }
 
 #[test]
-fn a_locked_user_exclusion_left_out_doesnt_block_the_apply() {
+fn an_exclusion_that_keeps_the_balance_is_applied_and_undone_inside_a_lock() {
     let mut f = Fixture::new();
-    let rows = f.import(&[(3, -1_000, "ACME")]);
-    exclusion::exclude(&mut f.db, rows[0], ExclusionReason::BankError, None).unwrap();
+    let rows = f.import(&[(3, -1_000, "ACME"), (10, -1_000, "ACME")]);
     let rule = f.rule(
         "acme",
         vec![exclude(ExcludeReason::Disputed), set_category("shopping")],
     );
     f.lock(5);
     let preview = f.preview(rule);
+    // Disputed money really moved: the row stays in the balance, so the
+    // lock isn't met.
+    assert_eq!(ids(preview.locked_rows()), []);
+    let batch = f.commit(&preview, &[]).batch.unwrap();
+    assert_eq!(f.excluded(rows[0]), Some(ExclusionReason::Disputed));
+    assert_eq!(f.excluded(rows[1]), Some(ExclusionReason::Disputed));
+    assert_eq!(f.category(rows[0]).0, s("shopping"));
+
+    let undone = change::undo(&mut f.db, batch).unwrap();
+    assert_eq!(undone.changed_since, 0);
+    assert_eq!(f.excluded(rows[0]), None);
+    assert_eq!(f.category(rows[0]).0, None);
+}
+
+#[test]
+fn a_locked_user_exclusion_left_out_doesnt_block_the_apply() {
+    let mut f = Fixture::new();
+    let rows = f.import(&[(3, -1_000, "ACME"), (4, -1_000, "ACME")]);
+    exclusion::exclude(&mut f.db, rows[0], ExclusionReason::Duplicate, None).unwrap();
+    exclusion::exclude(&mut f.db, rows[1], ExclusionReason::BankError, None).unwrap();
+    let rule = f.rule(
+        "acme",
+        vec![exclude(ExcludeReason::Disputed), set_category("shopping")],
+    );
+    f.lock(5);
+    let preview = f.preview(rule);
+    // Out of `duplicate` puts the row back in the balance; `bank_error` to
+    // `disputed` keeps it there.
     assert_eq!(ids(preview.locked_rows()), [rows[0]]);
-    assert_eq!(ids(preview.user_set_rows()), [rows[0]]);
+    assert_eq!(ids(preview.user_set_rows()), [rows[0], rows[1]]);
     // Not included: the locked change isn't made, so the apply goes ahead.
     f.commit(&preview, &[]);
     assert_eq!(f.category(rows[0]).0, s("shopping"));
-    assert_eq!(f.excluded(rows[0]), Some(ExclusionReason::BankError));
-    // Included: refused.
+    assert_eq!(f.excluded(rows[0]), Some(ExclusionReason::Duplicate));
+    // Included: refused for the duplicate, allowed for the other.
     let preview = f.preview(rule);
     assert_eq!(ids(preview.locked_rows()), [rows[0]]);
     let err = commit_apply(&mut f.db, &preview, &BTreeSet::from([rows[0]])).unwrap_err();
     assert!(matches!(err, ApplyError::Locked(_)), "{err:?}");
+    f.commit(&preview, &[rows[1]]);
+    assert_eq!(f.excluded(rows[1]), Some(ExclusionReason::Disputed));
 }
 
 #[test]
@@ -1105,4 +1137,170 @@ fn a_split_over_a_user_value_needs_inclusion_and_transfers_arent_split() {
     assert_eq!(f.category(rows[0]).1, s("user"));
     assert_eq!(f.lines(rows[1]).len(), 2);
     assert_eq!(f.share(rows[1]), (None, None));
+}
+
+// Rows that take no category of their own ----------------------------------------
+
+impl Fixture {
+    /// Imports `+minor` on day `d` into a new savings account: transfer
+    /// detection pairs it with a row of the current account (suggested).
+    /// Returns the savings row.
+    fn import_into_savings(&mut self, d: u32, minor: i64) -> TransactionId {
+        let savings = account::create(
+            &mut self.db,
+            &NewAccount::new("Savings", AccountKind::Savings, Currency::GBP),
+        )
+        .unwrap();
+        let mut statement = Statement::new(SourceFormat::Csv, Currency::GBP);
+        statement.push(
+            SourceLocation::Line(2),
+            Ok(StatementLine::new(day(d), gbp(minor), "FROM CURRENT")),
+        );
+        let preview = import::preview(&self.db, savings, "t.csv", statement).unwrap();
+        let Committed::Batch(summary) =
+            import::commit(&mut self.db, &preview, preview.needs_confirmation()).unwrap()
+        else {
+            panic!("expected a batch");
+        };
+        self.batch_rows(summary.batch)[0]
+    }
+
+    /// The status of `id`'s transfer group, if it is in one.
+    fn transfer_status(&self, id: TransactionId) -> Option<String> {
+        self.db
+            .conn()
+            .query_row(
+                "SELECT g.status FROM \"transaction\" t \
+                 LEFT JOIN transfer_group g ON g.id = t.transfer_group_id WHERE t.id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+}
+
+#[test]
+fn apply_skips_a_confirmed_transfer_legs_category_but_sets_its_tag() {
+    let mut f = Fixture::new();
+    let rows = f.import(&[(3, -1_000, "ACME"), (5, -1_000, "ACME")]);
+    let savings_row = f.import_into_savings(5, 1_000);
+    assert_eq!(f.transfer_status(rows[1]).as_deref(), Some("suggested"));
+    f.sql(
+        "UPDATE transfer_group SET status = 'confirmed' \
+         WHERE id = (SELECT transfer_group_id FROM \"transaction\" WHERE id = ?1)",
+        rows[1],
+    );
+    assert_eq!(f.transfer_status(savings_row).as_deref(), Some("confirmed"));
+    let rule = f.rule("acme", vec![set_category("shopping"), add_tags(&["Work"])]);
+
+    let preview = f.preview(rule);
+    assert_eq!(
+        preview.skipped_categories,
+        [SkippedCategory {
+            transaction: rows[1],
+            rule,
+            reason: NoOwnCategory::Transfer,
+        }]
+    );
+    // The leg's plan has the tag and nothing else.
+    let leg = preview
+        .rows
+        .iter()
+        .find(|row| row.transaction == rows[1])
+        .unwrap();
+    assert_eq!(
+        leg.changes
+            .iter()
+            .map(|change| change.new.field())
+            .collect::<Vec<_>>(),
+        [Field::Tags]
+    );
+
+    let batch = f.commit(&preview, &[]).batch.unwrap();
+    assert_eq!(f.category(rows[0]).0, s("shopping"));
+    assert_eq!(f.category(rows[1]), (None, None, None));
+    assert_eq!(f.tags(rows[1]), ["Work"]);
+    change::undo(&mut f.db, batch).unwrap();
+    assert!(f.tags(rows[1]).is_empty());
+    assert_eq!(f.category(rows[0]).0, None);
+}
+
+#[test]
+fn apply_still_categorises_a_suggested_transfers_legs() {
+    let mut f = Fixture::new();
+    let rows = f.import(&[(5, -1_000, "ACME")]);
+    f.import_into_savings(5, 1_000);
+    assert_eq!(f.transfer_status(rows[0]).as_deref(), Some("suggested"));
+    let rule = f.rule("acme", vec![set_category("shopping")]);
+
+    let preview = f.preview(rule);
+    assert_eq!(preview.skipped_categories, []);
+    f.commit(&preview, &[]);
+    assert_eq!(f.category(rows[0]).0, s("shopping"));
+}
+
+#[test]
+fn apply_skips_a_confirmed_refunds_money_in() {
+    let mut f = Fixture::new();
+    let rows = f.import(&[(3, -1_000, "ACME"), (6, 1_000, "ACME")]);
+    link::create(
+        &mut f.db,
+        &link::NewLink {
+            kind: link::LinkKind::Refund,
+            inflow: rows[1],
+            target: link::LinkTarget::Purchase(rows[0]),
+            amount: gbp(1_000),
+        },
+    )
+    .unwrap();
+    let rule = f.rule("acme", vec![set_category("shopping"), add_tags(&["Work"])]);
+
+    let preview = f.preview(rule);
+    assert_eq!(
+        preview.skipped_categories,
+        [SkippedCategory {
+            transaction: rows[1],
+            rule,
+            reason: NoOwnCategory::Refund,
+        }]
+    );
+    f.commit(&preview, &[]);
+    assert_eq!(f.category(rows[0]).0, s("shopping"));
+    assert_eq!(f.category(rows[1]), (None, None, None));
+    assert_eq!(f.tags(rows[1]), ["Work"]);
+}
+
+#[test]
+fn rules_at_import_give_a_pots_mirrored_pair_no_category() {
+    let mut f = Fixture::new();
+    let rule = f.rule("rainy", vec![set_category("shopping"), add_tags(&["Pots"])]);
+    let mut statement = Statement::new(SourceFormat::Csv, Currency::GBP).with_preset("uk-monzo");
+    let mut line = StatementLine::new(day(4), gbp(-2_500), "pot_0000FAKEPOT00000000001");
+    line.external_id = Some("tx_0001".into());
+    line.merchant = Some("Rainy day".into());
+    line.sub_account = Some(crate::statement::SubAccountRef {
+        kind: crate::statement::SubAccountKind::Pot,
+        key: "pot_0000FAKEPOT00000000001".into(),
+        name: Some("Rainy day".into()),
+    });
+    statement.push(SourceLocation::Line(2), Ok(line));
+    let preview = import::preview(&f.db, f.account, "monzo.csv", statement).unwrap();
+    let Committed::Batch(summary) =
+        import::commit(&mut f.db, &preview, preview.needs_confirmation()).unwrap()
+    else {
+        panic!("expected a batch");
+    };
+    assert_eq!(summary.mirrored, 1);
+    let rows = f.batch_rows(summary.batch);
+    assert_eq!(rows.len(), 2, "the row and its pot's mirror");
+    for row in rows {
+        assert_eq!(f.transfer_status(row).as_deref(), Some("confirmed"));
+        assert_eq!(f.category(row), (None, None, None), "{row}");
+    }
+    assert_eq!(summary.categorized_by_rules, 0);
+    // The rule's other actions still apply.
+    let parent = f.batch_rows(summary.batch)[0];
+    assert_eq!(f.tags(parent), ["Pots"]);
+    // And a later Apply skips them too.
+    assert_eq!(f.preview(rule).skipped_categories.len(), 2);
 }

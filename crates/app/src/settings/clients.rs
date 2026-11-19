@@ -59,7 +59,7 @@ pub fn level_label(level: AccessLevel) -> &'static str {
 pub fn level_hint(level: AccessLevel) -> &'static str {
     match level {
         AccessLevel::Aggregate => "totals only",
-        AccessLevel::Pseudonymous => "merchant tokens",
+        AccessLevel::Pseudonymous => "merchant tokens, not anonymous",
         AccessLevel::Standard => "merchant names",
     }
 }
@@ -71,7 +71,7 @@ pub fn level_reads(level: AccessLevel) -> &'static str {
             "Totals by month and category, budgets and net worth. No transactions, so no merchants."
         }
         AccessLevel::Pseudonymous => {
-            "Transactions, with each merchant replaced by a token such as M-7f3a."
+            "Transactions, with each merchant a token such as M-7f3a and each account a label. Amounts, dates and categories stay exact, so a merchant can still be guessed."
         }
         AccessLevel::Standard => "Transactions with merchant names and public tags.",
     }
@@ -571,8 +571,10 @@ impl SettingsView {
                             plain(
                                 " account numbers, sort codes, names and addresses, your notes, \
                                  share labels and private tags. Bank text reaches a standard \
-                                 client only filtered and labelled as untrusted. A tool above a \
-                                 client's level isn't offered to it at all.",
+                                 client only filtered and labelled as untrusted. Below standard, \
+                                 accounts show as labels, not names. Pseudonymous isn't anonymous: \
+                                 amounts and dates stay exact, so a merchant can still be guessed. \
+                                 A tool above a client's level isn't offered to it at all.",
                             ),
                         ],
                     )),

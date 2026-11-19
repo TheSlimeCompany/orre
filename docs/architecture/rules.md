@@ -43,6 +43,10 @@ the designer's recommendation:
    reason (it changes the locked window's reported totals), so an Apply or its Undo that
    would change an exclusion there needs an unlock; so does any exclusion change in a
    change batch (merges included). See "Decision record: M1 wave 4", point 3.
+   *Amended 2026-11-19 by the user:* back to balances only, which reverses the
+   2026-11-12 amendment. An Apply or Undo meets a lock only with an exclusion into or out
+   of a reason that leaves the balance (`duplicate`); `bank_error` and `disputed` go
+   through. See "Decision record: a lock guards balances only".
 9. **Rule definitions are validated in core before they're stored** (`coffer_core::rule`).
    A `regex` pattern must compile case-insensitively within a 1 MiB compiled-size limit
    and a nesting depth of 32. Every pattern is at most 1,000 bytes. Errors never repeat
@@ -236,3 +240,29 @@ points 3, 4, 7 and 8.
    name used to select the first name, and deleting a category the filter hides used
    to select the first listed category; both now follow the rule. The panel counts names and history with the same
    predicates the tables filter with.
+
+### Decision record: rules skip rows that take no category of their own (2026-11-19)
+
+Review finding R.10, in part. "What a transaction can take, decided in core", point 4, left
+open whether rules should skip a confirmed transfer leg and a confirmed refund's money in,
+as they skip split rows. Decided by the lead, following the user's 2026-11-16 choice that
+core refuses categorising those rows (same record, point 2).
+
+1. **A rule's category is skipped where `category::assign` says the row takes none of its
+   own**: split, a leg of a confirmed transfer pair, the money in of a confirmed refund.
+   This is the category-and-split field (decision record "M1 wave 4", point 4): a
+   `set_category` isn't written, and a `split_template` there was already skipped as a
+   row in a transfer or linked money in (`SplitSkip`). The rule's other actions
+   (merchant, tags, note, exclusion, share) still apply. A suggested pair or a suggested
+   refund doesn't count, so its rows are still categorised.
+2. **At import and on Apply alike.** Both plan through the same code. Apply lists each such
+   row in `ApplyPreview::skipped_categories` (`SkippedCategory`: the row, the rule and
+   `NoOwnCategory`); the row's other changes stay in `rows`, and a row with none isn't
+   listed there, so it reads as no change (the Inbox preview's "Unchanged" or "Other").
+   Split rows are still skipped whole and listed in `split_rows`.
+3. **A pot's mirrored pair gets no rule category.** The import mirrors a pot transfer into
+   a confirmed pair before the rules run ("rules engine, transfer detection and the
+   CLI", point 4, and "sub-accounts"), so the existing order already skips both legs. A
+   preset map's category on the imported leg is not a rule's and stays.
+4. **Other writers still don't ask** (duplicate merges, removing a split, undo):
+   `change::unwritable` still refuses only split rows.

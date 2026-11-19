@@ -90,8 +90,10 @@ async fn sums_month_end_balances() {
     );
 
     // September: the Monzo export has no balances, so Everyday and its
-    // pots are summed from zero; Bills is counted back from the OFX
-    // statement's closing balance; the mortgage has no valuation yet.
+    // pots are summed from zero and flagged; Everyday is left out of the
+    // totals until a balance is entered, as the accounts panel does, while
+    // the pots count from their transfers. Bills is counted back from the
+    // OFX statement's closing balance; the mortgage has no valuation yet.
     assert_eq!(
         accounts(&months[0]),
         [
@@ -104,11 +106,11 @@ async fn sums_month_end_balances() {
     assert_eq!(amounts(&months[0]["total"]), gbp(118_010));
 
     // October: money moved into pots stays in net worth; the mortgage
-    // subtracts.
+    // subtracts. Everyday is listed with its sum from zero but adds nothing.
     assert_eq!(
         accounts(&months[1]),
         [
-            row("current 1", "current", 181_058, 181_058, true),
+            row("current 1", "current", 181_058, 0, true),
             row("pot 1", "pot", 17_500, 17_500, true),
             row("pot 2", "pot", 7_500, 7_500, true),
             row("current 2", "current", 118_010, 118_010, false),
@@ -117,7 +119,7 @@ async fn sums_month_end_balances() {
     );
     assert_eq!(
         amounts(&months[1]["total"]),
-        gbp(181_058 + 17_500 + 7_500 + 118_010 - 200_000)
+        gbp(17_500 + 7_500 + 118_010 - 200_000)
     );
 
     // November: Bills ends on the statement's 2,381.47, gross: the shared
@@ -134,7 +136,7 @@ async fn sums_month_end_balances() {
 const ACCOUNT_NAMES: &[&str] = &["Everyday", "Rainy Day", "Holiday Fund", "Bills", "Mortgage"];
 
 #[tokio::test]
-async fn account_names_only_from_pseudonymous_up() {
+async fn account_names_only_at_standard() {
     let fixture = Fixture::new();
     let mortgage =
         add_valuation_account(&fixture, "Mortgage", AccountKind::Liability, Currency::GBP);
@@ -151,7 +153,7 @@ async fn account_names_only_from_pseudonymous_up() {
             .iter()
             .map(|account| account["name"].clone())
             .collect();
-        if level == AccessLevel::Aggregate {
+        if level < AccessLevel::Standard {
             assert!(names.iter().all(Value::is_null), "{names:?}");
             for name in ACCOUNT_NAMES {
                 assert!(!text.contains(name), "{name} at {level}: {text}");
@@ -162,6 +164,39 @@ async fn account_names_only_from_pseudonymous_up() {
         }
         client.close().await;
     }
+}
+
+/// A label means the same account in every tool, so a client can follow an
+/// account from `list_accounts` into `net_worth_history` without its name.
+#[tokio::test]
+async fn labels_match_list_accounts() {
+    let fixture = Fixture::new();
+    let client = fixture
+        .connect("claude-code", AccessLevel::Pseudonymous)
+        .await;
+    let listed = client.call_ok("list_accounts", json!({})).await;
+    let history = client
+        .call_ok(TOOL, json!({ "from": "2026-11", "to": "2026-11" }))
+        .await;
+    let listed: Vec<(i64, String)> = listed["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            (
+                a["id"].as_i64().unwrap(),
+                a["label"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let in_history = history["months"][0]["accounts"].as_array().unwrap();
+    assert!(!in_history.is_empty());
+    for account in in_history {
+        let id = account["account_id"].as_i64().unwrap();
+        let label = account["label"].as_str().unwrap();
+        assert!(listed.contains(&(id, label.to_owned())), "{id} {label}");
+    }
+    client.close().await;
 }
 
 #[tokio::test]

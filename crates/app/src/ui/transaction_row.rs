@@ -28,15 +28,16 @@ use gpui_kit::base::actions::Confirm;
 use gpui_kit::component::list::ListItem;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Div, ElementId, FocusHandle, InteractiveElement as _, IntoElement,
-    ParentElement as _, RenderOnce, Rgba, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Transformation, Window, div, radians,
+    AnyElement, App, AppContext as _, ClickEvent, Context, Div, ElementId, FocusHandle,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, RenderOnce, Rgba,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Transformation, Window, div,
+    radians,
 };
 
 use gpui_kit::base::TestSupportExt as _;
 
 use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
-use crate::theme::tokens::{color, radius, size, spacing, typography};
+use crate::theme::tokens::{color, radius, shadow, size, spacing, typography};
 use crate::ui::PreviewState;
 use crate::ui::icon::Glyph;
 use crate::ui::marker::Marker;
@@ -643,6 +644,7 @@ pub struct TransactionRow {
     amount: SharedString,
     original_amount: Option<SharedString>,
     flagged: bool,
+    suggested_transfer: bool,
     selected: bool,
     focus_visible: bool,
     preview: Option<PreviewState>,
@@ -668,6 +670,7 @@ impl TransactionRow {
             amount: amount.into(),
             original_amount: None,
             flagged: false,
+            suggested_transfer: false,
             selected: false,
             focus_visible: false,
             preview: None,
@@ -688,6 +691,14 @@ impl TransactionRow {
     /// mono 10/12 `text-muted` ("€14.50").
     pub fn original_amount(mut self, amount: impl Into<SharedString>) -> Self {
         self.original_amount = Some(amount.into());
+        self
+    }
+
+    /// Marks a leg of a suggested transfer pair: the ⇄ glyph in `warning`
+    /// beside the merchant, with a tooltip. The row isn't dimmed, because it
+    /// counts as income or spending until the pair is confirmed.
+    pub fn suggested_transfer(mut self, suggested: bool) -> Self {
+        self.suggested_transfer = suggested;
         self
     }
 
@@ -754,8 +765,13 @@ impl TransactionRow {
     }
 
     fn spoken(&self) -> SharedString {
+        let suggested = if self.suggested_transfer {
+            ", suggested transfer"
+        } else {
+            ""
+        };
         format!(
-            "{}, {}, {}",
+            "{}{suggested}, {}, {}",
             self.merchant,
             self.category.spoken(),
             self.amount
@@ -833,6 +849,34 @@ impl TransactionRow {
     }
 }
 
+/// The words under the ⇄ of a suggested pair's leg, drawn as the tooltip
+/// component (`docs/DESIGN.md` → "Tooltip"): `hover` fill, 1px
+/// `tooltip-border`, radius `surface`, 8×10 padding, the tooltip shadow,
+/// body 11/14 `text-secondary`.
+struct SuggestedTransferTip;
+
+impl SuggestedTransferTip {
+    const WORDS: &'static str =
+        "Suggested transfer: counted as income or spending until you confirm it";
+}
+
+impl Render for SuggestedTransferTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .m(spacing::S2)
+            .px(spacing::S2_5)
+            .py(spacing::S2)
+            .bg(color::HOVER)
+            .border_1()
+            .border_color(color::TOOLTIP_BORDER)
+            .rounded(radius::SURFACE)
+            .shadow(vec![shadow::TOOLTIP.box_shadow()])
+            .text_role(typography::CAPTION)
+            .text_color(color::TEXT_SECONDARY)
+            .child(Self::WORDS)
+    }
+}
+
 impl RenderOnce for TransactionRow {
     fn render(mut self, window: &mut Window, _: &mut App) -> impl IntoElement {
         let colors = RowColors::new(&self.category, self.selected);
@@ -847,6 +891,16 @@ impl RenderOnce for TransactionRow {
             .min_w_0()
             .when(self.category.is_transfer(), |this| {
                 this.child(Glyph::Transfer.render().text_color(colors.merchant))
+            })
+            .when(self.suggested_transfer, |this| {
+                this.child(
+                    div()
+                        .id("suggested-transfer")
+                        .flex_none()
+                        .child(Glyph::Transfer.render().text_color(color::WARNING))
+                        .tooltip(|_, cx| cx.new(|_| SuggestedTransferTip).into())
+                        .test_support(),
+                )
             })
             .child(
                 truncating(self.merchant.clone())

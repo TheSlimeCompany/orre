@@ -166,6 +166,10 @@ were asked.
    ledger, and a linked refund counts in its purchase's category, so what is reported
    doesn't change. Whether rules should skip those rows, as they skip split rows, is
    left open.
+   *Amended 2026-11-19: rules now skip the category of those rows, as they skip split
+   rows, and their other actions still apply. See "two kinds of transfer, and marking a
+   suggested pair" in `transactions.md`, and `rules.md`, "Decision record: rules skip
+   rows that take no category of their own".*
 5. **Which inspector sections a row gets is core's too** (`RegisterRow::takes_share`:
    money out outside a transfer; `takes_links`: any non-zero amount outside a transfer).
    The meaning is unchanged. Neither is unified with `reporting::linking`'s
