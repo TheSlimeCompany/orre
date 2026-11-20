@@ -157,7 +157,10 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
   tile, chrome mark); the three directions explored stay on Logo · concepts (`8JS-0`).
   Every screen's title bar now shows the mark before the wordmark (6px gap), and so does
   the GPUI title bar (`Glyph::Mark`). Exports in `assets/brand/`. Spec in `DESIGN.md` →
-  "Logo"
+  "Logo". On 2026-11-20 the strongbox was replaced by the halo, a ring split by a lens
+  on the diagonal (same grid, colours and lockups; the icon tile draws it at 6.571×,
+  and the exports in `assets/brand/` are now the VectorCraft set as exported); it stays on
+  Logo · strongbox (retired) (`J2Q-0`)
 - ✅ D6.3 Transactions additions: split editor (lines, auto-filled remainder, total
   locked), tags, user note beside the read-only imported note, excluded state and
   filter, manual-transaction form, "Create a rule from this edit?" (M3.9, M3.10, M3.13).

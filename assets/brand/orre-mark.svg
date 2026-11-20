@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="#FF6B1A">
-  <!-- Orre mark (docs/DESIGN.md → "Logo"; Paper "Logo" artboard). Fill is --color-molten. -->
-  <path d="M2.5 2H13.5A1.5 1.5 0 0 1 15 3.5V6H1V3.5A1.5 1.5 0 0 1 2.5 2Z"/>
-  <path d="M1 7H7V9A1 1 0 0 0 9 9V7H15V12.5A1.5 1.5 0 0 1 13.5 14H2.5A1.5 1.5 0 0 1 1 12.5Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <title>Orre</title>
+  <path fill="currentColor" d="M1 14.719C3.023 12.695 4.558 10.495 4.299 9.025A4.079 4.079 0 0 1 9.025 4.299C10.495 4.558 12.695 3.023 14.719 1L9.92 5.799A2.985 2.985 0 0 0 5.799 9.92Z"/>
+  <path fill="currentColor" d="M4.521 13.027C5.423 12.124 6.665 11.965 7.643 12.138A3.88 3.88 0 0 0 12.138 7.643C11.965 6.665 12.124 5.423 13.027 4.521L10.834 6.713A2.985 2.985 0 0 1 6.713 10.834Z"/>
+  <path fill="currentColor" d="M1.633 15C4.887 10.902 10.902 4.887 15 1.633C11.746 5.731 5.731 11.746 1.633 15Z"/>
 </svg>

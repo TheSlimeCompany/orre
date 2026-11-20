@@ -14,7 +14,7 @@ this file covers how the app looks and feels.
 | Tool | [Paper](https://paper.design), read and written via the Paper MCP server |
 | Orre file | **Orre** — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Orre design work happens here |
 | Orre page | `Page 1` (`p-1-0`) |
-| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide. M3 punch list (M3.P3, P5, P9, P10, P11, P13): M3 punch list · states (`IS2-0`), 1440 wide |
+| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only); Logo · strongbox (retired) (`J2Q-0`): the D6.2 mark, replaced 2026-11-20 (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide. M3 punch list (M3.P3, P5, P9, P10, P11, P13): M3 punch list · states (`IS2-0`), 1440 wide |
 | Orre tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1, `--container-field-date` added for M3.P5; content hash `f0be798c` (see "Tokens") |
 | Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Orre's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
 | Reference page | `Editor — v1` (`p-1-0`) |
@@ -35,7 +35,7 @@ content; its serif (Fraunces) and cream palette are **not** part of the system.
 | Not used | Tool dock; prompt composer (Orre has no in-app chat: the AI lives in the external MCP client); collaborator avatars and "Share"; the editor's brand mark |
 
 The editor's molten gem is that product's mark, not ours. Orre's own mark, the
-strongbox, sits before the wordmark in the title bar (see "Logo").
+halo, sits before the wordmark in the title bar (see "Logo").
 
 **Rules**
 
@@ -457,22 +457,30 @@ is reserved for the AI agent. The other filled icon is Orre's mark (see "Logo").
 
 Designed in D6.2 on the **Logo** artboard (`8MT-0`); the three directions explored
 (strongbox, coin-stack C, keyhole tile) stay on **Logo · concepts** (`8JS-0`) as a record.
+The strongbox, D6.2's pick, was replaced by the halo on 2026-11-20 (drawn in
+VectorCraft); it stays on **Logo · strongbox (retired)** (`J2Q-0`) as a record.
 
-**Mark: the strongbox.** A strongbox seen front-on: a lid, a 1-unit seam where the lid lifts
-off, a body, and a hasp dropping from the seam. Filled, no strokes. Drawn on a 16-unit
-grid so the title-bar size (16px) lands on whole pixels:
+**Mark: the halo.** A ring seen edge-on through a lens, on the diagonal from bottom left
+to top right: a lens-shaped bar crosses the ring, and the ring's two arcs flare out into
+wings along it. Three filled parts, no strokes, on the same 16-unit grid as every glyph:
 
 | Part | Geometry (16-unit grid) |
 |---|---|
-| Lid | 14 × 4, top corners r1.5 |
-| Seam | 1 unit, full width |
-| Body | 14 × 7, bottom corners r1.5 |
-| Hasp | notch 2 wide, 3 deep from the seam, round end r1 |
-| Bounds | 14 × 12, inset 1 unit at the sides and 2 at the top and bottom |
+| Ring | centre (8.317, 8.317); inner r 2.985; outer r 4.079 on the top-left arc (1.09 thick), 3.88 on the bottom-right (0.9 thick) |
+| Top-left arc | the ring's top-left half, flaring into wings that reach (1, 14.719) and (14.719, 1), on a straight base along the diagonal |
+| Bottom-right arc | the ring's other half, flaring into shorter wings that reach (4.521, 13.027) and (13.027, 4.521) |
+| Lens | (1.633, 15) to (15, 1.633) through the ring's centre, 0.9 thick at the middle, tapering to points |
+| Gaps | 0.2 between the lens and each arc |
+| Bounds | 14 × 14 (1 to 15 on both axes) |
+
+The gaps are 0.2px at 16px, so in the title bar the mark reads as a ring on a bar; they
+open from the app icon's 128px up.
 
 Path data (`viewBox="0 0 16 16"`):
-`M2.5 2H13.5A1.5 1.5 0 0 1 15 3.5V6H1V3.5A1.5 1.5 0 0 1 2.5 2Z` (lid),
-`M1 7H7V9A1 1 0 0 0 9 9V7H15V12.5A1.5 1.5 0 0 1 13.5 14H2.5A1.5 1.5 0 0 1 1 12.5Z` (body).
+`M1 14.719C3.023 12.695 4.558 10.495 4.299 9.025A4.079 4.079 0 0 1 9.025 4.299C10.495 4.558 12.695 3.023 14.719 1L9.92 5.799A2.985 2.985 0 0 0 5.799 9.92Z` (top-left arc),
+`M4.521 13.027C5.423 12.124 6.665 11.965 7.643 12.138A3.88 3.88 0 0 0 12.138 7.643C11.965 6.665 12.124 5.423 13.027 4.521L10.834 6.713A2.985 2.985 0 0 1 6.713 10.834Z` (bottom-right arc),
+`M1.633 15C4.887 10.902 10.902 4.887 15 1.633C11.746 5.731 5.731 11.746 1.633 15Z`
+(lens).
 
 **Colour.** `molten`: the mark is the one place molten means *brand* rather than
 selection or focus. `text` where a surface allows one colour only. Never `moldavite`
@@ -486,17 +494,22 @@ selection or focus. `text` where a surface allows one colour only. Never `moldav
 | Title bar | 16px (`icon-lg`) | 6px (`spacing-1_5`) | "Orre", Inter 13/16 600, `text`, −0.01em (`tracking-tight`) |
 | Display (README, about) | 32px | 12px (`spacing-3`) | "Orre", Inter 32/38 600, `text`, −0.025em (`tracking-display`) |
 
-At display size the mark's 24px ink matches the wordmark's cap height. The mark alone is
-for icons; the wordmark never appears without it. Clear space: one lid height (4 units)
-on every side.
+At display size the mark's ink is 28 × 28px, centred on the wordmark. The mark alone
+is for icons; the wordmark never appears without it. Clear space: 4 units on every side.
 
-**App icon.** A `molten` tile, radius 28 on 128, with the mark in `chrome` at 4.5× (72px),
-centred. Checked at 128, 64 and 32.
+**App icon.** A `molten` tile, radius 28 on 128, with the mark in `chrome` at 6.571× (105px
+box, 92 × 92px ink), centred.
 
-**Files.** `assets/brand/orre-mark.svg` (the mark, 16px, molten) and
-`assets/brand/orre-icon.svg` (the app icon, 128px) are exports for use outside the app,
-so their colours are literal hex. In the app the mark is `Glyph::Mark` (`crates/app/src/ui/icon.rs`),
-tinted by `text_color`. A test checks that both files draw the same paths as the glyph.
+**Files.** `assets/brand/` is a straight copy of the final set exported from VectorCraft,
+so a re-export replaces it file for file. The mark at 16px: `orre-mark.svg` (`currentColor`,
+for inline SVG that inherits a text colour), `orre-mark-molten.svg`, `orre-mark-dark.svg`
+(`chrome`, for light grounds) and `orre-mark-white.svg` (for dark grounds). The same four
+as `orre-logo*.svg`: the mark drawn at about 20× on a 297.428 square with 8px clear on
+every side, for large use. `orre-app-icon.svg` (the app icon, 128px) and
+`orre-app-icon-1024.png`, the app icon rendered at 1024px, the source for platform icon
+sets. In the app the mark is `Glyph::Mark` (`crates/app/src/ui/icon.rs`), tinted by
+`text_color`. A test checks that the 16px mark SVGs and the app icon draw the same paths
+as the glyph.
 
 ## Applying the system to Orre
 
