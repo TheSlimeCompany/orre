@@ -929,10 +929,13 @@ Every tool call appears in the access log.
   import into.", a currency mismatch, no rows, a mapping problem) but only greys out the
   button; show it in the footer in place of "Nothing is saved until you import…".
   Built: the Map footer's caption is the blocker while there is one (with no accounts:
-  "There are no accounts yet. Add one in the Accounts panel to import into.")
+  "There are no accounts yet. Add one in the Accounts panel to import into."; with
+  accounts but none that can take an import, all closed, pots, assets or liabilities:
+  "No account can take an import. Add a current or card account in the Accounts panel.")
 - ✅ M3.P2 Import: the Account menu with no accounts says "No matches", the filter's wording;
   it should say there are no accounts yet. Built: `MenuList`/`Select::empty_text` for a
-  menu with no options ("No accounts yet", one row; the footer says where to add one);
+  menu with no options ("No accounts yet", or "No accounts to import into" when there are
+  accounts but none can take an import; one row; the footer says what to add);
   "No matches" stays for a filter that left none
 - ⬜ M3.P3 Import: "New account…" in the Account menu, so a fresh database isn't a dead end
   (today: close the dialog, add the account in the panel, import again). New UI: decide

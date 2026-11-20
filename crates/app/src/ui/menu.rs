@@ -515,8 +515,11 @@ impl MenuList {
         }
         if rows.is_empty() {
             // Composed (M3.3): the panel's empty-row treatment.
+            let text = self.empty_row_text(filtered);
             rows.push(
                 div()
+                    .id("menu-empty")
+                    .aria_label(text.clone())
                     .flex()
                     .flex_none()
                     .items_center()
@@ -524,7 +527,8 @@ impl MenuList {
                     .px(spacing::S2)
                     .text_role(typography::BODY)
                     .text_color(color::TEXT_MUTED)
-                    .child(self.empty_row_text(filtered))
+                    .child(text)
+                    .test_support()
                     .into_any_element(),
             );
         }

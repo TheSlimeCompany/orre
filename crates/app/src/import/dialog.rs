@@ -80,11 +80,31 @@ const SPLIT: &str = "split";
 /// The regions a saved preset can be in (`presets/README.md`).
 const REGIONS: [(&str, &str); 3] = [("uk", "UK"), ("us", "US"), ("eu", "Euro area")];
 
-/// What Map says when no account can take an import (none yet, or only
-/// pots, closed accounts and accounts Orre values): the Account menu has
-/// no room for it.
+/// What Map says when the database has no accounts at all: the Account
+/// menu has no room for it.
 const NO_ACCOUNTS: &str =
     "There are no accounts yet. Add one in the Accounts panel to import into.";
+
+/// What Map says when there are accounts but none can take an import
+/// (only pots, closed accounts, assets and liabilities).
+const NONE_IMPORTABLE: &str =
+    "No account can take an import. Add a current or card account in the Accounts panel.";
+
+/// The Account menu's one row when it has no options, for each case above.
+const NO_ACCOUNTS_ROW: &str = "No accounts yet";
+const NONE_IMPORTABLE_ROW: &str = "No accounts to import into";
+
+/// Why there's nowhere to import, when no account can take an import:
+/// [`NO_ACCOUNTS`] or [`NONE_IMPORTABLE`].
+fn nowhere_to_import(accounts: &[Account]) -> Option<&'static str> {
+    if accounts.iter().any(can_import_into) {
+        None
+    } else if accounts.is_empty() {
+        Some(NO_ACCOUNTS)
+    } else {
+        Some(NONE_IMPORTABLE)
+    }
+}
 
 /// The step on show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -299,6 +319,18 @@ impl ImportDialog {
         cx.notify();
     }
 
+    /// Closes the sample's accounts (snapshots: a database whose accounts
+    /// can't take an import). Call before opening a file.
+    pub fn close_accounts(&mut self, cx: &mut Context<Self>) {
+        if let Some(setup) = self.setup.as_mut() {
+            for account in &mut setup.accounts {
+                account.closed_on = Some(setup.today);
+            }
+        }
+        self.refresh();
+        cx.notify();
+    }
+
     /// Chooses the account to import into, as the Account select does.
     pub fn set_account(&mut self, account: AccountId, cx: &mut Context<Self>) {
         self.choose(Pick::Account, &SharedString::from(account.to_string()), cx);
@@ -485,8 +517,9 @@ impl ImportDialog {
         let statement = match currency {
             Some(currency) => session.statement(&setup.presets, currency),
             // A mapping of your own is read in the account's currency.
-            None if !setup.accounts.iter().any(can_import_into) => Err(NO_ACCOUNTS.to_owned()),
-            None => Err("Choose the account to import into.".to_owned()),
+            None => Err(nowhere_to_import(&setup.accounts)
+                .unwrap_or("Choose the account to import into.")
+                .to_owned()),
         };
         let sample = match (&statement, currency) {
             (Ok(statement), Some(currency)) => {
@@ -510,8 +543,8 @@ impl ImportDialog {
         let session = self.session.as_ref()?;
         let mapped = self.mapped.as_ref()?;
         // Before the mapping: with nowhere to import, nothing else matters.
-        if !self.accounts().iter().any(can_import_into) {
-            return Some(NO_ACCOUNTS.to_owned());
+        if let Some(nowhere) = nowhere_to_import(self.accounts()) {
+            return Some(nowhere.to_owned());
         }
         let statement = match &mapped.statement {
             Ok(statement) => statement,
@@ -797,7 +830,11 @@ impl ImportDialog {
             &self.selects[index],
         )
         .when(pick == Pick::Account, |select| {
-            select.empty_text("No accounts yet")
+            select.empty_text(if self.accounts().is_empty() {
+                NO_ACCOUNTS_ROW
+            } else {
+                NONE_IMPORTABLE_ROW
+            })
         })
         .menu_width(size::PANEL - size::FIELD_LABEL - spacing::S2)
         .max_height(size::CONTROL * 9.)

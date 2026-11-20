@@ -72,6 +72,8 @@
 //!   for M3.4, no Paper drawing);
 //! - `import-map-no-accounts`: the same on a database with no accounts yet:
 //!   the footer says to add one (M3.P1, composed);
+//! - `import-map-none-importable`: the same where every account is closed:
+//!   the footer says which kind to add (M3.P1, composed);
 //! - `import-save-preset`: "Save as preset…" (composed for M3.5);
 //! - `import-review`: the Review step on a scratch database where part of
 //!   the file was imported before (`6J4-0`);
@@ -565,6 +567,7 @@ enum ImportShot {
     MapMenu,
     MapOwn,
     NoAccounts,
+    NoneImportable,
     SavePreset,
     Review,
     Mismatch,
@@ -645,6 +648,7 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
         ("import-map-menu", ImportShot::MapMenu),
         ("import-map-own", ImportShot::MapOwn),
         ("import-map-no-accounts", ImportShot::NoAccounts),
+        ("import-map-none-importable", ImportShot::NoneImportable),
         ("import-save-preset", ImportShot::SavePreset),
         ("import-review", ImportShot::Review),
         ("import-review-mismatch", ImportShot::Mismatch),
@@ -679,6 +683,11 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                     ImportShot::File => return,
                     ImportShot::NoAccounts => {
                         dialog.forget_accounts(cx);
+                        dialog.open_file(signed_amount_fixture(), cx);
+                        return;
+                    }
+                    ImportShot::NoneImportable => {
+                        dialog.close_accounts(cx);
                         dialog.open_file(signed_amount_fixture(), cx);
                         return;
                     }

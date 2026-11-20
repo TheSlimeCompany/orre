@@ -800,7 +800,8 @@ and flagged rows.
     you type, a group's label matching keeps the whole group, and "No matches" (a 28px
     row in body `text-muted`) says when nothing is left (a menu with no options at all
     says what its owner gives instead, short enough for the one row, e.g. Import's
-    Account menu: "No accounts yet"; M3.P2); scrolls after 8 rows. In
+    Account menu: "No accounts yet", or "No accounts to import into" when every
+    account is closed, a pot, an asset or a liability; M3.P2); scrolls after 8 rows. In
     place, it opens 4px below the row, left-aligned with the category marker; from
     the bulk-action bar, 4px above it.
   - *Filter chip menus*: the same menu below the chip. Account: "All accounts", then
@@ -1205,10 +1206,13 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
   imported as flagged, not skipped.") and says pot transfers pair automatically. Footer:
   "Nothing is saved until you import. A backup is taken first." Back / "Review 312 rows".
   While Review is disabled the footer's caption says why instead ("Choose the account to
-  import into.", "There are no accounts yet. Add one in the Accounts panel to import
-  into.", a currency mismatch, no rows, a mapping problem; M3.P1). Not drawn in Paper:
-  the longest, the no-accounts sentence, fits the footer's one line beside "Save as
-  preset…", Back and Review (snapshot `import-map-no-accounts`).
+  import into.", a currency mismatch, no rows, a mapping problem; M3.P1). With no
+  accounts at all: "There are no accounts yet. Add one in the Accounts panel to import
+  into."; with accounts, none of which can take an import (closed, pots, assets,
+  liabilities): "No account can take an import. Add a current or card account in the
+  Accounts panel." Not drawn in Paper: the longest, the second, fits the footer's one
+  line beside "Save as preset…", Back and Review (snapshots `import-map-no-accounts`,
+  `import-map-none-importable`).
 - **Review**: figures (New 295, Already imported 16 in `text-muted`, Flagged 1 with a
   `danger` dot; mono 20/24), AFTER IMPORT rows (categorised by rules, from Monzo's
   categories, left uncategorised, pot transfers paired, possible duplicates with a

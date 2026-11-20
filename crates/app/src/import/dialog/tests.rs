@@ -53,12 +53,20 @@ fn open<'a>(
     cx: &'a mut TestAppContext,
     scratch: &Scratch,
 ) -> (Entity<ShellView>, &'a mut VisualTestContext) {
+    open_database(cx, &scratch.path)
+}
+
+/// The shell importing into the database at `path`.
+fn open_database<'a>(
+    cx: &'a mut TestAppContext,
+    path: &Path,
+) -> (Entity<ShellView>, &'a mut VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::component::install(cx);
         crate::shell::init(cx);
     });
-    let store = ImportStore::new(scratch.path.clone());
+    let store = ImportStore::new(path.to_owned());
     let (shell, cx) = cx.add_window_view(|window, cx| {
         let accounts = cx.new(|_| Accounts::fixture(crate::accounts::fixture::accounts()));
         let mut shell = ShellView::with_accounts(View::Transactions, accounts, window, cx);
@@ -494,46 +502,81 @@ fn several_files_dropped_on_the_window_say_only_the_first_was_taken(cx: &mut Tes
     assert_eq!(note(cx), None);
 }
 
-#[gpui_kit::test]
-fn with_no_accounts_the_map_footer_says_to_add_one(cx: &mut TestAppContext) {
-    let scratch = Scratch::new();
-    let (shell, cx) = open(cx, &scratch);
+/// Opens a CSV no preset recognises on a database with the accounts `make`
+/// adds, and checks that the Map footer, the statement the preview reads
+/// and the Account menu's one row all say why nothing can be imported.
+fn nowhere_to_import(
+    cx: &mut TestAppContext,
+    make: impl FnOnce(&mut Database),
+    footer: &str,
+    menu_row: &str,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("orre.db");
+    make(&mut Database::open(&path).unwrap());
+    let (shell, cx) = open_database(cx, &path);
     shell.update_in(cx, |shell, window, cx| {
         shell.open_import(Some(fixture("csv/signed-amount.csv")), window, cx)
     });
     redraw(cx);
     let dialog = dialog_of(&shell, cx);
-    // A database with no account to import into: only ones that can't take
-    // an import (assets), then none at all.
-    let no_accounts = "There are no accounts yet. Add one in the Accounts panel to import into.";
-    for none_at_all in [false, true] {
-        dialog.update(cx, |dialog, _| {
-            if let Some(setup) = dialog.setup.as_mut() {
-                if none_at_all {
-                    setup.accounts.clear();
-                } else {
-                    assert!(!setup.accounts.is_empty());
-                    for account in &mut setup.accounts {
-                        account.kind = AccountKind::Asset;
-                    }
-                }
-            }
-            dialog.refresh();
-        });
-        // The footer says it before the date format still to choose.
-        assert_eq!(cx.update(|_, cx| dialog.read(cx).map_footer()), no_accounts);
-        if !none_at_all {
-            continue;
-        }
-        // With none at all, a mapping of your own has no currency to be
-        // read in, and the statement the preview reads says the same.
-        let statement = cx.update(|_, cx| {
-            dialog
-                .read(cx)
-                .mapped
-                .as_ref()
-                .and_then(|mapped| mapped.statement.as_ref().err().cloned())
-        });
-        assert_eq!(statement.as_deref(), Some(no_accounts));
-    }
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).step), Step::Map);
+
+    // The footer says it before the date format still to choose.
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).map_footer()), footer);
+    // A mapping of your own has no account's currency to be read in, and
+    // the statement the preview reads says the same.
+    let statement = cx.update(|_, cx| {
+        dialog
+            .read(cx)
+            .mapped
+            .as_ref()
+            .and_then(|mapped| mapped.statement.as_ref().err().cloned())
+    });
+    assert_eq!(statement.as_deref(), Some(footer));
+
+    // The Account menu, opened, shows its owner's words in one row, not
+    // the filter's "No matches".
+    click("import-account", cx);
+    let row = cx.update(|window, _| window.try_find("menu-empty"));
+    let row = row.expect("the Account menu is open and empty");
+    assert_eq!(row.label(), Some(menu_row));
+    assert_eq!(row.bounds().size.height, size::CONTROL);
+}
+
+#[gpui_kit::test]
+fn with_no_accounts_at_all_import_says_to_add_one(cx: &mut TestAppContext) {
+    nowhere_to_import(
+        cx,
+        |_| {},
+        "There are no accounts yet. Add one in the Accounts panel to import into.",
+        "No accounts yet",
+    );
+}
+
+#[gpui_kit::test]
+fn with_only_accounts_that_cant_take_an_import_import_says_which_to_add(cx: &mut TestAppContext) {
+    // A closed current account, its pot (closed with it) and a house.
+    nowhere_to_import(
+        cx,
+        |db| {
+            let current = account::create(
+                db,
+                &NewAccount::new("Old current account", AccountKind::Current, Currency::GBP),
+            )
+            .unwrap();
+            let mut pot = NewAccount::new("Holiday", AccountKind::Pot, Currency::GBP);
+            pot.parent = Some(current);
+            account::create(db, &pot).unwrap();
+            account::create(
+                db,
+                &NewAccount::new("House", AccountKind::Asset, Currency::GBP),
+            )
+            .unwrap();
+            let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
+            account::close::close(db, current, day).unwrap();
+        },
+        "No account can take an import. Add a current or card account in the Accounts panel.",
+        "No accounts to import into",
+    );
 }
