@@ -92,13 +92,17 @@ transactions"; `crates/core/examples/ledger_bench.rs` measures it).
 - **Background:** the Transactions register (read at start and after each change, then
   filtered in memory); the Inbox (`Inbox::reload` on `background_spawn`; the shell
   builds it with `Inbox::unloaded`, and `InboxStore::load` previews every pending
-  suggestion with `inbox::preview::preview_all`); everything in the import dialog that
-  touches the disk or database (`ImportStore`); backing up, checking a backup and
-  restoring in Settings; the delayed window-state save.
-- **UI thread:** the Accounts load (117 ms at that size) and the Rules load (521 ms),
-  both over the budget, until roadmap R.19; the Checks and Settings reads; Inbox
-  decisions (then a background reload) and `covered_by` on selection; every other
-  write.
+  suggestion with `inbox::preview::preview_all`); the accounts (`Accounts::reload`;
+  the shell builds them with `Accounts::unloaded` and starts the first read) and the
+  Rules view (`Rules::reload`; `Rules::unloaded`, first read when `RulesView` is made),
+  each keeping the last read on screen until the next lands ("Accounts and Rules read
+  in the background"); everything in the import dialog that touches the disk or
+  database (`ImportStore`); backing up, checking a backup and restoring in Settings;
+  the delayed window-state save.
+- **UI thread:** the Checks and Settings reads; every write (Accounts, Rules, Inbox
+  decisions and the rest; each then asks for a background read); Inbox `covered_by` on
+  selection; the Rules view's other reads (an apply preview, the suggestions over a
+  rule, a change's items, what undoing would do).
 
 ### `describe()` stays out of release builds
 
@@ -384,3 +388,78 @@ each and a merchant-name preview of about 0.45 s each, and the rest take 2 ms.
 5. **Not covered by this measurement.** Clicking through the real window, and frame
    times: only database reads were timed. The Inbox's `covered_by` still runs on the UI
    thread when a categorisation is selected (0.4 ms now).
+
+### Decision record: Accounts and Rules read in the background (2026-11-19)
+
+R.19 (ROADMAP → "Architecture review"), from "performance at 100,000 transactions",
+point 4. At 100,606 transactions the Accounts load took 117 ms and the Rules load
+521 ms on the UI thread, against the 50 ms budget, at start-up and after every write.
+Both now read on a background thread, as the Inbox does. **(composed)** These are the
+implementer's decisions, for the user to confirm; the read times themselves are as
+measured in R.14 (nothing was re-measured: the same reads run, on another thread).
+
+1. **Both read as the Inbox does.** `Accounts::unloaded(store)` and `Rules::unloaded
+   (store)` make a view with nothing read; the shell builds both that way. The shell
+   starts the accounts' first read when it is made (`ShellView::with_all`, through
+   `Accounts::start_loading`); `RulesView::new` starts the Rules view's.
+   `Accounts::reload` and `Rules::reload` read on `background_spawn` (the accounts'
+   saved presets, which are files, in the same read). What is shown stays until the
+   read lands, and a read asked for while one runs replaces it, so only the newest is
+   applied. `from_store` still reads on the calling thread: tests and the snapshot use
+   it. A read that fails keeps the last data and says why, as before.
+2. **Until the first read lands, an empty view says nothing.** The accounts panel shows
+   no "No accounts yet" (Net worth keeps its "—"), and the Rules canvas shows no empty
+   state, as the Inbox and Transactions tables do. The status bar already leaves out
+   what it has no data for.
+3. **Writes stay on the UI thread.** Every change still runs where it is asked for, then
+   asks for a read; between the two the view shows the last read. The writes were not
+   part of R.14's measurement and a person's edits are single rows.
+4. **Accounts between a write and its read.** A new account (and one reopened by the
+   close bar's Undo) is selected at once, by ID, so Transactions filters by it at once;
+   its row and inspector fill in when the read lands (the inspector counts an account
+   as shown only once it is in the data, so its Name and Bank fields fill then, not
+   blank). The read that lands was asked for after the write (an earlier one was
+   replaced), so it has the account. An account that has gone when a read lands
+   (closed, deleted, or after a restore) is let go then, and the views filtering by it
+   are told (`AccountsEvent::Selected(None)`); a read that fails keeps the selection
+   with the last data. A closed account's row stays until the read lands; a second
+   close of it is refused by core.
+5. **Rules between a write and its read: nothing the user does is lost or done
+   twice.** The view's state assumed each write was read back at once; it now does at
+   once only what an input depends on:
+   - *A form isn't overwritten by an older read.* A read refills a rule's or category's
+     form from what is stored only if the form wasn't changed since the read (or the
+     first one it replaced) was asked for (`Rules::form_edits`); otherwise as before.
+   - *The same save isn't made twice, and an older one isn't made again.* What was
+     saved since the read was asked for is remembered (`Written`): a save of the same
+     again is skipped, and a rule, merchant name or category opened again before the
+     read lands fills its form from what was saved, not from the read data, which
+     still holds the old value (leaving it would otherwise save the old value back).
+   - *A move takes its place at once.* After `rule::move_to` the local order is changed
+     as core changed it, so ⌥↑⌥↓ presses before the read lands add up and the bar's Undo
+     returns the rule to where they began. A move takes the place of the rule shown at
+     the target row, looked up in the database at the write, so a rule stored elsewhere
+     and not read yet (an Inbox approval) doesn't put it one row off. What each rule
+     decides follows with the read.
+   - *A deleted row goes at once* (a rule, a name, a category; core refuses to delete a
+     group with subcategories), so it can't be selected while the read is pending.
+   - *A created rule or category is selected when the read lands.* "Create rule and
+     change N", "Create rule only" and "Create category" close their preview or form at
+     once (so they can't be clicked twice) and select the new item when it is read,
+     unless another was selected in that section meanwhile; "No rules yet" doesn't show
+     while the first rule waits. A new merchant name stays open with its fields as
+     typed, as before. "Open rule" from Transactions on a rule the view hasn't read
+     (before the first read, or one an Inbox approval made while the shell's read is
+     in flight) selects that rule when the read lands, not nothing or the first row.
+   - An edited rule's row shows its new conditions, and every rule's counts change, when
+     the read lands; the inspector shows the edit at once.
+6. **Left on the UI thread.** The Rules view's other reads (`refresh_preview`'s
+   `rule::preview_apply`/`preview_draft` and `preview_rows`, `touching_rule` on
+   selection, a change's items, `change::undo_preview`) and the Checks and Settings
+   reads were not measured as loads and are unchanged. An apply preview over the whole
+   ledger is likely over the budget at this size (one Inbox rule preview takes 0.2 s);
+   not decided here.
+7. **Not covered.** Clicking through the real window: the behaviour is checked by
+   headless tests (`accounts/tests.rs`, `rules/tests.rs`, `write_tests.rs`,
+   `reorder_tests.rs`, `state_tests.rs`) and the snapshots, whose Rules shots are
+   unchanged.

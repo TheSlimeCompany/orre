@@ -332,9 +332,10 @@ pub fn render(
     });
     let accounts_section = list_section(SectionLabelRow::new(ACCOUNTS).action(add))
         .children(rows)
-        .when(kept.is_empty() && state.load_error().is_none(), |this| {
-            this.child(note_row(NO_ACCOUNTS))
-        })
+        .when(
+            state.loaded() && kept.is_empty() && state.load_error().is_none(),
+            |this| this.child(note_row(NO_ACCOUNTS)),
+        )
         .when_some(state.load_error().cloned(), |this, error| {
             this.child(
                 div()

@@ -27,6 +27,17 @@
 //! stored rule's preview. Every change is core's; this only picks IDs and
 //! fields. Rule patterns, names and bank text are untrusted and shown plain
 //! ([`text`]).
+//!
+//! What the view shows is read on a background thread ([`Rules::reload`]):
+//! what each rule decides is worked out over the whole ledger, which at
+//! 100,000 transactions takes far longer than a frame (decision record
+//! "performance at 100,000 transactions", `docs/architecture/app.md`).
+//! Until the first read lands the canvas says nothing, as the Inbox and
+//! Transactions do. Writes stay on this thread and ask for a read after
+//! them; until it lands the last read is shown, with what must show at once
+//! done here (`write`): a moved rule takes its place, a deleted row goes, a
+//! created rule or category is selected when the read lands, a form edited
+//! meanwhile isn't refilled, and the same save isn't made twice.
 
 #[cfg(test)]
 mod describe;
@@ -48,12 +59,13 @@ use coffer_core::category::{self, CategoryKind, CategorySummary, GroupOverview};
 use coffer_core::change::{self, ChangeKind, HistoryEntry, HistoryItem};
 use coffer_core::id::{ChangeBatchId, MerchantAliasId, RuleId, TransactionId};
 use coffer_core::inbox::{Suggestion, SuggestionId, preview as inbox_preview};
-use coffer_core::merchant::{self, AliasKind, AliasSummary};
+use coffer_core::merchant::{self, AliasDefinition, AliasKind, AliasSummary};
 use coffer_core::rule::{
     self, ActionKind, ApplyPreview, Draft, PreviewRow, RuleDefinition, RuleOrigin, RuleSummary,
 };
-use gpui_kit::{Context, EventEmitter, SharedString};
+use gpui_kit::{Context, EventEmitter, SharedString, Task};
 
+use crate::accounts::store::StoreError;
 use crate::ui::list;
 use form::{CategoryError, CategoryForm, FormError, NameForm, RuleForm};
 use state::{CategoriesPane, CategoryEdit, HistoryPane, NameEdit, NamesPane, RuleEdit, RulesPane};
@@ -248,6 +260,43 @@ pub struct Rules {
     /// place.
     moved_order: Option<Vec<RuleId>>,
     load_error: Option<SharedString>,
+    /// Whether a read has come back, or there is nothing to read.
+    loaded: bool,
+    /// The background read in flight; a newer one replaces it.
+    loading: Option<Task<()>>,
+    /// Bumped on every change to an inspector form: a read refills a form
+    /// only if this hasn't moved since the read was asked for.
+    form_edits: u64,
+    /// `form_edits` when the first read not yet landed was asked for: a
+    /// read that replaces it stands in for it, so compares with this.
+    asked_edits: Option<u64>,
+    /// What was saved since the read in flight was asked for: a save of the
+    /// same again is skipped until the read lands with it.
+    written: Vec<Written>,
+    /// A rule just created, selected when the read with it lands unless
+    /// another rule is selected first.
+    pending_rule: Option<RuleId>,
+    /// A category just created, likewise.
+    pending_category: Option<i64>,
+}
+
+/// An item as last saved, while the read that will show it is pending.
+#[derive(Clone, Debug, PartialEq)]
+enum Written {
+    Rule(RuleId, RuleDefinition),
+    Name(MerchantAliasId, AliasDefinition),
+    Category(i64, String),
+}
+
+impl Written {
+    fn same_item(&self, other: &Written) -> bool {
+        match (self, other) {
+            (Written::Rule(a, _), Written::Rule(b, _)) => a == b,
+            (Written::Name(a, _), Written::Name(b, _)) => a == b,
+            (Written::Category(a, _), Written::Category(b, _)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl EventEmitter<RulesEvent> for Rules {}
@@ -257,12 +306,25 @@ fn message(error: impl std::fmt::Display) -> SharedString {
 }
 
 impl Rules {
-    /// The view over `store`, read now.
+    /// The view over `store`, read now, on this thread, with the first row
+    /// selected: for tests and the snapshot. The app uses
+    /// [`Rules::unloaded`].
     pub fn from_store(store: RulesStore) -> Self {
-        let mut rules = Self::with_source(Source::Database(store));
-        rules.load();
-        rules.select_default();
+        let mut rules = Self::unloaded(store);
+        if let Source::Database(store) = &rules.source {
+            let result = store.load();
+            rules.land(result, rules.form_edits);
+        }
         rules
+    }
+
+    /// The view over `store`, not read yet: [`view::RulesView::new`] starts
+    /// the first read, on a background thread.
+    pub fn unloaded(store: RulesStore) -> Self {
+        Self {
+            loaded: false,
+            ..Self::with_source(Source::Database(store))
+        }
     }
 
     /// Nothing to show, because nothing can be read: `reason` says why.
@@ -290,7 +352,20 @@ impl Rules {
             outcome: None,
             moved_order: None,
             load_error: None,
+            loaded: true,
+            loading: None,
+            form_edits: 0,
+            asked_edits: None,
+            written: Vec::new(),
+            pending_rule: None,
+            pending_category: None,
         }
+    }
+
+    /// Whether the data has been read (or there is none to read): until
+    /// then an empty table means "not yet", not "nothing here".
+    pub fn loaded(&self) -> bool {
+        self.loaded
     }
 
     pub fn data(&self) -> &RulesData {
@@ -346,11 +421,75 @@ impl Rules {
 
     // Reading ------------------------------------------------------------------
 
-    /// Reads everything again, keeping the selection where it still is: the
-    /// one way the view reads again, after every save and when the shell
-    /// asks.
+    /// Reads everything again, on a background thread, keeping the
+    /// selection where it still is: the one way the view reads again, after
+    /// every save and when the shell asks. What is shown stays until the
+    /// read lands; a read asked for meanwhile replaces this one, so only the
+    /// newest is applied. Until then a moved or deleted row has already
+    /// moved or gone (the local steps after those writes), a save of what
+    /// was just saved is skipped, and a form changed since the read was
+    /// asked for keeps what was typed when it lands.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
-        self.load();
+        use gpui_kit::AppContext as _;
+
+        let Source::Database(store) = &self.source else {
+            cx.notify();
+            return;
+        };
+        let store = store.clone();
+        let edits = *self.asked_edits.get_or_insert(self.form_edits);
+        self.loading = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move { store.load() }).await;
+            this.update(cx, |this, cx| {
+                this.loading = None;
+                this.land(result, edits);
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// Starts the first read, if it hasn't been asked for.
+    pub(crate) fn start_loading(&mut self, cx: &mut Context<Self>) {
+        if !self.loaded && self.loading.is_none() {
+            self.reload(cx);
+        }
+    }
+
+    /// Takes a read: its data, or the old data kept with the error. A rule
+    /// or category just created is selected, unless another was selected
+    /// meanwhile; the first read selects the open section's first row; the
+    /// move bar goes if the order moved elsewhere; the selections are
+    /// brought up to date. `edits` is [`Rules::form_edits`] when the read
+    /// (or the first one it replaced) was asked for.
+    fn land(&mut self, result: Result<RulesData, StoreError>, edits: u64) {
+        let first = !self.loaded;
+        self.loaded = true;
+        self.asked_edits = None;
+        self.written.clear();
+        match result {
+            Ok(data) => {
+                self.data = data;
+                self.load_error = None;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "couldn't read the rules");
+                self.load_error = Some(message(error));
+            }
+        }
+        if let Some(id) = self.pending_rule.take()
+            && self.rules.editing.is_none()
+        {
+            self.open_rule(Some(id));
+        }
+        if let Some(id) = self.pending_category.take()
+            && self.categories.editing.is_none()
+        {
+            self.open_category(Some(CategorySelection::Stored(id)));
+        }
+        if first {
+            self.select_default();
+        }
         if let Some(order) = self.moved_order.take()
             && matches!(self.outcome, Some(Outcome::Moved(_)))
         {
@@ -360,17 +499,47 @@ impl Rules {
                 self.outcome = None;
             }
         }
-        self.reload_rule();
+        let untouched = self.form_edits == edits;
+        self.reload_rule(untouched);
         self.reload_name();
         self.reload_batch();
-        self.reload_category();
-        cx.notify();
+        self.reload_category(untouched);
+    }
+
+    /// Records that `item` was saved, for the read in flight: a save of the
+    /// same again is skipped until it lands.
+    fn wrote(&mut self, item: Written) {
+        self.written.retain(|written| !written.same_item(&item));
+        self.written.push(item);
+    }
+
+    /// Whether `item` is what is stored, as far as the view knows: as last
+    /// saved while a read is pending, else as last read.
+    fn is_stored(&self, item: &Written) -> bool {
+        if let Some(written) = self.written.iter().find(|w| w.same_item(item)) {
+            return written == item;
+        }
+        match item {
+            Written::Rule(id, definition) => self
+                .data
+                .rule(*id)
+                .is_some_and(|summary| summary.rule.definition() == definition),
+            Written::Name(id, definition) => self
+                .data
+                .name(*id)
+                .is_some_and(|summary| summary.alias.definition() == definition),
+            Written::Category(id, label) => self
+                .data
+                .category_entry(*id)
+                .is_some_and(|(summary, _)| summary.category.label() == label),
+        }
     }
 
     /// The selected rule after a read: gone with the rule, and filled again
     /// from the stored rule unless what was typed is invalid or already the
-    /// stored one (so an edit in progress isn't overwritten).
-    fn reload_rule(&mut self) {
+    /// stored one, or the form changed since the read was asked for
+    /// (`untouched` false), so an edit in progress isn't overwritten.
+    fn reload_rule(&mut self, untouched: bool) {
         let Some(RuleEdit::Stored { id, form, .. }) = &self.rules.editing else {
             return;
         };
@@ -379,7 +548,8 @@ impl Rules {
             return;
         };
         let typed = form.definition(self.data.currency(form.account));
-        if matches!(&typed, Ok(definition) if definition != summary.rule.definition()) {
+        if untouched && matches!(&typed, Ok(definition) if definition != summary.rule.definition())
+        {
             let fresh = RuleForm::of(summary.rule.definition());
             if let Some(RuleEdit::Stored { form, .. }) = &mut self.rules.editing {
                 *form = fresh;
@@ -407,14 +577,15 @@ impl Rules {
     }
 
     /// The selected category after a read: gone with the category, and
-    /// filled again unless a rename that isn't valid yet is in the field.
-    fn reload_category(&mut self) {
+    /// filled again unless a rename that isn't valid yet is in the field or
+    /// the form changed since the read was asked for.
+    fn reload_category(&mut self, untouched: bool) {
         let Some(CategoryEdit::Stored { id, .. }) = &self.categories.editing else {
             return;
         };
         let id = *id;
         match self.data.category_entry(id) {
-            Some((summary, _)) if self.category_error().is_none() => {
+            Some((summary, _)) if untouched && self.category_error().is_none() => {
                 self.categories.editing = Some(CategoryEdit::Stored {
                     id,
                     form: CategoryForm::of(&summary.category),
@@ -422,23 +593,6 @@ impl Rules {
             }
             Some(_) => {}
             None => self.categories.editing = None,
-        }
-    }
-
-    /// Reads the data into `self.data`: [`Rules::reload`] and the first read.
-    fn load(&mut self) {
-        let Source::Database(store) = &self.source else {
-            return;
-        };
-        match store.load() {
-            Ok(data) => {
-                self.data = data;
-                self.load_error = None;
-            }
-            Err(error) => {
-                tracing::warn!(%error, "couldn't read the rules");
-                self.load_error = Some(message(error));
-            }
         }
     }
 
@@ -684,9 +838,19 @@ impl Rules {
     fn open_rule(&mut self, id: Option<RuleId>) {
         self.rules.editing = id.and_then(|id| {
             let summary = self.data.rule(id)?;
+            // As last saved while its read is pending, else as read: a form
+            // filled from the older read would save the old rule back.
+            let definition = self
+                .written
+                .iter()
+                .find_map(|written| match written {
+                    Written::Rule(rule, definition) if *rule == id => Some(definition),
+                    _ => None,
+                })
+                .unwrap_or(summary.rule.definition());
             Some(RuleEdit::Stored {
                 id,
-                form: RuleForm::of(summary.rule.definition()),
+                form: RuleForm::of(definition),
                 touching: self.touching_rule(id),
                 apply: None,
             })
@@ -713,12 +877,21 @@ impl Rules {
         if self.selected_rule_id() != id && self.section == Section::Rules {
             self.save_rule(cx);
         }
+        // Chosen over a rule just created that the read hasn't brought yet.
+        self.pending_rule = None;
         self.enter(Section::Rules);
         match &mut self.rules.editing {
             Some(RuleEdit::Stored {
                 id: open, apply, ..
             }) if Some(*open) == id => *apply = None,
             _ => self.open_rule(id),
+        }
+        // A rule the view hasn't read yet ("Open rule" from Transactions just
+        // after start-up, or on a rule an Inbox approval made, while the read
+        // the shell asked for is in flight) is selected when the read lands,
+        // instead of nothing or the first row.
+        if self.rules.editing.is_none() && (!self.loaded || self.loading.is_some()) {
+            self.pending_rule = id;
         }
         cx.notify();
     }
@@ -795,6 +968,7 @@ impl Rules {
             return;
         };
         change(edit.form_mut());
+        self.form_edits += 1;
         if edit.is_new() {
             self.refresh_preview();
         } else if save {
@@ -812,11 +986,8 @@ impl Rules {
         let Ok(definition) = form.definition(self.data.currency(form.account)) else {
             return;
         };
-        if self
-            .data
-            .rule(id)
-            .is_some_and(|summary| *summary.rule.definition() == definition)
-        {
+        let saved = Written::Rule(id, definition.clone());
+        if self.is_stored(&saved) {
             return;
         }
         let policy = Policy::new(Said::Toolbar);
@@ -824,6 +995,7 @@ impl Rules {
             .write(policy, cx, |db| rule::update(db, id, &definition))
             .is_ok()
         {
+            self.wrote(saved);
             self.refresh_preview();
             let fresh = self.touching_rule(id);
             if let Some(RuleEdit::Stored {
@@ -856,8 +1028,35 @@ impl Rules {
         // What was typed for the selected rule is saved first, as leaving
         // its field would: reading again after the move would replace it.
         self.save_rule(cx);
+        // The move takes the place of the rule shown at `position`, found in
+        // the database at the write: until a read lands the shown order can
+        // lack a rule made elsewhere (an Inbox approval, a create), so the
+        // shown index alone could be one off.
+        let target = self
+            .data
+            .rules
+            .get(position)
+            .map(|summary| summary.rule.id())
+            .filter(|target| *target != id);
         let policy = Policy::new(Said::Toolbar);
-        self.write(policy, cx, |db| rule::move_to(db, id, position))
+        self.write(policy, cx, |db| {
+            let to = match target {
+                Some(target) => rule::list(db)?
+                    .iter()
+                    .position(|stored| stored.id() == target)
+                    .unwrap_or(position),
+                None => position,
+            };
+            rule::move_to(db, id, to)
+        })?;
+        // The table shows the new order at once, as core made it; what each
+        // rule decides follows with the read.
+        if let Some(from) = self.data.position(id) {
+            let summary = self.data.rules.remove(from);
+            let to = position.min(self.data.rules.len());
+            self.data.rules.insert(to, summary);
+        }
+        Ok(())
     }
 
     /// ⌥↑ (`down` false) or ⌥↓ (`down` true): moves the selected stored
@@ -1107,6 +1306,7 @@ impl Rules {
                     _ => None,
                 });
         let included = apply.included();
+        let creating = matches!(target, Target::New(_));
         let result = match target {
             Target::Stored(id) => {
                 let Some(preview) = apply.preview.as_ref() else {
@@ -1128,7 +1328,15 @@ impl Rules {
             }
         };
         if let Ok((rule, applied)) = result {
-            self.open_rule(rule);
+            if creating {
+                // The new rule is in the read the save asked for: the
+                // preview closes now, so it can't be created twice, and the
+                // rule is selected when the read lands.
+                self.rules.editing = None;
+                self.pending_rule = rule;
+            } else {
+                self.open_rule(rule);
+            }
             self.outcome = match applied {
                 Some(applied) if applied.transactions > 0 => Some(Outcome::Done {
                     message: changed_message(applied.transactions, category),
@@ -1204,6 +1412,8 @@ impl Rules {
         let next = row_after(&order, id);
         let policy = Policy::new(Said::Dialog).tells_shell();
         self.write(policy, cx, |db| rule::delete(db, id))?;
+        // Gone at once, so it can't be selected before the read lands.
+        self.data.rules.retain(|summary| summary.rule.id() != id);
         self.open_rule(next);
         cx.notify();
         Ok(())
@@ -1231,9 +1441,20 @@ impl Rules {
     /// Opens `selection` for editing, or nothing.
     fn open_name(&mut self, selection: Option<NameSelection>) {
         self.names.editing = match selection {
-            Some(NameSelection::Stored(id)) => self.data.name(id).map(|summary| NameEdit::Stored {
-                id,
-                form: NameForm::of(summary.alias.definition()),
+            Some(NameSelection::Stored(id)) => self.data.name(id).map(|summary| {
+                // As last saved while its read is pending (see `open_rule`).
+                let definition = self
+                    .written
+                    .iter()
+                    .find_map(|written| match written {
+                        Written::Name(name, definition) if *name == id => Some(definition),
+                        _ => None,
+                    })
+                    .unwrap_or(summary.alias.definition());
+                NameEdit::Stored {
+                    id,
+                    form: NameForm::of(definition),
+                }
             }),
             Some(NameSelection::New) => Some(NameEdit::New {
                 form: NameForm::default(),
@@ -1277,6 +1498,7 @@ impl Rules {
             return;
         };
         change(edit.form_mut());
+        self.form_edits += 1;
         if save {
             self.save_name(cx);
         }
@@ -1294,11 +1516,7 @@ impl Rules {
         let saved = match edit {
             NameEdit::Stored { id, .. } => {
                 let id = *id;
-                if self
-                    .data
-                    .name(id)
-                    .is_some_and(|summary| *summary.alias.definition() == definition)
-                {
+                if self.is_stored(&Written::Name(id, definition.clone())) {
                     return;
                 }
                 self.write(policy, cx, |db| {
@@ -1311,6 +1529,7 @@ impl Rules {
         };
         // A name just created stays open, with the fields as typed.
         if let Ok(id) = saved {
+            self.wrote(Written::Name(id, definition));
             self.names.editing = match self.names.editing.take() {
                 Some(NameEdit::New { form }) => Some(NameEdit::Stored { id, form }),
                 other => other,
@@ -1336,6 +1555,8 @@ impl Rules {
         let next = row_after(&order, id);
         let policy = Policy::new(Said::Dialog).tells_shell();
         self.write(policy, cx, |db| merchant::delete(db, id))?;
+        // Gone at once, so it can't be selected before the read lands.
+        self.data.names.retain(|summary| summary.alias.id() != id);
         self.open_name(next.map(NameSelection::Stored));
         cx.notify();
         Ok(())
@@ -1454,12 +1675,18 @@ impl Rules {
     fn open_category(&mut self, selection: Option<CategorySelection>) {
         self.categories.editing = match selection {
             Some(CategorySelection::Stored(id)) => {
-                self.data
-                    .category_entry(id)
-                    .map(|(summary, _)| CategoryEdit::Stored {
-                        id,
-                        form: CategoryForm::of(&summary.category),
-                    })
+                self.data.category_entry(id).map(|(summary, _)| {
+                    let mut form = CategoryForm::of(&summary.category);
+                    // As last renamed while its read is pending (see
+                    // `open_rule`).
+                    if let Some(label) = self.written.iter().find_map(|written| match written {
+                        Written::Category(category, label) if *category == id => Some(label),
+                        _ => None,
+                    }) {
+                        form.name = label.clone();
+                    }
+                    CategoryEdit::Stored { id, form }
+                })
             }
             Some(CategorySelection::New) => Some(CategoryEdit::New {
                 form: CategoryForm::default(),
@@ -1478,6 +1705,9 @@ impl Rules {
         if self.categories.selection() != selection && self.section == Section::Categories {
             self.save_category_name(cx);
         }
+        // Chosen over a category just created that the read hasn't brought
+        // yet.
+        self.pending_category = None;
         self.enter(Section::Categories);
         if self.categories.selection() != selection {
             self.open_category(selection);
@@ -1510,6 +1740,7 @@ impl Rules {
             return;
         };
         change(edit.form_mut());
+        self.form_edits += 1;
         if save {
             self.save_category_name(cx);
         }
@@ -1523,18 +1754,23 @@ impl Rules {
             return;
         };
         let (id, key) = (summary.category.id(), summary.category.key().clone());
-        let stored = summary.category.label().to_owned();
         let Some(form) = self.category_form() else {
             return;
         };
         let Ok(label) = form.label(self.category_siblings(), Some(id)) else {
             return;
         };
-        if label == stored {
+        let saved = Written::Category(id, label.clone());
+        if self.is_stored(&saved) {
             return;
         }
         let policy = Policy::new(Said::Toolbar).tells_shell();
-        let _ = self.write(policy, cx, |db| category::rename(db, &key, &label));
+        if self
+            .write(policy, cx, |db| category::rename(db, &key, &label))
+            .is_ok()
+        {
+            self.wrote(saved);
+        }
     }
 
     /// "Create category": adds the new category and selects it.
@@ -1548,8 +1784,12 @@ impl Rules {
         let new = form.new_category();
         let policy = Policy::new(Said::Toolbar).tells_shell();
         if let Ok(category) = self.write(policy, cx, |db| category::add(db, &new)) {
+            // The new category is in the read the save asked for: the form
+            // closes now, so it can't be created twice, and the category is
+            // selected when the read lands.
             self.categories.filter = None;
-            self.open_category(Some(CategorySelection::Stored(category.id())));
+            self.categories.editing = None;
+            self.pending_category = Some(category.id());
             cx.notify();
         }
     }
@@ -1579,6 +1819,15 @@ impl Rules {
         let next = row_after(&order, id);
         let policy = Policy::new(Said::Dialog).tells_shell();
         self.write(policy, cx, |db| category::delete(db, &key))?;
+        // Gone at once, so it can't be selected before the read lands. Core
+        // refuses to delete a group with subcategories, so only its row goes.
+        self.data
+            .category_overview
+            .retain(|group| group.group.category.id() != id);
+        for group in &mut self.data.category_overview {
+            group.children.retain(|child| child.category.id() != id);
+        }
+        self.data.categories.retain(|option| option.key != key);
         self.open_category(next.map(CategorySelection::Stored));
         cx.notify();
         Ok(())

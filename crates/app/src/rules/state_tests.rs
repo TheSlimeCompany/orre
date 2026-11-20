@@ -205,6 +205,45 @@ fn deleting_a_name_selects_the_row_after_it_else_the_one_before(cx: &mut TestApp
 }
 
 #[gpui_kit::test]
+fn a_deleted_rule_or_category_leaves_before_the_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let seeded = fixture::seed_categories(&mut scratch.db());
+    let rules = open(cx, &scratch);
+    let [first, second, third] = [0, 1, 2].map(|n| scratch.seeded.rules[n]);
+    rules.update(cx, |rules, cx| {
+        rules.delete_rule(first, cx).unwrap();
+        assert!(rules.loading.is_some(), "the read hasn't landed");
+        assert!(rules.data().rule(first).is_none());
+        assert_eq!(rules.selected_rule_id(), Some(second));
+        rules.delete_rule(second, cx).unwrap();
+        assert_eq!(rules.selected_rule_id(), Some(third));
+        assert_eq!(rules.rules().len(), 12);
+
+        // Coffee is unused, so it can go; the row after it is selected.
+        rules.select_category(Some(CategorySelection::Stored(seeded.coffee)), cx);
+        let order: Vec<i64> = rules
+            .category_rows()
+            .iter()
+            .map(|row| row.summary.category.id())
+            .collect();
+        let at = order.iter().position(|id| *id == seeded.coffee).unwrap();
+        rules.delete_category(seeded.coffee, cx).unwrap();
+        assert!(rules.data().category_entry(seeded.coffee).is_none());
+        assert!(rules.data().categories.iter().all(|c| c.label != "Coffee"));
+        assert_eq!(
+            rules.selected_category(),
+            Some(CategorySelection::Stored(order[at + 1]))
+        );
+    });
+    cx.run_until_parked();
+    rules.read_with(cx, |rules, _| {
+        assert_eq!(rules.rules().len(), 12);
+        assert_eq!(rules.selected_rule_id(), Some(third));
+        assert!(rules.data().category_entry(seeded.coffee).is_none());
+    });
+}
+
+#[gpui_kit::test]
 fn deleting_the_only_row_left_selects_nothing(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let rules = open(cx, &scratch);

@@ -73,6 +73,18 @@ pub(super) fn open<'a>(
     cx: &'a mut TestAppContext,
     scratch: &Scratch,
 ) -> (Entity<ShellView>, Entity<Rules>, &'a mut VisualTestContext) {
+    let (shell, rules, cx) = open_with(cx, scratch, Rules::from_store);
+    redraw(cx);
+    (shell, rules, cx)
+}
+
+/// The shell's Rules tab with the Rules `make` builds over the scratch
+/// database, not yet redrawn.
+fn open_with<'a>(
+    cx: &'a mut TestAppContext,
+    scratch: &Scratch,
+    make: impl FnOnce(RulesStore) -> Rules + 'static,
+) -> (Entity<ShellView>, Entity<Rules>, &'a mut VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::component::install(cx);
@@ -93,12 +105,11 @@ pub(super) fn open<'a>(
             window,
             cx,
         );
-        let rules = cx.new(|_| Rules::from_store(store));
+        let rules = cx.new(|_| make(store));
         shell.install_rules(rules, window, cx);
         shell
     });
     let rules = cx.update(|_, cx| shell.read(cx).rules().clone());
-    redraw(cx);
     (shell, rules, cx)
 }
 
@@ -530,6 +541,7 @@ fn names_and_history_open_with_their_inspectors(cx: &mut TestAppContext) {
             )
         })
     });
+    redraw(cx);
     let shown = describe(&shell, cx);
     assert_eq!(shown.panel.sections[1].count, 9);
     assert_eq!(item(&shown).title, "Vinted");
@@ -1077,4 +1089,179 @@ fn delete_rule_asks_first_and_names_what_stays(cx: &mut TestAppContext) {
         [("Cancel", true), ("Delete rule", true)]
     );
     assert_eq!(dialog.error, None);
+}
+
+#[gpui_kit::test]
+fn an_unloaded_view_says_nothing_until_its_first_read_then_selects_the_first_rule(
+    cx: &mut TestAppContext,
+) {
+    let scratch = Scratch::new();
+    // Made, not yet read: no rows, no "No rules yet", nothing selected.
+    let unread = Rules::unloaded(RulesStore::new(scratch.path.clone()));
+    assert!(!unread.loaded());
+    let shown = unread.describe();
+    assert_eq!(shown.canvas, CanvasDescription::Rules(Vec::new()));
+    assert_eq!(shown.selected, None);
+
+    // The view asks for the read when it is made, and it lands later.
+    let (shell, rules, cx) = open_with(cx, &scratch, move |_| unread);
+    redraw(cx);
+    assert!(cx.update(|_, cx| rules.read(cx).loaded()));
+    let shown = describe(&shell, cx);
+    assert_eq!(rule_rows(&shown).len(), 14);
+    assert_eq!(
+        shown.selected.as_deref(),
+        Some("Merchant contains TFL TRAVEL"),
+        "the first read selects the first rule"
+    );
+    assert_eq!(item(&shown).title, "Merchant contains TFL TRAVEL");
+}
+
+#[gpui_kit::test]
+fn a_rule_opened_before_the_first_read_is_selected_when_it_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let third = scratch.seeded.rules[2];
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+    });
+    let store = RulesStore::new(scratch.path.clone());
+    let transactions = TransactionStore::new(scratch.path.clone());
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+        let inbox = cx.new(|_| Inbox::empty());
+        let settings = cx.new(crate::settings::SettingsView::fixture);
+        let mut shell = ShellView::with_all(
+            View::Rules,
+            accounts,
+            transactions::Source::Database(transactions),
+            inbox,
+            settings,
+            window,
+            cx,
+        );
+        let rules = cx.new(|_| Rules::unloaded(store));
+        shell.install_rules(rules.clone(), window, cx);
+        // "Open rule" from Transactions, before the first read is back.
+        rules.update(cx, |rules, cx| {
+            assert!(!rules.loaded(), "asked for before the read landed");
+            rules.select_rule(Some(third), cx);
+        });
+        shell
+    });
+    let rules = cx.update(|_, cx| shell.read(cx).rules().clone());
+    redraw(cx);
+    assert!(cx.update(|_, cx| rules.read(cx).loaded()));
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_rule_id()),
+        Some(third),
+        "the rule asked for, not the first row"
+    );
+}
+
+#[gpui_kit::test]
+fn a_created_rule_is_selected_when_its_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    let db = TransactionStore::new(scratch.path.clone()).open().unwrap();
+    let proposal = core_rule::propose(&db, scratch.seeded.vinted)
+        .unwrap()
+        .expect("VINTED proposes a rule");
+    drop(db);
+    let start = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            rules.update(cx, |rules, cx| {
+                rules.new_rule_from(&proposal.definition, core_rule::RuleOrigin::Edit, cx)
+            })
+        });
+        redraw(cx);
+    };
+
+    // "Create rule and change 4": the preview closes at once, so it can't
+    // be clicked twice, and nothing is selected until the read is back.
+    start(cx);
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.commit(cx)));
+    let (preview, new, selected) = cx.update(|_, cx| {
+        let rules = rules.read(cx);
+        (
+            rules.apply().is_some(),
+            rules.is_new(),
+            rules.selected_rule_id(),
+        )
+    });
+    assert_eq!((preview, new, selected), (false, false, None));
+    redraw(cx);
+    let shown = describe(&shell, cx);
+    assert_eq!(shown.panel.sections[0].count, 15);
+    assert_eq!(
+        shown.selected.as_deref(),
+        Some("Merchant contains VINTED"),
+        "selected once the read lands"
+    );
+    let vinted = cx.update(|_, cx| rules.read(cx).data().rules[0].rule.id());
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_rule_id()),
+        Some(vinted)
+    );
+
+    // "Create rule only", then another rule chosen before the read is back:
+    // that choice stands.
+    start(cx);
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit(false, |form| form.text = "DEPOP".into(), cx);
+            rules.create_only(cx);
+        })
+    });
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_rule_id()),
+        None,
+        "nothing new selected yet"
+    );
+    let uber = scratch.seeded.rules[1];
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_rule(Some(uber), cx)));
+    redraw(cx);
+    let shown = describe(&shell, cx);
+    assert_eq!(shown.panel.sections[0].count, 16, "DEPOP is stored");
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_rule_id()),
+        Some(uber)
+    );
+}
+
+#[gpui_kit::test]
+fn a_created_category_is_selected_when_its_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    click("rules-section-categories", cx);
+    click("rules-new-category", cx);
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit_category(
+                false,
+                |form| {
+                    form.name = "Coffee beans".into();
+                    form.group = Some(category_key("food"));
+                },
+                cx,
+            );
+            rules.create_category(cx);
+        })
+    });
+    // Stored, and the form closed at once so it can't be created twice; not
+    // selected until the read with it is back.
+    let created = stored_category(&scratch, "food.u_coffee_beans").expect("created");
+    assert_eq!(cx.update(|_, cx| rules.read(cx).selected_category()), None);
+    assert!(cx.update(|_, cx| rules.read(cx).category_form().is_none()));
+
+    redraw(cx);
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_category()),
+        Some(CategorySelection::Stored(created.id()))
+    );
+    assert_eq!(
+        describe(&shell, cx).selected.as_deref(),
+        Some("Coffee beans")
+    );
 }

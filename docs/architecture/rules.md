@@ -137,8 +137,11 @@ one pipeline (`rules/write.rs`, `Rules::write`, `query`, `Rules::reload`) that t
 shell only when a transaction changed; each section's state is one value
 (`rules/state.rs`, `RuleEdit`) ("the Rules view's edit pipeline and section state").
 Undo is the bar's or Change history's (`change::undo_preview`, `change::undo`). At
-100,606 transactions the view's load takes about 521 ms on the UI thread
-(`rule::overview` 412 ms; `app.md`, "performance at 100,000 transactions"; ROADMAP R.19).
+100,606 transactions the view's load takes about 521 ms (`rule::overview` 412 ms;
+`app.md`, "performance at 100,000 transactions"), so it reads on a background thread and
+keeps the last read on screen until the next lands; writes stay on the UI thread, and a
+move, a delete, a create and a save do at once what the next input depends on (`app.md`,
+"Accounts and Rules read in the background").
 
 ## Decision records
 

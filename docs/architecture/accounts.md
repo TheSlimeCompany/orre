@@ -11,8 +11,9 @@ that list.
 `coffer_core::account` (with `account::close` and `account::count`); pots are made by
 imports (`coffer_core::sub_account`); the accounts panel's figures are
 `reporting::account_tree`. The app's side is `crates/app/src/accounts/`, whose
-`AccountStore` opens the database for each read or write through `backup::gate`, on the
-main thread. The CLI is `coffer accounts` (`list`, `add`, `close`, `reopen`). The records
+`AccountStore` opens the database for each read or write through `backup::gate`; reads
+run on a background thread and writes on the UI thread, a new account selected at once
+(`app.md`, "Accounts and Rules read in the background"). The CLI is `coffer accounts` (`list`, `add`, `close`, `reopen`). The records
 below are the history; this section is the rule in force.
 
 ### Kinds

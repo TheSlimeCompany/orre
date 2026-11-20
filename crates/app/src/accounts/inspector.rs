@@ -417,9 +417,14 @@ impl AccountInspector {
     }
 
     /// Fills the fields from the selected account when the selection
-    /// changes.
+    /// changes. An account selected before the read that has it lands (just
+    /// created, or reopened by Undo) counts as shown only once it's in the
+    /// data, so its fields fill in then.
     fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let selected = self.accounts.read(cx).selected();
+        let accounts = self.accounts.read(cx);
+        let selected = accounts
+            .selected()
+            .filter(|id| accounts.data().node(*id).is_some());
         if selected == self.shown {
             return;
         }

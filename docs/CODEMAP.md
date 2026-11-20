@@ -252,8 +252,8 @@ per call through its own store and changes data only through core.
 
 ### Accounts (M3.2, M3.17)
 
-- `accounts/`: `Accounts` (the accounts and the selection; every change through
-  `store::AccountStore`), `panel` (pots nested, balances, flagged and "No balance" rows,
+- `accounts/`: `Accounts` (the accounts and the selection, read on a background thread
+  by `reload`, built `unloaded` by the shell; every change through `store::AccountStore`), `panel` (pots nested, balances, flagged and "No balance" rows,
   arrow keys), `inspector` (on Transactions while an account and no transaction is
   selected: details, balances, pots, imports, the Close and Delete footer; the cash
   inspector's Counts), the `new_account` and `add_balance` dialogs (also for assets and
@@ -291,7 +291,8 @@ per call through its own store and changes data only through core.
 
 - `rules/`: `Rules` (the open section and each section's pane in `state`: its filter and
   its selection with the form it edits, `RuleEdit::Stored`/`New` holding the apply
-  preview), `rules/write.rs` (the edit pipeline: `Rules::write`/`query`, a policy plus
+  preview; read on a background thread by `reload`, built `unloaded` by the shell and
+  first read when `RulesView` is made), `rules/write.rs` (the edit pipeline: `Rules::write`/`query`, a policy plus
   one core call), `store::RulesStore` (`open` and `load`, the read model), `form`
   (`RuleForm`, `NameForm`, amounts typed unsigned with Out/In, percentages), `panel`,
   `table` (the toolbar, Rules, the apply preview, Merchant names, Change history; rows

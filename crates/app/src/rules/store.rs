@@ -5,7 +5,10 @@
 //!
 //! Only the read model is here: [`RulesStore::load`] builds [`RulesData`]
 //! from core's overviews ([`rule::overview`], [`merchant::overview`],
-//! [`change::history`], [`category::overview`]). Every change and every
+//! [`change::history`], [`category::overview`]). At 100,000 transactions
+//! that takes far longer than a frame, so the view runs it on a background
+//! thread ([`Rules::reload`](super::Rules::reload)); the store is `Clone`
+//! and holds only a path, so it can go there. Every change and every
 //! other read is a call to core's own function through
 //! [`Rules::write`](super::Rules) and its `query`, which open the database
 //! with `RulesStore::open` (`ARCHITECTURE.md` → "Decision record: one gate
