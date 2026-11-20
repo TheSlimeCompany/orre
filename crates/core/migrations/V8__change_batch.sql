@@ -8,7 +8,7 @@
 -- a field only where it still holds the batch's `new_value`; a row changed
 -- since keeps the later value.
 --
--- Values are JSON written and read by core (`coffer_core::change`), one
+-- Values are JSON written and read by core (`orre_core::change`), one
 -- shape per field. They can hold user text (a note, a merchant name), like
 -- the transaction itself: never logged, never sent over MCP.
 --

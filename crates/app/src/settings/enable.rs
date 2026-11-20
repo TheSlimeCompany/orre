@@ -11,12 +11,12 @@
 //! level's caption.
 
 use chrono::NaiveDateTime;
-use coffer_core::mcp_client::{AccessLevel, ClientName};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Window, div,
 };
+use orre_core::mcp_client::{AccessLevel, ClientName};
 
 use crate::accounts::DialogClosed;
 use crate::theme::tokens::{color, size, spacing, typography};

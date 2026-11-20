@@ -4,11 +4,11 @@
 -- these tables, so access control, the kill switch and pseudonyms need no
 -- further migration.
 --
--- A client is known by the name it is started with (`coffer mcp --client
+-- A client is known by the name it is started with (`orre mcp --client
 -- <name>`), the same name `suggestion.source_client` and
 -- `report.source_client` store. The name is the key: a client is never
 -- renamed, and a later `--client` with the same name is the same client.
--- `coffer` is reserved for suggestions the app files itself.
+-- `orre` is reserved for suggestions the app files itself.
 
 -- MCP clients ------------------------------------------------------------------
 
@@ -20,7 +20,7 @@ CREATE TABLE mcp_client (
     name         TEXT    PRIMARY KEY
                          CHECK (length(name) BETWEEN 1 AND 64
                                 AND name NOT GLOB '*[^A-Za-z0-9._-]*'
-                                AND lower(name) <> 'coffer'),
+                                AND lower(name) <> 'orre'),
     enabled      INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
     access_level TEXT    NOT NULL DEFAULT 'aggregate'
                          CHECK (access_level IN ('aggregate', 'pseudonymous', 'standard')),

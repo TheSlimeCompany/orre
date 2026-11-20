@@ -611,8 +611,8 @@ CREATE TABLE fx_rate (
 
 -- Inbox -----------------------------------------------------------------------
 
--- A change proposed by an AI client over MCP, or by Coffer itself
--- (`source_client = 'coffer'`). Nothing changes until the user approves it in
+-- A change proposed by an AI client over MCP, or by Orre itself
+-- (`source_client = 'orre'`). Nothing changes until the user approves it in
 -- the app or CLI. `payload_json` and `rationale` are untrusted text.
 CREATE TABLE suggestion (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

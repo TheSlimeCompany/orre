@@ -5,10 +5,10 @@
 //! pressed as the user would, and what the view shows read through its
 //! test-only `describe()`.
 
-use coffer_core::id::RuleId;
-use coffer_core::rule as core_rule;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use orre_core::id::RuleId;
+use orre_core::rule as core_rule;
 
 use super::describe::{Action, BarDescription, RulesDescription};
 use super::tests::{Scratch, describe, item, open, redraw, rule_rows};

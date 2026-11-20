@@ -31,7 +31,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let mut make = |name| {
             account::create(
                 &mut db,

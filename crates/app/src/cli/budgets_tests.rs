@@ -1,11 +1,11 @@
-//! `coffer budgets` against scratch data dirs. Nothing here touches the
+//! `orre budgets` against scratch data dirs. Nothing here touches the
 //! real data dir.
 
 use std::path::PathBuf;
 
 use clap::Parser;
-use coffer_core::budget::{self, BudgetGroup};
-use coffer_core::db::Database;
+use orre_core::budget::{self, BudgetGroup};
+use orre_core::db::Database;
 use tempfile::TempDir;
 
 use super::*;
@@ -20,7 +20,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("coffer.db");
+        let db = dir.path().join("orre.db");
         Scratch { _dir: dir, db }
     }
 
@@ -45,7 +45,7 @@ impl Scratch {
     }
 
     fn run(&self, args: &[&str]) -> Result<String, String> {
-        let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
         let mut out = Vec::new();
         let result = super::run(cli.command.expect("a subcommand"), &self.db, &mut out);
@@ -90,7 +90,7 @@ fn set_list_and_remove() {
     let scratch = Scratch::with_account();
     assert_eq!(
         scratch.ok(&["budgets"]),
-        "No budgets yet. Set one with `coffer budgets set <category> <amount>`.\n"
+        "No budgets yet. Set one with `orre budgets set <category> <amount>`.\n"
     );
 
     assert_eq!(
@@ -191,7 +191,7 @@ fn refuses_what_isnt_a_budget() {
         vec!["budgets", "set", "food", "100", "--group", "monthly"],
         vec!["budgets", "set", "food", "100", "--currency", "pounds"],
     ] {
-        let parsed = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()));
+        let parsed = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()));
         assert!(parsed.is_err(), "{args:?}");
     }
 }
@@ -226,7 +226,7 @@ fn the_currency_comes_from_the_accounts_or_must_be_named() {
 fn needs_a_database_and_accounts_for_the_default_currency() {
     let scratch = Scratch::new();
     let error = scratch.err(&["budgets"]);
-    assert!(error.contains("there is no Coffer database"), "{error}");
+    assert!(error.contains("there is no Orre database"), "{error}");
     assert!(!scratch.db.exists(), "a read left a database behind");
 
     // A database without accounts: the currency must be named.

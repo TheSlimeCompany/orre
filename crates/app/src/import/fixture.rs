@@ -5,11 +5,11 @@
 //! amount is made up.
 
 use chrono::NaiveDate;
-use coffer_core::account::{Account, AccountKind};
-use coffer_core::id::AccountId;
-use coffer_core::money::Currency;
-use coffer_import::SourceFile;
-use coffer_import::preset::Presets;
+use orre_core::account::{Account, AccountKind};
+use orre_core::id::AccountId;
+use orre_core::money::Currency;
+use orre_import::SourceFile;
+use orre_import::preset::Presets;
 
 use super::store::{RecentImport, Setup};
 
@@ -94,7 +94,7 @@ pub fn setup() -> Setup {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::statement::RowProblem;
+    use orre_core::statement::RowProblem;
 
     use super::*;
     use crate::import::session::Session;

@@ -1,8 +1,8 @@
 //! Deleting saved reports: the user's way to make room under a client's
 //! [`MAX_REPORTS_PER_SOURCE`](super::MAX_REPORTS_PER_SOURCE).
 //!
-//! Only the user deletes reports, in the CLI (`coffer inbox delete-report`)
-//! or later the app. No MCP tool reaches this module: `coffer_mcp::store`
+//! Only the user deletes reports, in the CLI (`orre inbox delete-report`)
+//! or later the app. No MCP tool reaches this module: `orre_mcp::store`
 //! exposes inserts only (`AGENTS.md` → Invariants).
 //!
 //! - [`reports_to_delete`] says what a [`ReportSelection`] would delete,

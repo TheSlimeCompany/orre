@@ -7,18 +7,18 @@
 //! converted or added across currencies, as [`Amount`] lists. The queries
 //! and their rules (the user's share, refunds netting against their
 //! category, liabilities, closed accounts) are in
-//! [`coffer_core::reporting`]; these handlers only parse the months and
+//! [`orre_core::reporting`]; these handlers only parse the months and
 //! shape the results.
 
 use std::collections::HashMap;
 
-use coffer_core::db::Reader;
-use coffer_core::reporting::balance;
-use coffer_core::reporting::budget_status::{self as core_budget, BudgetLine};
-use coffer_core::reporting::net_worth::{self, AccountWorth, NetWorthMonth};
-use coffer_core::reporting::spending::{self, GroupSpending, SubcategorySpending};
-use coffer_core::reporting::summary::{self, MonthSummary};
-use coffer_core::reporting::{self, Period, Totals};
+use orre_core::db::Reader;
+use orre_core::reporting::balance;
+use orre_core::reporting::budget_status::{self as core_budget, BudgetLine};
+use orre_core::reporting::net_worth::{self, AccountWorth, NetWorthMonth};
+use orre_core::reporting::spending::{self, GroupSpending, SubcategorySpending};
+use orre_core::reporting::summary::{self, MonthSummary};
+use orre_core::reporting::{self, Period, Totals};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -303,9 +303,9 @@ pub enum BudgetSource {
     Standing,
 }
 
-impl From<coffer_core::budget::BudgetGroup> for BudgetGroupKind {
-    fn from(group: coffer_core::budget::BudgetGroup) -> Self {
-        use coffer_core::budget::BudgetGroup;
+impl From<orre_core::budget::BudgetGroup> for BudgetGroupKind {
+    fn from(group: orre_core::budget::BudgetGroup) -> Self {
+        use orre_core::budget::BudgetGroup;
         match group {
             BudgetGroup::Fixed => BudgetGroupKind::Fixed,
             BudgetGroup::Flex => BudgetGroupKind::Flex,

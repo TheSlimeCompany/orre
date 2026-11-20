@@ -7,12 +7,12 @@
 //! Add helpers at the end of this file.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
 
 use super::Fixture;
 
@@ -81,9 +81,9 @@ pub fn add_balance(fixture: &Fixture, account: AccountId, date: &str, minor: i64
 /// Stores `rule` first in the rule list.
 pub fn add_rule(
     fixture: &Fixture,
-    rule: &coffer_core::rule::RuleDefinition,
-) -> coffer_core::id::RuleId {
-    coffer_core::rule::create(&mut writable(fixture), rule).unwrap()
+    rule: &orre_core::rule::RuleDefinition,
+) -> orre_core::id::RuleId {
+    orre_core::rule::create(&mut writable(fixture), rule).unwrap()
 }
 
 /// A report saved by `client` at `aggregate`, so every level of that
@@ -99,7 +99,7 @@ pub fn add_report(
     add_report_at(
         fixture,
         client,
-        Some(coffer_core::mcp_client::AccessLevel::Aggregate),
+        Some(orre_core::mcp_client::AccessLevel::Aggregate),
         title,
         body,
         created_at,
@@ -111,17 +111,17 @@ pub fn add_report(
 pub fn add_report_at(
     fixture: &Fixture,
     client: &str,
-    level: Option<coffer_core::mcp_client::AccessLevel>,
+    level: Option<orre_core::mcp_client::AccessLevel>,
     title: &str,
     body: &str,
     created_at: Option<&str>,
 ) -> i64 {
     let mut db = writable(fixture);
-    let id = coffer_core::inbox::insert_report_at(
+    let id = orre_core::inbox::insert_report_at(
         &mut db,
-        &coffer_core::mcp_client::ClientName::new(client).unwrap(),
-        level.unwrap_or(coffer_core::mcp_client::AccessLevel::Standard),
-        &coffer_core::inbox::NewReport {
+        &orre_core::mcp_client::ClientName::new(client).unwrap(),
+        level.unwrap_or(orre_core::mcp_client::AccessLevel::Standard),
+        &orre_core::inbox::NewReport {
             period: "2026-11".to_owned(),
             title: title.to_owned(),
             body_markdown: body.to_owned(),
@@ -152,11 +152,11 @@ pub fn add_budget(
     category: &str,
     month: Option<&str>,
     amount: Money,
-    group: coffer_core::budget::BudgetGroup,
+    group: orre_core::budget::BudgetGroup,
 ) {
-    coffer_core::budget::set(
+    orre_core::budget::set(
         &mut writable(fixture),
-        &coffer_core::budget::NewBudget {
+        &orre_core::budget::NewBudget {
             category: CategoryKey::new(category).unwrap(),
             month: month.map(|month| month.parse().unwrap()),
             amount,
@@ -260,21 +260,21 @@ pub fn add_merchant_row(
 pub fn split_row(fixture: &Fixture, transaction: TransactionId, lines: &[(i64, Option<&str>)]) {
     let currency = transaction_currency(fixture, transaction);
     let mut db = writable(fixture);
-    let lines: Vec<coffer_core::split::SplitLine> = lines
+    let lines: Vec<orre_core::split::SplitLine> = lines
         .iter()
         .map(|&(minor, category)| {
-            coffer_core::split::SplitLine::new(
+            orre_core::split::SplitLine::new(
                 Money::new(minor, currency),
                 category.map(|key| CategoryKey::new(key).unwrap()),
             )
         })
         .collect();
-    coffer_core::split::set(&mut db, transaction, &lines).unwrap();
+    orre_core::split::set(&mut db, transaction, &lines).unwrap();
 }
 
 /// A confirmed refund of `minor` from `inflow` to `purchase`.
 pub fn refund_row(fixture: &Fixture, inflow: TransactionId, purchase: TransactionId, minor: i64) {
-    use coffer_core::link::{self, LinkKind, LinkTarget, NewLink};
+    use orre_core::link::{self, LinkKind, LinkTarget, NewLink};
     let currency = transaction_currency(fixture, inflow);
     let mut db = writable(fixture);
     link::create(
@@ -291,7 +291,7 @@ pub fn refund_row(fixture: &Fixture, inflow: TransactionId, purchase: Transactio
 
 /// Tags `transaction` with `name` (created on first use).
 pub fn tag_row(fixture: &Fixture, transaction: TransactionId, name: &str, private: bool) {
-    use coffer_core::tag::{self, TagName};
+    use orre_core::tag::{self, TagName};
     let mut db = writable(fixture);
     let name = TagName::new(name).unwrap();
     let id = match tag::find(&db, &name).unwrap() {

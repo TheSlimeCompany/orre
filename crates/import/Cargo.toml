@@ -1,6 +1,6 @@
 [package]
-name = "coffer-import"
-description = "Coffer's statement importers: the Importer trait, CSV (generic and presets) and OFX/QFX"
+name = "orre-import"
+description = "Orre's statement importers: the Importer trait, CSV (generic and presets) and OFX/QFX"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ publish.workspace = true
 
 # Deterministic: no model or network calls in the import path.
 [dependencies]
-coffer-core.workspace = true
+orre-core.workspace = true
 csv.workspace = true
 serde.workspace = true
 encoding_rs.workspace = true

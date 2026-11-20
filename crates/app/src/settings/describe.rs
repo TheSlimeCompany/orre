@@ -4,7 +4,7 @@
 //! panel and the list.
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `coffer mcp`
+//! release build and nothing outside the tests can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -20,7 +20,7 @@
 //! text), the inspector's fixed explanatory captions, an open select's
 //! menu, and the pointer's hover.
 //!
-//! [`ClientName`]: coffer_core::mcp_client::ClientName
+//! [`ClientName`]: orre_core::mcp_client::ClientName
 
 use gpui_kit::{AnyView, App};
 

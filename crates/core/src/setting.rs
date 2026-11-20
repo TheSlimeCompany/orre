@@ -296,7 +296,7 @@ mod tests {
 
     fn db() -> (TempDir, Database) {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         (dir, db)
     }
 

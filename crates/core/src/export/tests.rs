@@ -52,7 +52,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Fixture {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let current = account::create(
             &mut db,
             &NewAccount::new("Current", AccountKind::Current, Currency::GBP),
@@ -333,7 +333,7 @@ fn json_has_the_schema_and_integers_only() {
     let fixture = Fixture::new();
     let text = fixture.text(Format::Json, &with_everything());
     let json: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(json["schema"], "coffer.export");
+    assert_eq!(json["schema"], "orre.export");
     assert_eq!(json["schema_version"], 1);
     assert_eq!(json["includes"]["notes"], true);
     assert_eq!(json["includes"]["private_tags"], true);
@@ -570,7 +570,7 @@ fn a_file_is_private_and_not_overwritten_unless_asked() {
     let leftovers: Vec<_> = fs::read_dir(fixture.dir.path())
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|name| name.contains("coffer-export"))
+        .filter(|name| name.contains("orre-export"))
         .collect();
     assert_eq!(leftovers, Vec::<String>::new());
 
@@ -649,6 +649,6 @@ fn the_date_span_covers_the_ledger() {
     let fixture = Fixture::new();
     assert_eq!(date_span(&fixture.db).unwrap(), Some((day(2), day(5))));
     let dir = TempDir::new().unwrap();
-    let empty = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let empty = Database::open(&dir.path().join("orre.db")).unwrap();
     assert_eq!(date_span(&empty).unwrap(), None);
 }

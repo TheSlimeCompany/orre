@@ -5,9 +5,9 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::budget::BudgetGroup;
-use coffer_core::money::{Currency, Money};
+use orre_core::access_log::Outcome;
+use orre_core::budget::BudgetGroup;
+use orre_core::money::{Currency, Money};
 use serde_json::json;
 use support::reports::{add_budget, amounts, assert_redacted, gbp};
 use support::*;

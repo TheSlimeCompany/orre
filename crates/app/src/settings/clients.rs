@@ -20,14 +20,14 @@
 //! - while AI access is off the clients stay usable, faded as drawn.
 
 use chrono::NaiveDateTime;
-use coffer_core::access_log::Outcome;
-use coffer_core::mcp_client::{AccessLevel, ClientName};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, ClipboardItem, Context, InteractiveElement as _, IntoElement, ParentElement as _,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::access_log::Outcome;
+use orre_core::mcp_client::{AccessLevel, ClientName};
 
 use crate::theme::tokens::{color, opacity, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
@@ -133,7 +133,7 @@ fn refused_reason(row: &ClientRow) -> Option<&'static str> {
 
 /// The command a client's configuration runs.
 pub fn command(name: &ClientName) -> String {
-    format!("coffer mcp --client {name}")
+    format!("orre mcp --client {name}")
 }
 
 /// The toolbar's title and caption.
@@ -153,7 +153,7 @@ pub const NOT_ENABLED: &str = "Not enabled";
 pub fn no_clients() -> Vec<table::Run> {
     vec![
         plain("No client is enabled yet. A client asks to connect the first time it runs "),
-        mono("coffer mcp --client <name>").color(color::TEXT_SECONDARY),
+        mono("orre mcp --client <name>").color(color::TEXT_SECONDARY),
         plain(", and is listed below until you enable or ignore it."),
     ]
 }
@@ -734,7 +734,7 @@ impl SettingsView {
                     plain("The command in the client's MCP configuration. The name after "),
                     mono("--client"),
                     plain(
-                        " is how Coffer tells clients apart. It isn't a password: any program on \
+                        " is how Orre tells clients apart. It isn't a password: any program on \
                          this computer can use it.",
                     ),
                 ],
@@ -805,7 +805,7 @@ mod tests {
         }
         assert_eq!(
             command(&ClientName::new("my-agent").unwrap()),
-            "coffer mcp --client my-agent"
+            "orre mcp --client my-agent"
         );
     }
 }

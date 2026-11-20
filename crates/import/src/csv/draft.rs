@@ -14,7 +14,7 @@
 //! date format that reads the values in more than one way (`01/02/2026`)
 //! is left unchosen, never guessed.
 
-use coffer_core::money::{Currency, DecimalMark, Money};
+use orre_core::money::{Currency, DecimalMark, Money};
 
 use super::dates::{DateFormat, TimeFormat};
 use super::mapping::{

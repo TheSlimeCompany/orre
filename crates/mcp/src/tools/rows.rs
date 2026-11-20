@@ -3,7 +3,7 @@
 //! `merchant_history` (`standard`: it takes a merchant's name)
 //! (ROADMAP M2.2, M2.14).
 //!
-//! The queries are in [`coffer_core::reporting::rows`]; this module only
+//! The queries are in [`orre_core::reporting::rows`]; this module only
 //! shapes their lines into [`TransactionRow`]s, the same in every tool:
 //!
 //! - merchants go out as [`MerchantLabel`]s through [`Call::merchant`],
@@ -21,13 +21,13 @@
 
 use std::collections::HashMap;
 
-use coffer_core::category::CategoryKey;
-use coffer_core::envelope;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::reporting::period::parse_date;
-use coffer_core::reporting::rows::{self, MerchantSummary, Search};
-use coffer_core::reporting::{Capped, LedgerLine, Limit};
-use coffer_core::tag::TagName;
+use orre_core::category::CategoryKey;
+use orre_core::envelope;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::reporting::period::parse_date;
+use orre_core::reporting::rows::{self, MerchantSummary, Search};
+use orre_core::reporting::{Capped, LedgerLine, Limit};
+use orre_core::tag::TagName;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -43,7 +43,7 @@ pub fn register(registry: &mut Registry) {
 }
 
 /// What replaces a description that holds a sort code, an account or card
-/// number or an IBAN. Coffer's words, not the bank's.
+/// number or an IBAN. Orre's words, not the bank's.
 pub const ACCOUNT_DETAILS_WITHHELD: &str = "[withheld: account details]";
 
 pub const SEARCH_TRANSACTIONS: ToolSpec = ToolSpec {
@@ -251,9 +251,9 @@ pub enum LinkKind {
     Settlement,
 }
 
-impl From<coffer_core::link::LinkKind> for LinkKind {
-    fn from(kind: coffer_core::link::LinkKind) -> LinkKind {
-        use coffer_core::link::LinkKind as Core;
+impl From<orre_core::link::LinkKind> for LinkKind {
+    fn from(kind: orre_core::link::LinkKind) -> LinkKind {
+        use orre_core::link::LinkKind as Core;
         match kind {
             Core::Refund => LinkKind::Refund,
             Core::Reimbursement => LinkKind::Reimbursement,

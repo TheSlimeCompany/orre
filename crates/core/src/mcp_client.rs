@@ -2,7 +2,7 @@
 //! → "MCP surface" and "Decision record: Settings, AI access and backups
 //! (2026-11-10)").
 //!
-//! A client is the name `coffer mcp --client <name>` was started with
+//! A client is the name `orre mcp --client <name>` was started with
 //! ([`ClientName`]); `mcp_client` (V11) records whether the user enabled it
 //! and at which [`AccessLevel`]. The MCP server registers only the tools at
 //! or below a client's level.
@@ -72,7 +72,7 @@ pub const MAX_CLIENT_NAME_LEN: usize = 64;
 
 /// The name the app's own suggestions carry (`suggestion.source_client`),
 /// which no MCP client may use.
-pub const RESERVED_CLIENT_NAME: &str = "coffer";
+pub const RESERVED_CLIENT_NAME: &str = "orre";
 
 /// A client's name: 1 to [`MAX_CLIENT_NAME_LEN`] ASCII letters, digits,
 /// `.`, `_` or `-`, and not [`RESERVED_CLIENT_NAME`] in any case. The schema
@@ -127,7 +127,7 @@ pub enum ClientNameError {
     Length { max: usize },
     #[error("a client name has only ASCII letters, digits, '.', '_' and '-'")]
     Characters,
-    #[error("`{RESERVED_CLIENT_NAME}` is reserved for Coffer's own suggestions")]
+    #[error("`{RESERVED_CLIENT_NAME}` is reserved for Orre's own suggestions")]
     Reserved,
 }
 
@@ -175,7 +175,7 @@ impl FromSql for ClientStatus {
     }
 }
 
-/// A client as the app and `coffer ai-access list` show it.
+/// A client as the app and `orre ai-access list` show it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientInfo {
     pub name: ClientName,
@@ -469,7 +469,7 @@ mod tests {
 
     fn db() -> (tempfile::TempDir, Database) {
         let dir = tempfile::TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         (dir, db)
     }
 
@@ -671,7 +671,7 @@ mod tests {
         for name in ["claude code", "claude\u{202e}", "é", "a/b", "a\n"] {
             assert_eq!(ClientName::new(name), Err(ClientNameError::Characters));
         }
-        for name in ["coffer", "Coffer", "COFFER"] {
+        for name in ["orre", "Orre", "ORRE"] {
             assert_eq!(ClientName::new(name), Err(ClientNameError::Reserved));
         }
     }

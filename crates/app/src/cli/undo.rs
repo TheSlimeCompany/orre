@@ -1,20 +1,20 @@
-//! `coffer undo-import <batch>`: say what undoing an import removes, and
+//! `orre undo-import <batch>`: say what undoing an import removes, and
 //! with `--yes`, remove it.
 
 use std::io::Write;
 
 use clap::Args;
-use coffer_core::account;
-use coffer_core::db::Database;
-use coffer_core::id::BatchId;
-use coffer_core::import::{self, UndoPreview};
+use orre_core::account;
+use orre_core::db::Database;
+use orre_core::id::BatchId;
+use orre_core::import::{self, UndoPreview};
 
 use super::accounts;
 use super::import::plural;
 
 #[derive(Debug, Args)]
 pub struct UndoImportArgs {
-    /// The import's batch ID, as `coffer import` printed it.
+    /// The import's batch ID, as `orre import` printed it.
     #[arg(value_name = "BATCH")]
     pub batch: i64,
 
@@ -23,7 +23,7 @@ pub struct UndoImportArgs {
     pub yes: bool,
 }
 
-/// `coffer undo-import`. Without `--yes` it only previews, and succeeds.
+/// `orre undo-import`. Without `--yes` it only previews, and succeeds.
 pub fn run(db: &mut Database, args: &UndoImportArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let batch = BatchId::new(args.batch);
     let preview = import::undo_preview(db, batch)?;

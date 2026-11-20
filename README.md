@@ -1,6 +1,6 @@
-# Coffer
+# Orre
 
-A local-first personal finance dashboard. Coffer imports bank exports (CSV, OFX/QFX)
+A local-first personal finance dashboard. Orre imports bank exports (CSV, OFX/QFX)
 into a local SQLite database, shows them as tables and charts in a native desktop app,
 and lets AI clients (Claude Code, Claude Desktop, Codex) query your data through an
 MCP server.
@@ -23,12 +23,12 @@ MCP server.
 ## Planned usage
 
 ```sh
-coffer                 # open the dashboard
-coffer import <file>   # import a bank export
-coffer accounts        # list accounts
-coffer undo-import     # undo an import batch
-coffer inbox           # review MCP suggestions
-coffer mcp             # run the MCP server over stdio
+orre                 # open the dashboard
+orre import <file>   # import a bank export
+orre accounts        # list accounts
+orre undo-import     # undo an import batch
+orre inbox           # review MCP suggestions
+orre mcp             # run the MCP server over stdio
 ```
 
 ## Development

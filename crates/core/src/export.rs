@@ -1,4 +1,4 @@
-//! Exporting transactions as CSV or JSON (M1.29, `coffer export`; the app's
+//! Exporting transactions as CSV or JSON (M1.29, `orre export`; the app's
 //! export dialog, M3.16). `docs/EXPORT.md` is a copy of these docs for
 //! readers of an export: keep the two in step.
 //!
@@ -62,7 +62,7 @@
 //!   names joined with `"; "`; a tag name can itself hold `;`, so the JSON
 //!   form is the exact one. The CSV has no version marker: its header row
 //!   is the schema.
-//! - **JSON**: one object, `{"schema": "coffer.export", "schema_version":
+//! - **JSON**: one object, `{"schema": "orre.export", "schema_version":
 //!   1, "includes": {"notes": …, "private_tags": …}, "rows": [ … ]}`, each
 //!   row an object with the columns below as keys, in that order. A missing
 //!   value is `null`, a list is an array of strings, a boolean is
@@ -154,7 +154,7 @@ use crate::tag::{self, TagName};
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// The `schema` of a JSON export.
-pub const SCHEMA_NAME: &str = "coffer.export";
+pub const SCHEMA_NAME: &str = "orre.export";
 
 /// The file format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -190,7 +190,7 @@ pub struct Options {
     /// Adds `private_tags`, and allows filtering by a private tag.
     pub include_private_tags: bool,
     /// Keeps the rows of excluded transactions, with their
-    /// `excluded_reason`. On by default (and always for `coffer export`);
+    /// `excluded_reason`. On by default (and always for `orre export`);
     /// the app's export dialog starts with it off (M3.16).
     pub include_excluded: bool,
 }
@@ -295,7 +295,7 @@ pub enum Error {
     #[error("couldn't write {}: {source}", path.display())]
     File { path: PathBuf, source: io::Error },
 
-    #[error("{} is Coffer's database (or one of its files); choose another file for the export", .0.display())]
+    #[error("{} is Orre's database (or one of its files); choose another file for the export", .0.display())]
     IsDatabase(PathBuf),
 
     #[error("couldn't write the export: {0}")]
@@ -470,7 +470,7 @@ pub fn to_file(
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
-        path.with_file_name(format!(".{name}.coffer-export.tmp"))
+        path.with_file_name(format!(".{name}.orre-export.tmp"))
     } else {
         path.to_path_buf()
     };

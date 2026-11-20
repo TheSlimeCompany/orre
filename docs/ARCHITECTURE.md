@@ -1,4 +1,4 @@
-# Coffer — Architecture
+# Orre — Architecture
 
 A local-first personal finance dashboard. Import bank statements, see where money goes,
 and talk to your data through any MCP-capable AI client (Claude Code, Claude Desktop, Codex).
@@ -40,6 +40,7 @@ Money as integer minor units, and the SQLite schema.
 
 - Section: Money
 - Section: Data model
+- Decision record: the rename to Orre, and the schema history reset (2026-11-20)
 
 ### [Accounts](architecture/accounts.md)
 
@@ -111,7 +112,7 @@ Change batches, refunds, reimbursements and shared costs, possible duplicates, b
 Suggestions waiting for the user: the Inbox and its impact preview.
 
 - Section: Inbox (Suggestions; Approving and rejecting; The impact preview; The Inbox
-  screen; Coffer's own suggestions)
+  screen; Orre's own suggestions)
 - Decision record: Inbox impact preview (2026-11-10)
 - Decision record: Inbox (2026-11-14)
 - Decision record: the preview says why a rule skips a row's category (2026-11-19)
@@ -180,15 +181,15 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Stack | Rust 2024, GPUI via `gpui-kit` / `gpui-component` (charts, `DataTable`, sidebar/dock built in) |
 | Platforms | Linux + macOS official; Windows community-supported, to be built in CI once there is one (M5.5; there is no CI yet) |
 | License | `MIT OR Apache-2.0` |
-| Storage | SQLite, WAL mode, `synchronous = FULL`, file mode 0600 (data dir 0700), `coffer.db` in the platform data dir (`~/.local/share/coffer`; `~/Library/Application Support/Coffer` on macOS), overridable with `COFFER_DATA_DIR`. Not encrypted in v1 (SQLCipher possible later) |
+| Storage | SQLite, WAL mode, `synchronous = FULL`, file mode 0600 (data dir 0700), `orre.db` in the platform data dir (`~/.local/share/orre`; `~/Library/Application Support/Orre` on macOS), overridable with `ORRE_DATA_DIR`. Not encrypted in v1 (SQLCipher possible later) |
 | Money | Integer minor units + ISO 4217 currency per account/transaction. Never floats |
 | Currency | Multi-currency; one home currency for reporting. ECB reference rates fetched opt-in and cached (the app's only network call); manual rates as fallback |
 | Formats (v1) | CSV (generic mapping + presets), OFX/QFX. QIF, CAMT.053, MT940 later via `Importer` trait |
 | PDF | Deferred. Plan: local text extraction + per-layout templates; any model-based extraction opt-in only |
-| Categorization | Local rules engine first; AI-proposed categories/rules land in the Inbox for approval. Approving a categorisation sets those transactions' categories (an undoable `bulk_edit` batch, source `ai_approved`); only approving a `rule` suggestion creates a rule. The app also files `rule` suggestions itself (source `coffer`) after repeated identical manual recategorisations: deterministic counting, no ML. Learned classifiers are not used |
-| Transfers | Auto-detect opposite-amount pairs across own accounts within 3 days (`TransferWindow::DEFAULT`); user confirms; a confirmed pair is excluded from income/spend and its legs take no category. A suggested pair counts by its own category until confirmed, and the table marks it. A category of kind `transfer` is for a single row whose other side Coffer doesn't hold. See "Decision record: two kinds of transfer, and marking a suggested pair" |
+| Categorization | Local rules engine first; AI-proposed categories/rules land in the Inbox for approval. Approving a categorisation sets those transactions' categories (an undoable `bulk_edit` batch, source `ai_approved`); only approving a `rule` suggestion creates a rule. The app also files `rule` suggestions itself (source `orre`) after repeated identical manual recategorisations: deterministic counting, no ML. Learned classifiers are not used |
+| Transfers | Auto-detect opposite-amount pairs across own accounts within 3 days (`TransferWindow::DEFAULT`); user confirms; a confirmed pair is excluded from income/spend and its legs take no category. A suggested pair counts by its own category until confirmed, and the table marks it. A category of kind `transfer` is for a single row whose other side Orre doesn't hold. See "Decision record: two kinds of transfer, and marking a suggested pair" |
 | Pots / sub-accounts | Monzo Pots, Starling Spaces, Revolut Vaults etc. are sub-accounts of their parent. A preset's `[sub_account_transfer]` identifies pot transfers; the import commit creates the pot when its key (the bank's ID for it, or its name where the export has no ID, as Monzo's doesn't) is new, mirrors the row onto it (`origin = mirrored`) and pairs the two as a confirmed transfer. Pots count toward net worth (opening balance entered once per pot). See "Decision record: sub-accounts" |
-| AI integration | `coffer mcp` stdio MCP server (`rmcp`). Read-only query tools + inbox-only writes. No account numbers at any level; names and bank text only at `standard` (see "MCP surface") |
+| AI integration | `orre mcp` stdio MCP server (`rmcp`). Read-only query tools + inbox-only writes. No account numbers at any level; names and bank text only at `standard` (see "MCP surface") |
 | Splits | A transaction can be split into lines that sum exactly to its amount, in its currency (enforced in core, in the same DB transaction as the edit). Reports, budgets and MCP read the `ledger_line` view: one row per split line, or the transaction itself when it isn't split |
 | Tags and notes | Many tags per transaction, alongside categories. Tag names are user text: MCP sees them only at `standard` access, and never for tags marked private. The imported note stays read-only; the user's note is a separate field. Neither note is exposed over MCP, at any level |
 | Manual entries and corrections | Manual rows have `origin = manual` and no import batch. Imported source fields (date, amount, raw description, external ID) are never edited: a bad import is undone, or a row is excluded with a recorded reason and stays visible under an "excluded" filter. User-facing fields (category, display merchant, tags, notes, splits) are editable. Manual rows are the user's own data: every field is editable and they can be deleted. Exclusion reasons and their effect on balances: see the decision record "Transactions additions" |
@@ -201,7 +202,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Budgets | Per-category monthly amounts with optional rollover. Each budget is in a group: fixed, non-monthly (accrues 1/12 of a yearly amount, seeded from yearly schedules) or flex |
 | Asset and liability accounts | Account kinds `asset` and `liability` hold manually valued items (house, pension, mortgage, loan). Valuations are `balance_snapshot` rows with source `valuation`; net worth uses the last value on or before each date. Investment holdings and prices are deferred (ROADMAP L.14) |
 | Backups and export | Rotating `VACUUM INTO` snapshots (0600) in `<data dir>/backups` (0700) before every import commit, migration and restore; the 10 most recent automatic backups plus the newest of each of the 12 months before the current one are kept, and manual ones stay until the user deletes them ("Decision record: backup retention and presets"). Restore runs `PRAGMA integrity_check` and a schema-version check on a copy before swapping files (see "Decision record: local backups"). Export is CSV/JSON with a documented, versioned schema (split lines carry their parent ID); user notes and private tags only with `--include-notes` / `--include-private-tags` (user, 2026-11-12), share labels never. Beancount/hledger journal export follows in M5.8. Local files only, no network |
-| MCP access | MCP is off until the user enables a client. Each client has an access level (`aggregate`, `pseudonymous` or `standard`); tools above it are never registered. The client is named by `coffer mcp --client <name>` in its configuration. This is a guardrail against over-sharing, not authentication: any local process can read the database file (at-rest encryption is L.6). Every tool call is recorded in `mcp_access_log`. Approval happens only in Coffer's own window or CLI; MCP elicitation, sampling and MCP Apps are not used for it |
+| MCP access | MCP is off until the user enables a client. Each client has an access level (`aggregate`, `pseudonymous` or `standard`); tools above it are never registered. The client is named by `orre mcp --client <name>` in its configuration. This is a guardrail against over-sharing, not authentication: any local process can read the database file (at-rest encryption is L.6). Every tool call is recorded in `mcp_access_log`. Approval happens only in Orre's own window or CLI; MCP elicitation, sampling and MCP Apps are not used for it |
 
 ### Decision record: feature research (2026-11-09)
 
@@ -242,16 +243,16 @@ presets/   <region>/<bank>.toml  — CSV column mappings (data, not code)
 fixtures/  redacted sample files; every importer and preset has one
 ```
 
-Packages are named `coffer-core`, `coffer-import`, `coffer-mcp` and `coffer-app`. The
-binary is built from `coffer-app`, which depends on the other three; shared files stay at the
+Packages are named `orre-core`, `orre-import`, `orre-mcp` and `orre-app`. The
+binary is built from `orre-app`, which depends on the other three; shared files stay at the
 repository root (`assets/` for fonts and brand marks, `design/` for the exported tokens).
 
-Single binary: `coffer` (GUI: the app shell around the views, see "Decision record: the
-app shell and window state"), `coffer mcp --client <name>` (stdio MCP server), and the
-headless commands (`coffer_app::cli::Command`): `coffer import <file>`, `coffer
-accounts`, `coffer undo-import`, `coffer backup [--list | --delete <file>]` / `coffer
-restore <file> [--yes]` (M1.28), `coffer export`, `coffer ai-access`, `coffer budgets`,
-`coffer schedules`, `coffer inbox` and `coffer categorize`.
+Single binary: `orre` (GUI: the app shell around the views, see "Decision record: the
+app shell and window state"), `orre mcp --client <name>` (stdio MCP server), and the
+headless commands (`orre_app::cli::Command`): `orre import <file>`, `orre
+accounts`, `orre undo-import`, `orre backup [--list | --delete <file>]` / `orre
+restore <file> [--yes]` (M1.28), `orre export`, `orre ai-access`, `orre budgets`,
+`orre schedules`, `orre inbox` and `orre categorize`.
 
 The GUI and MCP processes share the SQLite file; WAL allows concurrent readers.
 
@@ -262,12 +263,12 @@ Versions live in `[workspace.dependencies]` in the root `Cargo.toml`; crates opt
 
 | Area | Crates | Notes |
 |---|---|---|
-| Storage | `rusqlite` (`bundled`), `refinery` | `rusqlite` pinned to 0.40 until `refinery` supports 0.41. `refinery` checksums applied migrations, enforcing "never edit a shipped migration". No connection pool: one connection per process, WAL + `busy_timeout` + `BEGIN IMMEDIATE`; the app and the CLI open with `Database::open`, which creates the database if needed and runs migrations (all pending ones in one transaction); `coffer mcp` opens with `Database::open_existing`, which never creates or migrates and refuses a missing or older database, telling the user to open Coffer or run a CLI command. Both check an existing file first (a SQLite database, not a newer schema, applied migrations matching the embedded ones) and leave a refused file untouched: no permission change, WAL switch or write. SQLCipher later = `bundled-sqlcipher-vendored-openssl` |
-| Import | `csv`, `serde`, `encoding_rs`, `chrono`, `toml` | Encoding comes from the preset, the OFX header or a BOM; without any, only UTF-8 is accepted, and a file that doesn't decode is refused, never guessed. The BOM is stripped before `csv`. Dates must round-trip through their format string. OFX is read by Coffer's own tolerant SGML/XML reader, not `ofx-kit` (dropped in M1.10, see "The OFX importer") |
-| Money / FX | none | Own `Money { minor: i64, currency }` (`coffer_core::money`, M1.5) with a hand-written, test-frozen exponent table. FX in `i128` fixed point with one explicit rounding. Decimal types from format crates are converted to minor units at the import boundary, never stored. See "Money" below |
+| Storage | `rusqlite` (`bundled`), `refinery` | `rusqlite` pinned to 0.40 until `refinery` supports 0.41. `refinery` checksums applied migrations, enforcing "never edit a shipped migration". No connection pool: one connection per process, WAL + `busy_timeout` + `BEGIN IMMEDIATE`; the app and the CLI open with `Database::open`, which creates the database if needed and runs migrations (all pending ones in one transaction); `orre mcp` opens with `Database::open_existing`, which never creates or migrates and refuses a missing or older database, telling the user to open Orre or run a CLI command. Both check an existing file first (a SQLite database, not a newer schema, applied migrations matching the embedded ones) and leave a refused file untouched: no permission change, WAL switch or write. SQLCipher later = `bundled-sqlcipher-vendored-openssl` |
+| Import | `csv`, `serde`, `encoding_rs`, `chrono`, `toml` | Encoding comes from the preset, the OFX header or a BOM; without any, only UTF-8 is accepted, and a file that doesn't decode is refused, never guessed. The BOM is stripped before `csv`. Dates must round-trip through their format string. OFX is read by Orre's own tolerant SGML/XML reader, not `ofx-kit` (dropped in M1.10, see "The OFX importer") |
+| Money / FX | none | Own `Money { minor: i64, currency }` (`orre_core::money`, M1.5) with a hand-written, test-frozen exponent table. FX in `i128` fixed point with one explicit rounding. Decimal types from format crates are converted to minor units at the import boundary, never stored. See "Money" below |
 | Rules | `regex`, `aho-corasick`, `serde_json` | `regex` is linear-time, so user rules can't hang the app. `serde_json` (already in the tree, MIT OR Apache-2.0) decodes `rule_action.value_json` strictly in core |
 | Plumbing | `thiserror` (libs), `anyhow` (binary), `clap`, `tracing`, `tracing-subscriber`, `directories`, `uuid` (v7) | Logs go to stderr |
-| MCP | `rmcp` (`transport-io`), `tokio` (current-thread), `schemars` | Only the `mcp` crate / `coffer mcp` path uses tokio; `core` stays synchronous |
+| MCP | `rmcp` (`transport-io`), `tokio` (current-thread), `schemars` | Only the `mcp` crate / `orre mcp` path uses tokio; `core` stays synchronous |
 
 Later: `ureq` for the ECB fetch, reading the ECB Data Portal's CSV
 (`data-api.ecb.europa.eu`, `format=csvdata`) with the `csv` crate already in import, so no
@@ -299,7 +300,7 @@ Research and candidates per roadmap item: [`research/crates.md`](research/crates
 
 1. **Core + import (headless)** — workspace split, schema/migrations, CSV (generic + preset)
    and OFX importers, dedupe, reconciliation, rules, transfer detection;
-   `coffer import` CLI; fixtures + tests. Also splits, tags and notes, manual
+   `orre import` CLI; fixtures + tests. Also splits, tags and notes, manual
    transactions, merchant clean-up, rule actions, refund/reimbursement links,
    near-duplicate queue, balance assertions and lock, backups, CSV/JSON export.
 2. **MCP server** — read tools, inbox writes, `monthly_review` prompt; usable from

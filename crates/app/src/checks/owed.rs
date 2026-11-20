@@ -4,7 +4,7 @@
 //!
 //! - **Expense claims**, oldest first: a 16px status lane (the `link` icon
 //!   on claims a payment matches) · the purchase · PAID FROM · SPENT · OWED.
-//!   Under them, one strip per payment Coffer matched to some claims
+//!   Under them, one strip per payment Orre matched to some claims
 //!   exactly, with "Link as reimbursement" and "Not this" (each one undoable
 //!   change batch, the undo bar at the foot).
 //! - **Shared costs**, one row per person: COSTS ("2 since 30 Oct", the
@@ -16,13 +16,13 @@
 //!
 //! People are local labels and merchants untrusted text: shown plain.
 
-use coffer_core::link::owed::{ClaimMatch, ClaimRow, Cost, OwedQueue, Payment, Person};
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::link::owed::{ClaimMatch, ClaimRow, Cost, OwedQueue, Payment, Person};
 
 use crate::theme::tokens::{color, font, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant};

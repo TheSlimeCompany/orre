@@ -1,6 +1,6 @@
 //! A restore while an MCP server runs (decision record "Settings, AI
 //! access and backups", point 6, and "M2: MCP server", F.1): the server
-//! keeps no connection open between calls, so it never blocks `coffer
+//! keeps no connection open between calls, so it never blocks `orre
 //! restore`; it refuses calls while a restore holds the restore lock; a
 //! lock file nobody holds (a stopped restore's) doesn't block it; and the
 //! next call reads the restored database. The calls it refuses wait in the
@@ -14,8 +14,8 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
-use coffer_core::access_log::{LoggedCall, Outcome, pending};
-use coffer_core::backup::{self, Reason};
+use orre_core::access_log::{LoggedCall, Outcome, pending};
+use orre_core::backup::{self, Reason};
 use serde_json::json;
 use support::reports::*;
 use support::*;
@@ -31,7 +31,7 @@ fn report_titles(result: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-/// Holds the restore lock as `coffer restore` in another process would,
+/// Holds the restore lock as `orre restore` in another process would,
 /// until dropped.
 fn hold_restore_lock(db_path: &Path) -> File {
     let file = OpenOptions::new()
@@ -217,7 +217,7 @@ async fn a_lock_file_left_by_a_stopped_restore_doesnt_block_calls() {
     // file whose lock went with the process.
     std::fs::write(
         backup::restore_lock_path(fixture.path()),
-        "2026-11-12T10:00:00.000Z\n/backups/coffer-20261101T090000.000Z-manual.db\n",
+        "2026-11-12T10:00:00.000Z\n/backups/orre-20261101T090000.000Z-manual.db\n",
     )
     .unwrap();
     assert!(!backup::restoring(fixture.path()).unwrap());
@@ -256,7 +256,7 @@ async fn a_lock_file_that_cant_be_locked_refuses_calls_and_names_it() {
     let result = client.call("list_categories", json!({})).await;
     assert_eq!(result.is_error, Some(true), "{result:?}");
     let text = serde_json::to_string(&result.content).unwrap();
-    assert!(text.contains("coffer.db-restoring"), "{text}");
+    assert!(text.contains("orre.db-restoring"), "{text}");
     assert!(text.contains("Nothing was read"), "{text}");
     // Only the file's name: the directory can name the user.
     let dir = fixture.path().parent().unwrap().display().to_string();

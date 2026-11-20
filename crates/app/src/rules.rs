@@ -55,15 +55,15 @@ mod write;
 
 use std::collections::BTreeSet;
 
-use coffer_core::category::{self, CategoryKind, CategorySummary, GroupOverview};
-use coffer_core::change::{self, ChangeKind, HistoryEntry, HistoryItem};
-use coffer_core::id::{ChangeBatchId, MerchantAliasId, RuleId, TransactionId};
-use coffer_core::inbox::{Suggestion, SuggestionId, preview as inbox_preview};
-use coffer_core::merchant::{self, AliasDefinition, AliasKind, AliasSummary};
-use coffer_core::rule::{
+use gpui_kit::{Context, EventEmitter, SharedString, Task};
+use orre_core::category::{self, CategoryKind, CategorySummary, GroupOverview};
+use orre_core::change::{self, ChangeKind, HistoryEntry, HistoryItem};
+use orre_core::id::{ChangeBatchId, MerchantAliasId, RuleId, TransactionId};
+use orre_core::inbox::{Suggestion, SuggestionId, preview as inbox_preview};
+use orre_core::merchant::{self, AliasDefinition, AliasKind, AliasSummary};
+use orre_core::rule::{
     self, ActionKind, ApplyPreview, Draft, PreviewRow, RuleDefinition, RuleOrigin, RuleSummary,
 };
-use gpui_kit::{Context, EventEmitter, SharedString, Task};
 
 use crate::accounts::store::StoreError;
 use crate::ui::list;
@@ -74,7 +74,7 @@ use text::Part;
 use write::{Policy, Said};
 
 gpui_kit::actions!(
-    coffer_rules,
+    orre_rules,
     [
         /// ⌥↑ (Alt on Linux and Windows): move the selected rule one place
         /// up (`DESIGN.md` → "Rules" → "Keyboard reorder").
@@ -1389,7 +1389,7 @@ impl Rules {
     pub fn undo_preview(
         &self,
         batch: ChangeBatchId,
-    ) -> Result<coffer_core::change::UndoSummary, SharedString> {
+    ) -> Result<orre_core::change::UndoSummary, SharedString> {
         self.query(|db| change::undo_preview(db, batch))
     }
 

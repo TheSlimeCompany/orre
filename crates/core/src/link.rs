@@ -12,7 +12,7 @@
 //! - a [`LinkKind::Settlement`] to a share label: a person who owes the user
 //!   for shared costs.
 //!
-//! Links are suggested by Coffer ([`suggest_for_batch`], [`suggest_all`]),
+//! Links are suggested by Orre ([`suggest_for_batch`], [`suggest_all`]),
 //! confirmed or made by the user ([`confirm`], [`create`]), and rejected
 //! ([`reject`]). Only confirmed links count. A rejected pair keeps its row
 //! and is never suggested again; unlinking a confirmed link rejects it too,
@@ -124,7 +124,7 @@ impl LinkKind {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum LinkStatus {
-    /// Coffer's guess, for the user to confirm or reject.
+    /// Orre's guess, for the user to confirm or reject.
     Suggested,
     /// The user's; the only status that counts.
     Confirmed,

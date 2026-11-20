@@ -8,14 +8,14 @@
 //! that passed, and the account's first count is its starting point, which
 //! isn't checked.
 //!
-//! - [`expectation`] is what the dialog shows: what Coffer expects on the
+//! - [`expectation`] is what the dialog shows: what Orre expects on the
 //!   count's date (the last count that passed, or the starting point, plus
 //!   the transactions after it up to and including that day) and how far
 //!   the counted amount is from it. None before the first count.
 //! - [`record`] stores the count. When asked, it also stores a manual
 //!   transaction "Cash count difference", in Other, on the count's date for
 //!   the difference, so the new count passes. Both are written in one DB
-//!   transaction, and the difference only when the caller asks: Coffer never
+//!   transaction, and the difference only when the caller asks: Orre never
 //!   posts one on its own.
 //!
 //! The guards are [`super::add_balance`]'s and [`crate::manual::create`]'s:
@@ -39,7 +39,7 @@ pub const DIFFERENCE_DESCRIPTION: &str = "Cash count difference";
 /// The key of the category the difference is filed under.
 pub const DIFFERENCE_CATEGORY: &str = "other";
 
-/// What Coffer expects of a count, and how far the count is from it.
+/// What Orre expects of a count, and how far the count is from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Expectation {
     /// The count the expectation counts from, or `None` before the first
@@ -83,7 +83,7 @@ pub enum Error {
     Database(#[from] rusqlite::Error),
 }
 
-/// What Coffer expects the cash account to hold at the end of `date`, and
+/// What Orre expects the cash account to hold at the end of `date`, and
 /// how far `counted` is from it.
 pub fn expectation(
     db: &Database,
@@ -229,7 +229,7 @@ mod tests {
 
     fn open() -> (Database, TempDir) {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         (db, dir)
     }
 

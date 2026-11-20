@@ -1,4 +1,4 @@
-//! `coffer import <file>`: read a bank export, preview the import into an
+//! `orre import <file>`: read a bank export, preview the import into an
 //! account, and commit it.
 //!
 //! Choosing the importer: `--preset` names a CSV preset (bundled, or saved
@@ -23,18 +23,18 @@ use std::path::PathBuf;
 
 use anyhow::{Context, bail};
 use clap::Args;
-use coffer_core::account::{self, Account, AccountKind};
-use coffer_core::balance::CheckResult;
-use coffer_core::db::Database;
-use coffer_core::import::{
+use orre_core::account::{self, Account, AccountKind};
+use orre_core::balance::CheckResult;
+use orre_core::db::Database;
+use orre_core::import::{
     self, BalanceCheck, CheckedBalance, Committed, Confirmations, FileBalanceKind,
     FileBalanceStatus, FileOrder, ImportPreview, NotCarried, ReconciliationStatus, RowOutcome,
 };
-use coffer_core::money::Currency;
-use coffer_core::statement::Statement;
-use coffer_import::ofx::{OfxImporter, OfxStatement, OfxStatementKind};
-use coffer_import::preset::{Preset, Presets};
-use coffer_import::{AnyImporter, Detect, Detection, Importer, SourceFile};
+use orre_core::money::Currency;
+use orre_core::statement::Statement;
+use orre_import::ofx::{OfxImporter, OfxStatement, OfxStatementKind};
+use orre_import::preset::{Preset, Presets};
+use orre_import::{AnyImporter, Detect, Detection, Importer, SourceFile};
 
 use super::accounts;
 
@@ -99,7 +99,7 @@ impl Reader<'_> {
     }
 }
 
-/// `coffer import`.
+/// `orre import`.
 pub fn run(
     db: &mut Database,
     presets: &Presets,
@@ -206,7 +206,7 @@ pub fn run(
                     }
                 }
             }
-            writeln!(out, "To undo it: coffer undo-import {}", summary.batch)?;
+            writeln!(out, "To undo it: orre undo-import {}", summary.batch)?;
             Ok(())
         }
         Ok(Committed::NothingNew) => {
@@ -356,14 +356,14 @@ fn detect<'p>(file: &SourceFile, presets: &'p Presets) -> anyhow::Result<Reader<
         .map(|reader| (reader, reader.detect(file)))
         .filter(|(reader, detection)| reader.is_confident(*detection))
         .collect();
-    // Best first; equals keep their order, as in `coffer_import::detect`.
+    // Best first; equals keep their order, as in `orre_import::detect`.
     found.sort_by_key(|(_, detection)| std::cmp::Reverse(*detection));
 
     match found.as_slice() {
         [] => bail!(
             "couldn't tell what kind of file {} is: it isn't OFX or QFX, and it doesn't have \
              the columns of any preset. If it's a CSV export from one of these banks, \
-             choose its preset with --preset:\n{}\nFor another layout, map its columns in Coffer's Import window and save them as a preset.",
+             choose its preset with --preset:\n{}\nFor another layout, map its columns in Orre's Import window and save them as a preset.",
             file.name(),
             preset_lines(presets)
         ),
@@ -440,7 +440,7 @@ fn choose_account(
     if all.is_empty() {
         bail!(
             "there are no accounts yet; add the one to import into with \
-             `coffer accounts add --name <name> --kind <kind> --currency {currency}`"
+             `orre accounts add --name <name> --kind <kind> --currency {currency}`"
         );
     }
     if let Some(wanted) = wanted {
@@ -458,7 +458,7 @@ fn choose_account(
     match fits.as_slice() {
         [only] => Ok((*only).clone()),
         [] => bail!(
-            "no open account in {currency} can take this file; add one with `coffer accounts add`, \
+            "no open account in {currency} can take this file; add one with `orre accounts add`, \
              or name the account with --account. The accounts are:\n{}",
             accounts::list_lines(all.iter())
         ),

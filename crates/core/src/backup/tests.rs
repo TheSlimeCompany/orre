@@ -13,7 +13,7 @@ fn at(stamp: &str) -> DateTime<Utc> {
 }
 
 fn db_path(dir: &TempDir) -> PathBuf {
-    dir.path().join("data").join("coffer.db")
+    dir.path().join("data").join("orre.db")
 }
 
 /// A database with one account, `name`, closed again.
@@ -54,7 +54,7 @@ fn dir_names(dir: &Path) -> Vec<String> {
     names
 }
 
-/// No temporary file of ours (`.coffer-*`) in the data or backups dir.
+/// No temporary file of ours (`.orre-*`) in the data or backups dir.
 fn assert_no_scratch_files(db_path: &Path) {
     for dir in [
         db_path.parent().unwrap().to_path_buf(),
@@ -65,7 +65,7 @@ fn assert_no_scratch_files(db_path: &Path) {
         }
         let names = dir_names(&dir);
         assert!(
-            names.iter().all(|name| !name.starts_with(".coffer-")),
+            names.iter().all(|name| !name.starts_with(".orre-")),
             "temporary files left in {}: {names:?}",
             dir.display()
         );
@@ -107,7 +107,7 @@ fn mode(path: &Path) -> u32 {
 fn names_round_trip_and_sort_by_time() {
     let taken_at = at("2026-11-11 15:30:12.345");
     let name = file_name(Reason::Import, taken_at);
-    assert_eq!(name, "coffer-20261111T153012.345Z-import.db");
+    assert_eq!(name, "orre-20261111T153012.345Z-import.db");
     assert_eq!(parse_file_name(&name), Some((Reason::Import, taken_at)));
 
     for reason in Reason::ALL {
@@ -123,16 +123,16 @@ fn names_round_trip_and_sort_by_time() {
 #[test]
 fn other_names_dont_parse() {
     for name in [
-        "coffer.db",
-        "coffer-20261111T153012.345Z-import.db-wal",
-        "coffer-20261111T153012.345Z-import.sqlite",
-        "coffer-20261111T153012.345Z-weekly.db",
-        "coffer-20261111T153012Z-import.db",
-        "coffer-20261111T153012.3456Z-import.db",
-        "coffer-20261311T153012.345Z-import.db",
-        "coffer-20261111T153012.345-import.db",
-        "Coffer-20261111T153012.345Z-import.db",
-        ".coffer-partial-1-0.db",
+        "orre.db",
+        "orre-20261111T153012.345Z-import.db-wal",
+        "orre-20261111T153012.345Z-import.sqlite",
+        "orre-20261111T153012.345Z-weekly.db",
+        "orre-20261111T153012Z-import.db",
+        "orre-20261111T153012.3456Z-import.db",
+        "orre-20261311T153012.345Z-import.db",
+        "orre-20261111T153012.345-import.db",
+        "Orre-20261111T153012.345Z-import.db",
+        ".orre-partial-1-0.db",
         "notes.txt",
     ] {
         assert_eq!(parse_file_name(name), None, "{name}");
@@ -150,10 +150,10 @@ fn only_manual_backups_are_kept_forever() {
 #[test]
 fn backups_sit_next_to_the_database() {
     assert_eq!(
-        backups_dir(Path::new("/data/coffer.db")),
+        backups_dir(Path::new("/data/orre.db")),
         Path::new("/data/backups")
     );
-    assert_eq!(backups_dir(Path::new("coffer.db")), Path::new("backups"));
+    assert_eq!(backups_dir(Path::new("orre.db")), Path::new("backups"));
 }
 
 // Creating ------------------------------------------------------------------
@@ -184,7 +184,7 @@ fn create_writes_a_private_copy_of_the_database() {
         [backup.path.file_name().unwrap().to_str().unwrap()]
     );
 
-    // It's a valid Coffer database at this build's version.
+    // It's a valid Orre database at this build's version.
     let conn = db::connect(&backup.path).unwrap();
     assert_eq!(
         db::check_schema(&conn).unwrap(),
@@ -451,9 +451,9 @@ fn rotate_only_touches_backup_names() {
     }
     let manual = file_name(Reason::Manual, at("2026-01-01 09:00:00.000"));
     let foreign = [
-        "coffer-latest.db",
+        "orre-latest.db",
         "notes.txt",
-        "coffer-20261101T090000.000Z-import.db.bak",
+        "orre-20261101T090000.000Z-import.db.bak",
     ];
     fs::write(backups.join(&manual), "").unwrap();
     for name in foreign {
@@ -503,7 +503,7 @@ fn delete_removes_only_a_backup_in_the_backups_dir() {
     let mut refused = vec![
         PathBuf::from("notes.txt"),
         PathBuf::from("missing.db"),
-        PathBuf::from("../coffer.db"),
+        PathBuf::from("../orre.db"),
         PathBuf::from(".."),
         PathBuf::new(),
         outside.clone(),
@@ -667,7 +667,7 @@ fn restore_migrates_an_older_backup() {
 fn restore_without_a_current_database_takes_no_backup() {
     let setup = Setup::new();
     let elsewhere = TempDir::new().unwrap();
-    let path = elsewhere.path().join("new").join("coffer.db");
+    let path = elsewhere.path().join("new").join("orre.db");
 
     assert_eq!(
         check(&path, &setup.backup).unwrap().current,
@@ -778,7 +778,7 @@ fn a_backup_with_a_different_history_is_refused() {
 }
 
 #[test]
-fn a_file_that_isnt_a_coffer_database_is_refused() {
+fn a_file_that_isnt_a_orre_database_is_refused() {
     let setup = Setup::new();
     let before = fs::read(&setup.path).unwrap();
 
@@ -797,7 +797,7 @@ fn a_file_that_isnt_a_coffer_database_is_refused() {
         .execute("CREATE TABLE t (x)", [])
         .unwrap();
     let err = restore(&setup.path, &other).unwrap_err();
-    assert!(matches!(err, Error::NotCoffer { .. }), "{err:?}");
+    assert!(matches!(err, Error::NotOrre { .. }), "{err:?}");
 
     let missing = setup._dir.path().join("missing.db");
     let err = restore(&setup.path, &missing).unwrap_err();
@@ -854,7 +854,7 @@ fn a_held_restore_lock_refuses_a_second_restore() {
 
     assert!(matches!(err, Error::RestoreLocked { .. }), "{err:?}");
     let message = err.to_string();
-    assert!(message.contains("coffer.db-restoring"), "{message}");
+    assert!(message.contains("orre.db-restoring"), "{message}");
     assert!(!message.contains("delete"), "{message}");
     // Someone else's lock is still held; nothing was swapped or backed up.
     assert!(restoring(&setup.path).unwrap());
@@ -930,7 +930,7 @@ fn a_restore_over_a_stopped_restores_lock_goes_ahead_and_clears_it() {
 }
 
 #[test]
-fn a_lock_file_coffer_didnt_write_is_reported_as_interrupted() {
+fn a_lock_file_orre_didnt_write_is_reported_as_interrupted() {
     let setup = Setup::new();
     fs::write(restore_lock_path(&setup.path), "not a marker").unwrap();
 
@@ -1063,7 +1063,7 @@ fn without_its_backup_a_database_isnt_migrated() {
     assert!(
         dir_names(path.parent().unwrap())
             .iter()
-            .all(|name| !name.starts_with(".coffer-"))
+            .all(|name| !name.starts_with(".orre-"))
     );
 }
 

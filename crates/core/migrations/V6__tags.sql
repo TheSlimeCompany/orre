@@ -5,7 +5,7 @@
 -- tag marked `private` (nor do exports). The user's own note needs no table:
 -- it is `"transaction".user_note` (V1), beside the read-only imported `note`.
 --
--- `coffer_core::tag` checks names before they're stored (`TagName`): trimmed,
+-- `orre_core::tag` checks names before they're stored (`TagName`): trimmed,
 -- not blank, at most 64 characters, no control characters, and unique
 -- ignoring case with full Unicode case folding. The schema checks what SQL
 -- can, as a backstop: no surrounding whitespace, the length, and uniqueness

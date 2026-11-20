@@ -8,13 +8,13 @@
 //! shown in their window and never logged.
 
 use chrono::NaiveDate;
-use coffer_core::balance::CheckResult;
-use coffer_core::import::{
+use orre_core::balance::CheckResult;
+use orre_core::import::{
     BalanceCheck, CheckedBalance, Flag, ImportPreview, ReconciliationStatus, RowOutcome,
 };
-use coffer_core::money::{DecimalMark, Money};
-use coffer_core::statement::{RowProblem, StatementLine};
-use coffer_import::csv::{Delimiter, TextEncoding};
+use orre_core::money::{DecimalMark, Money};
+use orre_core::statement::{RowProblem, StatementLine};
+use orre_import::csv::{Delimiter, TextEncoding};
 
 use crate::format::{Sign, list_date, money};
 
@@ -213,10 +213,7 @@ pub fn flag_note(
         }
         (RowProblem::Unreadable { field, .. } | RowProblem::Missing(field), Some(text)) => {
             segs.push(mono(format!("“{text}”")));
-            segs.push(plain(format!(
-                " isn’t a {} Coffer can read.",
-                field.as_str()
-            )));
+            segs.push(plain(format!(" isn’t a {} Orre can read.", field.as_str())));
         }
         _ => segs.push(plain(super::session::sentence(&problem.to_string()))),
     }
@@ -647,8 +644,8 @@ pub fn undone(file: &str) -> Vec<Seg> {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::money::{Currency, ParseAmountError};
-    use coffer_core::statement::{Field, SubAccountKind, SubAccountRef};
+    use orre_core::money::{Currency, ParseAmountError};
+    use orre_core::statement::{Field, SubAccountKind, SubAccountRef};
 
     use super::*;
 

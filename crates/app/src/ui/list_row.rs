@@ -33,7 +33,7 @@ use crate::ui::text::TextRoleExt as _;
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 /// The `group` name on a row, for content that follows its hover.
-const GROUP: &str = "coffer-list-row";
+const GROUP: &str = "orre-list-row";
 
 /// The row label: body type at medium weight.
 const LABEL: TextRole = TextRole {
@@ -82,8 +82,8 @@ impl TrailingTone {
 /// name. The row is as wide as its column.
 ///
 /// ```
-/// use coffer_app::ui::icon::Glyph;
-/// use coffer_app::ui::list_row::ListRow;
+/// use orre_app::ui::icon::Glyph;
+/// use orre_app::ui::list_row::ListRow;
 ///
 /// let row = ListRow::new("account-current", "Current account")
 ///     .icon(Glyph::Account)
@@ -96,7 +96,7 @@ pub struct ListRow {
     id: ElementId,
     label: SharedString,
     leading: Option<Leading>,
-    /// Words after the label at regular weight in `text-muted`: "Coffer
+    /// Words after the label at regular weight in `text-muted`: "Orre
     /// from your edits".
     label_suffix: Option<SharedString>,
     trailing: Option<SharedString>,
@@ -165,7 +165,7 @@ impl ListRow {
     }
 
     /// Adds `words` after the label at regular weight in `text-muted`
-    /// ("Coffer" + "from your edits").
+    /// ("Orre" + "from your edits").
     pub fn label_suffix(mut self, words: impl Into<SharedString>) -> Self {
         self.label_suffix = Some(words.into());
         self

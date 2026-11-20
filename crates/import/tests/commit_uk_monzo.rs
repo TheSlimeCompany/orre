@@ -5,21 +5,21 @@
 
 use std::path::Path;
 
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::id::AccountId;
-use coffer_core::import::{self, CommitSummary, Committed};
-use coffer_core::money::Currency;
-use coffer_core::rule::{
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::id::AccountId;
+use orre_core::import::{self, CommitSummary, Committed};
+use orre_core::money::Currency;
+use orre_core::rule::{
     self, AmountBounds, MatchField, MatchKind, Pattern, RuleAction, RuleDefinition,
 };
-use coffer_core::statement::Statement;
-use coffer_core::statement::SubAccountKind;
-use coffer_core::sub_account::{self, NewPot};
-use coffer_core::transfer::{self, TransferStatus};
-use coffer_import::preset::Presets;
-use coffer_import::{AnyImporter, SourceFile};
+use orre_core::statement::Statement;
+use orre_core::statement::SubAccountKind;
+use orre_core::sub_account::{self, NewPot};
+use orre_core::transfer::{self, TransferStatus};
+use orre_import::preset::Presets;
+use orre_import::{AnyImporter, SourceFile};
 use rusqlite::{Connection, OpenFlags};
 use tempfile::TempDir;
 
@@ -72,7 +72,7 @@ fn pair(source: &str, key: &str) -> (Option<String>, Option<String>) {
 #[test]
 fn monzo_imports_with_preset_categories_rules_and_transfers() {
     let dir = TempDir::new().unwrap();
-    let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
     let current = account::create(
         &mut db,
         &NewAccount::new("Monzo", AccountKind::Current, Currency::GBP),
@@ -129,12 +129,12 @@ fn monzo_imports_with_preset_categories_rules_and_transfers() {
         &NewAccount::new("Savings", AccountKind::Savings, Currency::GBP),
     )
     .unwrap();
-    let mut incoming = Statement::new(coffer_core::statement::SourceFormat::Csv, Currency::GBP);
+    let mut incoming = Statement::new(orre_core::statement::SourceFormat::Csv, Currency::GBP);
     incoming.push(
-        coffer_core::statement::SourceLocation::Line(2),
-        Ok(coffer_core::statement::StatementLine::new(
+        orre_core::statement::SourceLocation::Line(2),
+        Ok(orre_core::statement::StatementLine::new(
             chrono::NaiveDate::from_ymd_opt(2026, 10, 5).unwrap(),
-            coffer_core::money::Money::new(2_400, Currency::GBP),
+            orre_core::money::Money::new(2_400, Currency::GBP),
             "Synthetic transfer in",
         )),
     );
@@ -183,7 +183,7 @@ fn count(db: &Database, sql: &str) -> i64 {
 #[test]
 fn monzo_pot_transfers_are_mirrored_onto_their_pots() {
     let dir = TempDir::new().unwrap();
-    let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
     let mut monzo = NewAccount::new("Monzo", AccountKind::Current, Currency::GBP);
     monzo.institution = Some("Monzo".into());
     let current = account::create(&mut db, &monzo).unwrap();
@@ -251,7 +251,7 @@ fn monzo_pot_transfers_are_mirrored_onto_their_pots() {
         );
         let group = parent.3.expect("paired");
         assert_eq!(mirrored.3, Some(group));
-        let group = transfer::group(&db, coffer_core::id::TransferGroupId::new(group)).unwrap();
+        let group = transfer::group(&db, orre_core::id::TransferGroupId::new(group)).unwrap();
         assert_eq!(group.status, TransferStatus::Confirmed);
     }
     // Into Rainy Day 200.00 and 25.00, back out 50.00; into Holiday 75.00.
@@ -287,7 +287,7 @@ fn monzo_pot_transfers_are_mirrored_onto_their_pots() {
 #[test]
 fn monzo_pot_transfers_need_an_account_that_can_have_pots() {
     let dir = TempDir::new().unwrap();
-    let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
     let card = account::create(
         &mut db,
         &NewAccount::new("Card", AccountKind::CreditCard, Currency::GBP),

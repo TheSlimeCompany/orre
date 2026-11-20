@@ -11,10 +11,10 @@ mod redact;
 
 pub use redact::{purpose, redact_args, result_hash};
 
-use coffer_core::access_log::Outcome;
-use coffer_core::db::Reader;
-use coffer_core::mcp_client::{self, AccessLevel, ClientAccess, ClientName};
-use coffer_core::setting;
+use orre_core::access_log::Outcome;
+use orre_core::db::Reader;
+use orre_core::mcp_client::{self, AccessLevel, ClientAccess, ClientName};
+use orre_core::setting;
 
 use crate::registry::ToolSpec;
 use crate::store::{Store, StoreError};
@@ -122,14 +122,14 @@ pub fn gate(access: Access, tool: &ToolSpec) -> Gate {
 /// What a refused call tells the client.
 pub fn refusal_message(outcome: Outcome) -> &'static str {
     match outcome {
-        Outcome::RefusedOff => "AI access to Coffer is switched off.",
+        Outcome::RefusedOff => "AI access to Orre is switched off.",
         Outcome::RefusedNotEnabled => {
-            "This client isn't enabled in Coffer. The user can enable it in Coffer's settings."
+            "This client isn't enabled in Orre. The user can enable it in Orre's settings."
         }
         Outcome::RefusedLevel => "This tool isn't available at this client's access level.",
         // The server's own message says why (`server::Unavailable`).
         Outcome::RefusedRestoring | Outcome::RefusedUnavailable => {
-            "Coffer couldn't open its database for this call."
+            "Orre couldn't open its database for this call."
         }
         Outcome::Ok | Outcome::Error => "Refused.",
     }

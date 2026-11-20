@@ -83,7 +83,7 @@ pub enum ParseAmountError {
 
     #[error(
         "the amount has more decimal places than {currency} has ({}); \
-         Coffer doesn't round imported amounts",
+         Orre doesn't round imported amounts",
         currency.minor_units()
     )]
     TooPrecise { currency: Currency },

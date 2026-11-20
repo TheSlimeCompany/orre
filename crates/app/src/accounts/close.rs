@@ -7,7 +7,7 @@
 //! worth from the day, its history stays, it can be reopened), then the day
 //! in a 96px date field, then Cancel and "Close account" (neutral primary:
 //! it can be undone). Core decides the rest
-//! ([`coffer_core::account::close`]): never before what the account holds,
+//! ([`orre_core::account::close`]): never before what the account holds,
 //! nor before its lock date. A refusal is said in `danger` under the form.
 //!
 //! Drawn for an asset ("Sold on"). Composed for M3.17 (decided with the
@@ -18,15 +18,15 @@
 //! later. The body follows the day as it's typed.
 
 use chrono::NaiveDate;
-use coffer_core::account::AccountKind;
-use coffer_core::id::AccountId;
-use coffer_core::money::Money;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable as _, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
 };
+use orre_core::account::AccountKind;
+use orre_core::id::AccountId;
+use orre_core::money::Money;
 
 use crate::format::{Sign, currency_prefix, field_date, list_date, money, parse_date};
 use crate::theme::tokens::{color, spacing};
@@ -233,7 +233,7 @@ impl CloseAccountDialog {
     /// Closes the account on the typed day, or says why it can't.
     pub fn submit(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let Some(on) = self.typed(cx) else {
-            self.error = Some("The date isn't one Coffer can read. Type it as 6 Nov 2026.".into());
+            self.error = Some("The date isn't one Orre can read. Type it as 6 Nov 2026.".into());
             cx.notify();
             return;
         };
@@ -296,7 +296,7 @@ impl Render for CloseAccountDialog {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::money::Currency;
+    use orre_core::money::Currency;
 
     use super::*;
 

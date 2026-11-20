@@ -8,7 +8,7 @@
 
 use std::borrow::Cow;
 
-use coffer_core::statement::{SourceFormat, SourceLocation};
+use orre_core::statement::{SourceFormat, SourceLocation};
 
 use crate::ImportError;
 use crate::csv::TextEncoding;
@@ -104,7 +104,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<(Cow<'_, str>, TextEncoding), Impor
 /// - OFX 2.x: the XML declaration's `encoding`, else UTF-8.
 /// - No header: UTF-8.
 ///
-/// An encoding Coffer doesn't read is [`ImportError::Unsupported`].
+/// An encoding Orre doesn't read is [`ImportError::Unsupported`].
 fn stated_encoding(bytes: &[u8]) -> Result<TextEncoding, ImportError> {
     let unsupported = ImportError::Unsupported {
         what: "the file's character encoding",
@@ -325,11 +325,11 @@ mod tests {
         );
         assert_eq!(
             encoding_of(&sgml("USASCII", "437", b"x")),
-            Err("Coffer can't import the file's character encoding".to_owned())
+            Err("Orre can't import the file's character encoding".to_owned())
         );
         assert_eq!(
             encoding_of(&sgml("EBCDIC", "NONE", b"x")),
-            Err("Coffer can't import the file's character encoding".to_owned())
+            Err("Orre can't import the file's character encoding".to_owned())
         );
     }
 
@@ -352,7 +352,7 @@ mod tests {
         );
         assert_eq!(
             encoding_of(&xml("<?xml version=\"1.0\" encoding=\"Shift_JIS\"?>", b"")),
-            Err("Coffer can't import the file's character encoding".to_owned())
+            Err("Orre can't import the file's character encoding".to_owned())
         );
     }
 
@@ -408,7 +408,7 @@ mod tests {
         let error = |text: &str| read(text).unwrap_err().to_string();
         assert_eq!(
             error("OFXHEADER:100\nCOMPRESSION:ZLIB\n<OFX>"),
-            "Coffer can't import compressed OFX files"
+            "Orre can't import compressed OFX files"
         );
         assert_eq!(
             error("OFXHEADER:100\nsecret text\n<OFX>"),

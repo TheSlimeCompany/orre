@@ -17,14 +17,14 @@
 //!
 //! A refusal from core is said under the body in caption type, `danger`.
 
-use coffer_core::change::{ChangeKind, UndoSummary};
-use coffer_core::id::{ChangeBatchId, MerchantAliasId, RuleId};
-use coffer_core::rule::RuleAction;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Window, div,
 };
+use orre_core::change::{ChangeKind, UndoSummary};
+use orre_core::id::{ChangeBatchId, MerchantAliasId, RuleId};
+use orre_core::rule::RuleAction;
 
 use crate::accounts::DialogClosed;
 use crate::theme::tokens::{color, typography};
@@ -94,7 +94,7 @@ impl DeleteRuleDialog {
                         text::pattern(definition)
                     );
                     let rows = text::count(summary.decides, "transaction", "transactions");
-                    let kept = match definition.action(coffer_core::rule::ActionKind::SetCategory) {
+                    let kept = match definition.action(orre_core::rule::ActionKind::SetCategory) {
                         Some(RuleAction::SetCategory(key)) => {
                             let label = data
                                 .category(key)
@@ -537,7 +537,7 @@ mod described {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use coffer_core::change::{BatchInfo, BatchStatus};
+    use orre_core::change::{BatchInfo, BatchStatus};
 
     fn summary(transactions: usize, restored_on: usize) -> UndoSummary {
         UndoSummary {

@@ -11,8 +11,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use coffer_core::category::CategoryKey;
-use coffer_core::money::DecimalMark;
+use orre_core::category::CategoryKey;
+use orre_core::money::DecimalMark;
 
 use super::{Preset, PresetError};
 use crate::csv::{AmountColumns, Column, CsvMapping, SplitSigns, TextEncoding};
@@ -31,8 +31,8 @@ pub struct PresetParts {
     pub sub_account_category: Option<CategoryKey>,
 }
 
-/// The first line of a preset Coffer writes.
-const SAVED_HEADER: &str = "# Saved from Coffer's column mapping. The fields are described in \
+/// The first line of a preset Orre writes.
+const SAVED_HEADER: &str = "# Saved from Orre's column mapping. The fields are described in \
                             presets/README.md.\n";
 
 impl Preset {
@@ -255,7 +255,7 @@ fn quote(text: &str) -> String {
 /// A preset's bank part from its name: lowercase ASCII letters and digits,
 /// anything else as single hyphens (`Example Bank (savings)` →
 /// `example-bank-savings`). `None` when the name has no letter or digit
-/// Coffer can use.
+/// Orre can use.
 pub fn slug(name: &str) -> Option<String> {
     let mut out = String::new();
     let mut gap = false;
@@ -293,7 +293,7 @@ fn fold(c: char) -> char {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::money::Currency;
+    use orre_core::money::Currency;
 
     use super::*;
     use crate::csv::{
@@ -403,7 +403,7 @@ mod tests {
     fn the_saved_text_reads_like_a_bundled_preset() {
         let presets = Presets::bundled().unwrap();
         let text = presets.get("uk-monzo").unwrap().to_toml();
-        assert!(text.starts_with("# Saved from Coffer"));
+        assert!(text.starts_with("# Saved from Orre"));
         assert!(text.contains("\ndate = { column = \"Date\", format = \"%d/%m/%Y\" }\n"));
         assert!(text.contains("\n[sub_account_transfer]\nkind = \"pot\"\n"));
     }

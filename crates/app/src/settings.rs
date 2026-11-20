@@ -12,7 +12,7 @@
 //! - [`log`]: the access log by day, filtered by client and period, and
 //!   the call inspector (the redacted arguments, the purpose as the
 //!   client's untrusted words). Never the result hash (decided with the
-//!   user, as `coffer ai-access log`).
+//!   user, as `orre ai-access log`).
 //! - [`backups`]: Recent and One a month, Back up now, Restore from a
 //!   file…, and the backup inspector (what it holds, what restoring would
 //!   undo, Restore…, Show in folder, Save a copy…).
@@ -43,14 +43,14 @@ pub(crate) mod table;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use coffer_core::access_log::activity::Cursor;
-use coffer_core::backup::detail::Since;
-use coffer_core::mcp_client::{AccessLevel, ClientName};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, EventEmitter, FocusHandle, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, ScrollHandle, SharedString, Styled as _, Task, Window, div,
 };
+use orre_core::access_log::activity::Cursor;
+use orre_core::backup::detail::Since;
+use orre_core::mcp_client::{AccessLevel, ClientName};
 
 use crate::accounts::store::StoreError;
 use crate::theme::tokens::{color, spacing};
@@ -105,7 +105,7 @@ pub struct DeleteTarget {
     pub path: PathBuf,
     /// When it was taken, as the title names it.
     pub taken: String,
-    pub reason: coffer_core::backup::Reason,
+    pub reason: orre_core::backup::Reason,
 }
 
 /// Something Settings asks the shell for.
@@ -698,7 +698,7 @@ impl SettingsView {
             let named = path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .and_then(coffer_core::backup::parse_file_name)
+                .and_then(orre_core::backup::parse_file_name)
                 .map(|(_, taken_at)| taken_at);
             let _ = this.update(cx, |_, cx| {
                 cx.emit(SettingsEvent::RestoreRequested(RestoreTarget {
@@ -850,7 +850,7 @@ impl SettingsView {
 
     /// After a restore (the Restore dialog): reads everything again, says
     /// so, and tells the shell.
-    pub fn restored(&mut self, restored: &coffer_core::backup::Restored, cx: &mut Context<Self>) {
+    pub fn restored(&mut self, restored: &orre_core::backup::Restored, cx: &mut Context<Self>) {
         self.notice = Some(Notice {
             message: NoticeMessage::Restored {
                 migrated: restored.migrated_to.is_some(),

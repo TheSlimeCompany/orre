@@ -1,4 +1,4 @@
-# Coffer — Code map
+# Orre — Code map
 
 Where things are in the code. Milestone numbers (M1.3, D6.6, …) point to
 [`ROADMAP.md`](ROADMAP.md), the reasons to [`ARCHITECTURE.md`](ARCHITECTURE.md). This
@@ -15,7 +15,7 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
 
 - `db`, `paths`: data dir, WAL, permissions, migrations (M1.3); `paths::presets_dir`.
   `db::migrations::run` turns foreign keys off for a migration whose first line is
-  `-- coffer: foreign_keys=off` and checks them before it commits (R.4);
+  `-- orre: foreign_keys=off` and checks them before it commits (R.4);
   `db/superseded_tests.rs` covers V21.
 - Migrations in `crates/core/migrations/`: `V1__initial_schema.sql` (M1.4) to
   `V23__account_source_identity.sql`. Each feature below names the migration it added.
@@ -133,7 +133,7 @@ M1.20–M1.27 have no CLI commands yet.
 - `inbox` (M2.3, M2.14, `V13__inbox.sql`): typed payloads, filing with dedupe and caps,
   `approve`/`approve_all`/`reject`, `impact`, `counts`, `reject_all`,
   `decide_transfer` (settles an agent's pending suggestion for a pair), and `own`,
-  Coffer's own rule suggestions (`inbox::own::recategorize`). The Inbox view's read model
+  Orre's own rule suggestions (`inbox::own::recategorize`). The Inbox view's read model
   is `inbox::preview` (`describe`, `preview`, `covered_by`).
 - `envelope`: the untrusted-text envelope, `sanitize`, `strip_invisible`,
   `reads_like_instructions`, merchant pseudonyms (M2.13); `envelope::shown`.
@@ -170,7 +170,7 @@ M1.20–M1.27 have no CLI commands yet.
   `presets/uk/monzo.toml` is the reference (M1.9, `[sub_account_transfer]` for pots since
   M1.17).
 - `tests/preset_golden.rs`: freezes every bundled preset's fixture row external IDs and
-  fingerprints against `tests/golden/<region>/<bank>.txt` (R.5); `COFFER_BLESS_GOLDEN=1`
+  fingerprints against `tests/golden/<region>/<bank>.txt` (R.5); `ORRE_BLESS_GOLDEN=1`
   writes missing files.
 
 ## `crates/mcp`
@@ -186,7 +186,7 @@ M1.20–M1.27 have no CLI commands yet.
 
 ## `crates/app`
 
-Package `coffer-app`, lib `coffer_app`, binary `coffer`. Every view opens the database
+Package `orre-app`, lib `orre_app`, binary `orre`. Every view opens the database
 per call through its own store and changes data only through core.
 
 ### Shell and components
@@ -196,7 +196,7 @@ per call through its own store and changes data only through core.
   the window state (bounds, mode, open view) restored on launch
   (`shell::window_state`). Actions such as `shell::ImportStatement` (⌘I) and
   `shell::NewTransaction` (⌘N). Views without a screen yet show `ui::empty_state`.
-- `ui::`: Coffer's components. `ui::dialog` (also wide) and `ui::menu` (with `MenuList`,
+- `ui::`: Orre's components. `ui::dialog` (also wide) and `ui::menu` (with `MenuList`,
   the menu opened from a chip, a row or the bulk-action bar, with a filter field) on the
   unstyled `gpui-base` roots; `ui::toggle`, `ui::segmented` (also panel size,
   `Segmented::fill`), `ui::notification`, `ui::undo_bar`, `ui::tag`, and the rest of
@@ -223,10 +223,10 @@ per call through its own store and changes data only through core.
   (`Action`, `PanelRow`, `Header`, `Section`, `Inspector`, `Dialog`). Each view's own is
   a `#[cfg(test)] mod describe` beside it (`inbox`, `transactions`, `checks`, `rules`,
   `settings`, `accounts`), built from the text the view draws; the tests assert on it.
-  Never in a release build or reachable from `coffer mcp` (`docs/architecture/app.md`,
+  Never in a release build or reachable from `orre mcp` (`docs/architecture/app.md`,
   2026-11-18).
 - `format`: writes and reads money and dates.
-- `showcase`: the component showcase, `coffer --showcase`.
+- `showcase`: the component showcase, `orre --showcase`.
 
 ### Transactions (M3.3)
 
@@ -313,7 +313,7 @@ per call through its own store and changes data only through core.
 
 ### CLI (M1.18)
 
-`coffer_app::cli`: `import` (bundled and saved presets), `accounts` (`list`, `add`,
+`orre_app::cli`: `import` (bundled and saved presets), `accounts` (`list`, `add`,
 `--preset`, `close`, `reopen`), `undo-import`, `backup` (`--list`, `--delete <file>
 [--yes]`), `restore <file>
 [--yes]`, `export --format csv|json`, `mcp --client <name>`, `ai-access` (`list`,

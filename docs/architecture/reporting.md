@@ -1,4 +1,4 @@
-# Coffer — Architecture: Reporting
+# Orre — Architecture: Reporting
 
 Budgets, the forecast, and how spending is counted over the ledger.
 
@@ -8,8 +8,8 @@ that list.
 
 ## Reporting
 
-`coffer_core::reporting` (queries over a `Reader`), `coffer_core::budget` and
-`coffer_core::schedule`. The MCP read tools and the app call these; none logs
+`orre_core::reporting` (queries over a `Reader`), `orre_core::budget` and
+`orre_core::schedule`. The MCP read tools and the app call these; none logs
 transaction text. Amounts are `Money` in integer minor units, and totals are per currency
 (`Totals`), never added across currencies: conversion waits for M4.6. The rule in force
 is below; the records under "Decision records" are the history.
@@ -75,7 +75,7 @@ change would be refused, the preview shows none (point 4).
 
 ### Budgets
 
-What is built (`coffer_core::budget`, `coffer budgets`, the MCP tool `budget_status`):
+What is built (`orre_core::budget`, `orre budgets`, the MCP tool `budget_status`):
 
 - A budget belongs to one `spending` category, a group or a subcategory
   (`Error::NotSpending` otherwise). It is standing (every month) or for one month,

@@ -1,10 +1,10 @@
 //! M2's exit criteria (`docs/ROADMAP.md` → M2), walked end to end on the
 //! fixture database:
 //!
-//! 1. the user enables a client (`coffer ai-access enable`, then `level`);
+//! 1. the user enables a client (`orre ai-access enable`, then `level`);
 //! 2. the client asks the totals tools about last month and gets an answer;
 //! 3. it proposes categorisations for uncategorised rows;
-//! 4. the user approves them (`coffer inbox approve`, which runs core's
+//! 4. the user approves them (`orre inbox approve`, which runs core's
 //!    `inbox::approve_all`), and they apply;
 //! 5. every call is in the access log.
 //!
@@ -15,9 +15,9 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::inbox::{self, ApproveOptions, SuggestionId};
-use coffer_core::mcp_client::{self, ClientName};
+use orre_core::access_log::Outcome;
+use orre_core::inbox::{self, ApproveOptions, SuggestionId};
+use orre_core::mcp_client::{self, ClientName};
 use serde_json::{Value, json};
 use support::reports::{amounts, gbp};
 use support::*;
@@ -49,7 +49,7 @@ async fn where_did_my_money_go_last_month() {
         mcp_client::set_level(&mut db, &name, AccessLevel::Standard).unwrap();
     }
     let client = fixture
-        .connect_with(CLIENT, coffer_mcp::tools::registry())
+        .connect_with(CLIENT, orre_mcp::tools::registry())
         .await;
     let tools = client.tool_names().await;
     for tool in [
@@ -130,7 +130,7 @@ async fn where_did_my_money_go_last_month() {
         assert_eq!(category_of(&fixture, target).0, None);
     }
 
-    // 4. The user approves it in Coffer.
+    // 4. The user approves it in Orre.
     {
         let mut db = fixture.open();
         inbox::approve_all(&mut db, &[id], ApproveOptions::default()).unwrap();

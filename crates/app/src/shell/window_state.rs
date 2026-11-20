@@ -1,7 +1,7 @@
 //! The window's saved state (ROADMAP M3.1; `docs/ARCHITECTURE.md` →
 //! "Decision record: the app shell and window state"): where the window was,
 //! how it was shown and which view it had open, kept in the database's
-//! `setting` table ([`coffer_core::setting::WindowState`]).
+//! `setting` table ([`orre_core::setting::WindowState`]).
 //!
 //! The window state is a convenience, so nothing here stops the app: a
 //! database that can't be opened, a restore in progress or a stored value
@@ -19,10 +19,10 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use coffer_core::backup::gate;
-use coffer_core::db::Database;
-use coffer_core::setting::{self, WindowMode, WindowState};
 use gpui_kit::{Bounds, Pixels, WindowBounds, point, px, size};
+use orre_core::backup::gate;
+use orre_core::db::Database;
+use orre_core::setting::{self, WindowMode, WindowState};
 
 use crate::theme::tokens::size as token_size;
 
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn the_store_saves_and_loads_through_the_database() {
         let dir = TempDir::new().unwrap();
-        let store = WindowStore::new(dir.path().join("coffer.db"));
+        let store = WindowStore::new(dir.path().join("orre.db"));
         assert_eq!(store.load(), None, "a new database has none");
         let state = snapshot(
             WindowBounds::Windowed(bounds(10., 20., 1500., 950.)),
@@ -347,14 +347,13 @@ mod tests {
     #[test]
     fn the_store_waits_out_a_restore() {
         let dir = TempDir::new().unwrap();
-        let database = dir.path().join("coffer.db");
+        let database = dir.path().join("orre.db");
         let store = WindowStore::new(database.clone());
         let state = snapshot(WindowBounds::Windowed(fallback()), View::Inbox);
         store.save(&state);
 
         // A restore holds an exclusive lock on `<database>-restoring`.
-        let lock =
-            std::fs::File::create(coffer_core::backup::restore_lock_path(&database)).unwrap();
+        let lock = std::fs::File::create(orre_core::backup::restore_lock_path(&database)).unwrap();
         lock.lock().unwrap();
         assert_eq!(store.load(), None, "nothing is read during a restore");
         store.save(&snapshot(WindowBounds::Windowed(fallback()), View::Rules));

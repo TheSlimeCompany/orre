@@ -1,8 +1,8 @@
 # Bank presets
 
-A preset tells Coffer how to read one bank's CSV export: which column holds the date,
+A preset tells Orre how to read one bank's CSV export: which column holds the date,
 the amount, the description, and so on. Presets are plain TOML, so you can add a bank
-without writing Rust. Every `.toml` file here is compiled into Coffer, and the tests
+without writing Rust. Every `.toml` file here is compiled into Orre, and the tests
 load all of them.
 
 ## Where a preset goes
@@ -38,16 +38,16 @@ the golden file as they are. Don't regenerate or edit a golden file to make a fa
 away.
 
 To create the golden file of a new preset, add its fixture, then run
-`COFFER_BLESS_GOLDEN=1 cargo test -p coffer-import --test preset_golden`. It writes only
+`ORRE_BLESS_GOLDEN=1 cargo test -p orre-import --test preset_golden`. It writes only
 the golden files that are missing and never overwrites one. Check the file, and commit it
 with the preset. A preset with no golden file fails the test.
 
 ## Presets saved from the app
 
-Coffer's Import window can save a column mapping as a preset ("Save as preset…", M3.5).
-Those live in Coffer's data folder, never in this repository:
-`<data dir>/presets/<region>/<bank>.toml` (`~/.local/share/coffer/presets` on Linux,
-`~/Library/Application Support/Coffer/presets` on macOS, or under `COFFER_DATA_DIR`). They
+Orre's Import window can save a column mapping as a preset ("Save as preset…", M3.5).
+Those live in Orre's data folder, never in this repository:
+`<data dir>/presets/<region>/<bank>.toml` (`~/.local/share/orre/presets` on Linux,
+`~/Library/Application Support/Orre/presets` on macOS, or under `ORRE_DATA_DIR`). They
 are written in this format, so one can be contributed here as it is: add its redacted
 fixture and test as below. "Save a copy…" writes the same file wherever you choose. A
 saved preset can't reuse a bundled preset's ID, and one that doesn't load is skipped with
@@ -86,7 +86,7 @@ source_type = { column = "Type" }
 note = { column = "Notes and #tags" }
 ignore = ["Emoji", "Address", "Receipt", "Category split", "Money Out", "Money In"]
 
-[category_map]                     # the bank's category -> Coffer's category key
+[category_map]                     # the bank's category -> Orre's category key
 "Groceries" = "food.groceries"
 "Eating out" = "food.eating_out"
 "Savings" = "transfer.savings"
@@ -110,7 +110,7 @@ Unknown keys are an error, so a typo fails loudly instead of being ignored.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `encoding` | `"auto"` | `"auto"` (a byte order mark, otherwise UTF-8), `"utf-8"`, `"utf-16le"`, `"utf-16be"`, `"windows-1252"` (also reads Latin-1) or `"iso-8859-15"`. Coffer never guesses: an export that isn't UTF-8 must say so here |
+| `encoding` | `"auto"` | `"auto"` (a byte order mark, otherwise UTF-8), `"utf-8"`, `"utf-16le"`, `"utf-16be"`, `"windows-1252"` (also reads Latin-1) or `"iso-8859-15"`. Orre never guesses: an export that isn't UTF-8 must say so here |
 | `delimiter` | detected | `","`, `";"`, `"\t"` or `"\|"`. State it if detection could tie |
 | `skip_rows` | `0` | Lines before the header (an account summary), counted as lines in the file: a summary cell with a line break inside its quotes is two. A count that ends inside such a cell fails the file |
 | `header` | `true` | Whether the first line after `skip_rows` names the columns |
@@ -140,16 +140,16 @@ A column is its header name (`"Date"`, matched exactly after trimming spaces) or
 ### Columns not read
 
 `ignore = [ … ]` lists header columns the preset deliberately doesn't read. When a file
-has a column that's neither read nor ignored (a bank added one), Coffer can say so in the
+has a column that's neither read nor ignored (a bank added one), Orre can say so in the
 import preview rather than leave it out silently. Needs `header = true`.
 
 ### Categories
 
 `[category_map]` maps the bank's category names (as in `source_category`, matched
-exactly, case included) to Coffer's category keys: one or two parts of lowercase
+exactly, case included) to Orre's category keys: one or two parts of lowercase
 letters, digits and `_`, joined by a dot (`food.groceries`, `transfer`). Map only to
 the default categories listed in `docs/ARCHITECTURE.md` → "Categories" (a test checks
-it): they are the ones every Coffer database has. Map a bank category to a group
+it): they are the ones every Orre database has. Map a bank category to a group
 (`travel`) when no subcategory fits. Unmapped categories are left for rules or the user.
 
 ### Sub-accounts
@@ -169,7 +169,7 @@ category = "transfer.savings"                     # optional: every pot transfer
 Pots are found by `key`, matched exactly; a new key creates a pot under the account
 imported into, named from `name` (else the key). Use the bank's stable ID for the pot
 when the export has one: then a renamed pot stays one pot. Monzo's export has none, so
-its preset keys by name, and a pot renamed in the app becomes a new pot in Coffer
+its preset keys by name, and a pot renamed in the app becomes a new pot in Orre
 (`docs/ARCHITECTURE.md` → "Decision record: sub-accounts", point 8). A matching row
 with an empty key is flagged. `category` (a default category key) goes on every
 matching row ahead of `[category_map]`, for banks that file pot transfers under a

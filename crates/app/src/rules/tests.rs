@@ -1,14 +1,14 @@
 //! UI integration tests for the Rules view: the shell's Rules tab in a
 //! headless window, against a scratch database seeded with [`fixture`]
-//! through [`RulesStore`], as `coffer` runs it. What the view shows is read
+//! through [`RulesStore`], as `orre` runs it. What the view shows is read
 //! through its test-only `describe()` ([`super::describe`]).
 
-use coffer_core::change::{self as core_change, BatchStatus};
-use coffer_core::db::Database;
-use coffer_core::id::TransactionId;
-use coffer_core::rule::{self as core_rule, MatchKind};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use orre_core::change::{self as core_change, BatchStatus};
+use orre_core::db::Database;
+use orre_core::id::TransactionId;
+use orre_core::rule::{self as core_rule, MatchKind};
 use tempfile::TempDir;
 
 use super::describe::{
@@ -31,7 +31,7 @@ pub(super) struct Scratch {
 impl Scratch {
     pub(super) fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let seeded = fixture::seed(&mut db);
         Self {
@@ -46,7 +46,7 @@ impl Scratch {
     }
 
     fn category(&self, id: TransactionId) -> Option<String> {
-        coffer_core::reporting::register::Register::load(
+        orre_core::reporting::register::Register::load(
             &self.db().reader().unwrap(),
             chrono::NaiveDate::from_ymd_opt(2026, 11, 14).unwrap(),
         )
@@ -55,7 +55,7 @@ impl Scratch {
         .iter()
         .find(|row| row.id == id)
         .and_then(|row| match row.category {
-            coffer_core::reporting::register::RowCategory::Category(id) => Some(id),
+            orre_core::reporting::register::RowCategory::Category(id) => Some(id),
             _ => None,
         })
         .and_then(|category| {
@@ -321,12 +321,12 @@ fn editing_a_rule_saves_without_touching_history(cx: &mut TestAppContext) {
             .read(cx)
             .form()
             .unwrap()
-            .availability(coffer_core::rule::ActionKind::SplitTemplate)
+            .availability(orre_core::rule::ActionKind::SplitTemplate)
     });
     assert_eq!(
         available,
         Some(form::Unavailable::NotWith(
-            coffer_core::rule::ActionKind::SetCategory
+            orre_core::rule::ActionKind::SetCategory
         ))
     );
 }
@@ -620,12 +620,12 @@ fn typing_then_selecting_another_rule_keeps_each_rules_text(cx: &mut TestAppCont
 
 // Categories -------------------------------------------------------------------------
 
-fn category_key(text: &str) -> coffer_core::category::CategoryKey {
-    coffer_core::category::CategoryKey::new(text).unwrap()
+fn category_key(text: &str) -> orre_core::category::CategoryKey {
+    orre_core::category::CategoryKey::new(text).unwrap()
 }
 
 /// The stored category with `key` in `scratch`'s database.
-fn stored_category(scratch: &Scratch, key: &str) -> Option<coffer_core::category::Category> {
+fn stored_category(scratch: &Scratch, key: &str) -> Option<orre_core::category::Category> {
     scratch
         .db()
         .categories()
@@ -774,10 +774,7 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
     click("rules-create-category", cx);
     let created = stored_category(&scratch, "food.u_coffee_beans").expect("created");
     assert_eq!(created.label(), "Coffee beans");
-    assert_eq!(
-        created.kind(),
-        coffer_core::category::CategoryKind::Spending
-    );
+    assert_eq!(created.kind(), orre_core::category::CategoryKind::Spending);
     assert_eq!(
         cx.update(|_, cx| rules.read(cx).selected_category()),
         Some(CategorySelection::Stored(created.id()))
@@ -795,7 +792,7 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
                 false,
                 |form| {
                     form.name = "Side income".into();
-                    form.kind = coffer_core::category::CategoryKind::Income;
+                    form.kind = orre_core::category::CategoryKind::Income;
                 },
                 cx,
             )
@@ -804,7 +801,7 @@ fn a_new_category_is_checked_then_created(cx: &mut TestAppContext) {
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.create_category(cx)));
     let group = stored_category(&scratch, "u_side_income").expect("a new group");
     assert!(group.is_group());
-    assert_eq!(group.kind(), coffer_core::category::CategoryKind::Income);
+    assert_eq!(group.kind(), orre_core::category::CategoryKind::Income);
 }
 
 #[gpui_kit::test]
@@ -876,7 +873,7 @@ fn renaming_hiding_and_deleting_a_category_go_to_the_database(cx: &mut TestAppCo
     );
     // The rule editor's category menu leaves it out, unless it's chosen.
     let data = cx.update(|_, cx| rules.read(cx).data().clone());
-    let offered = |chosen: Option<&coffer_core::category::CategoryKey>| {
+    let offered = |chosen: Option<&orre_core::category::CategoryKey>| {
         view::category_groups(&data, chosen)
             .iter()
             .flat_map(|group| group.options.iter())
@@ -1015,7 +1012,7 @@ fn a_new_rule_in_an_empty_view_is_described_in_full(cx: &mut TestAppContext) {
         shown.canvas,
         CanvasDescription::Empty {
             title: "No rules yet",
-            caption: "Set a category on a transaction and Coffer offers to turn it into a rule \
+            caption: "Set a category on a transaction and Orre offers to turn it into a rule \
                       once the merchant comes back. Or start one with New rule.",
         }
     );

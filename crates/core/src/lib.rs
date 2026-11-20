@@ -1,4 +1,4 @@
-//! Coffer's core: domain types, the SQLite schema and migrations, rules,
+//! Orre's core: domain types, the SQLite schema and migrations, rules,
 //! transfer matching, deduplication, reporting queries, schedules, backups
 //! and export.
 //!

@@ -34,15 +34,15 @@
 //! `+` opens Rules on a new category. The arrow keys move through the
 //! accounts only. Composed, not drawn (user, 2026-11-17).
 
-use coffer_core::account::AccountKind;
-use coffer_core::id::AccountId;
-use coffer_core::reporting::account_tree::AccountNode;
 use gpui_kit::base::actions::{Cancel, Confirm};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::account::AccountKind;
+use orre_core::id::AccountId;
+use orre_core::reporting::account_tree::AccountNode;
 
 use crate::format::{Sign, money};
 use crate::theme::tokens::typography::TextRole;
@@ -92,7 +92,7 @@ pub fn category_row_id(id: i64) -> SharedString {
 pub const UNCATEGORISED_ROW: &str = "uncategorised";
 
 /// The panel's key context, where the arrow keys move the selection.
-pub const CONTEXT: &str = "CofferAccountsPanel";
+pub const CONTEXT: &str = "OrreAccountsPanel";
 
 /// The panel's movement keys: ↑↓ through the accounts.
 pub const KEYS: Keys = Keys::new(CONTEXT);
@@ -235,7 +235,7 @@ fn account_row(
         .nested(nested)
         .selected(selected)
         .focus_visible(selected && ring)
-        .flagged(node.status == coffer_core::reconciliation::Status::Mismatch)
+        .flagged(node.status == orre_core::reconciliation::Status::Mismatch)
         .on_flag_click(move |_, _, cx| {
             flagged.update(cx, |accounts, cx| accounts.request_checks(id, cx))
         })

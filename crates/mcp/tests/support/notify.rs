@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use coffer_core::mcp_client::ClientName;
-use coffer_mcp::Server;
-use coffer_mcp::registry::Registry;
+use orre_core::mcp_client::ClientName;
+use orre_mcp::Server;
+use orre_mcp::registry::Registry;
 use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::service::{NotificationContext, RunningService};
 use rmcp::{ClientHandler, RoleClient, ServiceExt};

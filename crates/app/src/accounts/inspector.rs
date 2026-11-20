@@ -38,17 +38,17 @@
 //! balance has no figure, and its caption says so; a change core refuses is
 //! put back and the reason shown under Details in `danger`.
 
-use coffer_core::account::{AccountEdit, AccountKind, Deletion, StoredBalance, Usage};
-use coffer_core::id::AccountId;
-use coffer_core::money::Currency;
-use coffer_core::reconciliation::BalanceSource;
-use coffer_core::reporting::account_tree::AccountNode;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Subscription, Window, div,
 };
+use orre_core::account::{AccountEdit, AccountKind, Deletion, StoredBalance, Usage};
+use orre_core::id::AccountId;
+use orre_core::money::Currency;
+use orre_core::reconciliation::BalanceSource;
+use orre_core::reporting::account_tree::AccountNode;
 
 use crate::format::{Sign, list_date, money};
 use crate::theme::tokens::{color, size, spacing, typography};
@@ -168,7 +168,7 @@ fn balance_label(balance: &StoredBalance) -> String {
 }
 
 /// What a cash count row says it is: "Starting point" for the oldest (the
-/// count Coffer counts forward from), with the user's note after it; else
+/// count Orre counts forward from), with the user's note after it; else
 /// the note, else "Counted by you".
 fn count_label(count: &StoredBalance, oldest: bool) -> String {
     match (&count.note, oldest) {
@@ -286,13 +286,13 @@ pub(super) fn balance_rows(
 
 /// The footer's caption on an asset or liability.
 pub(super) fn footer_note(node: &AccountNode) -> Option<String> {
-    let zero = super::close::zero(coffer_core::money::Money::zero(node.account.currency));
+    let zero = super::close::zero(orre_core::money::Money::zero(node.account.currency));
     match node.account.kind {
         AccountKind::Asset => Some(format!(
-            "Sold it? Close it on the sale date: Coffer adds a {zero} value then, so earlier net worth stays right. Delete only an account added by mistake."
+            "Sold it? Close it on the sale date: Orre adds a {zero} value then, so earlier net worth stays right. Delete only an account added by mistake."
         )),
         AccountKind::Liability => Some(format!(
-            "Paid it off? Close it on the payoff date: Coffer adds a {zero} balance then. Delete only an account added by mistake."
+            "Paid it off? Close it on the payoff date: Orre adds a {zero} balance then. Delete only an account added by mistake."
         )),
         _ => None,
     }
@@ -316,7 +316,7 @@ pub(super) fn pot_balance(pot: &AccountNode) -> String {
 
 /// An import's row: its file, and "rows · day".
 pub(super) fn import_text(
-    batch: &coffer_core::import::BatchInfo,
+    batch: &orre_core::import::BatchInfo,
     data: &AccountsData,
 ) -> (String, String) {
     let day =
@@ -783,15 +783,15 @@ impl AccountInspector {
             None
         } else if cash {
             Some(
-                "Coffer counts forward from your first count and the entries you add. Each later count is checked against them.",
+                "Orre counts forward from your first count and the entries you add. Each later count is checked against them.",
             )
         } else if monzo {
             Some(
-                "Monzo exports carry no balances, so Coffer counts forward from the ones you enter. Each one is checked against the transactions.",
+                "Monzo exports carry no balances, so Orre counts forward from the ones you enter. Each one is checked against the transactions.",
             )
         } else {
             Some(
-                "Coffer counts forward from the balances you enter and the ones in your imports. Each one is checked against the transactions.",
+                "Orre counts forward from the balances you enter and the ones in your imports. Each one is checked against the transactions.",
             )
         };
         section(true)
@@ -812,7 +812,7 @@ impl AccountInspector {
         let (title, add) = balances_words(node.account.kind);
         let note = match node.account.kind {
             AccountKind::Liability => {
-                "Coffer holds each balance until the next. Monthly payments stay spending on the account they leave, so net worth catches up when you enter the next statement."
+                "Orre holds each balance until the next. Monthly payments stay spending on the account they leave, so net worth catches up when you enter the next statement."
             }
             _ => {
                 "Net worth uses the latest value on or before each date. Add one whenever you have a new figure: a survey, an online estimate, a statement."
@@ -927,7 +927,7 @@ impl AccountInspector {
 
     fn render_imports(
         &self,
-        imports: &[coffer_core::import::BatchInfo],
+        imports: &[orre_core::import::BatchInfo],
         data: &AccountsData,
     ) -> Option<AnyElement> {
         if imports.is_empty() {

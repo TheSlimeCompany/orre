@@ -29,15 +29,15 @@
 //! screen are fractions.
 
 use chrono::{Datelike as _, Months, NaiveDate};
-use coffer_core::account::{AccountKind, StoredBalance};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::account_tree::AccountNode;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, InteractiveElement as _, IntoElement,
     ParentElement as _, PathBuilder, Render, SharedString, StatefulInteractiveElement as _,
     Styled as _, Window, canvas, div, point, px, relative,
 };
+use orre_core::account::{AccountKind, StoredBalance};
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::account_tree::AccountNode;
 
 use crate::format::{Sign, currency_prefix, list_date, money};
 use crate::theme::tokens::typography::TextRole;
@@ -50,7 +50,7 @@ use crate::ui::tracked::Tracked;
 use super::{Accounts, AddValuation};
 
 /// The canvas's key context, where ⌘N adds a valuation.
-pub const CONTEXT: &str = "CofferValuations";
+pub const CONTEXT: &str = "OrreValuations";
 
 /// What the canvas calls things, by kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +102,7 @@ pub struct ValuationRow {
 }
 
 /// The table's rows, newest first, from the entered values (newest first,
-/// as [`coffer_core::account::entered_balances`] lists them).
+/// as [`orre_core::account::entered_balances`] lists them).
 pub fn rows(balances: &[StoredBalance]) -> Vec<ValuationRow> {
     balances
         .iter()
@@ -188,7 +188,7 @@ pub(super) fn empty_title(words: Words) -> String {
 /// The empty state's body.
 pub(super) fn empty_body(node: &AccountNode) -> String {
     format!(
-        "Add what {} is {}, and Coffer holds it until the next one.",
+        "Add what {} is {}, and Orre holds it until the next one.",
         super::name(&node.account.name),
         if node.account.kind == AccountKind::Liability {
             "owed"
@@ -856,7 +856,7 @@ impl Render for ValuationsView {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::reconciliation::BalanceSource;
+    use orre_core::reconciliation::BalanceSource;
 
     use super::*;
 

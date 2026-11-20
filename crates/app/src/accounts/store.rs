@@ -9,7 +9,7 @@
 //! on a background thread ([`super::Accounts::reload`]); writes are small
 //! (a person's accounts) and run on the UI thread.
 //!
-//! All the business rules are core's ([`coffer_core::account`]): this only
+//! All the business rules are core's ([`orre_core::account`]): this only
 //! opens the database and reads what the panel and inspector show.
 
 use std::collections::BTreeMap;
@@ -18,16 +18,16 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 
-use coffer_core::account::count::{self, Expectation, Recorded};
-use coffer_core::account::{self, AccountEdit, EnteredBalance, NewAccount};
-use coffer_core::backup::gate;
-use coffer_core::db::Database;
-use coffer_core::id::AccountId;
-use coffer_core::import::{self, BatchStatus};
-use coffer_core::money::Money;
-use coffer_core::reporting::account_tree::account_tree;
-use coffer_core::schedule;
-use coffer_import::preset::Presets;
+use orre_core::account::count::{self, Expectation, Recorded};
+use orre_core::account::{self, AccountEdit, EnteredBalance, NewAccount};
+use orre_core::backup::gate;
+use orre_core::db::Database;
+use orre_core::id::AccountId;
+use orre_core::import::{self, BatchStatus};
+use orre_core::money::Money;
+use orre_core::reporting::account_tree::account_tree;
+use orre_core::schedule;
+use orre_import::preset::Presets;
 
 use super::data::{AccountDetail, AccountsData, PresetChoice};
 
@@ -68,8 +68,8 @@ impl AccountStore {
     /// the user saved from the import screen (M3.5), in the data dir next
     /// to the database. A saved preset that can't be used is left out.
     pub fn presets(&self) -> Vec<PresetChoice> {
-        let dir = coffer_core::paths::presets_dir(&self.database);
-        match coffer_import::preset::load_user_presets(&dir) {
+        let dir = orre_core::paths::presets_dir(&self.database);
+        match orre_import::preset::load_user_presets(&dir) {
             Ok((presets, problems)) => {
                 for problem in problems {
                     tracing::warn!(%problem, "a saved preset can't be used");
@@ -148,7 +148,7 @@ impl AccountStore {
         Ok(())
     }
 
-    /// What Coffer expects of a cash count of `counted` on `date`.
+    /// What Orre expects of a cash count of `counted` on `date`.
     pub fn cash_expectation(
         &self,
         id: AccountId,
@@ -195,8 +195,8 @@ impl AccountStore {
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
-    use coffer_core::account::{AccountKind, EnteredSource};
-    use coffer_core::money::{Currency, Money};
+    use orre_core::account::{AccountKind, EnteredSource};
+    use orre_core::money::{Currency, Money};
     use tempfile::TempDir;
 
     use super::*;
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn closes_reopens_and_deletes() {
         let dir = TempDir::new().unwrap();
-        let store = AccountStore::new(dir.path().join("coffer.db"));
+        let store = AccountStore::new(dir.path().join("orre.db"));
         let house = store
             .create(
                 &NewAccount::new("House", AccountKind::Asset, Currency::GBP),
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn creates_edits_and_reads_back_accounts() {
         let dir = TempDir::new().unwrap();
-        let store = AccountStore::new(dir.path().join("coffer.db"));
+        let store = AccountStore::new(dir.path().join("orre.db"));
         assert!(store.load(Vec::new()).unwrap().tree.accounts.is_empty());
 
         let mut new = NewAccount::new("Current account", AccountKind::Current, Currency::GBP);

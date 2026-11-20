@@ -31,8 +31,8 @@ mod reader;
 
 use std::collections::BTreeMap;
 
-use coffer_core::category::CategoryKey;
-use coffer_core::statement::{RowProblem, SourceFormat, SourceLocation, Statement};
+use orre_core::category::CategoryKey;
+use orre_core::statement::{RowProblem, SourceFormat, SourceLocation, Statement};
 
 pub use dates::{DateFormat, FormatError, TimeFormat};
 pub use draft::{
@@ -57,7 +57,7 @@ pub struct CsvImporter {
     name: String,
     preset_id: Option<String>,
     mapping: CsvMapping,
-    /// The preset's category map: source category → Coffer category.
+    /// The preset's category map: source category → Orre category.
     category_map: BTreeMap<String, CategoryKey>,
     /// The preset's category for sub-account transfers, ahead of the map.
     sub_account_category: Option<CategoryKey>,
@@ -84,7 +84,7 @@ impl CsvImporter {
     }
 
     /// Gives each line the category `map` has for its source category
-    /// ([`StatementLine::category`](coffer_core::statement::StatementLine::category)),
+    /// ([`StatementLine::category`](orre_core::statement::StatementLine::category)),
     /// matched exactly after trimming the row's value.
     pub fn with_category_map(mut self, map: BTreeMap<String, CategoryKey>) -> CsvImporter {
         self.category_map = map;
@@ -92,7 +92,7 @@ impl CsvImporter {
     }
 
     /// Gives every sub-account transfer (a line with a
-    /// [`SubAccountRef`](coffer_core::statement::SubAccountRef)) this
+    /// [`SubAccountRef`](orre_core::statement::SubAccountRef)) this
     /// category instead of what the category map has for it. For banks that
     /// file pot transfers under a category that also holds other rows
     /// (Monzo's "Transfers").

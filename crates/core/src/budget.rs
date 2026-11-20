@@ -278,10 +278,10 @@ fn spending_category(conn: &Connection, key: &CategoryKey) -> Result<i64, Error>
 }
 
 /// A stored value the schema should have refused: the file was changed
-/// outside Coffer.
+/// outside Orre.
 fn invalid(column: usize, name: &'static str) -> rusqlite::Error {
     #[derive(Debug, thiserror::Error)]
-    #[error("budget.{0} holds a value Coffer doesn't know")]
+    #[error("budget.{0} holds a value Orre doesn't know")]
     struct Invalid(&'static str);
     rusqlite::Error::FromSqlConversionFailure(
         column,
@@ -298,7 +298,7 @@ mod tests {
 
     fn db() -> (TempDir, Database) {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         (dir, db)
     }
 

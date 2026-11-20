@@ -9,8 +9,8 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::category::{self, CategoryKey};
+use orre_core::access_log::Outcome;
+use orre_core::category::{self, CategoryKey};
 use serde_json::json;
 use support::*;
 

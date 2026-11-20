@@ -1,4 +1,4 @@
-//! `coffer import`, `accounts` and `undo-import` on every fixture shape
+//! `orre import`, `accounts` and `undo-import` on every fixture shape
 //! (M1.19), against scratch data dirs. The CLI's own tests
 //! (`src/cli/tests.rs`) cover argument parsing and the Monzo preset; these
 //! add the generic CSV shapes (through the test presets in
@@ -9,12 +9,12 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use coffer_app::cli::{self, Cli, Command};
-use coffer_core::db::Database;
-use coffer_core::export;
-use coffer_import::ofx::OfxImporter;
-use coffer_import::preset::Presets;
-use coffer_import::{AnyImporter, SourceFile};
+use orre_app::cli::{self, Cli, Command};
+use orre_core::db::Database;
+use orre_core::export;
+use orre_import::ofx::OfxImporter;
+use orre_import::preset::Presets;
+use orre_import::{AnyImporter, SourceFile};
 use tempfile::TempDir;
 
 fn fixture(path: &str) -> String {
@@ -55,18 +55,18 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("coffer.db");
+        let db = dir.path().join("orre.db");
         Scratch { _dir: dir, db }
     }
 
     fn parse(args: &[&str]) -> Command {
-        Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"))
             .command
             .expect("a subcommand")
     }
 
-    /// `coffer <args>` with the bundled presets: output, or the error as
+    /// `orre <args>` with the bundled presets: output, or the error as
     /// `main` prints it.
     fn run(&self, args: &[&str]) -> Result<String, String> {
         let mut out = Vec::new();
@@ -75,7 +75,7 @@ impl Scratch {
         result.map(|()| out).map_err(|error| format!("{error:#}"))
     }
 
-    /// `coffer import <args>` with `presets` in place of the bundled ones.
+    /// `orre import <args>` with `presets` in place of the bundled ones.
     fn import_with(&self, presets: &Presets, args: &[&str]) -> Result<String, String> {
         let Command::Import(import) = Self::parse(&[&["import"], args].concat()) else {
             unreachable!()
@@ -478,7 +478,7 @@ fn undo_says_a_transfer_pair_is_dissolved() {
 
 /// Every text field of every readable row of a fixture, at least five
 /// characters long (shorter ones like `CR` could match ordinary words).
-fn texts(statement: &coffer_core::statement::Statement) -> Vec<String> {
+fn texts(statement: &orre_core::statement::Statement) -> Vec<String> {
     statement
         .lines()
         .flat_map(|(_, line)| {
@@ -625,15 +625,12 @@ fn transactions_in(scratch: &Scratch) -> usize {
         .transactions
 }
 
-/// `coffer <args>` as an AI client's shell runs it: stdin closed, so no
+/// `orre <args>` as an AI client's shell runs it: stdin closed, so no
 /// terminal. Returns whether it succeeded, with stdout and stderr.
 fn run_without_terminal(scratch: &Scratch, args: &[&str]) -> (bool, String, String) {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_coffer"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_orre"))
         .args(args)
-        .env(
-            coffer_core::paths::DATA_DIR_ENV,
-            scratch.db.parent().unwrap(),
-        )
+        .env(orre_core::paths::DATA_DIR_ENV, scratch.db.parent().unwrap())
         .stdin(std::process::Stdio::null())
         .output()
         .unwrap();
@@ -657,10 +654,10 @@ fn previews_run_without_a_terminal_and_write_nothing_but_commits_are_refused() {
 
     let (ok, _, stderr) = run_without_terminal(&scratch, &["import", &file, "--yes"]);
     assert!(!ok);
-    assert_has(&stderr, "`coffer import` needs an interactive terminal");
+    assert_has(&stderr, "`orre import` needs an interactive terminal");
     let (ok, _, stderr) = run_without_terminal(&scratch, &["import", &file]);
     assert!(!ok);
-    assert_has(&stderr, "`coffer import` needs an interactive terminal");
+    assert_has(&stderr, "`orre import` needs an interactive terminal");
     assert_eq!(transactions_in(&scratch), 0);
 
     scratch.ok(&["import", &file, "--yes"]);
@@ -674,9 +671,6 @@ fn previews_run_without_a_terminal_and_write_nothing_but_commits_are_refused() {
 
     let (ok, _, stderr) = run_without_terminal(&scratch, &["undo-import", "1", "--yes"]);
     assert!(!ok);
-    assert_has(
-        &stderr,
-        "`coffer undo-import` needs an interactive terminal",
-    );
+    assert_has(&stderr, "`orre undo-import` needs an interactive terminal");
     assert_eq!(transactions_in(&scratch), imported);
 }

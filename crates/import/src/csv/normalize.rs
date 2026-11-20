@@ -1,7 +1,7 @@
 //! Turning CSV records into statement lines.
 
-use coffer_core::money::{Currency, DecimalMark, Money, ParseAmountError};
-use coffer_core::statement::{Field, RowProblem, StatementLine, SubAccountRef};
+use orre_core::money::{Currency, DecimalMark, Money, ParseAmountError};
+use orre_core::statement::{Field, RowProblem, StatementLine, SubAccountRef};
 
 use super::mapping::{AmountColumns, Column, CsvMapping, SplitSigns};
 use super::reader::{CsvFile, fits_width};

@@ -1,13 +1,13 @@
-//! `coffer ai-access` against scratch data dirs. Nothing here touches the
+//! `orre ai-access` against scratch data dirs. Nothing here touches the
 //! real data dir.
 
 use std::path::PathBuf;
 
 use clap::Parser;
-use coffer_core::access_log::{self, NewEntry, Outcome};
-use coffer_core::db::Database;
-use coffer_core::mcp_client::{self, AccessLevel, ClientAccess, ClientName};
-use coffer_core::setting;
+use orre_core::access_log::{self, NewEntry, Outcome};
+use orre_core::db::Database;
+use orre_core::mcp_client::{self, AccessLevel, ClientAccess, ClientName};
+use orre_core::setting;
 use tempfile::TempDir;
 
 use super::*;
@@ -21,13 +21,13 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("coffer.db");
+        let db = dir.path().join("orre.db");
         Database::open(&db).unwrap();
         Scratch { _dir: dir, db }
     }
 
     fn run(&self, args: &[&str]) -> Result<String, String> {
-        let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
         let mut out = Vec::new();
         let result = super::run(cli.command.expect("a subcommand"), &self.db, &mut out);
@@ -71,7 +71,7 @@ fn name(client: &str) -> ClientName {
 
 fn doesnt_parse(args: &[&str]) {
     assert!(
-        Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied())).is_err(),
+        Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied())).is_err(),
         "{args:?} parses"
     );
 }
@@ -327,7 +327,7 @@ fn log_shows_the_latest_calls_with_redacted_arguments() {
 }
 
 /// Calls a server refused while it couldn't open the database wait in the
-/// pending file; `coffer ai-access` moves them into the log first.
+/// pending file; `orre ai-access` moves them into the log first.
 #[test]
 fn log_shows_calls_refused_while_the_database_was_unavailable() {
     let scratch = Scratch::new();
@@ -354,7 +354,7 @@ fn log_shows_calls_refused_while_the_database_was_unavailable() {
     }
     // What a server past the pending file's cap leaves: counts only.
     std::fs::write(
-        access_log::pending::path(&scratch.db).with_file_name("coffer.db-access-pending-dropped"),
+        access_log::pending::path(&scratch.db).with_file_name("orre.db-access-pending-dropped"),
         r#"{"groups":[{"id":"0192f000-0000-7000-8000-000000000001","client":"codex",
             "tool":"list_reports","outcome":"refused_restoring","calls":40,
             "first_at":"2000-01-01T00:00:00.000Z"}]}"#,
@@ -433,15 +433,15 @@ fn log_filters_by_client_and_limits() {
 #[test]
 fn a_client_name_is_checked_and_a_database_is_needed() {
     doesnt_parse(&["ai-access", "enable", "not a name"]);
-    doesnt_parse(&["ai-access", "enable", "coffer"]);
+    doesnt_parse(&["ai-access", "enable", "orre"]);
     doesnt_parse(&["ai-access", "enable"]);
 
     let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("coffer.db");
-    let cli = Cli::try_parse_from(["coffer", "ai-access", "list"]).unwrap();
+    let db = dir.path().join("orre.db");
+    let cli = Cli::try_parse_from(["orre", "ai-access", "list"]).unwrap();
     let error = super::run(cli.command.unwrap(), &db, &mut Vec::new()).unwrap_err();
     assert!(
-        format!("{error:#}").contains("there is no Coffer database"),
+        format!("{error:#}").contains("there is no Orre database"),
         "{error:#}"
     );
     assert!(!db.exists());

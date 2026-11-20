@@ -288,7 +288,7 @@ impl ViewKeys {
 mod tests {
     use super::*;
 
-    gpui_kit::actions!(coffer_keys_test, [Yes, No, Up, Down]);
+    gpui_kit::actions!(orre_keys_test, [Yes, No, Up, Down]);
 
     const KEYS: ViewKeys = ViewKeys::new(
         Keys::new("KeysTest"),

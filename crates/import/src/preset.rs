@@ -2,7 +2,7 @@
 //! type.
 //!
 //! A preset is data, not code: a [`CsvMapping`] written in TOML, plus a
-//! name, an ID and a map from the bank's own categories to Coffer's
+//! name, an ID and a map from the bank's own categories to Orre's
 //! category keys. The format is documented for contributors in
 //! `presets/README.md`.
 //!
@@ -12,7 +12,7 @@
 //!   finished mapping is checked by [`CsvImporter::new`].
 //! - **Bundled.** Every preset in the repository's `presets/` directory is
 //!   compiled into the binary ([`Presets::bundled`]), so an installed
-//!   Coffer doesn't need the source tree.
+//!   Orre doesn't need the source tree.
 //! - **IDs are stable.** The ID is recorded on every import batch
 //!   (`import_batch.preset_id`), so it never changes once a preset ships.
 //!   It's the region, then the file name, then optionally more:
@@ -20,7 +20,7 @@
 //! - **Sub-accounts.** `[sub_account_transfer]` says which rows are
 //!   transfers to or from a pot (a column's exact value) and which columns
 //!   hold the pot's stable ID and name ([`SubAccountTransfer`]). The import
-//!   mirrors those rows onto the pot (`coffer_core::sub_account`).
+//!   mirrors those rows onto the pot (`orre_core::sub_account`).
 
 mod raw;
 mod user;
@@ -29,8 +29,8 @@ mod write;
 use std::collections::BTreeMap;
 use std::fmt;
 
-use coffer_core::category::CategoryKey;
-use coffer_core::money::DecimalMark;
+use orre_core::category::CategoryKey;
+use orre_core::money::DecimalMark;
 
 use crate::AnyImporter;
 use crate::csv::{
@@ -215,7 +215,7 @@ impl Preset {
     }
 
     /// Whether the user saved it from the mapping screen, rather than it
-    /// being bundled with Coffer ([`Presets::with_user_presets`]).
+    /// being bundled with Orre ([`Presets::with_user_presets`]).
     pub fn is_saved(&self) -> bool {
         self.saved
     }
@@ -241,7 +241,7 @@ impl Preset {
         &self.ignore
     }
 
-    /// The bank's category names mapped to Coffer's category keys.
+    /// The bank's category names mapped to Orre's category keys.
     pub fn category_map(&self) -> &BTreeMap<String, CategoryKey> {
         self.importer.category_map()
     }
@@ -416,7 +416,7 @@ pub enum LoadError {
 }
 
 impl Presets {
-    /// The presets compiled into Coffer from the repository's `presets/`.
+    /// The presets compiled into Orre from the repository's `presets/`.
     /// The tests load them all, so this only fails on a build from a
     /// broken tree.
     pub fn bundled() -> Result<Presets, LoadError> {

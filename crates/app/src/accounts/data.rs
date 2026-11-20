@@ -1,16 +1,16 @@
 //! What the accounts panel and inspector show: the account tree from core
-//! ([`coffer_core::reporting::account_tree`]) and, per account, what the
+//! ([`orre_core::reporting::account_tree`]) and, per account, what the
 //! inspector lists. Plain data, read in one go by [`super::store`] or built
 //! by [`super::fixture`].
 
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use coffer_core::account::{Deletion, StoredBalance, Usage};
-use coffer_core::id::AccountId;
-use coffer_core::import::BatchInfo;
-use coffer_core::money::Money;
-use coffer_core::reporting::account_tree::{AccountNode, AccountTree};
+use orre_core::account::{Deletion, StoredBalance, Usage};
+use orre_core::id::AccountId;
+use orre_core::import::BatchInfo;
+use orre_core::money::Money;
+use orre_core::reporting::account_tree::{AccountNode, AccountTree};
 
 /// A CSV preset the Preset select offers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub struct AccountDetail {
     /// Its committed imports, newest first.
     pub imports: Vec<BatchInfo>,
     /// The earliest day it can close on, its pots included; `None` when
-    /// any day will do ([`coffer_core::account::close::closing`]).
+    /// any day will do ([`orre_core::account::close::closing`]).
     pub close_from: Option<NaiveDate>,
     /// What deleting it would remove, or why it can't be deleted.
     pub deletion: Deletion,

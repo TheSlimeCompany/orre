@@ -6,7 +6,7 @@
 -- Vaults) and reads the pot's stable ID from the row (Monzo's `pot_…`). The
 -- import finds the pot by that ID under the account it imports into, and
 -- creates it the first time it sees the ID. Pots are matched by this key
--- only, never by name: the user can rename a pot, at the bank or in Coffer.
+-- only, never by name: the user can rename a pot, at the bank or in Orre.
 --
 -- The key is the bank's identifier for a sub-account, not for a person or a
 -- payment account (no account number, sort code or IBAN), and it stays in the

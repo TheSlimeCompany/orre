@@ -13,7 +13,7 @@
 //! 26` and `9/11/26` (this century), ISO `2026-11-09` and `9/11/2026`.
 
 use chrono::{Datelike as _, NaiveDate};
-use coffer_core::money::{Currency, DecimalMark, Money, ParseAmountError};
+use orre_core::money::{Currency, DecimalMark, Money, ParseAmountError};
 
 /// How a formatted amount shows its sign.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,7 +26,7 @@ pub enum Sign {
     Negative,
 }
 
-/// The symbol written before an amount in `currency`, if Coffer knows one.
+/// The symbol written before an amount in `currency`, if Orre knows one.
 fn symbol(currency: Currency) -> Option<&'static str> {
     match currency.code() {
         "GBP" => Some("£"),

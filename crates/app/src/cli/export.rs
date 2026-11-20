@@ -1,5 +1,5 @@
-//! `coffer export` (M1.29): the ledger as CSV or JSON
-//! ([`coffer_core::export`], which documents the columns).
+//! `orre export` (M1.29): the ledger as CSV or JSON
+//! ([`orre_core::export`], which documents the columns).
 //!
 //! Without `--output` the export goes to stdout and nothing else is
 //! printed, so it can be piped. With `--output`, the file is created `0600`
@@ -14,11 +14,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 use chrono::NaiveDate;
 use clap::{Args, ValueEnum};
-use coffer_core::account;
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::export::{self, Filter, Format, Options};
-use coffer_core::tag::TagName;
+use orre_core::account;
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::export::{self, Filter, Format, Options};
+use orre_core::tag::TagName;
 
 #[derive(Debug, Args)]
 pub struct ExportArgs {
@@ -87,13 +87,13 @@ fn parse_date(text: &str) -> Result<NaiveDate, String> {
         .map_err(|_| format!("{text:?} isn't a date in the form YYYY-MM-DD"))
 }
 
-/// `coffer export`.
+/// `orre export`.
 pub fn run(db: &Database, args: &ExportArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     if let Some(path) = &args.output
         && is_same_file(path, db.path())
     {
         bail!(
-            "{} is the Coffer database; choose another file for the export",
+            "{} is the Orre database; choose another file for the export",
             path.display()
         );
     }

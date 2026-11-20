@@ -1,8 +1,8 @@
 //! The Inbox's inspector (`docs/DESIGN.md` → "Inbox", "Inbox impact
 //! preview"; Paper `ABK-0`, `DL8-0`, `EWZ-0`): the selected suggestion's
-//! header, the card it came on (an agent's in moldavite, Coffer's own
+//! header, the card it came on (an agent's in moldavite, Orre's own
 //! neutral) with Approve and Reject, **If you approve** (what approving
-//! would change, from [`coffer_core::inbox::preview`]), the rule or the
+//! would change, from [`orre_core::inbox::preview`]), the rule or the
 //! merchant name, and how many rows it touches.
 //!
 //! Nothing here is the agent's own words except the card's reason (and
@@ -12,17 +12,17 @@
 //! 2026-11-14).
 
 use chrono::NaiveDate;
-use coffer_core::inbox::preview::{Now, Preview, SetBy, Subject, TransactionRef};
-use coffer_core::inbox::{COFFER_SOURCE, Detail, Payload, SuggestionStatus};
-use coffer_core::link::LinkKind;
-use coffer_core::reporting::Period;
-use coffer_core::reporting::palette::Palette;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, ClickEvent, InteractiveElement as _, IntoElement, ParentElement as _, Rgba,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::inbox::preview::{Now, Preview, SetBy, Subject, TransactionRef};
+use orre_core::inbox::{Detail, ORRE_SOURCE, Payload, SuggestionStatus};
+use orre_core::link::LinkKind;
+use orre_core::reporting::Period;
+use orre_core::reporting::palette::Palette;
 
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, font, radius, size, spacing, typography, weight};
@@ -149,7 +149,7 @@ fn counted(value: usize, one: &str, many: &str) -> Vec<Part> {
 
 /// The rows a rule's category skips, by kind ("2 transfers · 1 linked
 /// refund"); `None` when it skips none.
-fn skips_parts(impact: &coffer_core::inbox::RuleImpact) -> Option<Vec<Part>> {
+fn skips_parts(impact: &orre_core::inbox::RuleImpact) -> Option<Vec<Part>> {
     let kinds = [
         (impact.skipped_transfers, "transfer", "transfers"),
         (impact.skipped_refunds, "linked refund", "linked refunds"),
@@ -168,7 +168,7 @@ fn skips_parts(impact: &coffer_core::inbox::RuleImpact) -> Option<Vec<Part>> {
 }
 
 /// The caption under a rule's "If you approve" rows.
-fn rule_note(impact: &coffer_core::inbox::RuleImpact) -> String {
+fn rule_note(impact: &orre_core::inbox::RuleImpact) -> String {
     let mut note = "Approving never changes a category you set.".to_owned();
     if skips_parts(impact).is_some() {
         note.push_str(
@@ -259,7 +259,7 @@ fn proposal(entry: &Entry, accent: Rgba, today: NaiveDate) -> Vec<Part> {
 
 /// What the card says.
 pub(super) struct CardText {
-    /// The source: the client's name, or "Coffer".
+    /// The source: the client's name, or "Orre".
     pub name: String,
     /// When it came: "2h ago", or "from your edits · today".
     pub when: String,
@@ -320,9 +320,9 @@ impl CardText {
 }
 
 /// The card the suggestion came on, with Approve and Reject while it's
-/// pending (`DESIGN.md` → "Inbox"; Coffer's own: "Inbox impact preview").
+/// pending (`DESIGN.md` → "Inbox"; Orre's own: "Inbox impact preview").
 fn card(view: &InboxView, inbox: &Inbox, entry: &Entry, window: &Window) -> AnyElement {
-    let agent = entry.suggestion.source_client != COFFER_SOURCE;
+    let agent = entry.suggestion.source_client != ORRE_SOURCE;
     let accent = if agent {
         color::MOLDAVITE_TEXT
     } else {
@@ -595,7 +595,7 @@ fn if_you_approve(inbox: &Inbox, entry: &Entry, preview: &Preview, window: &Wind
         }
         (Payload::TransferPair(_), _) => {
             if let Some(effect) = &preview.transfer {
-                let less = |amount: Option<coffer_core::money::Money>| match amount {
+                let less = |amount: Option<orre_core::money::Money>| match amount {
                     Some(amount) => vec![
                         Part::mono(text::unsigned(amount)),
                         muted_parts(format!(" less in {}", month(effect.month))),
@@ -696,7 +696,7 @@ fn if_you_approve(inbox: &Inbox, entry: &Entry, preview: &Preview, window: &Wind
                     .filter(|_| {
                         matches!(
                             item.target,
-                            coffer_core::inbox::payload::Target::Transaction(_)
+                            orre_core::inbox::payload::Target::Transaction(_)
                         )
                     })
             {
@@ -1048,7 +1048,7 @@ pub fn render(view: &InboxView, window: &mut Window, cx: &App) -> impl IntoEleme
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::inbox::RuleImpact;
+    use orre_core::inbox::RuleImpact;
 
     use super::*;
 

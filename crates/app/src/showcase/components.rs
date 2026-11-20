@@ -26,7 +26,7 @@ use crate::ui::transaction_row::{
 
 pub(super) fn board(view: &mut Showcase, window: &mut Window, cx: &mut Context<Showcase>) -> Div {
     super::board(
-        "Coffer · Components",
+        "Orre · Components",
         "Components",
         "Every component DESIGN.md uses, in its states. Static rows copy the Paper board; live rows take real input.",
         [

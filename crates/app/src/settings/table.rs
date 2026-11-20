@@ -25,7 +25,7 @@ use super::{Notice, NoticeMessage, SettingsView};
 
 /// The key context of a Settings list, where the arrow keys move the
 /// selection.
-pub const LIST_CONTEXT: &str = "CofferSettingsList";
+pub const LIST_CONTEXT: &str = "OrreSettingsList";
 
 /// A Settings list's movement keys: ↑↓ through its rows.
 pub const LIST_KEYS: Keys = Keys::new(LIST_CONTEXT);
@@ -247,7 +247,7 @@ impl Run {
 }
 
 /// A wrapping paragraph of `runs` in `role`'s size and line height, each run
-/// in Inter or Geist Mono (`“Its configuration runs coffer mcp --client
+/// in Inter or Geist Mono (`“Its configuration runs orre mcp --client
 /// my-agent.”`, Paper `CRE-0`). Runs share the paragraph's size: GPUI's
 /// text runs carry a font and a colour, not a size.
 pub fn rich(role: TextRole, base: Rgba, runs: Vec<Run>) -> Div {
@@ -412,7 +412,7 @@ pub fn plural(n: u64, noun: &str) -> String {
 }
 
 /// A size as the Backups screen shows it: megabytes with one decimal
-/// (`4.2 MB`, `0.1 MB`), gigabytes past 1,024 MB. Binary units, as `coffer
+/// (`4.2 MB`, `0.1 MB`), gigabytes past 1,024 MB. Binary units, as `orre
 /// backup` counts them.
 pub fn file_size(bytes: u64) -> String {
     const MB: u128 = 1024 * 1024;

@@ -1,4 +1,4 @@
-# Coffer — Architecture: Import
+# Orre — Architecture: Import
 
 How a file becomes rows: the importers, presets, dedupe, reconciliation, the commit and its undo, and the import dialog.
 
@@ -53,7 +53,7 @@ that list.
 M1.6, decided 2026-11-10. Steps 1–3 above are one importer each (CSV, OFX, later QIF,
 CAMT.053, MT940); steps 4–7 are core's and don't depend on the format.
 
-- **The normalized form lives in core.** `coffer_core::statement::Statement` is what every
+- **The normalized form lives in core.** `orre_core::statement::Statement` is what every
   importer produces and what dedupe, reconciliation and the commit consume, so it sits in
   `core` (which can't depend on `import`). It has the format, the preset ID if any, one
   currency, the file's rows in order and any statement-level balances (`LEDGERBAL`). A
@@ -68,14 +68,14 @@ CAMT.053, MT940); steps 4–7 are core's and don't depend on the format.
 - **`description_normalized` is computed, not carried**
   (`statement::normalize_description`: whitespace collapsed, trimmed, Unicode uppercase),
   so it can't disagree with the raw text. Changing it changes the fingerprint.
-- **Three traits in `coffer-import`.** `Detect` (`name`, `format`, `detect`) says what an
+- **Three traits in `orre-import`.** `Detect` (`name`, `format`, `detect`) says what an
   importer is and how well a file fits: `No < Extension < Format < Source` (`Source` is a
   preset's own header row, `Format` is merely valid CSV or OFX). `Importer: Detect` adds
   `parse` (into the format's own `Parsed` type) and `normalize` (into a `Statement`).
   `AnyImporter: Detect`, implemented for every `Importer`, hides `Parsed` so importers
   can be listed as `&dyn AnyImporter` and adds `import` (parse, then normalize). Each
   method has one home, so calls never need disambiguating.
-- **Choosing is the caller's.** `coffer_import::detect` ranks the importers that
+- **Choosing is the caller's.** `orre_import::detect` ranks the importers that
   recognise a file, best first, ties in the given order. No candidate or a tie at the top
   means asking the user (or `--preset`), never guessing.
 - `SourceFile` holds the undecoded bytes and the file name only, never the directory; its
@@ -83,7 +83,7 @@ CAMT.053, MT940); steps 4–7 are core's and don't depend on the format.
 
 ### The CSV importer
 
-M1.7, decided 2026-11-10. `coffer_import::csv`: `CsvImporter` reads files through a
+M1.7, decided 2026-11-10. `orre_import::csv`: `CsvImporter` reads files through a
 `CsvMapping`, the Rust form a preset (M1.8) or the mapping screen (M3) produces.
 `CsvImporter::new` refuses a mapping that can't work for any file (no description column,
 the same debit and credit column, a named column without a header row).
@@ -183,7 +183,7 @@ the same debit and credit column, a named column without a header row).
 
 ### Presets
 
-M1.8, decided 2026-11-10. `coffer_import::preset`: a preset is a `CsvMapping` in TOML plus
+M1.8, decided 2026-11-10. `orre_import::preset`: a preset is a `CsvMapping` in TOML plus
 an ID, a name, a region, ignored columns and a category map. The field reference for
 contributors is `presets/README.md`.
 
@@ -231,7 +231,7 @@ ignore = ["Emoji", "Address", "Receipt", "Category split", "Money Out", "Money I
 - **Positions count from 1** in TOML (`column = 3`), as the error messages do;
   `CsvMapping` stays 0-based.
 - **Bundled.** `crates/import/build.rs` compiles every `presets/**/*.toml` into the binary
-  (`Presets::bundled`), so an installed Coffer needs no source tree and a preset is
+  (`Presets::bundled`), so an installed Orre needs no source tree and a preset is
   never half-installed. Placement is checked at load, not in the build script, so a
   misplaced file fails the tests with a message rather than being skipped.
 - **IDs are stable and findable.** The ID is recorded on `import_batch.preset_id`, so it
@@ -250,7 +250,7 @@ ignore = ["Emoji", "Address", "Receipt", "Category split", "Money Out", "Money I
 - **Columns not read are visible.** `ignore` lists header columns the preset reads on
   purpose not at all; `Preset::unread_columns` returns the file's other unread header
   columns, so the preview can say what a bank added instead of dropping it silently.
-- **Category map.** `CategoryKey` (`coffer_core::category`) is one or two segments of
+- **Category map.** `CategoryKey` (`orre_core::category`) is one or two segments of
   `[a-z0-9_]` joined by `.`, the shape of `category.key`. Source categories match
   exactly, case included, after trimming the row's value; map keys must already be
   trimmed. Whether a key exists is checked against the database's categories when the
@@ -306,7 +306,7 @@ ignore = ["Emoji", "Address", "Receipt", "Category split", "Money Out", "Money I
 
 ### The OFX importer
 
-M1.10, decided 2026-11-11. `coffer_import::ofx`: `OfxImporter` reads OFX 1.x (SGML) and
+M1.10, decided 2026-11-11. `orre_import::ofx`: `OfxImporter` reads OFX 1.x (SGML) and
 2.x (XML) bank (`STMTRS`) and credit card (`CCSTMTRS`) statements. QFX is OFX with
 Intuit's extra tags and reads the same way.
 
@@ -397,7 +397,7 @@ Intuit's extra tags and reads the same way.
 ### Dedupe, reconciliation and the commit
 
 M1.11–M1.13, decided 2026-11-11 (decision record "import commit, dedupe and undo").
-`coffer_core::import`: `preview(db, account, file name, Statement)` →
+`orre_core::import`: `preview(db, account, file name, Statement)` →
 `ImportPreview` (every row's `RowOutcome`, the file's balances, a `Reconciliation`,
 `counts()`, `needs_confirmation()`), then `commit(db, &preview, Confirmations)` →
 `Committed::Batch(summary)` or `NothingNew`; `rehearse(db, &preview)` runs the commit's
@@ -429,7 +429,7 @@ steps and rolls them back, for the Review step's figures (M3.4). `undo_preview(d
   previous one plus the amounts since; a flagged row restarts the chain. The file's
   order is the one under which fewer balances fail, ties going by the dates. A mismatch
   is flagged at its row.
-- **Balance checks** (`coffer_core::balance::check`, reused by M1.27): the account's
+- **Balance checks** (`orre_core::balance::check`, reused by M1.27): the account's
   balances (entered, earlier files, the opening balance, and this file's) are sorted by
   date; the first is the starting point and each later one must equal the last passing
   one plus the transactions after it, up to and including its day. Rows excluded as
@@ -463,8 +463,8 @@ Oldest first.
 
 ### Decision record: import commit, dedupe and undo (2026-11-11)
 
-Decided while building M1.11–M1.13 (`coffer_core::import`, `coffer_core::balance`,
-`coffer_core::account`); the details are under "Import pipeline" → "Dedupe,
+Decided while building M1.11–M1.13 (`orre_core::import`, `orre_core::balance`,
+`orre_core::account`); the details are under "Import pipeline" → "Dedupe,
 reconciliation and the commit".
 
 1. **Preview, then commit what was previewed.** `import::preview` reads the database and
@@ -543,7 +543,7 @@ presets, dedupe, reconciliation, commit, undo, CLI; `crates/import/tests/*_paths
 ### Decision record: the import flow (2026-11-14)
 
 M3.4 and M3.5. Marked **(user)**: decided by the user on 2026-11-14 when asked before
-the build. Everything else follows `DESIGN.md` → "Import", the CLI's `coffer import`, or
+the build. Everything else follows `DESIGN.md` → "Import", the CLI's `orre import`, or
 the records above ("Import commit, dedupe and undo", "The CSV importer", "Presets").
 
 1. **Undrawn states are composed from existing specs (user)**, as in M3.2 and M3.3: the
@@ -551,7 +551,7 @@ the records above ("Import commit, dedupe and undo", "The CSV importer", "Preset
    money-out / money-in pair), OFX (Format locked, Statement select), a file that isn't
    a statement, Save as preset, and the notification after an import. Recorded in
    `DESIGN.md` → "Import" → "Built in M3.4".
-2. **Choosing follows `coffer import`, with the user in the loop.** OFX by its format; a
+2. **Choosing follows `orre import`, with the user in the loop.** OFX by its format; a
    CSV preset by its own header row, one match only (several: the one an account uses,
    else the first, and the caption says to check). Otherwise the account's preset
    (`account.preset_id`, V15), but only if it reads the file: a preset without a header
@@ -588,7 +588,7 @@ the records above ("Import commit, dedupe and undo", "The CSV importer", "Preset
    files `0600`, laid out like the repository's `presets/` so a file can be contributed
    as it is. They load next to the bundled presets (`preset::load_user_presets`,
    `Presets::with_user_presets`) in the app, the account inspector's Preset select and
-   the CLI (`coffer import`, `coffer accounts add --preset`). A saved preset can't take
+   the CLI (`orre import`, `orre accounts add --preset`). A saved preset can't take
    an ID the bundled or saved presets have, and a file isn't overwritten; one that no
    longer loads is left out with a warning (path and reason, never transaction data),
    so one broken file hides nothing else. Not in the database, so a backup restore
@@ -613,7 +613,7 @@ the records above ("Import commit, dedupe and undo", "The CSV importer", "Preset
    locked rows stay out, as core already does.
 10. **After the commit**: the dialog closes, the accounts panel and Transactions read the
     database again, and a notification says what was imported with Undo
-    (`import::undo`, the same as `coffer undo-import`; importing the file again brings
+    (`import::undo`, the same as `orre undo-import`; importing the file again brings
     the rows back). The notification stays until dismissed or replaced.
 11. **No migration.** M3.4 and M3.5 add none.
 
@@ -691,7 +691,7 @@ batch.
    or moves the date with the text unchanged, is caught by neither; L.21 stays open for
    those and for fixtures showing which exports include pending rows.
 10. **Schema: V21** rebuilds `"transaction"` (12-step) with foreign keys off. The
-    migration's first line, `-- coffer: foreign_keys=off`, asks `db::migrations::run` to
+    migration's first line, `-- orre: foreign_keys=off`, asks `db::migrations::run` to
     turn them off around the run and to check every foreign key inside its transaction
     before it commits.
 11. **A correction must be the same payment.** The source ID alone isn't enough: a bank,
@@ -722,7 +722,7 @@ overlapping file would duplicate rows already in users' databases.
    fixture and golden file, never an edited golden file. The preset ID is recorded on
    every batch, and the old preset stays loadable. Changes that leave every identity
    alone (category map, name, pot rules) keep the ID.
-3. **A preset without a golden file fails the test.** `COFFER_BLESS_GOLDEN=1` writes the
+3. **A preset without a golden file fails the test.** `ORRE_BLESS_GOLDEN=1` writes the
    missing files only and never overwrites one. The rule is in `presets/README.md` →
    "Changing a preset".
 4. **Saved presets aren't covered.** They live in the data folder, have no fixture in the
@@ -773,12 +773,12 @@ user's; the rest are **(composed)**.
 6. **The preview names the other account. (user)** When the hash is known to another
    account, the warning reads "This file looks like it's from <account name>"; if it is
    known to several, the one imported into most recently. Otherwise it says "a different
-   account". The Review step shows it as a `warning-soft` block, and `coffer import`
+   account". The Review step shows it as a `warning-soft` block, and `orre import`
    prints a `Warning:` line (also on `--dry-run`). When the account has had no other
    number, the block's body says only that the other account has had this one ("Files
    with this account number have gone into Savings."). **(composed)** from the locked-period
    block's box and the wide rule's `warning` triangle ("Import" in `docs/DESIGN.md`).
-7. **MCP never reads the table. (composed)** No tool queries it and `coffer mcp` has no
+7. **MCP never reads the table. (composed)** No tool queries it and `orre mcp` has no
    use for the key; like the pseudonym key it stays in the database and out of every
    output. Backups contain it as they contain the rest of the database.
 8. **Deterministic. (composed)** No network or model call: the check is a hash and

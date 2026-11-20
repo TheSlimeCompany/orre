@@ -5,12 +5,12 @@
 mod common;
 
 use chrono::NaiveDate;
-use coffer_core::account::AccountKind;
-use coffer_core::id::BatchId;
-use coffer_core::import::{
+use orre_core::account::AccountKind;
+use orre_core::id::BatchId;
+use orre_core::import::{
     self, BatchStatus, Committed, Error, FileBalanceStatus, PreviewCounts, RowOutcome,
 };
-use coffer_core::money::Currency;
+use orre_core::money::Currency;
 
 use common::*;
 
@@ -156,10 +156,10 @@ fn undo_removes_balances_and_flags_and_a_reimport_restores_them() {
     // The next file has EX-0005 for another amount. Excluded, the stored row
     // can't take the bank's correction, so that row is flagged.
     let cash = scratch.by_external_id(current, "EX-0005").unwrap();
-    coffer_core::exclusion::exclude(
+    orre_core::exclusion::exclude(
         &mut scratch.db,
-        coffer_core::id::TransactionId::new(cash.id),
-        coffer_core::exclusion::ExclusionReason::Disputed,
+        orre_core::id::TransactionId::new(cash.id),
+        orre_core::exclusion::ExclusionReason::Disputed,
         None,
     )
     .unwrap();

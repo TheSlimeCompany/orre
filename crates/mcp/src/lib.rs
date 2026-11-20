@@ -1,7 +1,7 @@
-//! Coffer's MCP server (`coffer mcp --client <name>`): rmcp over stdio, on
+//! Orre's MCP server (`orre mcp --client <name>`): rmcp over stdio, on
 //! top of the core API (ROADMAP M2).
 //!
-//! - **Reads** run on a read-only connection ([`coffer_core::db::Reader`]).
+//! - **Reads** run on a read-only connection ([`orre_core::db::Reader`]).
 //! - **Writes** go through [`store::Store`], the only writer: suggestions and
 //!   reports (the inbox) for tools that declare they write, and the access
 //!   log for the server itself (`AGENTS.md` → Invariants).
@@ -25,8 +25,8 @@ pub mod server;
 pub mod store;
 pub mod tools;
 
-use coffer_core::db::{self, Database};
-use coffer_core::mcp_client::ClientName;
+use orre_core::db::{self, Database};
+use orre_core::mcp_client::ClientName;
 
 pub use server::Server;
 

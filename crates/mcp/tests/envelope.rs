@@ -10,13 +10,13 @@
 mod support;
 
 use chrono::NaiveDate;
-use coffer_core::access_log::Outcome;
-use coffer_core::envelope::{self, withheld_marker};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::setting::PSEUDONYM_KEY;
-use coffer_mcp::output::{MerchantLabel, UntrustedText};
-use coffer_mcp::registry::{
+use orre_core::access_log::Outcome;
+use orre_core::envelope::{self, withheld_marker};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::setting::PSEUDONYM_KEY;
+use orre_mcp::output::{MerchantLabel, UntrustedText};
+use orre_mcp::registry::{
     Call, HIDDEN_DESCRIPTION, HIDDEN_MERCHANT, Registry, Reply, ToolError, ToolSpec, Writes,
 };
 use schemars::JsonSchema;
@@ -77,7 +77,7 @@ fn echo_rows(call: &Call<'_>, args: RowsIn) -> Result<Reply<RowsOut>, ToolError>
 }
 
 fn registry() -> Registry {
-    let mut registry = coffer_mcp::tools::registry();
+    let mut registry = orre_mcp::tools::registry();
     registry.add(ECHO_ROWS, echo_rows);
     registry.add(AGGREGATE_ROWS, echo_rows);
     registry
@@ -408,7 +408,7 @@ async fn pseudonymous_tokens_come_from_the_unsanitised_name() {
     let names = [long.as_str(), "PAYPAL *NETFLIX.COM", "Bean There"];
 
     let tokens = label_names(&fixture, AccessLevel::Pseudonymous, &names).await;
-    let key = coffer_core::setting::pseudonym_key(&fixture.open().reader().unwrap())
+    let key = orre_core::setting::pseudonym_key(&fixture.open().reader().unwrap())
         .unwrap()
         .unwrap();
     for (name, token) in names.iter().zip(&tokens) {

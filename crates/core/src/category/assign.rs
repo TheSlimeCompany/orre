@@ -7,7 +7,7 @@
 //! - **split**: each line takes its own, in the split editor (M3.9);
 //! - **a leg of a confirmed transfer pair**: money moved between the
 //!   user's accounts counts as neither spending nor income (M3.8); a pair
-//!   Coffer only suggested doesn't count;
+//!   Orre only suggested doesn't count;
 //! - **the money in of a confirmed refund**: it counts in its purchase's
 //!   category until it's unlinked (M3.11); a suggested refund doesn't
 //!   count, and nor does the purchase side.

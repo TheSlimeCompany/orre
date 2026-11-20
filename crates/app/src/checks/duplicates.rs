@@ -12,16 +12,13 @@
 //!   block above them and fades Merge until the account is unlocked.
 //! - **The inspector**: why the pair was flagged (met criteria with a
 //!   muted ✓, what stopped the exact dedupe with a `warning` ≠), and "If
-//!   you merge" ([`coffer_core::checks::MergeEffect`]): the row excluded,
-//!   the values moved (user, 2026-11-14), spending, Coffer's count and the
+//!   you merge" ([`orre_core::checks::MergeEffect`]): the row excluded,
+//!   the values moved (user, 2026-11-14), spending, Orre's count and the
 //!   balance checks it changes.
 //!
 //! Names, bank text and bank IDs are untrusted text, shown plain.
 
 use chrono::NaiveDate;
-use coffer_core::checks::{MergeEffect, Pair, PairRow, RowCategory};
-use coffer_core::duplicate::DuplicateWindow;
-use coffer_core::reporting::palette::Palette;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -29,6 +26,9 @@ use gpui_kit::{
     Rgba, SharedString, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window,
     div,
 };
+use orre_core::checks::{MergeEffect, Pair, PairRow, RowCategory};
+use orre_core::duplicate::DuplicateWindow;
+use orre_core::reporting::palette::Palette;
 
 use crate::format;
 use crate::inbox::text::marker;
@@ -718,7 +718,7 @@ pub(super) fn empty(checks: &Checks) -> Option<(&'static str, SharedString)> {
     checks.pairs().is_empty().then(|| {
         (
             "No possible duplicates",
-            "Coffer checks every import. A pair you marked “Not duplicates” isn’t flagged again."
+            "Orre checks every import. A pair you marked “Not duplicates” isn’t flagged again."
                 .into(),
         )
     })
@@ -727,7 +727,7 @@ pub(super) fn empty(checks: &Checks) -> Option<(&'static str, SharedString)> {
 /// The caption under the pairs.
 pub(super) fn footnote() -> String {
     format!(
-        "Exact duplicates never get this far: a row the bank already gave Coffer is skipped at \
+        "Exact duplicates never get this far: a row the bank already gave Orre is skipped at \
          import. A pair is flagged when one account has the same amount twice within {} days \
          under different text.",
         DuplicateWindow::DEFAULT.days()
@@ -931,7 +931,7 @@ pub(super) struct MergeRow {
 }
 
 /// The rows of "If you merge": the row excluded, the values moved,
-/// spending, Coffer's count and the checks it changes.
+/// spending, Orre's count and the checks it changes.
 pub(super) fn merge_rows(
     pair: &Pair,
     effect: &MergeEffect,
@@ -1025,7 +1025,7 @@ pub(super) fn merge_captions(
     let mut captions = Vec::new();
     for change in &effect.checks {
         let computed = match change.before {
-            coffer_core::reconciliation::Outcome::Failed { computed_minor, .. } => {
+            orre_core::reconciliation::Outcome::Failed { computed_minor, .. } => {
                 Some(computed_minor)
             }
             _ => None,
@@ -1035,7 +1035,7 @@ pub(super) fn merge_captions(
         {
             let difference = i128::from(change.stated.minor()) - computed;
             let gap = i64::try_from(difference.unsigned_abs())
-                .map(|minor| coffer_core::money::Money::new(minor, change.stated.currency()));
+                .map(|minor| orre_core::money::Money::new(minor, change.stated.currency()));
             if let Ok(gap) = gap {
                 captions.push(vec![
                     Part::text(format!(
@@ -1047,9 +1047,9 @@ pub(super) fn merge_captions(
                     Part::text(" is "),
                     Part::mono(text::unsigned(gap)),
                     Part::text(if difference > 0 {
-                        " above Coffer’s. This pair explains all of it."
+                        " above Orre’s. This pair explains all of it."
                     } else {
-                        " below Coffer’s. This pair explains all of it."
+                        " below Orre’s. This pair explains all of it."
                     }),
                 ]);
             }

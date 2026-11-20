@@ -16,10 +16,10 @@
 //! (`TransactionsView::say_on_failure_bar`), and its Show goes back to the row
 //! with the reason under Details.
 
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::manual;
-use coffer_core::reporting::register::{Register, RegisterRow};
 use gpui_kit::{Context, Focusable as _, SharedString, Window};
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::manual;
+use orre_core::reporting::register::{Register, RegisterRow};
 
 use crate::accounts::store::StoreError;
 use crate::format;
@@ -97,7 +97,7 @@ impl TransactionsView {
         let Some(date) = format::parse_date(&typed, self.today) else {
             self.editor.error = Some((
                 EditPlace::Details,
-                "The date isn't one Coffer can read. Type it as 9 Nov 2026.".into(),
+                "The date isn't one Orre can read. Type it as 9 Nov 2026.".into(),
             ));
             cx.notify();
             return;
@@ -124,7 +124,7 @@ impl TransactionsView {
             _ => {
                 self.editor.error = Some((
                     EditPlace::Details,
-                    "The amount isn't one Coffer can read. Type it as −23.00, with a minus for \
+                    "The amount isn't one Orre can read. Type it as −23.00, with a minus for \
                      money out."
                         .into(),
                 ));
@@ -157,7 +157,7 @@ impl TransactionsView {
         &mut self,
         id: TransactionId,
         cx: &mut Context<Self>,
-        change: impl FnOnce(&mut coffer_core::manual::ManualTransaction),
+        change: impl FnOnce(&mut orre_core::manual::ManualTransaction),
     ) {
         let policy = Policy::edit(EditPlace::Details).emit(TransactionsEvent::LedgerChanged);
         self.write(policy, cx, |db| -> Result<(), StoreError> {

@@ -1,6 +1,6 @@
-//! The component showcase, `coffer --showcase` (`docs/ROADMAP.md` D2.5).
+//! The component showcase, `orre --showcase` (`docs/ROADMAP.md` D2.5).
 //!
-//! One scrolling window that puts Coffer's tokens and controls next to the
+//! One scrolling window that puts Orre's tokens and controls next to the
 //! Paper file they come from, board by board:
 //!
 //! - **Foundations** (Paper `1-0`): colour swatches and the type scale.
@@ -36,7 +36,7 @@ use crate::ui::list::{self, Keys, ListKeysExt as _, Move};
 use crate::ui::text::{CasedText as _, TextRoleExt as _};
 
 /// The key context of the live lists, where the arrow keys move.
-const LIST_CONTEXT: &str = "CofferShowcaseList";
+const LIST_CONTEXT: &str = "OrreShowcaseList";
 
 /// The live lists' movement keys: ↑↓, Home and End move the keyboard row.
 const LIST_KEYS: Keys = Keys::new(LIST_CONTEXT).with_ends();

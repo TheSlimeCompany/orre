@@ -4,7 +4,7 @@
 //! the actions available with their keys.
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `coffer mcp`
+//! release build and nothing outside the tests can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -24,9 +24,9 @@
 //! was refused (the view holds those, not [`Checks`]), and the pointer's
 //! hover.
 
-use coffer_core::checks::{AccountReview, CheckRow, Pair};
-use coffer_core::reconciliation::Outcome as CheckOutcome;
 use gpui_kit::{AnyView, App};
+use orre_core::checks::{AccountReview, CheckRow, Pair};
+use orre_core::reconciliation::Outcome as CheckOutcome;
 
 pub use crate::ui::describe::{Action, Dialog, Header, Inspector, PanelRow, Section};
 
@@ -145,7 +145,7 @@ pub struct CheckDescription {
     pub source: String,
     pub date: String,
     pub balance: String,
-    pub coffer: String,
+    pub orre: String,
     pub difference: String,
     pub selected: bool,
     /// Under a failed row: what it says, and "Review pair" when a pair
@@ -348,7 +348,7 @@ fn check_row(
         source,
         date,
         balance,
-        coffer,
+        orre,
         difference,
     } = balances::check_row_text(row, today);
     CheckDescription {
@@ -360,7 +360,7 @@ fn check_row(
         source,
         date,
         balance,
-        coffer,
+        orre,
         difference,
         selected: checks.is_check_selected(account.account, check.balance),
         window: check
@@ -520,10 +520,7 @@ fn owed_body(checks: &Checks, today: chrono::NaiveDate) -> Body {
     .into()
 }
 
-fn person_inspector(
-    person: &coffer_core::link::owed::Person,
-    today: chrono::NaiveDate,
-) -> Inspector {
+fn person_inspector(person: &orre_core::link::owed::Person, today: chrono::NaiveDate) -> Inspector {
     let (title, figure, caption) = owed::header_text(person);
     let costs = person
         .costs

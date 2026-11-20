@@ -4,7 +4,7 @@
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module), like each
 //! view's `describe()`: nothing here is in a release build or reachable
-//! from `coffer mcp` (`docs/architecture/app.md` → "Decision record: views
+//! from `orre mcp` (`docs/architecture/app.md` → "Decision record: views
 //! that describe themselves stay out of the release binary").
 
 use crate::ui::keys::{Key, ViewKeys};

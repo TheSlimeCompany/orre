@@ -14,23 +14,23 @@
 //! - **Links** (every transaction outside a transfer: core's
 //!   `RegisterRow::takes_links`): "Link…" opens the
 //!   link dialog (the shell owns it); each confirmed link is a row with ✕,
-//!   which unlinks it with the undo bar; Coffer's suggestion is a card
+//!   which unlinks it with the undo bar; Orre's suggestion is a card
 //!   ("Is this a refund?") with Link and Not a refund.
 //!
 //! Every change goes through the store to core's `edit`: one undoable
 //! change batch each. A link, an unlink or a rejected suggestion shows the
 //! D6.3 undo bar; a share change, like M3.9's edits, doesn't.
 
-use coffer_core::edit;
-use coffer_core::id::{ChangeBatchId, LinkId, TransactionId};
-use coffer_core::link::{LinkKind, NewLink, ShareLabel, Sharing};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::linking as core_linking;
-use coffer_core::reporting::register::{RegisterRow, RowCategory, RowLink};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div,
 };
+use orre_core::edit;
+use orre_core::id::{ChangeBatchId, LinkId, TransactionId};
+use orre_core::link::{LinkKind, NewLink, ShareLabel, Sharing};
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::linking as core_linking;
+use orre_core::reporting::register::{RegisterRow, RowCategory, RowLink};
 
 use crate::accounts::store::StoreError;
 use crate::format::{self, Sign};
@@ -257,7 +257,7 @@ impl TransactionsView {
         .ok();
     }
 
-    /// Confirms Coffer's suggestion on the selected row.
+    /// Confirms Orre's suggestion on the selected row.
     pub(super) fn confirm_suggestion(&mut self, ids: Vec<LinkId>, cx: &mut Context<Self>) {
         let Some(row) = self.single_row().cloned() else {
             return;
@@ -273,9 +273,7 @@ impl TransactionsView {
         let purchases: Vec<&RegisterRow> = suggested
             .iter()
             .filter_map(|link| match link.other {
-                coffer_core::reporting::register::LinkOther::Transaction(id) => {
-                    self.register.row(id)
-                }
+                orre_core::reporting::register::LinkOther::Transaction(id) => self.register.row(id),
                 _ => None,
             })
             .collect();
@@ -302,7 +300,7 @@ impl TransactionsView {
         }
     }
 
-    /// Rejects links: ✕ on a link (unlink), or "Not a refund" on Coffer's
+    /// Rejects links: ✕ on a link (unlink), or "Not a refund" on Orre's
     /// suggestion.
     pub(super) fn reject_links(&mut self, ids: Vec<LinkId>, cx: &mut Context<Self>) {
         let Some(row) = self.single_row().cloned() else {
@@ -313,7 +311,7 @@ impl TransactionsView {
         };
         let message = linking::unlinked_message(
             link.kind,
-            link.status == coffer_core::link::LinkStatus::Suggested,
+            link.status == orre_core::link::LinkStatus::Suggested,
         );
         let policy = Policy::link(EditPlace::Links).undo(offer_batch(message));
         self.write(policy, cx, |db| edit::reject_links(db, &ids))
@@ -707,7 +705,7 @@ fn purchase_strip(view: &TransactionsView, purchase: &RegisterRow) -> AnyElement
         .into_any_element()
 }
 
-/// Coffer's suggestion card (Paper `APQ-0`): neutral, `float`, 1px
+/// Orre's suggestion card (Paper `APQ-0`): neutral, `float`, 1px
 /// `hairline`, `radius-surface`, 12px padding.
 fn suggestion_card(
     view: &TransactionsView,
@@ -721,7 +719,7 @@ fn suggestion_card(
     let purchases: Vec<&RegisterRow> = suggestions
         .iter()
         .filter_map(|link| match link.other {
-            coffer_core::reporting::register::LinkOther::Transaction(id) => view.register.row(id),
+            orre_core::reporting::register::LinkOther::Transaction(id) => view.register.row(id),
             _ => None,
         })
         .collect();

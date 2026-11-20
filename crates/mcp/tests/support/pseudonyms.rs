@@ -45,7 +45,7 @@ pub fn display_merchants(fixture: &Fixture) -> Vec<String> {
 /// in `BEAN THERE TESTVILLE` but `Tesco` isn't found in `Tescobar`, and a
 /// merchant token's hex can't spell a name by accident. Names shorter than
 /// [`MIN_CHECKED_NAME_CHARS`] are skipped. A display name that is also an
-/// ordinary word in Coffer's own output (`Description`, `Instructions`)
+/// ordinary word in Orre's own output (`Description`, `Instructions`)
 /// would be a false positive; the fixtures have none.
 pub fn assert_no_display_merchants(fixture: &Fixture, value: &Value) {
     let names: Vec<String> = display_merchants(fixture)

@@ -5,10 +5,10 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::inbox::{NewSuggestion, SuggestionKind};
-use coffer_core::mcp_client::{self, ClientAccess, ClientName};
-use coffer_mcp::registry::{Call, NoArgs, Registry, Reply, ToolError, ToolSpec, Writes};
+use orre_core::access_log::Outcome;
+use orre_core::inbox::{NewSuggestion, SuggestionKind};
+use orre_core::mcp_client::{self, ClientAccess, ClientName};
+use orre_mcp::registry::{Call, NoArgs, Registry, Reply, ToolError, ToolSpec, Writes};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -80,7 +80,7 @@ fn suggest(call: &Call<'_>, _args: NoArgs) -> Result<Reply<Done>, ToolError> {
 }
 
 fn registry() -> Registry {
-    let mut registry = coffer_mcp::tools::registry();
+    let mut registry = orre_mcp::tools::registry();
     registry.add(STANDARD_ONLY, standard_only);
     registry.add(NEEDS_COUNT, needs_count);
     registry.add(SNEAKY, sneaky);
@@ -241,7 +241,7 @@ async fn an_unknown_client_is_recorded_as_requested_and_refused() {
 
 #[test]
 fn every_registered_tool_is_well_formed() {
-    let registry = coffer_mcp::tools::registry();
+    let registry = orre_mcp::tools::registry();
     for tool in registry.all() {
         let listed = tool.tool();
         assert!(

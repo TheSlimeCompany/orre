@@ -4,11 +4,11 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use coffer_core::account::{self, AccountKind};
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, BatchId};
-use coffer_core::import::{self, BatchStatus};
-use coffer_core::money::Currency;
+use orre_core::account::{self, AccountKind};
+use orre_core::db::Database;
+use orre_core::id::{AccountId, BatchId};
+use orre_core::import::{self, BatchStatus};
+use orre_core::money::Currency;
 use tempfile::TempDir;
 
 use super::*;
@@ -31,14 +31,14 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("coffer.db");
+        let db = dir.path().join("orre.db");
         Scratch { _dir: dir, db }
     }
 
-    /// Runs `coffer <args>` and returns its output, or the error message
+    /// Runs `orre <args>` and returns its output, or the error message
     /// (as `main` prints it, without the `error: `).
     fn run(&self, args: &[&str]) -> Result<String, String> {
-        let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
         let command = cli.command.expect("a subcommand");
         let mut out = Vec::new();
@@ -98,24 +98,24 @@ impl Scratch {
 
 #[test]
 fn no_subcommand_opens_the_gui() {
-    let cli = Cli::try_parse_from(["coffer"]).unwrap();
+    let cli = Cli::try_parse_from(["orre"]).unwrap();
     assert!(cli.command.is_none());
     assert!(!cli.showcase);
 
-    let cli = Cli::try_parse_from(["coffer", "--showcase"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "--showcase"]).unwrap();
     assert!(cli.command.is_none());
     assert!(cli.showcase);
 }
 
 #[test]
 fn showcase_doesnt_mix_with_a_subcommand() {
-    assert!(Cli::try_parse_from(["coffer", "--showcase", "accounts"]).is_err());
+    assert!(Cli::try_parse_from(["orre", "--showcase", "accounts"]).is_err());
 }
 
 #[test]
 fn parses_import() {
     let cli = Cli::try_parse_from([
-        "coffer",
+        "orre",
         "import",
         "statement.csv",
         "--account",
@@ -135,7 +135,7 @@ fn parses_import() {
     assert_eq!(args.statement, None);
     assert!(args.dry_run && args.yes);
 
-    let cli = Cli::try_parse_from(["coffer", "import", "a.ofx", "--statement", "2"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "import", "a.ofx", "--statement", "2"]).unwrap();
     let Some(Command::Import(args)) = cli.command else {
         panic!("not an import");
     };
@@ -143,23 +143,23 @@ fn parses_import() {
     assert!(!args.dry_run && !args.yes);
 
     assert!(
-        Cli::try_parse_from(["coffer", "import"]).is_err(),
+        Cli::try_parse_from(["orre", "import"]).is_err(),
         "needs a file"
     );
     assert!(
-        Cli::try_parse_from(["coffer", "import", "a.ofx", "--statement", "0"]).is_err(),
+        Cli::try_parse_from(["orre", "import", "a.ofx", "--statement", "0"]).is_err(),
         "statements count from 1"
     );
 }
 
 #[test]
 fn parses_accounts() {
-    let cli = Cli::try_parse_from(["coffer", "accounts"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "accounts"]).unwrap();
     assert!(matches!(
         cli.command,
         Some(Command::Accounts(AccountsArgs { command: None }))
     ));
-    let cli = Cli::try_parse_from(["coffer", "accounts", "list"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "accounts", "list"]).unwrap();
     assert!(matches!(
         cli.command,
         Some(Command::Accounts(AccountsArgs {
@@ -168,7 +168,7 @@ fn parses_accounts() {
     ));
 
     let cli = Cli::try_parse_from([
-        "coffer",
+        "orre",
         "accounts",
         "add",
         "--name",
@@ -197,7 +197,7 @@ fn parses_accounts() {
 
     for kind in AccountKind::ALL {
         let parsed = Cli::try_parse_from([
-            "coffer",
+            "orre",
             "accounts",
             "add",
             "--name",
@@ -209,7 +209,7 @@ fn parses_accounts() {
         ]);
         assert!(parsed.is_ok(), "{}", kind.as_str());
     }
-    let base = ["coffer", "accounts", "add", "--name", "A"];
+    let base = ["orre", "accounts", "add", "--name", "A"];
     assert!(
         Cli::try_parse_from([&base[..], &["--kind", "chequing", "--currency", "GBP"]].concat())
             .is_err()
@@ -223,33 +223,33 @@ fn parses_accounts() {
 
 #[test]
 fn parses_undo_import() {
-    let cli = Cli::try_parse_from(["coffer", "undo-import", "12"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "undo-import", "12"]).unwrap();
     let Some(Command::UndoImport(args)) = cli.command else {
         panic!("not undo-import");
     };
     assert_eq!((args.batch, args.yes), (12, false));
 
-    let cli = Cli::try_parse_from(["coffer", "undo-import", "12", "--yes"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "undo-import", "12", "--yes"]).unwrap();
     let Some(Command::UndoImport(args)) = cli.command else {
         panic!("not undo-import");
     };
     assert!(args.yes);
-    assert!(Cli::try_parse_from(["coffer", "undo-import", "twelve"]).is_err());
+    assert!(Cli::try_parse_from(["orre", "undo-import", "twelve"]).is_err());
 }
 
 #[test]
 fn parses_mcp() {
-    let cli = Cli::try_parse_from(["coffer", "mcp", "--client", "claude-code"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "mcp", "--client", "claude-code"]).unwrap();
     let Some(Command::Mcp(args)) = cli.command else {
         panic!("not mcp");
     };
     assert_eq!(args.client.as_str(), "claude-code");
 
     for bad in [
-        &["coffer", "mcp"][..],
-        &["coffer", "mcp", "--client", ""],
-        &["coffer", "mcp", "--client", "claude code"],
-        &["coffer", "mcp", "--client", "coffer"],
+        &["orre", "mcp"][..],
+        &["orre", "mcp", "--client", ""],
+        &["orre", "mcp", "--client", "claude code"],
+        &["orre", "mcp", "--client", "orre"],
     ] {
         assert!(Cli::try_parse_from(bad).is_err(), "{bad:?}");
     }
@@ -260,7 +260,7 @@ fn mcp_needs_an_existing_database_and_creates_none() {
     let scratch = Scratch::new();
     let error = scratch.err(&["mcp", "--client", "claude-code"]);
     assert!(error.contains("couldn't start the MCP server"), "{error}");
-    assert!(error.contains("there is no Coffer database"), "{error}");
+    assert!(error.contains("there is no Orre database"), "{error}");
     assert!(!scratch.db.exists(), "the MCP server creates nothing");
 }
 
@@ -270,18 +270,18 @@ fn mcp_needs_an_existing_database_and_creates_none() {
 fn read_only_commands_need_an_existing_database() {
     let scratch = Scratch::new();
     let error = scratch.err(&["accounts"]);
-    assert!(error.contains("there is no Coffer database"), "{error}");
-    assert!(error.contains("coffer accounts add"), "{error}");
+    assert!(error.contains("there is no Orre database"), "{error}");
+    assert!(error.contains("orre accounts add"), "{error}");
     assert!(
         scratch
             .err(&["undo-import", "1"])
-            .contains("no Coffer database")
+            .contains("no Orre database")
     );
-    assert!(scratch.err(&["inbox"]).contains("no Coffer database"));
+    assert!(scratch.err(&["inbox"]).contains("no Orre database"));
     assert!(
         scratch
             .err(&["inbox", "approve", "1"])
-            .contains("no Coffer database")
+            .contains("no Orre database")
     );
     assert!(!scratch.db.exists(), "a read-only command creates nothing");
 }
@@ -392,7 +392,7 @@ fn accounts_add_checks_pots_and_parents() {
 fn a_dry_run_without_a_database_creates_none() {
     let scratch = Scratch::new();
     let error = scratch.err(&["import", &fixture("presets/uk/monzo.csv"), "--dry-run"]);
-    assert!(error.contains("there is no Coffer database"), "{error}");
+    assert!(error.contains("there is no Orre database"), "{error}");
     assert!(!scratch.db.exists());
 }
 
@@ -435,7 +435,7 @@ fn import_commits_and_again_finds_nothing_new() {
         out.contains("Categorised: 12 by the preset, 0 by rules. Transfer pairs suggested: 0.\n"),
         "{out}"
     );
-    assert!(out.ends_with("To undo it: coffer undo-import 1\n"), "{out}");
+    assert!(out.ends_with("To undo it: orre undo-import 1\n"), "{out}");
     let batches = scratch.batches(1);
     assert_eq!(batches.len(), 1);
     assert_eq!(batches[0].preset_id.as_deref(), Some("uk-monzo"));
@@ -828,16 +828,16 @@ fn import_reports_transfer_pairs_it_suggests() {
 /// Saves a preset for `csv/signed-amount.csv` where the import screen
 /// saves one: `presets/` next to the database.
 fn save_signed_amount_preset(scratch: &Scratch) {
-    use coffer_import::SourceFile;
-    use coffer_import::csv::{CsvFile, FileLayout, MappingDraft};
-    use coffer_import::preset::{Preset, PresetParts, save_user_preset};
+    use orre_import::SourceFile;
+    use orre_import::csv::{CsvFile, FileLayout, MappingDraft};
+    use orre_import::preset::{Preset, PresetParts, save_user_preset};
 
     let file = SourceFile::read(Path::new(&fixture("csv/signed-amount.csv"))).unwrap();
     let parsed = CsvFile::read(&file, &FileLayout::default()).unwrap();
     let mut draft = MappingDraft::suggest(&parsed, FileLayout::default());
     // Its days are all the 12th or earlier: DD/MM or MM/DD is the user's call.
     assert_eq!(draft.date_format, None);
-    draft.date_format = Some(coffer_import::csv::DateFormat::new("%d/%m/%Y").unwrap());
+    draft.date_format = Some(orre_import::csv::DateFormat::new("%d/%m/%Y").unwrap());
     let preset = Preset::new(PresetParts {
         id: "uk-example".to_owned(),
         name: "Example Bank".to_owned(),
@@ -849,7 +849,7 @@ fn save_signed_amount_preset(scratch: &Scratch) {
     })
     .unwrap();
     save_user_preset(
-        &coffer_core::paths::presets_dir(&scratch.db),
+        &orre_core::paths::presets_dir(&scratch.db),
         &preset,
         &Presets::bundled().unwrap(),
     )

@@ -1,13 +1,13 @@
 //! UI integration tests for the inspector's Share and Links sections and
 //! the link dialog (M3.11), on D6.5's fixture in a scratch database,
-//! through [`TransactionStore`] as `coffer` runs them.
+//! through [`TransactionStore`] as `orre` runs them.
 
-use coffer_core::db::Database;
-use coffer_core::link::{LinkKind, LinkStatus};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::register::LinkSide;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Bounds, Pixels, SharedString, TestAppContext, VisualTestContext};
+use orre_core::db::Database;
+use orre_core::link::{LinkKind, LinkStatus};
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::register::LinkSide;
 use tempfile::TempDir;
 
 use super::describe::{FieldDescription, TransactionsDescription};
@@ -44,7 +44,7 @@ struct Scratch {
 
 fn scratch(variant: Variant) -> Scratch {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let mut db = Database::open(&path).unwrap();
     let seeded = link_fixture::seed(&mut db, variant);
     Scratch {
@@ -258,7 +258,7 @@ fn the_dialog_links_a_refund_to_the_chosen_purchase(cx: &mut TestAppContext) {
             LinkDialog::new(
                 view,
                 LinkFrom::Person(
-                    coffer_core::link::ShareLabel::new("Sam").unwrap(),
+                    orre_core::link::ShareLabel::new("Sam").unwrap(),
                     Currency::GBP,
                 ),
                 window,

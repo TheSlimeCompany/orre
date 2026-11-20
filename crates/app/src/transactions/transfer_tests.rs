@@ -1,20 +1,20 @@
 //! UI tests for M3.8: the Transfer section confirms, rejects and unpairs a
 //! pair, the undo bar reverses each, and an agent's pending suggestion for
 //! the same pair is settled, against a scratch database through
-//! [`TransactionStore`], as `coffer` runs them.
+//! [`TransactionStore`], as `orre` runs them.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, TransactionId, TransferGroupId};
-use coffer_core::import::{self, Committed};
-use coffer_core::inbox::{self, NewSuggestion, SuggestionKind, SuggestionStatus};
-use coffer_core::mcp_client::ClientName;
-use coffer_core::money::{Currency, Money};
-use coffer_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
-use coffer_core::transfer::{self, TransferStatus};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::id::{AccountId, TransactionId, TransferGroupId};
+use orre_core::import::{self, Committed};
+use orre_core::inbox::{self, NewSuggestion, SuggestionKind, SuggestionStatus};
+use orre_core::mcp_client::ClientName;
+use orre_core::money::{Currency, Money};
+use orre_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
+use orre_core::transfer::{self, TransferStatus};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -64,7 +64,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let current = account::create(
             &mut db,

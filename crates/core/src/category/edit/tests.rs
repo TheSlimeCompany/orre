@@ -19,7 +19,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         Self { _dir: dir, db }
     }
 
@@ -537,7 +537,7 @@ fn the_overview_lists_every_group_with_its_usage() {
 #[test]
 fn the_hidden_flag_applies_to_an_existing_database() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     {
         let db = crate::db::open_at_version(&path, 17).unwrap();
         db.conn()
@@ -635,7 +635,7 @@ fn user_groups_and_their_subcategories_get_one_user_part() {
 #[test]
 fn the_retired_table_applies_to_an_existing_database() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     {
         let db = crate::db::open_at_version(&path, 21).unwrap();
         db.conn()

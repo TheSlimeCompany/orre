@@ -17,7 +17,7 @@
 //!   registered as writing add to them, filed as the calling client;
 //! - no tool changes or deletes a suggestion or report that was already
 //!   there (reports from the calling client and another one are seeded):
-//!   deleting a report is the user's, in `coffer inbox delete-report`, and
+//!   deleting a report is the user's, in `orre inbox delete-report`, and
 //!   [`no_server_code_deletes_reports`] checks the server never calls it.
 //!
 //! [`MATRIX`] must list exactly the registered tools: a new tool fails
@@ -28,8 +28,8 @@ mod support;
 
 use std::collections::BTreeSet;
 
-use coffer_core::access_log::Outcome;
-use coffer_mcp::registry::Writes;
+use orre_core::access_log::Outcome;
+use orre_mcp::registry::Writes;
 use serde_json::{Value, json};
 use support::inbox::{InboxIds, inbox_counts, inbox_rows, outside_inbox, seed, suggestions};
 use support::reports::{add_report, add_report_at};
@@ -62,7 +62,7 @@ const fn entry(
 use AccessLevel::{Aggregate, Pseudonymous, Standard};
 use Writes::{Inbox, Nothing};
 
-/// Every tool Coffer registers.
+/// Every tool Orre registers.
 const MATRIX: &[Entry] = &[
     // Reference data.
     entry("list_categories", Aggregate, Nothing, |_| json!({})),
@@ -169,7 +169,7 @@ fn contains_ignoring_case(value: &Value, needle: &str) -> bool {
 
 #[test]
 fn the_matrix_lists_every_registered_tool() {
-    let registry = coffer_mcp::tools::registry();
+    let registry = orre_mcp::tools::registry();
     let registered: BTreeSet<&str> = registry.all().map(|tool| tool.spec().name).collect();
     let listed: BTreeSet<&str> = MATRIX.iter().map(|entry| entry.tool).collect();
     assert_eq!(

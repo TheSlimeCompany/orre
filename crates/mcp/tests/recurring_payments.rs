@@ -6,9 +6,9 @@ mod support;
 use std::collections::BTreeSet;
 
 use chrono::NaiveDate;
-use coffer_core::access_log::Outcome;
-use coffer_core::recurring;
-use coffer_core::schedule;
+use orre_core::access_log::Outcome;
+use orre_core::recurring;
+use orre_core::schedule;
 use serde_json::{Value, json};
 use support::recurring::*;
 use support::*;

@@ -50,7 +50,7 @@ async fn is_listed_to_an_enabled_client_at_every_level() {
 async fn is_not_listed_to_a_client_that_isnt_enabled() {
     let fixture = Fixture::new();
     let client = fixture
-        .connect_with("unknown-client", coffer_mcp::tools::registry())
+        .connect_with("unknown-client", orre_mcp::tools::registry())
         .await;
     assert!(client.prompts().await.is_empty());
     assert!(

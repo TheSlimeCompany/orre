@@ -3,7 +3,7 @@
 //! held to (`docs/DESIGN.md` → "Implementing in GPUI" → "Stock components",
 //! the rows marked "check in D2.5").
 //!
-//! This board shows what the stock control does today, not what Coffer
+//! This board shows what the stock control does today, not what Orre
 //! ships. Where it disagrees with the caption, the control needs a wrapper
 //! or a custom build before product UI uses it.
 
@@ -26,7 +26,7 @@ use super::{Showcase, caption, group, groups, section};
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::text::TextRoleExt as _;
 
-actions!(coffer_showcase, [Categorise, MarkAsTransfer, CreateRule]);
+actions!(orre_showcase, [Categorise, MarkAsTransfer, CreateRule]);
 
 /// The accounts in the stock select.
 const ACCOUNTS: [&str; 3] = ["All accounts", "Current account", "Joint account"];
@@ -70,7 +70,7 @@ impl StockState {
 
 pub(super) fn board(view: &mut Showcase, cx: &mut Context<Showcase>) -> Div {
     super::board(
-        "Coffer · Stock components",
+        "Orre · Stock components",
         "Stock components",
         "gpui-component controls as the theme map draws them, unwrapped, each captioned with the spec it will be held to.",
         [
@@ -200,7 +200,7 @@ fn navigation(stock: &StockState, cx: &mut Context<Showcase>) -> AnyElement {
                             div()
                                 .text_role(typography::SECTION_TITLE)
                                 .text_color(color::TEXT)
-                                .child("Coffer"),
+                                .child("Orre"),
                         ),
                     )
                     .child(caption(
@@ -258,7 +258,7 @@ fn stock_focus(stock: &StockState, cx: &mut Context<Showcase>) -> AnyElement {
                 ),
         )
         .child(caption(
-            "Tab through these and the fields above. Spec: 1.5px molten ring, 2px out, keyboard focus only (the Coffer buttons in the Live row)",
+            "Tab through these and the fields above. Spec: 1.5px molten ring, 2px out, keyboard focus only (the Orre buttons in the Live row)",
         ))
         .into_any_element()
 }

@@ -1,13 +1,13 @@
 //! The Inbox (ROADMAP M3.6, M3.14; `docs/DESIGN.md` → "Inbox", "Inbox
 //! impact preview"; `docs/ARCHITECTURE.md` → "Decision record: Inbox"):
-//! the suggestions AI clients (and Coffer itself) filed, grouped by kind,
+//! the suggestions AI clients (and Orre itself) filed, grouped by kind,
 //! each with what approving it would change, row by row, before it can be
 //! approved.
 //!
 //! - [`Inbox`] holds what the screen shows (from [`store::InboxStore`],
 //!   which opens the database per call), the filters, the selected
 //!   suggestion and the outcome of the last decision. Every decision is
-//!   core's ([`coffer_core::inbox`]): this only picks the IDs. The
+//!   core's ([`orre_core::inbox`]): this only picks the IDs. The
 //!   suggestions are read on a background thread ([`Inbox::reload`]): each
 //!   pending one is previewed against the whole ledger, which at 100,000
 //!   transactions takes far longer than a frame (decision record
@@ -36,9 +36,9 @@ pub mod store;
 pub mod text;
 pub mod view;
 
-use coffer_core::inbox::preview::Covered;
-use coffer_core::inbox::{COFFER_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
 use gpui_kit::{AppContext as _, Context, SharedString, Task};
+use orre_core::inbox::preview::Covered;
+use orre_core::inbox::{ORRE_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
 
 use crate::ui::list::{self, Move};
 use store::{Entry, InboxData, InboxStore};
@@ -202,13 +202,13 @@ impl Inbox {
     }
 
     /// The count on the Inbox tab: pending suggestions from AI clients.
-    /// Coffer's own aren't counted (`DESIGN.md` → "Inbox impact preview").
+    /// Orre's own aren't counted (`DESIGN.md` → "Inbox impact preview").
     pub fn badge(&self) -> usize {
         let own = self
             .data
             .counts
             .by_source
-            .get(COFFER_SOURCE)
+            .get(ORRE_SOURCE)
             .copied()
             .unwrap_or(0);
         self.data.counts.pending.saturating_sub(own)
@@ -223,7 +223,7 @@ impl Inbox {
     }
 
     /// The suggestions the filters show, as table groups: kinds in
-    /// [`KIND_ORDER`], then sources by name with Coffer's last.
+    /// [`KIND_ORDER`], then sources by name with Orre's last.
     pub fn groups(&self) -> Vec<(GroupKey, Vec<&Entry>)> {
         let mut groups: Vec<(GroupKey, Vec<&Entry>)> = Vec::new();
         for kind in KIND_ORDER {
@@ -238,7 +238,7 @@ impl Inbox {
                 .map(|entry| entry.suggestion.source_client.as_str())
                 .filter(|source| self.from.as_deref().is_none_or(|from| from == *source))
                 .collect();
-            sources.sort_by_key(|source| (*source == COFFER_SOURCE, *source));
+            sources.sort_by_key(|source| (*source == ORRE_SOURCE, *source));
             sources.dedup();
             for source in sources {
                 let entries = self

@@ -20,7 +20,7 @@ use super::*;
 
 fn open() -> (Database, TempDir) {
     let dir = TempDir::new().unwrap();
-    let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let db = Database::open(&dir.path().join("orre.db")).unwrap();
     (db, dir)
 }
 

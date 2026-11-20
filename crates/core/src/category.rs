@@ -129,7 +129,7 @@ impl ToSql for CategoryKey {
 }
 
 /// A stored key is checked like any other: the schema's CHECK and this agree,
-/// so a failure means the file was changed outside Coffer.
+/// so a failure means the file was changed outside Orre.
 impl FromSql for CategoryKey {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<CategoryKey> {
         CategoryKey::new(value.as_str()?).map_err(|error| FromSqlError::Other(Box::new(error)))
@@ -147,7 +147,7 @@ pub enum CategoryKind {
     Spending,
     /// Money earned or received.
     Income,
-    /// Money moving between the user's own accounts, or to one Coffer
+    /// Money moving between the user's own accounts, or to one Orre
     /// doesn't see (a savings account at another bank). Neither income nor
     /// spending, like a confirmed transfer pair.
     Transfer,
@@ -295,7 +295,7 @@ pub struct CategoryTree {
 }
 
 /// A stored category that isn't under a top-level group. The schema's
-/// triggers refuse that, so it means the file was changed outside Coffer.
+/// triggers refuse that, so it means the file was changed outside Orre.
 #[derive(Debug, thiserror::Error)]
 #[error("category {key} isn't under a top-level category")]
 struct MisplacedCategory {
@@ -507,7 +507,7 @@ mod tests {
         assert_eq!(labels.len(), DEFAULT_CATEGORIES.len(), "labels repeat");
     }
 
-    /// The keys other parts of Coffer and its documentation name.
+    /// The keys other parts of Orre and its documentation name.
     #[test]
     fn defaults_include_the_keys_the_docs_use() {
         for (key, kind) in [

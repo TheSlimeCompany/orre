@@ -17,14 +17,14 @@
 //! changes, is always picked by the user; "Edit reason…" opens the same
 //! dialog filled in, titled "Change why “…” is excluded" with "Save".
 
-use coffer_core::exclusion::ExclusionReason;
-use coffer_core::id::TransactionId;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Subscription, Window, div,
 };
+use orre_core::exclusion::ExclusionReason;
+use orre_core::id::TransactionId;
 
 use crate::accounts::DialogClosed;
 use crate::theme::tokens::{color, spacing, typography};

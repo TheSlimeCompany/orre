@@ -1,6 +1,6 @@
-use coffer_core::setting::WindowMode;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{TestAppContext, VisualTestContext};
+use orre_core::setting::WindowMode;
 use tempfile::TempDir;
 
 use super::*;
@@ -278,7 +278,7 @@ fn open_kept(
     &mut VisualTestContext,
 ) {
     let dir = TempDir::new().unwrap();
-    let store = WindowStore::new(dir.path().join("coffer.db"));
+    let store = WindowStore::new(dir.path().join("orre.db"));
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::component::install(cx);

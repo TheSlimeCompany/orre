@@ -1,5 +1,5 @@
 //! "Create a rule from this edit?" (`DESIGN.md` → "Transactions additions",
-//! `3WT-0`): after the user sets a transaction's category, the rule Coffer
+//! `3WT-0`): after the user sets a transaction's category, the rule Orre
 //! proposes, and how many earlier transactions it would match.
 //!
 //! # When
@@ -186,7 +186,7 @@ pub fn rule_from(
         .map(|(definition, _)| definition))
 }
 
-/// The rule Coffer proposes after the user set `transaction`'s category,
+/// The rule Orre proposes after the user set `transaction`'s category,
 /// if any (module docs). Reads only.
 pub fn propose(db: &Database, transaction: TransactionId) -> Result<Option<Proposal>, ApplyError> {
     let Some(row) = load(db, transaction)? else {

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use coffer_core::statement::{RowProblem, SourceFormat, SourceLocation};
+use orre_core::statement::{RowProblem, SourceFormat, SourceLocation};
 
 use super::encoding::{TextEncoding, decode};
 use super::mapping::{Delimiter, FileLayout};

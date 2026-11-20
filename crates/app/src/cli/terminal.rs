@@ -1,7 +1,7 @@
 //! Which commands need the user at a terminal (R.1).
 //!
 //! An AI client with a shell could file a suggestion over MCP and approve it
-//! itself with `coffer inbox approve`. Commands that act as the user
+//! itself with `orre inbox approve`. Commands that act as the user
 //! therefore refuse to run unless stdin is an interactive terminal. There is
 //! no flag or environment variable to skip the check: an agent would use it.
 //!
@@ -22,7 +22,7 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::bail;
-use coffer_core::mcp_client;
+use orre_core::mcp_client;
 
 use super::ai_access::LevelArgs;
 use super::budgets::{BudgetsArgs, BudgetsCommand};
@@ -66,7 +66,7 @@ pub fn require_terminal_for(
     }
     if let Some(name) = needs_terminal(command, database)? {
         bail!(
-            "`coffer {name}` needs an interactive terminal: it acts as you, which is yours to \
+            "`orre {name}` needs an interactive terminal: it acts as you, which is yours to \
              do, not an AI client's. Run it yourself in a terminal, or use the app."
         );
     }

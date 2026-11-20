@@ -21,7 +21,7 @@ impl Scratch {
     }
 
     fn db_path(&self) -> PathBuf {
-        self.dir.path().join("coffer.db")
+        self.dir.path().join("orre.db")
     }
 
     fn open(&self) -> Database {
@@ -447,7 +447,7 @@ fn a_line_the_log_refuses_is_skipped() {
 #[test]
 fn calls_refused_before_a_migration_go_in_after_it() {
     let dir = TempDir::new().unwrap();
-    let db_path = dir.path().join("coffer.db");
+    let db_path = dir.path().join("orre.db");
     {
         let db = db::open_at_version(&db_path, 13).unwrap();
         db.conn()

@@ -1,12 +1,12 @@
-//! `coffer backup` and `coffer restore` against scratch data dirs. Nothing
+//! `orre backup` and `orre restore` against scratch data dirs. Nothing
 //! here touches the real data dir.
 
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use coffer_core::account;
-use coffer_core::backup::{self, Reason};
-use coffer_core::db::Database;
+use orre_core::account;
+use orre_core::backup::{self, Reason};
+use orre_core::db::Database;
 use tempfile::TempDir;
 
 use super::*;
@@ -21,7 +21,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("coffer.db");
+        let db = dir.path().join("orre.db");
         Scratch { _dir: dir, db }
     }
 
@@ -46,7 +46,7 @@ impl Scratch {
     }
 
     fn run(&self, args: &[&str]) -> Result<String, String> {
-        let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
         let mut out = Vec::new();
         let result = super::run(cli.command.expect("a subcommand"), &self.db, &mut out);
@@ -82,7 +82,7 @@ impl Scratch {
 
 #[test]
 fn parses_backup_and_restore() {
-    let cli = Cli::try_parse_from(["coffer", "backup"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "backup"]).unwrap();
     assert!(matches!(
         cli.command,
         Some(Command::Backup(BackupArgs {
@@ -91,35 +91,35 @@ fn parses_backup_and_restore() {
             yes: false
         }))
     ));
-    let cli = Cli::try_parse_from(["coffer", "backup", "--list"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "backup", "--list"]).unwrap();
     assert!(matches!(
         cli.command,
         Some(Command::Backup(BackupArgs { list: true, .. }))
     ));
 
-    let cli = Cli::try_parse_from(["coffer", "restore", "some.db"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "restore", "some.db"]).unwrap();
     let Some(Command::Restore(args)) = cli.command else {
         panic!("not restore");
     };
     assert_eq!(args.file, PathBuf::from("some.db"));
     assert!(!args.yes);
-    let cli = Cli::try_parse_from(["coffer", "restore", "some.db", "--yes"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "restore", "some.db", "--yes"]).unwrap();
     assert!(matches!(
         cli.command,
         Some(Command::Restore(RestoreArgs { yes: true, .. }))
     ));
 
-    assert!(Cli::try_parse_from(["coffer", "restore"]).is_err());
+    assert!(Cli::try_parse_from(["orre", "restore"]).is_err());
 
-    let cli = Cli::try_parse_from(["coffer", "backup", "--delete", "a.db", "--yes"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "backup", "--delete", "a.db", "--yes"]).unwrap();
     let Some(Command::Backup(args)) = cli.command else {
         panic!("not backup");
     };
     assert_eq!(args.delete, Some(PathBuf::from("a.db")));
     assert!(args.yes);
     // --yes only goes with --delete, and --delete isn't a listing.
-    assert!(Cli::try_parse_from(["coffer", "backup", "--yes"]).is_err());
-    assert!(Cli::try_parse_from(["coffer", "backup", "--list", "--delete", "a.db"]).is_err());
+    assert!(Cli::try_parse_from(["orre", "backup", "--yes"]).is_err());
+    assert!(Cli::try_parse_from(["orre", "backup", "--list", "--delete", "a.db"]).is_err());
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn backup_needs_a_database() {
 
     let error = scratch.err(&["backup"]);
 
-    assert!(error.contains("no Coffer database"), "{error}");
+    assert!(error.contains("no Orre database"), "{error}");
     assert!(!scratch.db.exists());
     assert!(!backup::backups_dir(&scratch.db).exists());
 }
@@ -236,7 +236,7 @@ fn backup_delete_refuses_anything_that_isnt_a_backup() {
     for target in [
         "notes.txt".to_owned(),
         "missing.db".to_owned(),
-        "coffer.db".to_owned(),
+        "orre.db".to_owned(),
         outside.display().to_string(),
     ] {
         let error = scratch.err(&["backup", "--delete", &target, "--yes"]);
@@ -259,7 +259,7 @@ fn restore_says_user_presets_are_not_in_backups() {
 
     let out = scratch.ok(&["restore", backup.path.to_str().unwrap()]);
 
-    let presets = coffer_core::paths::presets_dir(&scratch.db);
+    let presets = orre_core::paths::presets_dir(&scratch.db);
     assert!(
         out.contains(&format!(
             "Your own bank presets ({}) aren't in backups",
@@ -350,8 +350,8 @@ fn restore_with_yes_restores_by_file_name() {
 /// says how many.
 #[test]
 fn restore_keeps_the_ai_access_log() {
-    use coffer_core::access_log::{self, NewEntry, Outcome};
-    use coffer_core::mcp_client::ClientName;
+    use orre_core::access_log::{self, NewEntry, Outcome};
+    use orre_core::mcp_client::ClientName;
 
     let scratch = Scratch::with_account();
     scratch.ok(&["backup"]);
@@ -458,10 +458,10 @@ fn restore_refuses_a_file_that_isnt_a_backup() {
 fn restore_names_a_missing_backup() {
     let scratch = Scratch::with_account();
 
-    let error = scratch.err(&["restore", "coffer-20261111T153012.345Z-import.db"]);
+    let error = scratch.err(&["restore", "orre-20261111T153012.345Z-import.db"]);
 
     assert!(
-        error.starts_with("there is no backup coffer-20261111T153012.345Z-import.db"),
+        error.starts_with("there is no backup orre-20261111T153012.345Z-import.db"),
         "{error}"
     );
 }

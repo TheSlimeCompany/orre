@@ -5,7 +5,7 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
+use orre_core::access_log::Outcome;
 use serde_json::json;
 use support::reports::{add_row, amounts, assert_redacted, gbp};
 use support::*;
@@ -74,7 +74,7 @@ async fn nests_spending_under_groups() {
 #[tokio::test]
 async fn keeps_currencies_apart() {
     let fixture = Fixture::new();
-    let euros = reports::add_account(&fixture, "Euros", coffer_core::money::Currency::EUR);
+    let euros = reports::add_account(&fixture, "Euros", orre_core::money::Currency::EUR);
     add_row(
         &fixture,
         euros,

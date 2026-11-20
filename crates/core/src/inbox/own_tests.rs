@@ -1,4 +1,4 @@
-//! Coffer's own rule suggestions after repeated recategorisations (M2.14).
+//! Orre's own rule suggestions after repeated recategorisations (M2.14).
 
 use std::collections::BTreeSet;
 
@@ -7,7 +7,7 @@ use rusqlite::params;
 
 use super::super::testing::{Fixture, day, key};
 use super::super::{
-    COFFER_SOURCE, Filter, MAX_PENDING_PER_SOURCE, Payload, Suggestion, SuggestionKind,
+    Filter, MAX_PENDING_PER_SOURCE, ORRE_SOURCE, Payload, Suggestion, SuggestionKind,
     SuggestionStatus, list, reject,
 };
 use super::{RULE_SUGGESTION_THRESHOLD, RecategorizeError, recategorize};
@@ -96,7 +96,7 @@ fn coffee_rule() -> RuleDefinition {
 }
 
 #[test]
-fn the_third_identical_recategorisation_files_one_coffer_rule() {
+fn the_third_identical_recategorisation_files_one_orre_rule() {
     assert_eq!(RULE_SUGGESTION_THRESHOLD, 3);
     let mut f = Fixture::new();
     let coffee = rows(&f, 5, "Coffee");
@@ -109,7 +109,7 @@ fn the_third_identical_recategorisation_files_one_coffer_rule() {
     let filed = rule_suggestions(&f);
     assert_eq!(filed.len(), 1);
     let suggestion = &filed[0];
-    assert_eq!(suggestion.source_client, COFFER_SOURCE);
+    assert_eq!(suggestion.source_client, ORRE_SOURCE);
     assert_eq!(suggestion.status, SuggestionStatus::Pending);
     assert_eq!(payload_json(suggestion), COFFEE_RULE);
     assert_eq!(suggestion.payload, Payload::Rule(coffee_rule()));
@@ -319,7 +319,7 @@ fn a_full_inbox_never_fails_the_users_edit() {
             .execute(
                 "INSERT INTO suggestion (kind, payload_json, source_client) \
                  VALUES ('transfer_pair', json_object('outflow_id', ?1, 'inflow_id', ?2), ?3)",
-                params![n * 2 + 1, n * 2 + 2, COFFER_SOURCE],
+                params![n * 2 + 1, n * 2 + 2, ORRE_SOURCE],
             )
             .unwrap();
     }
@@ -376,7 +376,7 @@ fn other_change_kinds_and_sources_never_file() {
 fn a_rule_applied_to_history_never_files() {
     let mut f = Fixture::new();
     let coffee = rows(&f, 3, "Coffee");
-    // Not the rule Coffer would suggest, so that check isn't what stops it.
+    // Not the rule Orre would suggest, so that check isn't what stops it.
     let wider = RuleDefinition::new(
         MatchField::Merchant,
         Pattern::new(MatchKind::StartsWith, "Cof").unwrap(),

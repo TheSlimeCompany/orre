@@ -11,7 +11,7 @@
 //! - [`candidates`] and [`people`]: what the link dialog offers, same
 //!   merchant first, then newest, with what each can still take and why a
 //!   row can't take more;
-//! - [`refund_why`]: why Coffer suggested a refund.
+//! - [`refund_why`]: why Orre suggested a refund.
 //!
 //! Whatever the user picks is still checked by core's `link` when it is
 //! written (its checks and caps decide). Merchant names and descriptions
@@ -117,7 +117,7 @@ pub fn counts_as(register: &Register, row: &RegisterRow) -> Counts {
     }
 }
 
-/// Whether two merchant names are the same, ignoring case (as Coffer's
+/// Whether two merchant names are the same, ignoring case (as Orre's
 /// refund suggestions compare them).
 pub fn same_merchant(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
@@ -190,7 +190,7 @@ pub struct Candidate {
 /// What the link dialog offers for a `kind` link from `from`, matching
 /// `query` (the table's search; blank matches all): same merchant first,
 /// then newest, at most [`CANDIDATE_LIMIT`]. Pairs already linked are left
-/// out: they're in the Links section. A pair Coffer only suggested stays
+/// out: they're in the Links section. A pair Orre only suggested stays
 /// (linking it confirms the suggestion).
 ///
 /// - From money in: purchases in its currency on or before its date; for a
@@ -309,7 +309,7 @@ pub fn default_amount(from_left: Money, other_left: Money) -> Money {
     }
 }
 
-/// Why Coffer suggested a refund (decision record "refunds, reimbursements
+/// Why Orre suggested a refund (decision record "refunds, reimbursements
 /// and shared costs", point 2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RefundWhy {

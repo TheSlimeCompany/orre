@@ -23,15 +23,15 @@
 //! backup" with nothing to undo says so; while "Back up now" runs its
 //! button is disabled.
 
-use coffer_core::backup::Reason;
-use coffer_core::backup::detail::{Detail, Since};
-use coffer_core::db::SchemaVersion;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _,
     StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::backup::Reason;
+use orre_core::backup::detail::{Detail, Since};
+use orre_core::db::SchemaVersion;
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
@@ -68,10 +68,10 @@ pub fn reason(detail: &Detail) -> Vec<table::Run> {
             from: Some(from),
             to: Some(to),
         } if from != to => vec![
-            plain("Before updating Coffer"),
+            plain("Before updating Orre"),
             plain(format!(" · schema {from} → {to}")).color(color::TEXT_MUTED),
         ],
-        Detail::Migration { .. } => vec![plain("Before updating Coffer")],
+        Detail::Migration { .. } => vec![plain("Before updating Orre")],
         Detail::Restore => vec![plain("Before restoring a backup")],
     }
 }
@@ -110,21 +110,21 @@ pub fn delete_note(reason: Reason) -> &'static str {
     if reason.is_automatic() {
         "The file is deleted for good, not moved to the trash, and can't be undone."
     } else {
-        "You took this backup yourself, so Coffer would keep it. The file is deleted for good, \
+        "You took this backup yourself, so Orre would keep it. The file is deleted for good, \
          not moved to the trash, and can't be undone."
     }
 }
 
 /// The inspector's note above Delete backup… (composed, R.12).
 pub const DELETE_CAPTION: &str = "Everything in a backup stays on disk until it's deleted, \
-                                  including what you've since deleted from Coffer.";
+                                  including what you've since deleted from Orre.";
 
 /// The groups' titles.
 pub const RECENT: &str = "Recent";
 pub const MONTHLY: &str = "One a month";
 
 /// What the canvas says with no backups.
-pub const NO_BACKUPS: &str = "No backups yet. Coffer takes one before every import and update; \
+pub const NO_BACKUPS: &str = "No backups yet. Orre takes one before every import and update; \
                               Back up now takes one at any time.";
 
 /// What "Since this backup" says when nothing would be undone.
@@ -139,7 +139,7 @@ pub fn backup_title(row: &BackupRow, today: chrono::NaiveDate) -> Vec<table::Run
 pub fn backup_caption(row: &BackupRow) -> &'static str {
     match row.contents {
         Some(_) => "Transactions in this backup",
-        None => "Coffer couldn't read this backup",
+        None => "Orre couldn't read this backup",
     }
 }
 
@@ -457,7 +457,7 @@ impl SettingsView {
         let restore = section(Some("Since this backup"))
             .children(since_rows)
             .child(caption(
-                "Restoring takes Coffer back to this point. A backup of how things are now is \
+                "Restoring takes Orre back to this point. A backup of how things are now is \
                  taken first, so you can come back.",
             ))
             .child(

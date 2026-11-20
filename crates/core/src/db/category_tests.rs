@@ -10,7 +10,7 @@ use crate::category::{
 };
 
 fn open(dir: &TempDir) -> Database {
-    Database::open(&dir.path().join("coffer.db")).unwrap()
+    Database::open(&dir.path().join("orre.db")).unwrap()
 }
 
 /// What a tree holds, comparable with [`DEFAULT_CATEGORIES`].
@@ -65,7 +65,7 @@ fn reopening_seeds_nothing_twice_and_keeps_changes() {
     assert_eq!(groceries.label(), "Food shop");
     assert_eq!(after.get(&key("food.takeaway")), None);
 
-    let existing = Database::open_existing(&dir.path().join("coffer.db")).unwrap();
+    let existing = Database::open_existing(&dir.path().join("orre.db")).unwrap();
     assert_eq!(existing.categories().unwrap(), before);
 }
 
@@ -147,7 +147,7 @@ fn key(key: &str) -> CategoryKey {
 #[test]
 fn a_version_1_database_gets_the_defaults() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let all = super::migrations::embedded();
     drop(Database::open_with(&path, &all[..1]).unwrap());
 

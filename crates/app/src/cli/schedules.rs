@@ -1,7 +1,7 @@
-//! `coffer schedules`: find recurring payments, confirm them as schedules,
+//! `orre schedules`: find recurring payments, confirm them as schedules,
 //! and manage the schedules (ROADMAP M2.6, M2.10).
 //!
-//! - `detect`: the recurring series Coffer found and the user hasn't
+//! - `detect`: the recurring series Orre found and the user hasn't
 //!   confirmed or dismissed, with the key `confirm` and `dismiss` take.
 //! - `list`, `show <id>`: the schedules, and one schedule's occurrences.
 //! - `confirm <key>`: a detected series becomes a schedule.
@@ -17,11 +17,11 @@ use std::io::Write;
 use anyhow::{Context, bail, ensure};
 use chrono::NaiveDate;
 use clap::{Args, Subcommand};
-use coffer_core::db::Database;
-use coffer_core::id::{ScheduleId, TransactionId};
-use coffer_core::money::{DecimalMark, Money};
-use coffer_core::recurring::{self, SeriesKey};
-use coffer_core::schedule::{self, OccurrenceState, Schedule, Tolerance};
+use orre_core::db::Database;
+use orre_core::id::{ScheduleId, TransactionId};
+use orre_core::money::{DecimalMark, Money};
+use orre_core::recurring::{self, SeriesKey};
+use orre_core::schedule::{self, OccurrenceState, Schedule, Tolerance};
 
 use super::import::plural;
 use super::write_table;
@@ -34,7 +34,7 @@ pub struct SchedulesArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum SchedulesCommand {
-    /// List the recurring payments Coffer found that aren't schedules yet,
+    /// List the recurring payments Orre found that aren't schedules yet,
     /// with the key to confirm or dismiss each by.
     Detect,
     /// List the schedules, with their next date and missed or late
@@ -72,21 +72,21 @@ pub enum SchedulesCommand {
 
 #[derive(Debug, Args)]
 pub struct ScheduleArg {
-    /// The schedule's ID, as `coffer schedules list` shows it.
+    /// The schedule's ID, as `orre schedules list` shows it.
     #[arg(value_name = "ID")]
     pub id: i64,
 }
 
 #[derive(Debug, Args)]
 pub struct SeriesArg {
-    /// The series' key, as `coffer schedules detect` shows it.
+    /// The series' key, as `orre schedules detect` shows it.
     #[arg(value_name = "KEY")]
     pub key: SeriesKey,
 }
 
 #[derive(Debug, Args)]
 pub struct ConfirmArgs {
-    /// The series' key, as `coffer schedules detect` shows it.
+    /// The series' key, as `orre schedules detect` shows it.
     #[arg(value_name = "KEY")]
     pub key: SeriesKey,
 
@@ -104,11 +104,11 @@ pub struct ConfirmArgs {
 
 #[derive(Debug, Args)]
 pub struct OccurrenceArgs {
-    /// The schedule's ID, as `coffer schedules list` shows it.
+    /// The schedule's ID, as `orre schedules list` shows it.
     #[arg(value_name = "ID")]
     pub id: i64,
 
-    /// The occurrence's date, YYYY-MM-DD, as `coffer schedules show`
+    /// The occurrence's date, YYYY-MM-DD, as `orre schedules show`
     /// shows it.
     #[arg(value_name = "DATE", value_parser = parse_date)]
     pub date: NaiveDate,
@@ -116,11 +116,11 @@ pub struct OccurrenceArgs {
 
 #[derive(Debug, Args)]
 pub struct MatchArgs {
-    /// The schedule's ID, as `coffer schedules list` shows it.
+    /// The schedule's ID, as `orre schedules list` shows it.
     #[arg(value_name = "ID")]
     pub id: i64,
 
-    /// The occurrence's date, YYYY-MM-DD, as `coffer schedules show`
+    /// The occurrence's date, YYYY-MM-DD, as `orre schedules show`
     /// shows it.
     #[arg(value_name = "DATE", value_parser = parse_date)]
     pub date: NaiveDate,
@@ -132,7 +132,7 @@ pub struct MatchArgs {
 
 #[derive(Debug, Args)]
 pub struct DeleteArgs {
-    /// The schedule's ID, as `coffer schedules list` shows it.
+    /// The schedule's ID, as `orre schedules list` shows it.
     #[arg(value_name = "ID")]
     pub id: i64,
 
@@ -146,7 +146,7 @@ pub(super) fn parse_date(text: &str) -> Result<NaiveDate, String> {
         .map_err(|_| format!("{text:?} isn't a date; use YYYY-MM-DD, e.g. 2026-11-03"))
 }
 
-/// `coffer schedules <command>`.
+/// `orre schedules <command>`.
 pub fn run(db: &mut Database, args: &SchedulesArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     match &args.command {
         SchedulesCommand::Detect => detect(db, out),
@@ -220,7 +220,7 @@ pub fn run(db: &mut Database, args: &SchedulesArgs, out: &mut dyn Write) -> anyh
             if recurring::dismiss(db, &args.key)? {
                 writeln!(
                     out,
-                    "Marked series {} as not recurring; `coffer schedules detect` won't list it.",
+                    "Marked series {} as not recurring; `orre schedules detect` won't list it.",
                     args.key
                 )?;
             } else {
@@ -298,8 +298,8 @@ fn detect(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     writeln!(out)?;
     writeln!(
         out,
-        "Confirm one as a schedule with `coffer schedules confirm <key>`, or hide it with \
-         `coffer schedules dismiss <key>`."
+        "Confirm one as a schedule with `orre schedules confirm <key>`, or hide it with \
+         `orre schedules dismiss <key>`."
     )?;
     Ok(())
 }
@@ -309,7 +309,7 @@ fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     if views.is_empty() {
         writeln!(
             out,
-            "No schedules yet. `coffer schedules detect` lists recurring payments to confirm."
+            "No schedules yet. `orre schedules detect` lists recurring payments to confirm."
         )?;
         return Ok(());
     }
@@ -415,7 +415,7 @@ fn confirm(db: &mut Database, args: &ConfirmArgs, out: &mut dyn Write) -> anyhow
         let all = recurring::find(db)?;
         let Some(series) = all.iter().find(|series| series.key == args.key) else {
             bail!(
-                "there is no recurring series {}; `coffer schedules detect` lists them",
+                "there is no recurring series {}; `orre schedules detect` lists them",
                 args.key
             );
         };
@@ -446,7 +446,7 @@ fn confirm(db: &mut Database, args: &ConfirmArgs, out: &mut dyn Write) -> anyhow
     let id = schedule::confirm(db, &args.key, tolerance)?;
     let created = schedule::get(db, id)?;
     writeln!(out, "Confirmed schedule {id}: {}", summary(&created))?;
-    writeln!(out, "`coffer schedules show {id}` lists its occurrences.")?;
+    writeln!(out, "`orre schedules show {id}` lists its occurrences.")?;
     Ok(())
 }
 
@@ -474,7 +474,7 @@ fn delete(db: &mut Database, args: &DeleteArgs, out: &mut dyn Write) -> anyhow::
         writeln!(
             out,
             "Nothing was deleted. Run the command again with --yes to delete it, or end it \
-             with `coffer schedules end {id}` to keep its history."
+             with `orre schedules end {id}` to keep its history."
         )?;
         return Ok(());
     }

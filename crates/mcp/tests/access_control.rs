@@ -8,11 +8,11 @@ mod support;
 
 use std::time::Duration;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::db::Database;
-use coffer_core::mcp_client::{self, ClientAccess, ClientName};
-use coffer_core::setting;
-use coffer_mcp::registry::{Call, NoArgs, Registry, Reply, ToolError, ToolSpec, Writes};
+use orre_core::access_log::Outcome;
+use orre_core::db::Database;
+use orre_core::mcp_client::{self, ClientAccess, ClientName};
+use orre_core::setting;
+use orre_mcp::registry::{Call, NoArgs, Registry, Reply, ToolError, ToolSpec, Writes};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::json;
@@ -46,7 +46,7 @@ fn fails(_call: &Call<'_>, _args: NoArgs) -> Result<Reply<Done>, ToolError> {
 }
 
 fn registry() -> Registry {
-    let mut registry = coffer_mcp::tools::registry();
+    let mut registry = orre_mcp::tools::registry();
     registry.add(STANDARD_ONLY, standard_only);
     registry.add(FAILS, fails);
     registry

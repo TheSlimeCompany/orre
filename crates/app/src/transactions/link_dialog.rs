@@ -34,11 +34,6 @@
 //! through core's `edit::link`, which checks both sides and the caps; a
 //! refusal is said under the form in caption type, `danger`.
 
-use coffer_core::id::TransactionId;
-use coffer_core::link::{LinkKind, LinkTarget, NewLink, ShareLabel};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::linking::{self as core_linking, Blocked, Candidate};
-use coffer_core::reporting::register::{Register, RegisterRow};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{self, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -47,6 +42,11 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, ScrollHandle,
     SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
 };
+use orre_core::id::TransactionId;
+use orre_core::link::{LinkKind, LinkTarget, NewLink, ShareLabel};
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::linking::{self as core_linking, Blocked, Candidate};
+use orre_core::reporting::register::{Register, RegisterRow};
 
 use crate::accounts::DialogClosed;
 use crate::format::{self, Sign};

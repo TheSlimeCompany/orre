@@ -5,7 +5,7 @@
 //! and the keys with what they do.
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `coffer mcp`
+//! release build and nothing outside the tests can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -13,7 +13,7 @@
 //! `…Text` types ([`super::RowText`], [`super::ToolbarText`], …), the
 //! inspector's ([`super::inspector`]) and [`super::present`]. Merchant names
 //! and payment methods (the bank's text) are made plain there, through
-//! [`super::linking::name`] ([`coffer_core::envelope::shown`]), for both.
+//! [`super::linking::name`] ([`orre_core::envelope::shown`]), for both.
 //! Styling (colours, markers, icons, the focus ring) is left out.
 //!
 //! What it leaves out: the edit fields' contents (Merchant and Note hold
@@ -24,9 +24,9 @@
 //! valuations canvas (the Accounts screen's), and the dialogs, which the
 //! shell opens in windows of their own.
 
-use coffer_core::id::TransactionId;
-use coffer_core::reporting::register::Sort;
 use gpui_kit::App;
+use orre_core::id::TransactionId;
+use orre_core::reporting::register::Sort;
 
 pub use crate::ui::describe::Action;
 use crate::ui::menu::SelectState;
@@ -266,7 +266,7 @@ fn chip(chip: ChipText) -> ChipDescription {
 
 fn row(
     view: &TransactionsView,
-    row: &coffer_core::reporting::register::RegisterRow,
+    row: &orre_core::reporting::register::RegisterRow,
 ) -> RowDescription {
     let RowText {
         merchant,
@@ -378,7 +378,7 @@ impl TransactionsView {
 
     fn describe_one(
         &self,
-        row: &coffer_core::reporting::register::RegisterRow,
+        row: &orre_core::reporting::register::RegisterRow,
         cx: &App,
     ) -> OneDescription {
         let HeaderText {

@@ -20,15 +20,6 @@
 //! 2026-11-14).
 
 use chrono::{DateTime, NaiveDate, Utc};
-use coffer_core::category::assign::NoOwnCategory;
-use coffer_core::inbox::preview::{
-    After, ByMerchant, CategoryNow, Deciding, Line, MerchantLine, NamesNow, Now, Preview, Subject,
-};
-use coffer_core::inbox::{
-    COFFER_SOURCE, Detail, Payload, SuggestionId, SuggestionKind, SuggestionStatus,
-};
-use coffer_core::link::LinkKind;
-use coffer_core::reporting::palette::Palette;
 use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -37,6 +28,15 @@ use gpui_kit::{
     IntoElement, ParentElement as _, Render, Rgba, SharedString, StatefulInteractiveElement as _,
     Styled as _, Subscription, TestSupportExt as _, Window, div,
 };
+use orre_core::category::assign::NoOwnCategory;
+use orre_core::inbox::preview::{
+    After, ByMerchant, CategoryNow, Deciding, Line, MerchantLine, NamesNow, Now, Preview, Subject,
+};
+use orre_core::inbox::{
+    Detail, ORRE_SOURCE, Payload, SuggestionId, SuggestionKind, SuggestionStatus,
+};
+use orre_core::link::LinkKind;
+use orre_core::reporting::palette::Palette;
 
 use crate::theme::tokens::{color, radius, shadow, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
@@ -56,7 +56,7 @@ use super::text::{
 use super::{GroupKey, Inbox, Outcome, Scope};
 
 /// The key context of the Inbox's canvas, where A, R and ↑↓ work.
-pub const CONTEXT: &str = "CofferInbox";
+pub const CONTEXT: &str = "OrreInbox";
 
 /// A: approve the selected suggestion.
 pub(super) const APPROVE: Key = Key::new::<ApproveSelected>(&["a"], "A", "Approve");
@@ -71,7 +71,7 @@ pub(super) const CLEAR: Key =
 pub const KEYS: ViewKeys = ViewKeys::new(Keys::new(CONTEXT), &[APPROVE, REJECT, CLEAR]);
 
 gpui_kit::actions!(
-    coffer_inbox,
+    orre_inbox,
     [
         /// A: approve the selected suggestion.
         ApproveSelected,
@@ -364,7 +364,7 @@ impl InboxView {
         window: &mut Window,
     ) -> AnyElement {
         let id = entry.id();
-        let agent = key.source != COFFER_SOURCE;
+        let agent = key.source != ORRE_SOURCE;
         let cells = RowCells::of(entry, palette, today, agent, window);
         let hovered = self.hovered == Some(id);
         let actions: AnyElement = if pending && (hovered || selected) {
@@ -499,7 +499,7 @@ impl InboxView {
     }
 
     fn render_footer(&self, inbox: &Inbox, key: &GroupKey, entries: &[&Entry]) -> impl IntoElement {
-        let agent = key.source != COFFER_SOURCE;
+        let agent = key.source != ORRE_SOURCE;
         let FooterText {
             approve_label,
             can_approve,
@@ -723,7 +723,7 @@ fn category_now(now: &CategoryNow) -> Option<Now> {
         CategoryNow::Uncategorised => Some(Now::Uncategorised),
         CategoryNow::Category(category) => Some(Now::Category {
             category: category.clone(),
-            set_by: coffer_core::inbox::preview::SetBy::User,
+            set_by: orre_core::inbox::preview::SetBy::User,
         }),
         CategoryNow::Several => None,
     }
@@ -742,7 +742,7 @@ fn category_now_cell(now: &CategoryNow, palette: &Palette) -> Vec<AnyElement> {
 }
 
 /// What a suggestion proposes, in its lane: an agent's in the table's
-/// AI-suggested style (10px sparkle, `moldavite-text`); Coffer's own
+/// AI-suggested style (10px sparkle, `moldavite-text`); Orre's own
 /// neutral, in `text-secondary` with the sparkle's slot kept empty.
 fn suggested(label: impl Into<SharedString>, agent: bool) -> Vec<AnyElement> {
     let icon = if agent {
@@ -934,7 +934,7 @@ impl<'a> RowText<'a> {
                 }
             }
             (Payload::TransferPair(_), Subject::TransferPair { outflow, inflow }) => {
-                let name = |side: &Option<coffer_core::inbox::preview::TransactionRef>| {
+                let name = |side: &Option<orre_core::inbox::preview::TransactionRef>| {
                     side.as_ref()
                         .map_or("A transaction gone since".to_owned(), |row| {
                             plain(&row.account_name, NAME_SHOWN)
@@ -1635,7 +1635,7 @@ fn render_open(
         lines,
         caption,
     } = OpenText::of(entry)?;
-    let agent = entry.suggestion.source_client != COFFER_SOURCE;
+    let agent = entry.suggestion.source_client != ORRE_SOURCE;
     let lines: Vec<AnyElement> = lines
         .into_iter()
         .map(|line| match line {
@@ -1735,9 +1735,9 @@ impl FooterText {
 
 /// The source at the end of a group's footer.
 pub(super) struct SourceText {
-    /// Coffer's own ("Coffer", its mark), or an AI client's (its name, the
+    /// Orre's own ("Orre", its mark), or an AI client's (its name, the
     /// sparkle).
-    pub coffer: bool,
+    pub orre: bool,
     pub name: String,
     /// "from your edits", or how long ago the newest one came: "2h ago".
     pub tail: String,
@@ -1748,12 +1748,12 @@ impl SourceText {
         let (name, suffix) = source_name(source);
         match suffix {
             Some(suffix) => Self {
-                coffer: true,
+                orre: true,
                 name,
                 tail: suffix.to_owned(),
             },
             None => Self {
-                coffer: false,
+                orre: false,
                 name,
                 tail: text::ago(newest, now),
             },
@@ -1762,9 +1762,9 @@ impl SourceText {
 }
 
 /// The source at the end of a group's footer: "✦ claude-code · 2h ago",
-/// or Coffer's mark and "Coffer · from your edits".
+/// or Orre's mark and "Orre · from your edits".
 fn footer_source(source: SourceText) -> impl IntoElement {
-    let SourceText { coffer, name, tail } = source;
+    let SourceText { orre, name, tail } = source;
     let row = div()
         .flex()
         .flex_none()
@@ -1773,7 +1773,7 @@ fn footer_source(source: SourceText) -> impl IntoElement {
         .whitespace_nowrap()
         .text_role(typography::CAPTION)
         .text_color(color::TEXT_MUTED);
-    if coffer {
+    if orre {
         row.child(
             Glyph::Mark
                 .render_at(size::ICON_SM)
@@ -1815,7 +1815,7 @@ pub(super) fn empty_text(inbox: &Inbox) -> (&'static str, SharedString) {
     match inbox.status() {
         SuggestionStatus::Pending => (
             "Nothing to review",
-            "Suggestions from AI clients and from Coffer wait here. Nothing changes until you \
+            "Suggestions from AI clients and from Orre wait here. Nothing changes until you \
              approve one."
                 .into(),
         ),

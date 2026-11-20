@@ -1,5 +1,5 @@
 //! The app shell (ROADMAP M3.1; `docs/DESIGN.md` → "Finance screens"): the
-//! one window `coffer` opens, and the frame every view sits in.
+//! one window `orre` opens, and the frame every view sits in.
 //!
 //! Top to bottom: the title bar, with the eight view tabs (Overview,
 //! Transactions, Trends, Budgets, Net worth, Inbox, Reviews, Rules) and the
@@ -49,8 +49,6 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use coffer_core::setting::WindowState;
-use coffer_core::{clock, paths};
 use gpui_kit::AnyView;
 use gpui_kit::component::window_border;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -60,6 +58,8 @@ use gpui_kit::{
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, WeakEntity, Window,
     WindowOptions, div, px, size,
 };
+use orre_core::setting::WindowState;
+use orre_core::{clock, paths};
 
 use crate::accounts::add_balance::AddBalanceDialog;
 use crate::accounts::close::CloseAccountDialog;
@@ -108,7 +108,7 @@ use status::{Ai, ChecksStatus, Status};
 use window_state::WindowStore;
 
 /// The key context of the whole window, where the view shortcuts work.
-const SHELL_CONTEXT: &str = "CofferShell";
+const SHELL_CONTEXT: &str = "OrreShell";
 
 /// How long the window must stay put before its state is saved, so a drag
 /// or a resize writes once, after it ends.
@@ -118,7 +118,7 @@ const SAVE_DELAY: Duration = Duration::from_millis(500);
 const CLOCK_TICK: Duration = Duration::from_secs(30);
 
 gpui_kit::actions!(
-    coffer_shell,
+    orre_shell,
     [
         /// ⌘1: open Overview.
         ShowOverview,
@@ -145,7 +145,7 @@ gpui_kit::actions!(
     ]
 );
 
-/// One of Coffer's views: a tab in the title bar, or Settings.
+/// One of Orre's views: a tab in the title bar, or Settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum View {
     Overview,
@@ -292,7 +292,7 @@ pub fn init(cx: &mut App) {
     settings::init(cx);
 }
 
-/// Opens Coffer's window as it was last left: the saved bounds and view
+/// Opens Orre's window as it was last left: the saved bounds and view
 /// from the database in the data dir, or 1440×900 (the size it's designed
 /// at, where the screen allows) on Transactions.
 pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
@@ -311,17 +311,17 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
         // Without a data folder there's nothing to read: the panel says why,
         // and the table shows the sample data.
         Err(error) => (
-            Accounts::unavailable(format!("Coffer has no data folder: {error}")),
+            Accounts::unavailable(format!("Orre has no data folder: {error}")),
             transactions::Source::Fixture,
         ),
     };
     let inbox = match paths::database_path() {
         Ok(database) => Inbox::unloaded(InboxStore::new(database)),
-        Err(error) => Inbox::unavailable(format!("Coffer has no data folder: {error}")),
+        Err(error) => Inbox::unavailable(format!("Orre has no data folder: {error}")),
     };
     let checks = match paths::database_path() {
         Ok(database) => Checks::from_store(ChecksStore::new(database)),
-        Err(error) => Checks::unavailable(format!("Coffer has no data folder: {error}")),
+        Err(error) => Checks::unavailable(format!("Orre has no data folder: {error}")),
     };
     let settings_store = paths::database_path().map(SettingsStore::new);
     let saved = store.as_ref().and_then(WindowStore::load);
@@ -351,7 +351,7 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
             let settings = cx.new(|cx| match settings_store {
                 Ok(store) => SettingsView::from_store(store, cx),
                 Err(error) => {
-                    SettingsView::unavailable(format!("Coffer has no data folder: {error}"), cx)
+                    SettingsView::unavailable(format!("Orre has no data folder: {error}"), cx)
                 }
             });
             let mut shell =
@@ -363,7 +363,7 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
             shell.install_checks(checks, window, cx);
             let rules = cx.new(|_| match paths::database_path() {
                 Ok(database) => Rules::unloaded(RulesStore::new(database)),
-                Err(error) => Rules::unavailable(format!("Coffer has no data folder: {error}")),
+                Err(error) => Rules::unavailable(format!("Orre has no data folder: {error}")),
             });
             shell.install_rules(rules, window, cx);
             if let Some(store) = store {
@@ -775,7 +775,7 @@ impl ShellView {
                 self.show(View::Inbox, window, cx);
                 self.checks.update(cx, |checks, cx| checks.hide(cx));
                 self.inbox.update(cx, |inbox, cx| {
-                    inbox.show_status(coffer_core::inbox::SuggestionStatus::Pending, cx);
+                    inbox.show_status(orre_core::inbox::SuggestionStatus::Pending, cx);
                     inbox.select(Some(id), cx);
                 });
             }
@@ -890,7 +890,7 @@ impl ShellView {
     /// reason…" on an excluded row).
     pub fn open_exclude_dialog(
         &mut self,
-        transaction: coffer_core::id::TransactionId,
+        transaction: orre_core::id::TransactionId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<ExcludeDialog> {
@@ -944,7 +944,7 @@ impl ShellView {
     /// in the Accounts panel, and the status bar's failing checks.
     pub fn show_balance_checks(
         &mut self,
-        account: Option<coffer_core::id::AccountId>,
+        account: Option<orre_core::id::AccountId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -988,7 +988,7 @@ impl ShellView {
                 let dialog = cx.new(|cx| {
                     NewAccountDialog::with_kind(
                         accounts,
-                        coffer_core::account::AccountKind::Asset,
+                        orre_core::account::AccountKind::Asset,
                         window,
                         cx,
                     )
@@ -1240,7 +1240,7 @@ impl ShellView {
                     .active(self.view == view)
                     .on_click(cx.listener(move |this, _, window, cx| this.show(view, window, cx)));
                 if view == View::Inbox {
-                    // Pending suggestions from AI clients; Coffer's own
+                    // Pending suggestions from AI clients; Orre's own
                     // don't count (`DESIGN.md` → "Inbox impact preview").
                     let pending = self.inbox.read(cx).badge();
                     if pending > 0 {
@@ -1275,7 +1275,7 @@ impl ShellView {
             .bg(color::CANVAS)
             .child(
                 EmptyState::new(format!("{} isn't built yet", view.label()))
-                    .body("It comes in a later version of Coffer. Transactions works now.")
+                    .body("It comes in a later version of Orre. Transactions works now.")
                     .shortcut("⌘2", "Open Transactions"),
             )
     }

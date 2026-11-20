@@ -1058,81 +1058,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "coffer-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "coffer-core",
- "coffer-import",
- "coffer-mcp",
- "gpui-kit",
- "image",
- "serde_json",
- "tempfile",
- "tracing",
- "tracing-subscriber",
- "ttf-parser",
-]
-
-[[package]]
-name = "coffer-core"
-version = "0.1.0"
-dependencies = [
- "aho-corasick",
- "chrono",
- "directories",
- "hmac",
- "refinery",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.21",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "coffer-import"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "coffer-core",
- "csv",
- "encoding_rs",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "toml 1.2.1+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "coffer-mcp"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "coffer-core",
- "coffer-import",
- "rmcp",
- "rusqlite",
- "schemars",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5243,6 +5168,81 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "orre-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "gpui-kit",
+ "image",
+ "orre-core",
+ "orre-import",
+ "orre-mcp",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "ttf-parser",
+]
+
+[[package]]
+name = "orre-core"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "chrono",
+ "directories",
+ "hmac",
+ "refinery",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "orre-import"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "csv",
+ "encoding_rs",
+ "orre-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.2.1+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "orre-mcp"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "orre-core",
+ "orre-import",
+ "rmcp",
+ "rusqlite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

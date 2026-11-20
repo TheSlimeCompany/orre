@@ -1,6 +1,6 @@
 # DESIGN.md — Visual design system
 
-The visual language for Coffer is a dark, dense, professional-tool UI
+The visual language for Orre is a dark, dense, professional-tool UI
 with hairline structure, compact 28px rows, mono numerals, and two accent colours that
 each carry one meaning.
 
@@ -12,16 +12,16 @@ this file covers how the app looks and feels.
 | | |
 |---|---|
 | Tool | [Paper](https://paper.design), read and written via the Paper MCP server |
-| Coffer file | **Coffer** — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Coffer design work happens here |
-| Coffer page | `Page 1` (`p-1-0`) |
-| Coffer artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide |
-| Coffer tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1; content hash `6a126241` (see "Tokens") |
-| Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Coffer's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
+| Orre file | **Coffer** (the app's old name; rename it to Orre in Paper, then re-export the tokens) — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Orre design work happens here |
+| Orre page | `Page 1` (`p-1-0`) |
+| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide |
+| Orre tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1; content hash `6a126241` (see "Tokens") |
+| Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Orre's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
 | Reference page | `Editor — v1` (`p-1-0`) |
 | Reference artboards | Editor (`1-0`), Empty file (`JK-0`), 1920×1080 |
-| Token snapshot | [`design/tokens.json`](../design/tokens.json), [`design/tokens.css`](../design/tokens.css) — exported from the **Coffer** file in D1.5 and re-exported in D3.1, D6.3 and D6.1, content hash `6a126241`, extracted 2026-11-10. `tokens.json` keeps each token's Paper description |
+| Token snapshot | [`design/tokens.json`](../design/tokens.json), [`design/tokens.css`](../design/tokens.css) — exported from the **Orre** file in D1.5 and re-exported in D3.1, D6.3 and D6.1, content hash `6a126241`, extracted 2026-11-10. `tokens.json` keeps each token's Paper description |
 
-The reference artboards show a design-editor app. What carries over to Coffer is the
+The reference artboards show a design-editor app. What carries over to Orre is the
 **system** (tokens, chrome, components, interaction states, the AI-agent colour role), not
 the editor's features. The coffee-shop mock-up drawn inside the editor canvas is sample
 content; its serif (Fraunces) and cream palette are **not** part of the system.
@@ -32,23 +32,23 @@ content; its serif (Fraunces) and cream palette are **not** part of the system.
 |---|---|
 | Used as specified | Title bar, tab, command bar, kbd, segmented control, list row, section label row, inspector field row, select, toggle, buttons (neutral primary, outline, outline compact, icon, chip), badge, status dot, underline tabs, card, empty state, tooltip, status bar, agent card, progress bar |
 | Repurposed | Floating toolbar → bulk-action bar for multi-selected transactions. Selection overlay → selection language for charts. Agent buttons → inbox actions ("Review 12 suggestions", "Approve all", "Reject all"). Avatar → agent avatar only |
-| Not used | Tool dock; prompt composer (Coffer has no in-app chat: the AI lives in the external MCP client); collaborator avatars and "Share"; the editor's brand mark |
+| Not used | Tool dock; prompt composer (Orre has no in-app chat: the AI lives in the external MCP client); collaborator avatars and "Share"; the editor's brand mark |
 
-The editor's molten gem is that product's mark, not ours. Coffer's own mark, the
+The editor's molten gem is that product's mark, not ours. Orre's own mark, the
 strongbox, sits before the wordmark in the title bar (see "Logo").
 
 **Rules**
 
-1. Paper wins. If this file and the Coffer Paper file disagree, the Paper file is right;
+1. Paper wins. If this file and the Orre Paper file disagree, the Paper file is right;
    update this file and re-export the tokens.
-2. Don't invent values. Use the values listed here. Every token is in the Coffer file.
+2. Don't invent values. Use the values listed here. Every token is in the Orre file.
    Values marked **Proposed** (the finance screens not drawn yet) are decided and
    may be used in code, but aren't drawn in Paper yet; when they are, drop the marker.
    Motion, shadows and border widths have no Paper token type, so this file is their
    source.
 3. Code references tokens by name, never raw hex or px literals outside the theme module.
 4. New or changed Paper tokens: re-run the Paper MCP `get_tokens` export (json + css) from
-   the Coffer file into `design/`, and update the tables below and `crates/app/src/theme/tokens.rs` in
+   the Orre file into `design/`, and update the tables below and `crates/app/src/theme/tokens.rs` in
    the same change. The drift test fails until the theme module matches the export.
 
 ## Character
@@ -64,11 +64,11 @@ strongbox, sits before the wordmark in the title bar (see "Logo").
   "you are here"*. `moldavite` (green) means *the AI agent*: presence, its proposals, its
   progress. Everything else is greyscale.
 - **Numbers are mono.** Coordinates, counts, sizes, and shortcuts use Geist Mono. In
-  Coffer this extends to every amount, date, and figure.
+  Orre this extends to every amount, date, and figure.
 
 ## Tokens
 
-The Coffer file holds 126 tokens (content hash `6a126241`), exported to
+The Orre file holds 126 tokens (content hash `6a126241`), exported to
 [`design/tokens.json`](../design/tokens.json) and [`design/tokens.css`](../design/tokens.css)
 and checked against the theme module by its drift test. Every node on the Foundations,
 Components, Transactions (D3, D6), Overview and D6.1 artboards is bound to them. Motion durations, shadows and border widths have
@@ -245,7 +245,7 @@ is derived, e.g. the agent-row hover bleed `calc(var(--spacing-1_5) * -1)`.
 
 **Weights: 400 / 500 / 600 / 700.** The reference artboards apply 400 (unset), 500, 550,
 600, 650 and 700, while the reference tokens say 450/550/650 and are bound to nothing. The
-decision, now in the Coffer file:
+decision, now in the Orre file:
 
 | Token | Value | Reference value | Replaces in reference artboards |
 |---|---|---|---|
@@ -281,7 +281,7 @@ Line heights snap to a 2px grid. Tracking: tight on large type, open on caps.
 | Mono micro | 10 / 12 | 400–600 | — | secondary / white on molten | Kbd glyphs, chart axis labels, selection labels |
 | Badge | 10 / 12 | 700 | — | moldavite | Count badges |
 
-**For Coffer:** every monetary amount, date, percentage, and count is Geist Mono with
+**For Orre:** every monetary amount, date, percentage, and count is Geist Mono with
 tabular figures, right-aligned in tables. Inter is for words.
 
 ## Layout and sizing
@@ -317,10 +317,10 @@ Floating surfaces: `#141416` fill, `#2A2A2E` 1px border, radius 10–13.
 
 ## Components
 
-Values below started from the reference artboards and are now drawn on the Coffer
-**Components** artboard (`CJ-0`). Names in parentheses are Coffer node IDs, for lookup with
+Values below started from the reference artboards and are now drawn on the Orre
+**Components** artboard (`CJ-0`). Names in parentheses are Orre node IDs, for lookup with
 the Paper MCP (`get_jsx` / `get_computed_styles`); `ref` marks a reference-file ID for a
-component Coffer doesn't use.
+component Orre doesn't use.
 
 **Settled on the Components artboard (D1.4).** Where the reference typed an off-grid value,
 the artboard snaps it to the nearest token, as the weights snap 550 → 500:
@@ -338,7 +338,7 @@ the artboard snaps it to the nearest token, as the weights snap 550 → 500:
   neutral primary in dialogs. The solid one hovers to `danger-hover` and presses to
   `danger-pressed`: `danger` shifted by moldavite's own hover/pressed steps in OKLCH, so
   the two solid accent buttons behave alike (see "Status colours").
-- View tabs in the title bar have no close button: Coffer's views are fixed.
+- View tabs in the title bar have no close button: Orre's views are fixed.
 - Budget bars use a `border` track; the overage past 100% is drawn after a `spacing-0_5`
   gap that marks the budget's end.
 - The "Uncategorised" marker is dashed 1px `text-muted`, not `border-strong`. `border-strong`
@@ -347,7 +347,7 @@ the artboard snaps it to the nearest token, as the weights snap 550 → 500:
   distinct from the solid-outlined "Other" marker.
 
 **Title bar** (`OU-0`) — 40px, `chrome`, bottom hairline, 12px left / 8px right padding, 4px gap.
-Brand group (the 16px mark and the "Coffer" wordmark, see "Logo") and the view tabs at
+Brand group (the 16px mark and the "Orre" wordmark, see "Logo") and the view tabs at
 left, command bar centred, window controls right.
 
 **Tab** (`QE-0`, `QM-0`) — 28px, radius 6, 10px padding, 6px icon gap, 12/16 weight 500,
@@ -437,11 +437,11 @@ mono timestamp `moldavite-text-faint`); actions row (agent primary + agent outli
 **Progress bar** (`15L-0`; neutral `15S-0`) — 3px, radius 2, track `#22332A`, fill moldavite.
 
 **Avatar** (ref `1V-0`) — 26px circle, 2px `chrome` ring, `#3A3A3F` fill, initial 11/14 650.
-Coffer uses only the agent avatar (`158-0`): `moldavite-well` fill, 1.5px moldavite ring,
+Orre uses only the agent avatar (`158-0`): `moldavite-well` fill, 1.5px moldavite ring,
 sparkle.
 
 **Selection overlay** (`17K-0`) — molten 1–1.5px outline, 7×7 white handles with molten border,
-molten measurement labels (mono 10/12 600, white). In Coffer this is the
+molten measurement labels (mono 10/12 600, white). In Orre this is the
 selection/focus language for charts and tables (e.g. a selected bar or row range).
 
 ## Iconography
@@ -450,14 +450,14 @@ Inline SVG, outline style: stroke 1.1–1.3px, round caps and joins, no fills ex
 sparkle (agent) and the brand mark. Sizes 10, 12, 14, 16. Colours: `text-muted` default,
 `#B4B4B9` secondary, `text`/white active, `#6E6E73` chevrons, `#4A4A4F` disabled.
 The four-point **sparkle** (`M6 0.5L7.3 4.7L11.5 6L7.3 7.3L6 11.5L4.7 7.3L0.5 6L4.7 4.7Z`)
-is reserved for the AI agent. The other filled icon is Coffer's mark (see "Logo").
+is reserved for the AI agent. The other filled icon is Orre's mark (see "Logo").
 
 ## Logo
 
 Designed in D6.2 on the **Logo** artboard (`8MT-0`); the three directions explored
 (strongbox, coin-stack C, keyhole tile) stay on **Logo · concepts** (`8JS-0`) as a record.
 
-**Mark: the strongbox.** A coffer seen front-on: a lid, a 1-unit seam where the lid lifts
+**Mark: the strongbox.** A strongbox seen front-on: a lid, a 1-unit seam where the lid lifts
 off, a body, and a hasp dropping from the seam. Filled, no strokes. Drawn on a 16-unit
 grid so the title-bar size (16px) lands on whole pixels:
 
@@ -482,8 +482,8 @@ selection or focus. `text` where a surface allows one colour only. Never `moldav
 
 | Use | Mark | Gap | Wordmark |
 |---|---|---|---|
-| Title bar | 16px (`icon-lg`) | 6px (`spacing-1_5`) | "Coffer", Inter 13/16 600, `text`, −0.01em (`tracking-tight`) |
-| Display (README, about) | 32px | 12px (`spacing-3`) | "Coffer", Inter 32/38 600, `text`, −0.025em (`tracking-display`) |
+| Title bar | 16px (`icon-lg`) | 6px (`spacing-1_5`) | "Orre", Inter 13/16 600, `text`, −0.01em (`tracking-tight`) |
+| Display (README, about) | 32px | 12px (`spacing-3`) | "Orre", Inter 32/38 600, `text`, −0.025em (`tracking-display`) |
 
 At display size the mark's 24px ink matches the wordmark's cap height. The mark alone is
 for icons; the wordmark never appears without it. Clear space: one lid height (4 units)
@@ -492,12 +492,12 @@ on every side.
 **App icon.** A `molten` tile, radius 28 on 128, with the mark in `chrome` at 4.5× (72px),
 centred. Checked at 128, 64 and 32.
 
-**Files.** `assets/brand/coffer-mark.svg` (the mark, 16px, molten) and
-`assets/brand/coffer-icon.svg` (the app icon, 128px) are exports for use outside the app,
+**Files.** `assets/brand/orre-mark.svg` (the mark, 16px, molten) and
+`assets/brand/orre-icon.svg` (the app icon, 128px) are exports for use outside the app,
 so their colours are literal hex. In the app the mark is `Glyph::Mark` (`crates/app/src/ui/icon.rs`),
 tinted by `text_color`. A test checks that both files draw the same paths as the glyph.
 
-## Applying the system to Coffer
+## Applying the system to Orre
 
 **Colour semantics**
 
@@ -536,7 +536,7 @@ tinted by `text_color`. A test checks that both files draw the same paths as the
 
 **Shell mapping (suggested, to be confirmed in Paper)**
 
-| Reference design | Coffer |
+| Reference design | Orre |
 |---|---|
 | Title bar tabs | Views (Overview, Transactions, Trends, Budgets, Net worth, Inbox, Reviews, Rules) |
 | Command bar (⌘K) | Search transactions, run commands (import, jump to month) |
@@ -995,7 +995,7 @@ token, `--container-dialog`.
   `ARCHITECTURE.md` → "Decision record: transfer-pair confirmation (built)"). **Composed
   from existing specs, not drawn** (user, 2026-11-15). A row in a suggested or confirmed
   pair has a Transfer section after Details, in place of Share and Links:
-  - *Suggested*: Coffer's refund card (`APQ-0`): "Is this a transfer?" in section-title
+  - *Suggested*: Orre's refund card (`APQ-0`): "Is this a transfer?" in section-title
     type, the reason in caption `text-muted` ("Same amount out and in, the same day" or
     "…, 2 days apart"), the other side as the purchase strip (`APV-0`: mono date, "From
     Current account", mono amount without a sign), the D6.6 caption "Confirming leaves
@@ -1076,7 +1076,7 @@ replace it with their own lists.
   {account}"; Balance (the currency's symbol in mono `text-faint`, the amount in mono,
   signed: typed with a minus when overdrawn) with its date in a 96px field; Note; caption
   "Your balance at the end of that day, as your bank shows it. Type a minus if the
-  account is overdrawn. Coffer checks it against the transactions since the last
+  account is overdrawn. Orre checks it against the transactions since the last
   balance."; Cancel / "Add balance" (neutral primary). No new tokens.
 - **Built in M3.2** (`crates/app/src/accounts/`): the panel from the database, the
   account inspector on Transactions, New account and Add balance. "Close account…" waits
@@ -1106,7 +1106,7 @@ replace it with their own lists.
   - *No balance yet*: the header has no figure, and its caption reads "No balance yet:
     add one below, or import a file that has balances."
   - *Balances caption*: the artboard's Monzo sentence when the preset is Monzo, otherwise
-    "Coffer counts forward from the balances you enter and the ones in your imports.
+    "Orre counts forward from the balances you enter and the ones in your imports.
     Each one is checked against the transactions." A row shows the balance's note when
     it has one, else where it came from ("Entered by you", "Statement", "Opening
     balance"). Dates from another year use D6.9's 56px lane ("2 Oct 25").
@@ -1123,7 +1123,7 @@ replace it with their own lists.
 replaced by filters:
 - Left panel: INBOX (Pending 12 selected, Approved 148, Rejected 23, with check / cross
   icons), KIND (Categorisations 9, Rules 2, Transfer pairs 1), SOURCE (Claude Code 12 with a
-  moldavite connected dot, Codex 0, "Coffer from your edits" 0: the app's own `rule`
+  moldavite connected dot, Codex 0, "Orre from your edits" 0: the app's own `rule`
   suggestions). D6.4 adds a CHECKS section between INBOX and KIND: see "Review queues".
 - Toolbar (52px, bottom hairline): "Pending" in title type, caption "12 suggestions ·
   nothing changes until you approve", and kbd hints on the right: A Approve, R Reject, ↑↓
@@ -1172,7 +1172,7 @@ replaced by filters:
   - *Empty*: the Empty state component (`13L-0`) centred on the canvas ("Nothing to
     review", "No approved suggestions", "Nothing matches these filters"); nothing
     selected: one caption in the inspector.
-  - *Coffer's own rows*: the suggested value in `text-secondary` with the sparkle's slot
+  - *Orre's own rows*: the suggested value in `text-secondary` with the sparkle's slot
     empty, and ✓ in `text`, so no moldavite shows.
 
 **Import** (`5ZQ-0` map step over Transactions; states board `6J4-0`). A dialog
@@ -1244,7 +1244,7 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
     is in the note ("… 2 more rows are flagged too."). Pot transfers read "To Rainy day"
     / "From Holiday".
   - *A file that isn't a statement* stays on File with the reason under the drop zone in
-    `danger` ("Coffer imports CSV, OFX and QFX files, and notes.pdf isn't one it can
+    `danger` ("Orre imports CSV, OFX and QFX files, and notes.pdf isn't one it can
     read."); while reading, the drop zone's line reads "Reading monzo-november.csv…". A
     file dragged over the zone fills it with `hover`.
   - *Save as preset…* (M3.5): a secondary button before Back on the Map step for a CSV.
@@ -1328,7 +1328,7 @@ padding (16px top, 24px inline).
 **Reviews** (`7YM-0`). Transactions shell; the left panel lists the reviews.
 - Left panel: SAVED REVIEWS with a count, one row per review (10px moldavite sparkle,
   title, mono save date); the selected one `molten-soft`. A caption under the list: reviews
-  are written by the AI client with `monthly_review`; Coffer never runs a model.
+  are written by the AI client with `monthly_review`; Orre never runs a model.
 - Canvas: one column `--container-reading` (560px) wide, 24px top and 48px inline padding.
   Byline as the agent card header (sparkle, "Claude", "Claude Code · saved 1 Nov, 09:12"),
   the title in display type (32/38 600), a caption with the kind and period, then the body
@@ -1352,7 +1352,7 @@ changed; all of this happens at render time.
 - **The subset** (states board, "What renders"). `#` and `##` are reading headings
   (15/20 600, `tracking-tight`, 8px above); `###` and deeper are 13/20 600. The review's
   title comes from the report's `title`, not the body. `**strong**` is 600;
-  `*emphasis*` is 500 in `text-strong`, because Coffer bundles no italic face (open
+  `*emphasis*` is 500 in `text-strong`, because Orre bundles no italic face (open
   question 1). `` `code` `` is mono 12px `text-secondary`; a fenced block sits on `field`,
   `radius-md`, 8×12 padding, mono 12/20 `text-strong`, no highlighting. Lists: "–" in a
   12px lane, numbers in mono 12px `text-muted` in a 16px lane, both 10px from the text;
@@ -1404,7 +1404,7 @@ changed; all of this happens at render time.
   not danger: nothing went wrong, but text like that in a bank export is worth a look.
   - **Transactions**: "Show in Transactions" turns on a **"Withheld from AI"** filter chip
     (the Excluded chip's on state, with the `warning` `shield` before the label and a mono
-    count). It lists every transaction whose text Coffer withholds, not only the ones
+    count). It lists every transaction whose text Orre withholds, not only the ones
     this review's calls returned.
   - **Transactions inspector**: under "Raw description" (the full text, unchanged, mono),
     a 24px marker row, `warning` `shield` + "Withheld from AI clients" (12/16 500
@@ -1433,7 +1433,7 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
   Rules in D6.7), and the Inbox is already where decisions wait. So the Inbox's left panel gains a CHECKS section between
   INBOX and KIND: "Possible duplicates" (a two-rectangle `duplicate` icon, mono count) and
   "Balance checks" (a `balance` scales icon; a 6px `danger` dot before the count while
-  one fails). These are Coffer's own checks, not agent suggestions, so they're neutral:
+  one fails). These are Orre's own checks, not agent suggestions, so they're neutral:
   no moldavite, and they don't add to the Inbox tab's moldavite badge, which still
   counts pending suggestions only. KIND and SOURCE keep filtering suggestions. A failing
   check also replaces "Reconciled" in the status bar with a `danger` dot and "1 balance
@@ -1469,7 +1469,7 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
     `text-muted` `check` (Same account, Same amount, Within 3 days). The two that stopped
     exact dedupe take a `warning` `differs` (≠) icon (Different text, Bank ID on one
     only). A caption follows: an exact match is skipped at import; these two differ, so
-    Coffer asks. "If you merge" (read-only field rows): Excludes "OCADO.COM · 5 Nov",
+    Orre asks. "If you merge" (read-only field rows): Excludes "OCADO.COM · 5 Nov",
     Spending "Groceries £42.50 less", Balance "−£24.10 → £18.40", Check "`check` 9 Nov
     passes". A caption names the balance check the pair explains. Then "Both
     transactions" with outline "Show in Transactions".
@@ -1486,14 +1486,14 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
   - **Group header** (28px): a 16px status lane (empty), the account name (11/14 600
     `text-secondary`), then the lock state: a 10px `lock` and "Locked through 30 Sep"
     (caption `text-muted`, date in mono). No lock, no text. Lane labels: DATE (72) ·
-    BALANCE · COFFER · DIFFERENCE (96 each, right-aligned).
+    BALANCE · ORRE · DIFFERENCE (96 each, right-aligned).
   - **Rows**, newest first: the status icon (`check` `text-muted` passed, `alert`
     `danger` failed), the source ("Entered by you", "Statement (OFX)"), mono date, the
-    balance given (`text`), Coffer's computed balance and the difference (mono). Passed:
-    difference `£0.00` in `text-muted`. Failed: the difference is `danger`, 600; Coffer's
+    balance given (`text`), Orre's computed balance and the difference (mono). Passed:
+    difference `£0.00` in `text-muted`. Failed: the difference is `danger`, 600; Orre's
     balance follows the Money rule (a negative balance is `danger`). The oldest balance
     is the **starting point**, not a check: its source reads "… · starting point" in
-    `text-muted`, no icon, and "—" for Coffer and Difference.
+    `text-muted`, no icon, and "—" for Orre and Difference.
   - **Failing window**, under a failed row, indented to the source lane: a caption naming
     the last balance that matched and the transaction count since ("The gap opened after
     30 Sep, the last balance that matched: 47 transactions to look at"), and, when one
@@ -1508,9 +1508,9 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
     valuation accounts (a valuation sets the balance; D6.9), and pots (they follow their
     transfers).
   - **Inspector** (a failed check selected). Header: account name, the difference as
-    display figure, "Check on 9 Nov failed · Coffer is short". "This check" (read-only
-    field rows): Balance "£18.40 entered by you", Coffer "−£24.10 from transactions",
-    Matched "£512.40 on 30 Sep", Window "1 Oct – 9 Nov", and a caption: Coffer starts
+    display figure, "Check on 9 Nov failed · Orre is short". "This check" (read-only
+    field rows): Balance "£18.40 entered by you", Orre "−£24.10 from transactions",
+    Matched "£512.40 on 30 Sep", Window "1 Oct – 9 Nov", and a caption: Orre starts
     from the last balance that matched and adds every transaction since. "What could
     explain it": a card (`float`, 1px `hairline`, `radius-surface`, 12px padding) for the
     possible duplicate, with its amount, a caption ("Merging it closes the gap exactly.")
@@ -1535,7 +1535,7 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
     until the account is unlocked, or until "Keep this instead" makes the excluded row
     one outside the lock. "Not duplicates" stays enabled: it changes no transaction.
   - **Empty queue**: centred in the canvas, a 36px `field` icon well with the 16px
-    `duplicate` icon, "No possible duplicates" (title type) and a caption: Coffer checks
+    `duplicate` icon, "No possible duplicates" (title type) and a caption: Orre checks
     every import, and a pair marked "Not duplicates" isn't flagged again.
 - **Built in M3.12** (`crates/app/src/checks/`; `ARCHITECTURE.md` → "Decision record:
   review queues (built)"): both queues, the states board's dialogs, undo bar, locked
@@ -1545,8 +1545,8 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
   - *Selection*: opening a queue opens its first pair or first failing check; nothing
     selected: one caption in the inspector.
   - *A passed check or a starting point selected*: the same header and "This check"
-    (Balance, Coffer, Matched, Window) without "What could explain it"; a starting
-    point's section is "This balance" with a caption that Coffer counts from it.
+    (Balance, Orre, Matched, Window) without "What could explain it"; a starting
+    point's section is "This balance" with a caption that Orre counts from it.
   - *Lock section* on every check's inspector: "Locked through …" with Unlock…, or
     "Not locked" with the `lock` "Lock through …" outline when a date is lockable.
   - *Moves*: a read-only field row in "If you merge" naming the values that move to
@@ -1566,7 +1566,7 @@ by −£42.50, and a possible duplicate of −£42.50 on the same account explai
   record: review queues"). Each went with the recommendation below, which the designs
   already assume.
   1. *Is the oldest balance a check?* Recommended: no. The first `balance_snapshot` of an
-     account is the starting point that Coffer counts from; every later one is a check.
+     account is the starting point that Orre counts from; every later one is a check.
      A `valuation` snapshot sets the balance and is never a check.
   2. *What can be locked?* Recommended: only through the date of a passing check, and only
      when every check up to that date passes. Unlock clears `reconciled_through`; there's
@@ -1592,7 +1592,7 @@ Three kinds of link, one per `transaction_link.kind`. A **refund** ties money in
 purchase; it takes the purchase's category, so it nets against it and never counts as
 income. A **reimbursement** ties money in to a purchase marked to claim back, and clears
 the claim. A **settlement** ties money in to a person (a share label) and reduces what
-they owe. All three are made by the user or confirmed from a suggestion. Coffer's own
+they owe. All three are made by the user or confirmed from a suggestion. Orre's own
 suggestions are neutral (no moldavite); the AI's `refund_link` suggestions are Inbox items
 (D6.6).
 
@@ -1606,7 +1606,7 @@ suggestions are neutral (no moldavite); the AI's `refund_link` suggestions are I
     amount, and a 24px ✕ icon button that unlinks. Unlinking needs no dialog: the D6.3
     undo bar offers Undo. With no links, a caption says what can be linked.
 - **Refund link** (`9WS-0`). The ASOS.com refund is selected. Its Links section holds
-  Coffer's suggestion as a card (`float`, 1px `hairline`, `radius-surface`, 12px
+  Orre's suggestion as a card (`float`, 1px `hairline`, `radius-surface`, 12px
   padding, like D6.3's rule prompt):
   - "Is this a refund?" and why ("Same merchant and account, 11 days earlier, for more
     than this amount");
@@ -1649,7 +1649,7 @@ suggestions are neutral (no moldavite); the AI's `refund_link` suggestions are I
   have no category: "Repays 2 claims", "Repays Sam" (`text-secondary`, the 8px marker
   lane left empty so the text lines up). Day totals stay the bank's.
 - **Owed to you** (`CCF-0`), a third row in the Inbox's CHECKS section (a 12px `owed`
-  return-arrow icon, mono count of open items). Like the other checks it's Coffer's
+  return-arrow icon, mono count of open items). Like the other checks it's Orre's
   own list: neutral, outside the Inbox badge. Toolbar: "Owed to you", caption "£225.73
   to come back · 3 expense claims and 2 people". Two table sections:
   - **Expense claims**, oldest first. Lanes: a 16px status lane · the purchase (flex) ·
@@ -1681,7 +1681,7 @@ suggestions are neutral (no moldavite); the AI's `refund_link` suggestions are I
   1. *Which month does a refund count in?* Recommended: its own date, as negative spending
      in the purchase's category. The purchase's month stays as it was, so a closed month
      doesn't change when a late refund arrives.
-  2. *When does Coffer suggest a link?* Recommended, deterministic only: a refund when
+  2. *When does Orre suggest a link?* Recommended, deterministic only: a refund when
      money comes in on the same account under the same `merchant_display` as a purchase
      in the previous 90 days with at least that much left to refund; a reimbursement
      when money comes in that equals one or a set of outstanding claims to the penny,
@@ -1755,7 +1755,7 @@ House £385,000.00, Workplace pension £41,820.00, Stocks ISA £7,030.55 and Mor
     account has transactions.
   - **New account, Kind set to Asset**: Bank and Preset disappear; Balance becomes
     "Value" (`£` prefix, mono, with its date) and a Note row is added. Caption: nothing is
-    imported for an asset; for a liability, enter what you owe and Coffer stores it
+    imported for an asset; for a liability, enter what you owe and Orre stores it
     negative.
   - **Kind menu** (`float`, 1px `border`, `radius-lg`, Toolbar shadow, 4px padding): two
     groups under 10/12 caps labels, "Imported from your bank" (Current, Savings, Credit
@@ -1763,14 +1763,14 @@ House £385,000.00, Workplace pension £41,820.00, Stocks ISA £7,030.55 and Mor
     pension, investments, Liability · mortgage, loan), with the hint in `text-muted`. The
     chosen item has the `hover` fill and a `check`.
   - **Cash count** (`--container-dialog`), when the count is short: Counted (`£` field
-    and date), then read-only rows: Coffer "£23.00 from transactions since the 1 Nov
+    and date), then read-only rows: Orre "£23.00 from transactions since the 1 Nov
     count" and Difference "−£5.00" in `warning` with the `alert` icon (as an unbalanced
     split: unresolved, not yet a failure). Footer: Cancel, outline "Save count only",
     neutral primary "Add −£5.00 and save", which also adds a manual transaction "Cash count
     difference" in Other on the count's date so the check passes. Nothing is added unless
     the user picks it.
   - **Add a balance for Mortgage**: Owed (`£`, unsigned, with its date) and Note. Caption:
-    type what the statement says; Coffer stores it as −£212,640.00 and never treats it as
+    type what the statement says; Orre stores it as −£212,640.00 and never treats it as
     a failed check.
   - **Close House?**: body first (it leaves the panel and counts as £0 from the date,
     so net worth drops by its value then; earlier net worth keeps its valuations; it can be
@@ -1794,7 +1794,7 @@ House £385,000.00, Workplace pension £41,820.00, Stocks ISA £7,030.55 and Mor
   5. *Cash counts.* Recommended: a count is a `balance_snapshot` with source `manual`,
      checked like any other balance (the first is the starting point, as in D6.4
      question 1). "Add and save" writes the snapshot and the difference transaction in
-     one DB transaction; Coffer never posts a difference on its own.
+     one DB transaction; Orre never posts a difference on its own.
 
 - **Built in M3.17** (`crates/app/src/accounts/`; user, 2026-11-14): the panel's ASSETS
   AND LIABILITIES section with its `+` (with no such accounts, just the label row and
@@ -1818,7 +1818,7 @@ House £385,000.00, Workplace pension £41,820.00, Stocks ISA £7,030.55 and Mor
   ("Balance on 10 Nov · from your count and entries"), Counts with outline "Count cash…"
   and the oldest count labelled "Starting point", and the Count cash dialog, as drawn
   (`EPF-0`). **Composed from existing specs, not drawn** (review): the title "Count cash
-  for Cash"; the Coffer and Difference rows hidden for the first count, whose one button
+  for Cash"; the Orre and Difference rows hidden for the first count, whose one button
   reads "Save count"; a zero difference in `text-muted` with no icon; the dialog's
   caption, which doesn't name the difference's category (Other may have been renamed or
   deleted, M3.7, and a deleted Other leaves the row uncategorised); a negative count
@@ -1896,18 +1896,18 @@ can be approved. Nothing in the preview is the agent's own words except the card
   - **Approve all leaves it out** ("Approve all (1)", with "Leaves out PAY: a wide rule
     needs its own ✓" beside the buttons). Only the row's own ✓ or the inspector's Approve
     approves it.
-- **Coffer's own suggestions** (M2.14, source `coffer`): the same card and preview, but
+- **Orre's own suggestions** (M2.14, source `orre`): the same card and preview, but
   neutral. Card: `float` fill, 1px `hairline`, `radius-lg`, the mono mark (12px,
-  `text-secondary`) and "Coffer" 600 + "from your edits · today" `text-muted`, the
+  `text-secondary`) and "Orre" 600 + "from your edits · today" `text-muted`, the
   proposal, a reason that says it was counted ("You moved WASABI to Eating out by hand 3
-  times"), neutral primary Approve + outline Reject. Its group footer names "Coffer ·
+  times"), neutral primary Approve + outline Reject. Its group footer names "Orre ·
   from your edits" with the mono mark; its buttons are neutral; it doesn't count
   towards the Inbox tab's moldavite badge.
 - **After approving** anything that changes existing rows (rule, name, pair, link), the
   D6.3 undo bar: "Approved rule UBER *EATS: 5 transactions now Eating out", Undo. One
   `change_batch` per approval; Approve all makes one per suggestion.
 - **States board** (`EWZ-0`, 1440 wide): the refund link, transfer pair and categorisation
-  inspectors, Coffer's own card, the wide rule, the undo bar, and R.18's rows a rule
+  inspectors, Orre's own card, the wide rule, the undo bar, and R.18's rows a rule
   leaves alone.
 - **Rows a rule leaves alone** (R.18; `EWZ-0`, section "R.18 · Rows a rule leaves
   alone"). A confirmed transfer leg or a linked refund's money in takes no category of
@@ -1978,7 +1978,7 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
     · LAST CONNECTED (140: "Connected now", or a mono date) · CALLS · 7 DAYS (96, mono)
     · ON (52, a toggle per client). A client turned off keeps its row, with the name in
     `text-secondary` and its values in `text-muted`.
-  - *Asked to connect*: a client name Coffer hasn't enabled (`coffer mcp --client
+  - *Asked to connect*: a client name Orre hasn't enabled (`orre mcp --client
     my-agent`) is refused before any tool runs and listed here with LAST TRIED and
     REFUSED (count), the name in mono. Its footer explains where the name came from, with
     outline "Ignore" and "Enable…". This is how a client gets enabled: MCP stays off
@@ -2007,7 +2007,7 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
   - Reads have an empty kind lane; writes (`propose_*`, `save_report`) show the
     `inbox` icon; a refused call shows a `refused` icon (circle with a slash), and the
     row is `text-muted` with "Refused: my-agent isn't enabled" as its purpose and "—"
-    for rows. Refusal is Coffer doing its job, so it's neutral, not `danger`.
+    for rows. Refusal is Orre doing its job, so it's neutral, not `danger`.
   - Purposes are shown in quotes in `text-secondary`; a call without one reads "No
     purpose given" in `text-muted`. The purpose is untrusted text: it's displayed, never
     interpreted.
@@ -2026,7 +2026,7 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
   "Back up now".
   - Two groups, Recent (10) and One a month (3): TAKEN (140, mono date) · REASON (flex:
     "Before importing `monzo-november.csv`" with the file name in mono, "Backed up by
-    you", "Before updating Coffer · schema 6 → 7", "Before restoring the backup from 4
+    you", "Before updating Orre · schema 6 → 7", "Before restoring the backup from 4
     Oct") · TRANSACTIONS (96) · SIZE (96, mono). A caption: backups stay on this
     computer, readable only by the user, and are full copies.
   - *Inspector* (the 10 Nov backup): "Backup from 10 Nov, 14:02", its transaction count
@@ -2049,12 +2049,12 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
     primary).
   - *Restore dialog*: "Restore the backup from 10 Nov, 14:02?" Two checks as 24px rows
     with a 12px `check` and the check's name on the right in caption type ("The file is
-    intact · integrity check", "This version of Coffer can read it · schema 7"); what
+    intact · integrity check", "This version of Orre can read it · schema 7"); what
     restoring undoes; a caption that the current state is backed up first and AI clients
     are refused until the restore is done. Cancel / "Restore" (neutral primary:
     restoring is reversible through that backup).
   - *A check fails* (Restore from a file): the failed check's row is `danger` with an
-    `alert` icon ("It was made by a newer Coffer · schema 9, this reads up to 7"), the
+    `alert` icon ("It was made by a newer Orre · schema 9, this reads up to 7"), the
     body says what to do and that nothing changed, and Restore is at
     `opacity-disabled`.
   - *Export dialog* (`--container-dialog`): title with an inspector-size segmented
@@ -2075,7 +2075,7 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
      next call of a client that is already connected. Refused calls are logged, which
      needs an outcome on `mcp_access_log` (`ok`, `refused_off`, `refused_not_enabled`,
      `refused_level`).
-  2. *Where do unknown clients come from?* Recommended: the first `coffer mcp --client X`
+  2. *Where do unknown clients come from?* Recommended: the first `orre mcp --client X`
      for an unknown name creates an `mcp_client` row that isn't enabled (a `requested`
      state) and is refused; "Ignore" hides the row without enabling it. Only the app or
      CLI enables a client, never the server.
@@ -2095,7 +2095,7 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
 - **Built in M3.15 and M3.16** (`crates/app/src/settings/`): the three screens, the
   states board's off state, the Enable, Restore and export dialogs and the "Back up now"
   notification, checked by eye against `AQ2-0`, `DC6-0`, `F63-0` and `GQA-0` in the
-  `settings*` snapshots. New Coffer components, all from existing specs: the toggle
+  `settings*` snapshots. New Orre components, all from existing specs: the toggle
   (`ui::toggle`, on the unstyled `gpui-base` switch), the inspector-size segmented
   control (`ui::segmented`, `gpui-base` toggles), the notification bar
   (`ui::notification`), and the `refused`, `plug`, `log`, `backup`, `export`, `inbox`,
@@ -2105,7 +2105,7 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
     (no migration). The Enable dialog has no Name field.
   - *No live connection state*: LAST CONNECTED is the last call's time ("Today,
     10:42"), with no moldavite dot; nothing records whether a client is connected now.
-  - *The access log shows what `coffer ai-access log` shows*: no result hash (the
+  - *The access log shows what `orre ai-access log` shows*: no result hash (the
     inspector's Result row and its caption are replaced by "The rows themselves aren't
     stored: the log keeps how many went back, never the data."); rows cut the purpose
     as the CLI does (60 characters), the inspector shows it whole; arguments are
@@ -2144,15 +2144,15 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
   - *Backups*: Recent holds every manual backup and the automatic ones rotation keeps as
     recent; One a month the rest. A restore backup reads "Before restoring a backup"
     (which one isn't recorded); an update with an unknown schema reads "Before updating
-    Coffer". Schema rows say "· updated to N after restoring" for an older backup and
+    Orre". Schema rows say "· updated to N after restoring" for an older backup and
     "· newer than this version's N" for a newer one, whose Restore… is disabled. Nothing
     to undo reads "Nothing has been imported, edited in bulk or suggested since."
   - *Restore dialog*: "Checking the file…" while the checks run; "Restoring…" with the
     buttons disabled and Escape ignored while it restores; a damaged file fails the
-    first row ("The file is damaged") and has no second; "It isn't a Coffer backup" and
-    "It's from a different build of Coffer" fail the second; a current database that
+    first row ("The file is damaged") and has no second; "It isn't an Orre backup" and
+    "It's from a different build of Orre" fail the second; a current database that
     can't be read, or a refused restore, is said in `danger` with what to do; an earlier
-    restore that stopped part-way is mentioned, as `coffer restore` does. After a
+    restore that stopped part-way is mentioned, as `orre restore` does. After a
     restore, the notification bar says so, with "Show in folder" for the backup of what
     it replaced. A caption says your own bank presets aren't in backups, so restoring
     doesn't change them, and an account whose preset isn't on this computer asks for its
@@ -2162,11 +2162,11 @@ Claude Code connected at standard access, the November Monzo import, 1,312 trans
     year are kept". Under the table, a mono `text-secondary` line "13 backups · 4.2 MB
     in total" above the caption, which starts "Backups you take yourself stay until you
     delete them." The inspector ends with a caption ("Everything in a backup stays on
-    disk until it's deleted, including what you've since deleted from Coffer.") and
+    disk until it's deleted, including what you've since deleted from Orre.") and
     `DestructiveCompact` "Delete backup…", for any backup. Its dialog is composed as the
     Remove client dialog: "Delete the backup from `10 Nov, 14:02`?", "The file is
     deleted for good, not moved to the trash, and can't be undone." (a manual backup
-    first says "You took this backup yourself, so Coffer would keep it."), Cancel /
+    first says "You took this backup yourself, so Orre would keep it."), Cancel /
     `DestructiveSolid` "Delete backup". The notification reads "Deleted the backup ·
     4.2 MB".
   - *Notifications*: the D6.3 bar also reports an export ("Exported 1,327 rows to
@@ -2259,7 +2259,7 @@ or AI-suggested.
   names · how a bank's merchant text is shown", outline "+ New name". Table: BANK TEXT
   (flex: "Is", "Starts with" or "Pattern" in `text-secondary`, then the text in mono) ·
   SHOWS AS (180) · LAST SEEN (72, mono) · MATCHES (96, mono), sorted by name. A caption
-  gives the order: Coffer cleans the bank's text (card numbers, "CONTACTLESS",
+  gives the order: Orre cleans the bank's text (card numbers, "CONTACTLESS",
   processor prefixes), then applies these names, and a name typed on one transaction
   wins over both. Renaming changes only what's shown: rules still match the bank's text,
   and the bank's text is never changed.
@@ -2527,7 +2527,7 @@ because only the six biggest categories by spending get a colour.
     total. "Enough by 14 Mar" closes it; when the money won't be there in time, it reads
     "£48.50 short by 14 Mar" with a `warning` icon.
   - **Rollover rows**: carried in, overspending carried in, and off, with notes.
-  - **Schedule dialog** (`--container-dialog`), for a series Coffer found. The body says
+  - **Schedule dialog** (`--container-dialog`), for a series Orre found. The body says
     what was found and that no transaction is added. Field rows: Account, Category,
     Amount, Repeats, Next, Match. A yearly schedule in a category with a non-monthly
     budget adds a "Set aside" toggle, which adds it to the yearly amount. Cancel /
@@ -2547,8 +2547,8 @@ because only the six biggest categories by spending get a colour.
   - The pace line is one line across the Flex bars, and bars aren't coloured by pace.
   - A missed payment stays in the forecast, counted from tomorrow, until it's matched or
     skipped.
-  - A series Coffer detects stays behind "Review N found" and out of the forecast until
-    the user schedules it, in Coffer's own UI (ARCHITECTURE "Schedules and forecast").
+  - A series Orre detects stays behind "Review N found" and out of the forecast until
+    the user schedules it, in Orre's own UI (ARCHITECTURE "Schedules and forecast").
 - **Data-model questions: decided** (user, 2026-11-10; `ARCHITECTURE.md` → "Decision
   record: budgets and the forecast"). Each went with the recommendation below, which the
   designs already assume.
@@ -2631,7 +2631,7 @@ D6.4–D6.11 add to.
 
 **Light theme.** Not in v1.
 
-## Setting up the Coffer Paper file
+## Setting up the Orre Paper file
 
 D1 in [`ROADMAP.md`](ROADMAP.md). The file starts empty; nothing is copied from the
 reference file except the values recorded here.
@@ -2642,7 +2642,7 @@ reference file except the values recorded here.
    (Motion durations aren't a Paper token type, so they stay in this file.) ✅ Done (D1.2),
    plus the "tokens named in D1.2".
 3. Build a foundations artboard and a components artboard from those tokens only, and
-   replace the reference node IDs in "Components" with the Coffer file's node IDs.
+   replace the reference node IDs in "Components" with the Orre file's node IDs.
    Foundations ✅ done (D1.3, artboard `1-0`). Every colour, size, weight, tracking, line
    height, gap and radius on it is a bound token. The only typed values are the 1px swatch
    ring (`inset 0 0 0 1px #FFFFFF1F`, from "Elevation") and the 1px outline on the chart
@@ -2651,7 +2651,7 @@ reference file except the values recorded here.
    named in D1.4"). Every colour, size, weight, gap, radius and opacity is a bound
    token. Typed values: 1px/1.5px border, ring and outline widths, shadow geometry, SVG
    icon paths, and data-driven bar lengths (percentages). The "Components" section above
-   now quotes the Coffer node IDs.
+   now quotes the Orre node IDs.
 4. Design the screens above (D3, D4, D6), then replace the "Proposed" text here with the
    Paper node IDs. Transactions ✅ done (D3.1, artboards `18E-0` and `1NP-0`): composed
    from clones of the Components artboard, every value a bound token. Typed values as on
@@ -2671,7 +2671,7 @@ reference file except the values recorded here.
    Components clones, every value a bound token, two new tokens (`--container-dialog-wide`,
    `--container-reading`). Typed values: 1px borders, the Dock shadow, SVG icon paths and
    chart points, data-driven bar widths and heights.
-5. Export `design/tokens.json` and `design/tokens.css` from the Coffer file. ✅ Done (D1.5):
+5. Export `design/tokens.json` and `design/tokens.css` from the Orre file. ✅ Done (D1.5):
    122 tokens, content hash `572f3e11`. Re-exported in D3.1: 123 tokens, content hash
    `86e4aeb1`. Re-exported in D6.3: 124 tokens, content hash `b442a048`. Re-exported in D6.1: 126 tokens, content hash
    `6a126241`. Re-export
@@ -2728,7 +2728,7 @@ reference file except the values recorded here.
     `shadows_convert_the_css_blur_to_gpui_sigma`). The shader approximates the Gaussian (an
     `erf` along one axis, four samples across the other). A drop shadow is clipped by any
     ancestor that clips its content, so floating surfaces render through `deferred`, which
-    draws without the ancestors' clip, as stock popovers do. No Coffer component draws a
+    draws without the ancestors' clip, as stock popovers do. No Orre component draws a
     shadow yet (tooltip, bulk-action bar and composer aren't built), so none has been
     compared on screen; compare the first one against Paper. **D5:** the bulk-action bar's
     `toolbar` shadow matches Paper's export within the diff threshold at 1x and 2x.
@@ -2756,13 +2756,13 @@ reference file except the values recorded here.
   - **Animation easing.** `gpui_kit::base::Easing::cubic_bezier` evaluates a CSS
     cubic-bézier, so `motion::EASE_ENTER` and `EASE_EXIT` carry over exactly.
     `component.rs` puts them on the stock theme with the durations and critically damped
-    springs, and the stock components that animate read them from there. Coffer's own
+    springs, and the stock components that animate read them from there. Orre's own
     animations use `Animation::new(duration).with_easing(...)`, which takes any
     `Fn(f32) -> f32`, so pass a closure over `Easing::sample`; exits run for
     `motion::exit(duration)`. Reduced motion: `gpui_kit::init` reads the OS setting (macOS,
     Windows, the XDG desktop portal on Linux) into `App::reduce_motion`, and every GPUI and
     Base animation then jumps to its end, opacity fades included, as "Motion" now specifies;
-    repeating animations hold still. Coffer's buttons still change colour instantly (no
+    repeating animations hold still. Orre's buttons still change colour instantly (no
     `motion-fast` transition; see "Stock components").
   - **Closed** (decided while the user was away; review). The three questions D2.6 left open:
     1. *Disabled solid buttons: match Paper.* No new tokens, so Paper is unchanged: the
@@ -2772,7 +2772,7 @@ reference file except the values recorded here.
        `opacity` and paints each colour opaque, as its composite at 40% over the surface the
        button sits on (`ui::faded`; `Button::with_surface`, `canvas` by default,
        `moldavite-surface` on the agent card and agent suggestion). That's the pixel CSS
-       paints for the faded group. The stock button replays Coffer's instance style inside
+       paints for the faded group. The stock button replays Orre's instance style inside
        its disabled state, so the composites go in as ordinary fill and text colours.
        Buttons without a fill keep element `opacity`, which is already exact for them; that
        includes agent outline, which measured as matching. Measured on the showcase's
@@ -2820,7 +2820,7 @@ reference file except the values recorded here.
     rounds them first. Boxes centred on a half pixel (a 28px control in the 39px inside a
     40px bar with a bottom hairline) round down in GPUI and up in Chrome at 1x. Not
     visible in use; not worth correcting.
-  - **GPUI pitfalls found, fixed in Coffer's code:** (1) a `list` lays each item out alone
+  - **GPUI pitfalls found, fixed in Orre's code:** (1) a `list` lays each item out alone
     at the list's width and ignores the list's own padding, so items need a full-width
     wrapper that carries the inline padding; (2) a virtual list measures an item by its
     border box, so a margin on an item overlaps the next one. The day header's 4px above
@@ -2838,7 +2838,7 @@ reference file except the values recorded here.
   Implemented in `crates/app/src/theme/tokens.rs`. Its drift test maps
   every token in `design/tokens.json` to a constant (following `var()` aliases such as
   `--color-on-light`), so the build fails when the export adds, removes or changes a token
-  until the theme module follows. A second test checks the snapshot came from the Coffer
+  until the theme module follows. A second test checks the snapshot came from the Orre
   file.
 - **Letter spacing:** GPUI's text style has no letter-spacing property, so a role's
   tracking (−0.01em, +0.06em caps, −0.025em display) is lost on a plain text child.
@@ -2852,10 +2852,10 @@ reference file except the values recorded here.
   clipped (the inspector title for a long merchant). Plain-text roles (tracking 0) stay
   ordinary text.
 - **gpui-component theme:** mapped onto the tokens by `crates/app/src/theme/component.rs` (D2.4);
-  `coffer_app::theme::install` runs it at startup, then loads the fonts. It switches the
+  `orre_app::theme::install` runs it at startup, then loads the fonts. It switches the
   stock theme to dark and assigns every one of its colour fields a token, plus radius
   (`radius-md`; `radius-lg` for dialogs and other floating surfaces), fonts, shadows (off:
-  Coffer is flat) and motion (`motion::FAST`/`BASE`/`SLOW`, the enter and exit curves,
+  Orre is flat) and motion (`motion::FAST`/`BASE`/`SLOW`, the enter and exit curves,
   critically damped springs). A test fills the palette with a sentinel, applies the map and
   fails if any field is unmapped or isn't a token, so a field added by a `gpui-component`
   upgrade fails the build until it's mapped. A headless `#[gpui_kit::test]` runs the
@@ -2863,7 +2863,7 @@ reference file except the values recorded here.
   `tokens` (no stale stock gradient) and the Base layer's copy; the fonts can't be checked
   there, since the test platform's text system resolves every font to one id. The map
   follows meaning, not names: stock `primary` is the neutral primary button (`text` fill,
-  `on-light` label); success and info are neutral too (Coffer has no success colour);
+  `on-light` label); success and info are neutral too (Orre has no success colour);
   `molten` is only selection, focus and
   drop targets; `moldavite` only the literal "green" hue. Nothing may call
   `Theme::change` or `Theme::sync_system_appearance` afterwards: either reloads the stock
@@ -2871,14 +2871,14 @@ reference file except the values recorded here.
 - **Rem base:** stock controls are sized in rems (medium buttons, inputs and selects are
   `h_8` = 2rem, text `text_sm` = 0.875rem), so the theme's base font, which is GPUI's rem,
   is `size::CONTROL / 2` = 14px. Stock medium controls are then exactly 28px. Their text is
-  12.25px against `--text-sm` 12px; accepted for stock controls (D2.5 visual review). Coffer's
+  12.25px against `--text-sm` 12px; accepted for stock controls (D2.5 visual review). Orre's
   own components take sizes from the tokens and don't depend on the rem. Zoom (changing
   the base font) would scale only stock components; out of scope until there's a zoom
   feature.
 - **Not yet designed in Paper, mapped provisionally:** dialog/sheet backdrop (`chrome` at
   `opacity-muted`), scrollbar thumb (`border-strong`, hover `tooltip-border`), text caret
-  (`text`). Warning has no hover/pressed states (Coffer has no warning button).
-- **Focus ring:** Coffer's own components draw the spec ring with
+  (`text`). Warning has no hover/pressed states (Orre has no warning button).
+- **Focus ring:** Orre's own components draw the spec ring with
   `FocusRingExt::focus_visible_ring` (`crates/app/src/theme/focus.rs`): a `size::FOCUS_RING` (1.5px)
   `molten` line, drawn only while the element has keyboard focus (focused, and the last
   input was a key press, as GPUI's `focus_visible`). `Outside` puts it
@@ -2897,7 +2897,7 @@ reference file except the values recorded here.
   ghost buttons and other borderless controls draw a 1px `molten` line on their edge;
   link and text buttons draw it 0.125rem (1.75px) outside. That's solid `molten`, 0.5px
   thinner than the spec with less or no gap, and nothing clips it, so it's the closer of
-  the two. Coffer's buttons (`crates/app/src/ui/button.rs`, see "Stock components") close the stock
+  the two. Orre's buttons (`crates/app/src/ui/button.rs`, see "Stock components") close the stock
   button's gaps: they set the stock `.focus_ring(false)` and draw the spec ring from a
   tracked handle, on a wrapper with the button's radius, so it shows on keyboard focus only;
   headless tests check that, and that a click leaves no ring. Remaining gaps: stock buttons
@@ -2910,40 +2910,40 @@ reference file except the values recorded here.
   control's focus in the D2.5 showcase.
 - **Stock components** (D2.4 audit of `gpui-component` 0.9). Stock styling must not leak:
   every component is either themed through the map above, wrapped with per-instance
-  styling, or built in Coffer from `div` and the tokens. "On the showcase's stock
+  styling, or built in Orre from `div` and the tokens. "On the showcase's stock
   board, unwrapped" means the colours map and the control is shown as-is beside its spec;
   wrap it to the spec before product UI uses it.
 
   | Component | Treatment | Why |
   |---|---|---|
-  | Button: neutral primary, outline, outline compact, destructive outline, destructive solid, icon (28px; 36px dock) | Stock, wrapped: **built**, `coffer_app::ui::button` (`Button`, `IconButton`) | The stock button keeps pointer and Enter/Space activation, Tab order, disabled handling and the accessible name (the label; an icon button takes one). Height, padding, radius, border, fill and label colour are set per instance from the tokens. The label is a child with its type role, because the stock label's size follows the stock `Size` (12.25px at the rem base). Hover and pressed go through `ButtonVariant::Custom` with token colours, because the stock variants also set the border on hover and pressed (the outline's `border-strong` would turn `hairline`, the destructive outline's `danger` a 40% tint). Disabled is the resting look faded to `opacity-disabled` as one group: element opacity where nothing sits under the label, opaque composites over `Button::with_surface` where a fill does (see "Rendering findings (D2.6)" → "Closed"). Focus: see "Focus ring". The active icon button is built (`IconButton::active`, M3.1: `control-active` fill and a `text` icon at rest, hovered and pressed; the title bar's Settings button, Paper `BAJ-0`); the dock's white active icon isn't. Not built: tooltips (Coffer's tooltip is custom and not built yet), and hover/pressed transitions (`motion-fast`; the stock button changes instantly). Read, not specified, and accepted in the D2.5 visual review: icon colour `text-muted` (the token for default icons) and icon size `icon-md` (14px, from the table's 12–16px) |
+  | Button: neutral primary, outline, outline compact, destructive outline, destructive solid, icon (28px; 36px dock) | Stock, wrapped: **built**, `orre_app::ui::button` (`Button`, `IconButton`) | The stock button keeps pointer and Enter/Space activation, Tab order, disabled handling and the accessible name (the label; an icon button takes one). Height, padding, radius, border, fill and label colour are set per instance from the tokens. The label is a child with its type role, because the stock label's size follows the stock `Size` (12.25px at the rem base). Hover and pressed go through `ButtonVariant::Custom` with token colours, because the stock variants also set the border on hover and pressed (the outline's `border-strong` would turn `hairline`, the destructive outline's `danger` a 40% tint). Disabled is the resting look faded to `opacity-disabled` as one group: element opacity where nothing sits under the label, opaque composites over `Button::with_surface` where a fill does (see "Rendering findings (D2.6)" → "Closed"). Focus: see "Focus ring". The active icon button is built (`IconButton::active`, M3.1: `control-active` fill and a `text` icon at rest, hovered and pressed; the title bar's Settings button, Paper `BAJ-0`); the dock's white active icon isn't. Not built: tooltips (Orre's tooltip is custom and not built yet), and hover/pressed transitions (`motion-fast`; the stock button changes instantly). Read, not specified, and accepted in the D2.5 visual review: icon colour `text-muted` (the token for default icons) and icon size `icon-md` (14px, from the table's 12–16px) |
   | Agent outline | Stock, wrapped: **built**, `ButtonVariant::AgentOutline` | As above: `moldavite-border-strong` border, `moldavite-text` label, hover `moldavite-surface-raised`, pressed `moldavite-well`. It confirms the `Custom` path: its resting fill (20% of its colour) is replaced per instance, and the hover and pressed fills still apply over that |
   | Agent primary, agent ghost | Stock, wrapped; not built | Same `Custom` path; the solid agent primary sets `.bg(moldavite)` per instance. Needs Paper first: the table gives no horizontal padding for either. Agent primary's optional trailing kbd needs the Kbd wrapper; agent ghost needs a leading icon (sparkle) |
   | Input, field, select, command bar | Stock, wrapped | In dark mode the stock fill is the *border* colour (`input`) at 30% alpha, so no theme value gives `field` fill with a `hairline` border; the wrapper sets `.bg(field)`. Height is 28px from the rem base |
-  | Data table | Not used for Transactions (D5): a GPUI `list` with Coffer's rows, which interleaves day headers of their own height | Colours map (no stripes, no row dividers, `hover`/`molten-soft` rows, `canvas` sticky header) and row height takes `Size::Size(size::CONTROL)`. These colours apply if a stock data table is used elsewhere. The in-place category select is the category menu (M3.3, "Built in M3.3") |
-  | Dialog | **Custom: built**, `coffer_app::ui::dialog` (M3.2), on the unstyled `gpui-base` dialog host | The host keeps the focus trap and Escape; Coffer draws the spec surface (`float`, 1px `border`, `radius-lg`, Dock shadow `shadow::DOCK`, 16px padding and gaps, footer right-aligned) and the provisional backdrop. The stock `gpui-component` dialog sets its own shadow after the caller's style, so it can't carry the Dock shadow. Its owner keeps whether it's open. Cancel is the 30px `ButtonVariant::Secondary` (Paper `8JN-0`) |
-  | Select and its menu | **Custom: built**, `coffer_app::ui::menu` (M3.2), on the unstyled `gpui-base` select root | The root keeps the combobox role, opening with Enter, Space and the arrows, Escape, and moving focus between trigger and menu; Coffer draws the closed field (`ui::field::SelectField`) and the Kind menu (`FHZ-0`): `float`, 1px `border`, `radius-lg`, Toolbar shadow, 4px padding, caps group labels (`typography::MENU_LABEL`), 28px options with a 16px icon slot and the `Glyph::Chosen` tick. Drawn `deferred` below the field so a scrolling inspector or a dialog doesn't clip it, at `gpui-base`'s `POPUP_PRIORITY` (100): GPUI paints every deferred layer in one pass by priority, nested or not, and the dialog host draws at `10 + layer`, so a menu at a lower priority opened inside a dialog was painted under it (fixed 2026-11-17; snapshot `import-map-menu`). Options are list-box options for assistive technology. M3.3 adds a category marker in the icon slot, the filter field, and `MenuList` for menus opened from a chip, a table row or the bulk-action bar, which handles ↑↓, Enter and Escape itself |
-  | Popover, menu (other than a select's), sheet, notification | Stock; on the showcase's stock board, unwrapped | Fill and text map (`float`, `text`). Popovers use a hard-coded shadcn ring and shadow at `radius`; Coffer's floating spec is a 1px `border`, `radius-lg` and the toolbar shadow, set per instance |
-  | Title bar | Stock; on the showcase's stock board, unwrapped | Keeps platform window controls and dragging. Height is a constant 34px; Coffer's is 40px |
-  | List row | Stock, wrapped: **built**, `coffer_app::ui::list_row` (`ListRow`) | Wraps the stock `ListItem` (pointer, accessible row). 28px, radius 6, 8px inline padding, 16px icon slot, `text-secondary` label lifting to `text` on hover, `molten-soft` fill with white label when selected, trailing mono count. The owning list holds focus and passes `focus_visible`; the row draws the `Inset` ring on a wrapper, because `ListItem` lays children out in an inner box and scrolling lists clip an outside ring. Nesting is a 20px left indent on the wrapper. No pressed look (rows select on click) |
-  | Transaction row, table header, day header | **Custom: built**, `coffer_app::ui::transaction_row` | Columns from `column-category`/`column-account`/`column-amount`; amounts in `mono-amount`, sign never carried by colour. Category cell: assigned (marker), uncategorised (dashed marker), suggested (sparkle, `moldavite-text`), transfer (row dimmed, transfer glyph). Selection and focus as the list row. D5 kept these rows, in a virtualised GPUI `list` (`crates/app/src/transactions.rs`) |
+  | Data table | Not used for Transactions (D5): a GPUI `list` with Orre's rows, which interleaves day headers of their own height | Colours map (no stripes, no row dividers, `hover`/`molten-soft` rows, `canvas` sticky header) and row height takes `Size::Size(size::CONTROL)`. These colours apply if a stock data table is used elsewhere. The in-place category select is the category menu (M3.3, "Built in M3.3") |
+  | Dialog | **Custom: built**, `orre_app::ui::dialog` (M3.2), on the unstyled `gpui-base` dialog host | The host keeps the focus trap and Escape; Orre draws the spec surface (`float`, 1px `border`, `radius-lg`, Dock shadow `shadow::DOCK`, 16px padding and gaps, footer right-aligned) and the provisional backdrop. The stock `gpui-component` dialog sets its own shadow after the caller's style, so it can't carry the Dock shadow. Its owner keeps whether it's open. Cancel is the 30px `ButtonVariant::Secondary` (Paper `8JN-0`) |
+  | Select and its menu | **Custom: built**, `orre_app::ui::menu` (M3.2), on the unstyled `gpui-base` select root | The root keeps the combobox role, opening with Enter, Space and the arrows, Escape, and moving focus between trigger and menu; Orre draws the closed field (`ui::field::SelectField`) and the Kind menu (`FHZ-0`): `float`, 1px `border`, `radius-lg`, Toolbar shadow, 4px padding, caps group labels (`typography::MENU_LABEL`), 28px options with a 16px icon slot and the `Glyph::Chosen` tick. Drawn `deferred` below the field so a scrolling inspector or a dialog doesn't clip it, at `gpui-base`'s `POPUP_PRIORITY` (100): GPUI paints every deferred layer in one pass by priority, nested or not, and the dialog host draws at `10 + layer`, so a menu at a lower priority opened inside a dialog was painted under it (fixed 2026-11-17; snapshot `import-map-menu`). Options are list-box options for assistive technology. M3.3 adds a category marker in the icon slot, the filter field, and `MenuList` for menus opened from a chip, a table row or the bulk-action bar, which handles ↑↓, Enter and Escape itself |
+  | Popover, menu (other than a select's), sheet, notification | Stock; on the showcase's stock board, unwrapped | Fill and text map (`float`, `text`). Popovers use a hard-coded shadcn ring and shadow at `radius`; Orre's floating spec is a 1px `border`, `radius-lg` and the toolbar shadow, set per instance |
+  | Title bar | Stock; on the showcase's stock board, unwrapped | Keeps platform window controls and dragging. Height is a constant 34px; Orre's is 40px |
+  | List row | Stock, wrapped: **built**, `orre_app::ui::list_row` (`ListRow`) | Wraps the stock `ListItem` (pointer, accessible row). 28px, radius 6, 8px inline padding, 16px icon slot, `text-secondary` label lifting to `text` on hover, `molten-soft` fill with white label when selected, trailing mono count. The owning list holds focus and passes `focus_visible`; the row draws the `Inset` ring on a wrapper, because `ListItem` lays children out in an inner box and scrolling lists clip an outside ring. Nesting is a 20px left indent on the wrapper. No pressed look (rows select on click) |
+  | Transaction row, table header, day header | **Custom: built**, `orre_app::ui::transaction_row` | Columns from `column-category`/`column-account`/`column-amount`; amounts in `mono-amount`, sign never carried by colour. Category cell: assigned (marker), uncategorised (dashed marker), suggested (sparkle, `moldavite-text`), transfer (row dimmed, transfer glyph). Selection and focus as the list row. D5 kept these rows, in a virtualised GPUI `list` (`crates/app/src/transactions.rs`) |
   | Status bar, tree row | Stock; not yet compared | Colours map (`float` status bar with `hairline`; `hover` and `molten-soft` rows) |
   | Scrollbar | Stock | Colours provisional (above) |
   | Kbd | Stock, wrapped | Fill and font differ (`hover`, Geist Mono 11/14, 18px); set per instance |
-  | Toggle | **Custom** | Stock `Switch` (small) has the right geometry (28×16, 12px knob, 2px inset, pill), but one knob colour for both states; Coffer's knob is `text-muted` off and `chrome` on |
-  | Segmented control | **Custom** | Stock segmented tabs are 24 or 32px (segments 18/24); Coffer needs 30px panel / 28px inspector with 2px inset, and an inset highlight on the active segment |
-  | View tabs (title bar) | **Custom: built**, `coffer_app::ui::title_bar` (`ViewTab`), on the unstyled `gpui-base` `Tab` in a `Tabs` list (M3.1) | Stock tab heights are 20/24/32/36px; Coffer's tab is 28px with a `hover` active fill and hairline separators. The base tab gives the tab role, the selected state and the position in the list, and stops the press from reaching the title bar's drag. Tabs aren't Tab stops (the base primitive has no roving focus yet); the views have ⌘1–⌘8 |
+  | Toggle | **Custom** | Stock `Switch` (small) has the right geometry (28×16, 12px knob, 2px inset, pill), but one knob colour for both states; Orre's knob is `text-muted` off and `chrome` on |
+  | Segmented control | **Custom** | Stock segmented tabs are 24 or 32px (segments 18/24); Orre needs 30px panel / 28px inspector with 2px inset, and an inset highlight on the active segment |
+  | View tabs (title bar) | **Custom: built**, `orre_app::ui::title_bar` (`ViewTab`), on the unstyled `gpui-base` `Tab` in a `Tabs` list (M3.1) | Stock tab heights are 20/24/32/36px; Orre's tab is 28px with a `hover` active fill and hairline separators. The base tab gives the tab role, the selected state and the position in the list, and stops the press from reaching the title bar's drag. Tabs aren't Tab stops (the base primitive has no roving focus yet); the views have ⌘1–⌘8 |
   | Underline tabs | Stock; on the showcase's stock board, unwrapped | Stock underline tab heights are 26/30/36/44px; the spec gives no height |
-  | Badge | **Custom: built**, `coffer_app::ui::badge` | Stock `Badge` is a dot or count overlaid on another element; Coffer's badge is an inline 16px count pill |
-  | Tooltip | **Custom** | Stock tooltip uses the popover fill (`float`) and `text_sm`; Coffer's is `hover` fill, `tooltip-border`, tooltip shadow, title + kbd + body. Rendered through GPUI's `.tooltip(...)` |
-  | Progress bar | **Custom** | Stock heights are 4/6/8/10px; Coffer's is 3px, radius 2 |
-  | Agent card | **Custom: built**, `coffer_app::ui::agent_card` | Change rows are 26px tab stops with a `moldavite-well` glyph well and the detail in `moldavite-text-muted`; on hover or keyboard focus the row fills `moldavite-surface-raised` and swaps its age for approve/reject icon buttons, so both are reachable by keyboard. "Approve all" is a full-width agent outline (`Button::with_full_width`) |
-  | Chip | **Custom: built**, `coffer_app::ui::button::Chip` | Pill with optional mono count |
-  | Card, status dot, empty state, bulk-action bar, section label row, inspector field row | **Custom** | No stock component with the same structure; built from `div` and the tokens. Built: bulk-action bar, section label row, inspector field row, and the empty state (`coffer_app::ui::empty_state`, M3.1, matched against `13L-0` at 2x; its dashes are GPUI's, see "1px hairlines"). Not built yet: card, status dot |
+  | Badge | **Custom: built**, `orre_app::ui::badge` | Stock `Badge` is a dot or count overlaid on another element; Orre's badge is an inline 16px count pill |
+  | Tooltip | **Custom** | Stock tooltip uses the popover fill (`float`) and `text_sm`; Orre's is `hover` fill, `tooltip-border`, tooltip shadow, title + kbd + body. Rendered through GPUI's `.tooltip(...)` |
+  | Progress bar | **Custom** | Stock heights are 4/6/8/10px; Orre's is 3px, radius 2 |
+  | Agent card | **Custom: built**, `orre_app::ui::agent_card` | Change rows are 26px tab stops with a `moldavite-well` glyph well and the detail in `moldavite-text-muted`; on hover or keyboard focus the row fills `moldavite-surface-raised` and swaps its age for approve/reject icon buttons, so both are reachable by keyboard. "Approve all" is a full-width agent outline (`Button::with_full_width`) |
+  | Chip | **Custom: built**, `orre_app::ui::button::Chip` | Pill with optional mono count |
+  | Card, status dot, empty state, bulk-action bar, section label row, inspector field row | **Custom** | No stock component with the same structure; built from `div` and the tokens. Built: bulk-action bar, section label row, inspector field row, and the empty state (`orre_app::ui::empty_state`, M3.1, matched against `13L-0` at 2x; its dashes are GPUI's, see "1px hairlines"). Not built yet: card, status dot |
   | Charts | **Custom** (decided in D4.1), on the `gpui_component::plot` primitives | Stock `BarChart` plots one value per band, so grouped spending/income bars would need two charts stacked; `LineChart` hard-codes a 2px stroke (spec 1.5px) and has no halo option; neither has a selected-band state for the molten selection overlay. Reuse the plot scales and tooltip; draw bars, the haloed line and the selection with the tokens |
-- **Showcase** (`coffer --showcase`, `crates/app/src/showcase.rs`): three boards. *Design tokens*
+- **Showcase** (`orre --showcase`, `crates/app/src/showcase.rs`): three boards. *Design tokens*
   (every colour token once, checked by a test against `design/tokens.json`; the type
-  scale), *Components* (each Coffer component as a static state matrix next to a live,
+  scale), *Components* (each Orre component as a static state matrix next to a live,
   interactive row; the matrix forces states with `ui::PreviewState`, which is for the
   showcase only), and *Stock components* (input, select, popover, menu, dialog, title bar,
   underline tabs and a stock-focus row, unwrapped, each captioned with its spec). The

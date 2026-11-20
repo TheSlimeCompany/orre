@@ -49,7 +49,7 @@ use crate::ui::text::TextRoleExt as _;
 use crate::ui::tracked::Tracked;
 
 /// The key context of a [`MenuList`] that handles its own keys.
-const MENU_CONTEXT: &str = "CofferMenu";
+const MENU_CONTEXT: &str = "OrreMenu";
 
 /// A [`MenuList`]'s movement keys: ↑↓ only.
 const KEYS: Keys = Keys::new(MENU_CONTEXT);
@@ -614,7 +614,7 @@ impl RenderOnce for MenuList {
 /// (priority `10 + layer`) must outrank it or it's painted underneath.
 const MENU_PRIORITY: usize = gpui_kit::base::POPUP_PRIORITY;
 
-// The dialog host's priority is `10 + layer`, and Coffer's dialogs keep
+// The dialog host's priority is `10 + layer`, and Orre's dialogs keep
 // layer 0: a menu inside one has to be drawn after it.
 const _: () = assert!(MENU_PRIORITY > 10);
 

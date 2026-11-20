@@ -9,23 +9,23 @@
 mod common;
 
 use chrono::NaiveDate;
-use coffer_core::account::AccountKind;
-use coffer_core::category::CategoryKey;
-use coffer_core::exclusion::{self, ExclusionReason};
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::import;
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::merchant::{self, AliasDefinition, AliasKind, DisplayName};
-use coffer_core::money::{Currency, Money};
-use coffer_core::note;
-use coffer_core::rule::{
+use common::{Scratch, mappings};
+use orre_core::account::AccountKind;
+use orre_core::category::CategoryKey;
+use orre_core::exclusion::{self, ExclusionReason};
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::import;
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::merchant::{self, AliasDefinition, AliasKind, DisplayName};
+use orre_core::money::{Currency, Money};
+use orre_core::note;
+use orre_core::rule::{
     self, AmountBounds, MatchField, MatchKind, Pattern, RuleAction, RuleDefinition,
 };
-use coffer_core::split::{self, SplitLine};
-use coffer_core::statement::Statement;
-use coffer_core::tag::{self, TagName};
-use coffer_import::{AnyImporter, SourceFile};
-use common::{Scratch, mappings};
+use orre_core::split::{self, SplitLine};
+use orre_core::statement::Statement;
+use orre_core::tag::{self, TagName};
+use orre_import::{AnyImporter, SourceFile};
 
 const CSV: &str = "\
 Transaction ID,Date,Time,Type,Name,Category,Amount,Currency,Local amount,Local currency,Notes,Description

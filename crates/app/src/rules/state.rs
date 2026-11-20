@@ -8,11 +8,11 @@
 //! finds the same row selected. Leaving Rules is the exception for what is
 //! only a draft: [`RulesPane::leave`].
 
-use coffer_core::change::{ChangeKind, HistoryItem};
-use coffer_core::id::{ChangeBatchId, MerchantAliasId, RuleId};
-use coffer_core::inbox::Suggestion;
-use coffer_core::merchant::AliasKind;
-use coffer_core::rule::{ActionKind, Draft, RuleOrigin};
+use orre_core::change::{ChangeKind, HistoryItem};
+use orre_core::id::{ChangeBatchId, MerchantAliasId, RuleId};
+use orre_core::inbox::Suggestion;
+use orre_core::merchant::AliasKind;
+use orre_core::rule::{ActionKind, Draft, RuleOrigin};
 
 use super::form::{CategoryForm, NameForm, RuleForm};
 use super::store::RulesData;

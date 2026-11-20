@@ -21,7 +21,7 @@ use super::table::count;
 use super::{Section, SettingsView};
 
 /// The panel's key context.
-pub const CONTEXT: &str = "CofferSettingsPanel";
+pub const CONTEXT: &str = "OrreSettingsPanel";
 
 /// The panel's movement keys: ↑↓ between the screens.
 pub const KEYS: Keys = Keys::new(CONTEXT);

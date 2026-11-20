@@ -4,7 +4,7 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
+use orre_core::access_log::Outcome;
 use serde_json::{Value, json};
 use support::reports::*;
 use support::*;
@@ -185,7 +185,7 @@ async fn returns_the_accounts_with_their_balances() {
 #[tokio::test]
 async fn an_empty_account_has_no_balance() {
     let fixture = Fixture::new();
-    add_account(&fixture, "Euro Cash", coffer_core::money::Currency::EUR);
+    add_account(&fixture, "Euro Cash", orre_core::money::Currency::EUR);
     let client = fixture.connect("claude-code", AccessLevel::Standard).await;
     let result = client.call_ok(TOOL, json!({})).await;
     let euro = by_name(result["accounts"].as_array().unwrap(), "Euro Cash");

@@ -7,12 +7,12 @@
 //! `DB5-0`), Cancel / "Remove client" (destructive solid: the confirming
 //! button of a destructive dialog).
 
-use coffer_core::mcp_client::ClientName;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, Entity, EventEmitter, FocusHandle, IntoElement, Render, SharedString, Styled as _,
     Window,
 };
+use orre_core::mcp_client::ClientName;
 
 use crate::accounts::DialogClosed;
 use crate::theme::tokens::{color, typography};

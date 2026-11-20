@@ -2,20 +2,20 @@
 //! database: the accounts on the D6.1 artboards (Transactions `18E-0`,
 //! Accounts panel · states `8D8-0`), and D6.9's accounts you keep yourself
 //! ([`valued`]: Accounts · asset `BSI-0`, states `EPF-0`). Names, banks, files and amounts are
-//! made up. The real app never shows them: `coffer` reads the database.
+//! made up. The real app never shows them: `orre` reads the database.
 
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use coffer_core::account::{Account, AccountKind, StoredBalance, Usage};
-use coffer_core::id::{AccountId, BalanceId, BatchId};
-use coffer_core::import::{BatchInfo, BatchStatus};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reconciliation::{BalanceSource, Status};
-use coffer_core::reporting::Totals;
-use coffer_core::reporting::account_tree::{AccountNode, AccountTree};
-use coffer_core::reporting::balance::{AccountBalance, Anchor};
-use coffer_core::statement::SourceFormat;
+use orre_core::account::{Account, AccountKind, StoredBalance, Usage};
+use orre_core::id::{AccountId, BalanceId, BatchId};
+use orre_core::import::{BatchInfo, BatchStatus};
+use orre_core::money::{Currency, Money};
+use orre_core::reconciliation::{BalanceSource, Status};
+use orre_core::reporting::Totals;
+use orre_core::reporting::account_tree::{AccountNode, AccountTree};
+use orre_core::reporting::balance::{AccountBalance, Anchor};
+use orre_core::statement::SourceFormat;
 
 use super::data::{AccountDetail, AccountsData, PresetChoice};
 
@@ -132,9 +132,9 @@ pub fn accounts() -> AccountsData {
                     ..Usage::default()
                 },
                 // They hold transactions: close only.
-                deletion: coffer_core::account::Deletion {
+                deletion: orre_core::account::Deletion {
                     values: 0,
-                    refused: Some(coffer_core::account::DeleteLock::Transactions),
+                    refused: Some(orre_core::account::DeleteLock::Transactions),
                 },
                 ..AccountDetail::default()
             },
@@ -268,9 +268,9 @@ pub fn valued() -> AccountsData {
                 note: None,
             }],
             cash_expected: Some(gbp(2_300)),
-            deletion: coffer_core::account::Deletion {
+            deletion: orre_core::account::Deletion {
                 values: 0,
-                refused: Some(coffer_core::account::DeleteLock::Transactions),
+                refused: Some(orre_core::account::DeleteLock::Transactions),
             },
             ..AccountDetail::default()
         },
@@ -294,7 +294,7 @@ pub fn valued() -> AccountsData {
                     ..Usage::default()
                 },
                 close_from: values.first().and_then(|value| value.date.succ_opt()),
-                deletion: coffer_core::account::Deletion {
+                deletion: orre_core::account::Deletion {
                     values: values.len(),
                     refused: None,
                 },

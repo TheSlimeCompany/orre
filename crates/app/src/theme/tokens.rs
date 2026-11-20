@@ -6,7 +6,7 @@
 //! Two kinds of values live here:
 //!
 //! - **Exported tokens**: the tokens in `design/tokens.json` /
-//!   `design/tokens.css`, exported from the Coffer Paper file. Each constant's
+//!   `design/tokens.css`, exported from the Orre Paper file. Each constant's
 //!   docs start with its CSS custom property (`--color-text-muted` →
 //!   [`color::TEXT_MUTED`], `--spacing-2` → [`spacing::S2`]). A test checks every
 //!   exported token against its constant, so a re-export that adds, removes or
@@ -935,8 +935,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn export_comes_from_the_coffer_file() {
+    fn export_comes_from_the_apps_paper_file() {
         let source = &export()["source"];
+        // The Paper file keeps the app's old name until it's renamed and the
+        // tokens re-exported (`data-model.md` → "the rename to Orre").
         assert_eq!(source["fileName"], "Coffer");
         assert_eq!(source["fileId"], "01M6YH440YAX6H5H322ZX4JYC9");
     }

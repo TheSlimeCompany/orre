@@ -9,11 +9,11 @@
 //! [`plain`] before they're drawn, and are never acted on.
 
 use chrono::{NaiveDate, NaiveDateTime};
-use coffer_core::category::{CategoryKey, CategoryKind};
-use coffer_core::change::{ChangeKind, Field, HistoryEntry, Shown, Summary};
-use coffer_core::merchant::AliasKind;
-use coffer_core::money::{Currency, Money};
-use coffer_core::rule::{
+use orre_core::category::{CategoryKey, CategoryKind};
+use orre_core::change::{ChangeKind, Field, HistoryEntry, Shown, Summary};
+use orre_core::merchant::AliasKind;
+use orre_core::money::{Currency, Money};
+use orre_core::rule::{
     ActionKind, AmountBounds, ExcludeReason, MatchField, MatchKind, PatternError, RuleAction,
     RuleDefinition,
 };
@@ -643,8 +643,8 @@ pub fn shown(value: &Shown, data: &RulesData, currency: Currency) -> String {
     }
 }
 
-fn exclusion(reason: coffer_core::exclusion::ExclusionReason) -> &'static str {
-    use coffer_core::exclusion::ExclusionReason;
+fn exclusion(reason: orre_core::exclusion::ExclusionReason) -> &'static str {
+    use orre_core::exclusion::ExclusionReason;
     match reason {
         ExclusionReason::Duplicate => "Duplicate",
         ExclusionReason::BankError => "Bank error",
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn a_pattern_fault_is_said_plainly() {
-        let error = coffer_core::rule::Pattern::new(MatchKind::Regex, "^(ASOS|ZARA").unwrap_err();
+        let error = orre_core::rule::Pattern::new(MatchKind::Regex, "^(ASOS|ZARA").unwrap_err();
         assert_eq!(
             pattern_error(&error),
             "A bracket is opened but never closed."

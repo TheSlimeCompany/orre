@@ -17,14 +17,14 @@
 //! Several transactions: a count, the total, what they share, one Category
 //! select that sets all of them, and the list.
 
-use coffer_core::id::TransactionId;
-use coffer_core::reporting::register::{RegisterRow, RowCategory};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::id::TransactionId;
+use orre_core::reporting::register::{RegisterRow, RowCategory};
 
 use crate::format::{self, Sign};
 use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};

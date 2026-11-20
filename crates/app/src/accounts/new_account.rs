@@ -20,14 +20,14 @@
 //! added.
 
 use chrono::NaiveDate;
-use coffer_core::account::{AccountKind, EnteredBalance, EnteredSource, NewAccount};
-use coffer_core::money::Currency;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable as _, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
 };
+use orre_core::account::{AccountKind, EnteredBalance, EnteredSource, NewAccount};
+use orre_core::money::Currency;
 
 use crate::format::{currency_prefix, field_date, parse_amount, parse_date};
 use crate::theme::tokens::{size, spacing};
@@ -51,7 +51,7 @@ const ADD: &str = "Add account";
 const CAPTION: &str = "Owed money on a credit card is a negative balance. Skip the balance if your bank’s export includes one: the first import fills it in. Pots are added from imports, not here.";
 
 /// The caption with Kind set to Asset or Liability (Paper `EPO-0`).
-const VALUED_CAPTION: &str = "Nothing is imported for an asset: add a value whenever you get a new figure, and Coffer holds it until the next. For a liability, enter what you owe; Coffer stores it as a negative balance.";
+const VALUED_CAPTION: &str = "Nothing is imported for an asset: add a value whenever you get a new figure, and Orre holds it until the next. For a liability, enter what you owe; Orre stores it as a negative balance.";
 
 /// `message` as a sentence: a capital first letter and a full stop.
 pub(crate) fn sentence(message: &str) -> SharedString {
@@ -73,17 +73,17 @@ pub(super) fn read_balance(
     date: &str,
     currency: Currency,
     today: NaiveDate,
-) -> Result<Option<(NaiveDate, coffer_core::money::Money)>, SharedString> {
+) -> Result<Option<(NaiveDate, orre_core::money::Money)>, SharedString> {
     if amount.trim().is_empty() {
         return Ok(None);
     }
     let balance = parse_amount(amount, currency).map_err(|error| {
         SharedString::from(format!(
-            "The balance isn't an amount Coffer can read ({error}). Type it as 1,284.10, with a minus if it's below zero."
+            "The balance isn't an amount Orre can read ({error}). Type it as 1,284.10, with a minus if it's below zero."
         ))
     })?;
     let date = parse_date(date, today).ok_or_else(|| {
-        SharedString::from("The date isn't one Coffer can read. Type it as 9 Nov 2026.")
+        SharedString::from("The date isn't one Orre can read. Type it as 9 Nov 2026.")
     })?;
     Ok(Some((date, balance)))
 }

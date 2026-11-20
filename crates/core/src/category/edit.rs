@@ -33,7 +33,7 @@
 //!   subcategories ([`Error::HasSubcategories`]). A pending suggestion
 //!   counts because approving it needs the category; deleting it away would
 //!   leave a suggestion that can only be refused. The user approves or
-//!   rejects it in the Inbox first: Coffer doesn't decide it for them, and a
+//!   rejects it in the Inbox first: Orre doesn't decide it for them, and a
 //!   categorisation's other items may still be wanted. Decided suggestions
 //!   don't count, nor do change batches that recorded the category: undoing
 //!   one leaves a row whose category is gone as it is (`change::undo`).
@@ -271,7 +271,7 @@ pub fn retired_keys(db: &Database) -> Result<Vec<CategoryKey>, Error> {
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     // A stored key passed V22's CHECK; one that doesn't parse (written
-    // outside Coffer) names nothing a new key could be.
+    // outside Orre) names nothing a new key could be.
     Ok(keys
         .iter()
         .filter_map(|key| CategoryKey::new(key).ok())
@@ -489,7 +489,7 @@ fn load_usage(
     })?;
     for row in rows {
         let (key, count) = row?;
-        // A key no category has (deleted outside Coffer) has nothing to
+        // A key no category has (deleted outside Orre) has nothing to
         // count against.
         let Some(category) = CategoryKey::new(&key).ok().and_then(|key| tree.get(&key)) else {
             continue;

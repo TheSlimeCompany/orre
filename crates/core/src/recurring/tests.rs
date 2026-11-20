@@ -637,7 +637,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let account = account::create(
             &mut db,
             &NewAccount::new("Current", AccountKind::Current, Currency::GBP),
@@ -802,7 +802,7 @@ fn a_scheduled_series_is_hidden() {
 }
 
 /// Measures how often noise yields a spurious series, for tuning
-/// `CHANCE_DIVISOR`: `cargo test --release -p coffer-core noise_rate --
+/// `CHANCE_DIVISOR`: `cargo test --release -p orre-core noise_rate --
 /// --ignored --nocapture`. About 1 in 300 at the time of writing.
 #[test]
 #[ignore = "a measurement, not a check"]

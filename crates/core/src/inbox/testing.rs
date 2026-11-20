@@ -33,7 +33,7 @@ pub(crate) struct Fixture {
 impl Fixture {
     pub fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let account = account::create(
             &mut db,
             &NewAccount::new("Current", AccountKind::Current, Currency::GBP),
@@ -109,7 +109,7 @@ impl Fixture {
         split::set(&mut self.db, transaction, &lines).unwrap()
     }
 
-    /// Pairs `a` and `b` as a transfer: `confirmed`, or one Coffer only
+    /// Pairs `a` and `b` as a transfer: `confirmed`, or one Orre only
     /// suggested.
     pub fn transfer(&self, a: TransactionId, b: TransactionId, confirmed: bool) {
         if confirmed {
@@ -131,7 +131,7 @@ impl Fixture {
     }
 
     /// Links `inflow` to `purchase` as a refund of `minor`: `confirmed`, or
-    /// one Coffer only suggested.
+    /// one Orre only suggested.
     pub fn refund(
         &self,
         inflow: TransactionId,

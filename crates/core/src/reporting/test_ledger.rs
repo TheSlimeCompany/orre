@@ -44,7 +44,7 @@ pub(crate) struct TestLedger {
 impl TestLedger {
     pub fn new() -> TestLedger {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         TestLedger {
             _dir: dir,
             db,
@@ -270,7 +270,7 @@ impl TestLedger {
         transfer::record_confirmed_pair(self.db.conn(), a, b).unwrap();
     }
 
-    /// Pairs `a` and `b` as a transfer Coffer only suggested, as detection
+    /// Pairs `a` and `b` as a transfer Orre only suggested, as detection
     /// writes it.
     pub fn suggested_transfer(&mut self, a: TransactionId, b: TransactionId) {
         let conn = self.db.conn();
@@ -286,7 +286,7 @@ impl TestLedger {
         .unwrap();
     }
 
-    /// A refund of `minor` from `inflow` to `purchase` that Coffer only
+    /// A refund of `minor` from `inflow` to `purchase` that Orre only
     /// suggested, as its link suggestions write it.
     pub fn suggested_refund(&mut self, inflow: TransactionId, purchase: TransactionId, minor: i64) {
         self.db

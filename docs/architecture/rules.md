@@ -1,4 +1,4 @@
-# Coffer — Architecture: Rules
+# Orre — Architecture: Rules
 
 Rules and their actions, the rules engine at import, transfer detection, the CLI, and the Rules view.
 
@@ -8,7 +8,7 @@ that list.
 
 ## Rules
 
-`coffer_core::rule` (M1.15, M1.24). A rule is a `rule` row and its `rule_action` rows,
+`orre_core::rule` (M1.15, M1.24). A rule is a `rule` row and its `rule_action` rows,
 made in the Rules view, from the Transactions prompt or by approving an Inbox suggestion
 (`rule.origin`: `new`, `edit`, `inbox`). Rules run on import. Past transactions change
 only through Apply, never because a rule was edited ("rules", point 4).
@@ -92,7 +92,7 @@ refuses a stale preview (`ApplyError::Stale`), an included row with nothing user
 batch naming the rule (`Recorder::for_rule`, `change_batch.rule_id`); tags it created
 stay after an undo. A rule not stored yet goes through `rule::preview_draft` and
 `save_draft`. Approving an agent's rule in the Inbox applies it to history with nothing
-included (`inbox.md`, "Inbox", point 2); `coffer inbox approve` only with
+included (`inbox.md`, "Inbox", point 2); `orre inbox approve` only with
 `--apply-to-history`.
 
 ### Transfer detection
@@ -106,15 +106,15 @@ result is deterministic ("rules engine, transfer detection and the CLI", points 
 Each pair is a `suggested` `transfer_group`; detection never changes a category. A
 suggested pair counts by its own categories until confirmed; a confirmed pair is out of
 income and spending; a category of kind `transfer` is for one row whose other side
-Coffer doesn't hold (`transactions.md`, "two kinds of transfer, and marking a suggested
+Orre doesn't hold (`transactions.md`, "two kinds of transfer, and marking a suggested
 pair"). Confirming, rejecting, unpairing and marking by hand: `transactions.md`,
 "transfer-pair confirmation (built)" and "Mark as transfer and Create rule from the
 bulk-action bar".
 
 ### The CLI
 
-`coffer_app::cli`, in the lib so tests can run it, with `anyhow`; no command edits
-rules. `coffer import` uses only a confident, unique detection (OFX by its format, a
+`orre_app::cli`, in the lib so tests can run it, with `anyhow`; no command edits
+rules. `orre import` uses only a confident, unique detection (OFX by its format, a
 preset by its own header row, `Detection::Source`), else lists presets for `--preset`.
 `--statement N` picks an OFX statement; `--account` takes an ID or exact name, else the
 only open account in the file's currency that holds transactions, pots left out.
@@ -184,7 +184,7 @@ the designer's recommendation:
    2026-11-12 amendment. An Apply or Undo meets a lock only with an exclusion into or out
    of a reason that leaves the balance (`duplicate`); `bank_error` and `disputed` go
    through. See "Decision record: a lock guards balances only".
-9. **Rule definitions are validated in core before they're stored** (`coffer_core::rule`).
+9. **Rule definitions are validated in core before they're stored** (`orre_core::rule`).
    A `regex` pattern must compile case-insensitively within a 1 MiB compiled-size limit
    and a nesting depth of 32. Every pattern is at most 1,000 bytes. Errors never repeat
    the pattern. Each action's `value_json` has one strict shape, which refuses unknown or
@@ -199,8 +199,8 @@ the designer's recommendation:
 
 ### Decision record: rules engine, transfer detection and the CLI (2026-11-11)
 
-Decided while building M1.15, M1.16 and M1.18 (`coffer_core::rule`,
-`coffer_core::transfer`, `coffer_app::cli`) and wiring them into `import::commit`. The
+Decided while building M1.15, M1.16 and M1.18 (`orre_core::rule`,
+`orre_core::transfer`, `orre_app::cli`) and wiring them into `import::commit`. The
 transfer window and the order of preset map and rules were decided by the user.
 
 1. **Rules override the preset's category map.** On import, a new row first gets the
@@ -241,7 +241,7 @@ transfer window and the order of preset map and rules were decided by the user.
    stored rule that no longer validates name its ID and the action kind, never its
    text. Deleting a rule clears `rule_id` and keeps the category (rules decision
    record, point 7).
-7. **`coffer import` acts only on a confident, unique detection.** OFX by its format; a
+7. **`orre import` acts only on a confident, unique detection.** OFX by its format; a
    preset only by its own header row (`Detection::Source`). A CSV that merely parses,
    or a tie, is an error that lists the presets for `--preset`. A multi-statement OFX
    file needs `--statement N` (from 1); without it the command lists the statements by
@@ -256,8 +256,8 @@ transfer window and the order of preset map and rules were decided by the user.
    migrations, as the app does. `accounts add` checks the pot rules (a pot needs a
    current or savings parent in its currency; only a pot has a parent) before the
    schema does, for readable messages.
-9. **`anyhow` in `coffer_app::cli`.** The CLI is the binary's layer but lives in the
-   `coffer-app` lib so tests can run commands against a scratch database and read their
+9. **`anyhow` in `orre_app::cli`.** The CLI is the binary's layer but lives in the
+   `orre-app` lib so tests can run commands against a scratch database and read their
    output; it uses `anyhow` like the binary. Library crates (`core`, `import`, `mcp`)
    still use `thiserror` only. The CLI sets up no logging and never prints row text it
    wasn't asked for (a test checks fixture descriptions don't appear).

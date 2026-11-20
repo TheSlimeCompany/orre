@@ -1,6 +1,6 @@
-//! Coffer's own suggestions (ROADMAP M2.14): after repeated identical
+//! Orre's own suggestions (ROADMAP M2.14): after repeated identical
 //! manual recategorisations, a `rule` suggestion from
-//! [`COFFER_SOURCE`].
+//! [`ORRE_SOURCE`].
 //!
 //! # When
 //!
@@ -14,7 +14,7 @@
 //! # Counting
 //!
 //! For each display merchant (`merchant_display`) and category the user
-//! just set, Coffer counts the transactions that hold that category with
+//! just set, Orre counts the transactions that hold that category with
 //! `category_source = 'user'` and that display merchant now. The count is
 //! of the database's state, not of the edits, so setting a row back or
 //! undoing the batch stops it counting. Rows without a display merchant
@@ -35,7 +35,7 @@
 //!
 //! Filing goes through `file_in`: it checks the payload,
 //! and an identical pending suggestion from any source is a duplicate, not
-//! a second suggestion. Coffer also files nothing when an identical
+//! a second suggestion. Orre also files nothing when an identical
 //! suggestion was approved or rejected (the user said no, or a rule already
 //! came of it), or a stored rule has exactly this definition. At the
 //! source's pending cap it files nothing: the user's edit never fails for
@@ -45,7 +45,7 @@ use std::collections::BTreeSet;
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use super::{COFFER_SOURCE, Error, Payload, SuggestionKind, file_in};
+use super::{Error, ORRE_SOURCE, Payload, SuggestionKind, file_in};
 use crate::category::CategoryKey;
 use crate::category::assign::{self, NoOwnCategory};
 use crate::change::{self, CategorySource, CategoryValue, Change, ChangeKind, Recorder, Value};
@@ -59,7 +59,7 @@ use crate::rule::{AmountBounds, MatchField, MatchKind, Pattern, RuleAction, Rule
 mod own_tests;
 
 /// How many transactions of one display merchant must hold one category the
-/// user set before Coffer suggests a rule for them.
+/// user set before Orre suggests a rule for them.
 pub const RULE_SUGGESTION_THRESHOLD: usize = 3;
 
 /// Why [`recategorize`] failed. Messages name IDs and keys, never text.
@@ -219,18 +219,18 @@ fn consider(conn: &Connection, display: &str, category: i64) -> rusqlite::Result
         return Ok(());
     }
     let rationale = format!("You set this category on {count} transactions from this merchant.");
-    match file_in(conn, COFFER_SOURCE, &payload, Some(&rationale)) {
+    match file_in(conn, ORRE_SOURCE, &payload, Some(&rationale)) {
         Ok(filed) => {
             tracing::debug!(
                 suggestion = %filed.id,
                 duplicate = filed.duplicate,
-                "Coffer suggested a rule after repeated recategorisations"
+                "Orre suggested a rule after repeated recategorisations"
             );
             Ok(())
         }
         Err(Error::Database(error)) => Err(error),
         Err(error) => {
-            tracing::debug!(%error, "Coffer's rule suggestion wasn't filed");
+            tracing::debug!(%error, "Orre's rule suggestion wasn't filed");
             Ok(())
         }
     }

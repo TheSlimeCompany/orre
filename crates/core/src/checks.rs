@@ -1,4 +1,4 @@
-//! Coffer's own checks, as the review queues show them (ROADMAP M3.12;
+//! Orre's own checks, as the review queues show them (ROADMAP M3.12;
 //! `docs/DESIGN.md` → "Review queues"; `docs/ARCHITECTURE.md` → "Decision
 //! record: review queues" and "Decision record: review queues (built)").
 //!
@@ -16,7 +16,7 @@
 //!   excludes, the values that move to the kept row, the spending each
 //!   category gains or loses (the pair's ledger lines, and the link parts
 //!   that net against them, tallied as reports count them before and after
-//!   the merge: [`crate::reporting::Tally`]), Coffer's count on the date of
+//!   the merge: [`crate::reporting::Tally`]), Orre's count on the date of
 //!   the next balance check, and every balance check whose result would
 //!   change.
 //!   A duplicate in a locked period is planned as if unlocked (the lock is
@@ -214,7 +214,7 @@ impl CheckChange {
     }
 }
 
-/// Coffer's count on one day, before and after.
+/// Orre's count on one day, before and after.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CountChange {
     pub date: NaiveDate,
@@ -233,7 +233,7 @@ pub struct MergeEffect {
     /// What each category gains (positive) or loses (negative) in
     /// spending, losses first.
     pub spending: Vec<SpendingChange>,
-    /// Coffer's count on the date of the first balance check on or after
+    /// Orre's count on the date of the first balance check on or after
     /// the excluded row, when there is one.
     pub count: Option<CountChange>,
     /// The balance checks whose result would change, by date.
@@ -323,7 +323,7 @@ fn effect_in(conn: &Connection, request: MergeRequest) -> Result<MergeEffect, Er
     })
 }
 
-/// What Coffer counts on a check's day: the stated balance when it passed,
+/// What Orre counts on a check's day: the stated balance when it passed,
 /// else what the transactions give.
 fn counted(check: &AssertionCheck) -> Option<Money> {
     match check.outcome {

@@ -1,7 +1,7 @@
 //! Count badges (`docs/DESIGN.md` → "Components" → **Badge**).
 //!
 //! Custom, not the stock `Badge`: that one is a dot or count overlaid on
-//! another element, while Coffer's badge is an inline pill.
+//! another element, while Orre's badge is an inline pill.
 
 use gpui_kit::{
     App, IntoElement, ParentElement as _, RenderOnce, SharedString, Styled as _, Window, div,

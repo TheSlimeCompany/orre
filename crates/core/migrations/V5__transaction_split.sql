@@ -8,7 +8,7 @@
 -- per split line, or the transaction itself when it isn't split.
 --
 -- What one row can check is checked here; the rest is checked in core
--- (`coffer_core::split`), in the same DB transaction as the edit:
+-- (`orre_core::split`), in the same DB transaction as the edit:
 --
 -- - here: a line is not zero and has its parent's sign, a line's share is
 --   part of the line, line numbers are unique per transaction, a split

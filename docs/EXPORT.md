@@ -1,7 +1,7 @@
 # Exported transactions
 
-What `coffer export` and the app's export dialog (Settings → Export…) write: one row per
-ledger line, as CSV or JSON. Both run the same code (`coffer_core::export`); this page is
+What `orre export` and the app's export dialog (Settings → Export…) write: one row per
+ledger line, as CSV or JSON. Both run the same code (`orre_core::export`); this page is
 its module documentation, copied here so the columns are documented outside the code. If
 the two disagree, the code's documentation is right; update this page to match.
 
@@ -9,9 +9,9 @@ The app's dialog maps its controls onto the same options: the dates, account, ca
 and tag become the filters below; "Excluded transactions" leaves excluded rows out when
 off (the CLI always includes them); "Notes and tags · including private ones" turns on
 both `--include-notes` and `--include-private-tags`. Files are created readable only by
-you (`0600`), and an export is never written over Coffer's database.
+you (`0600`), and an export is never written over Orre's database.
 
-Exporting transactions as CSV or JSON (M1.29, `coffer export`).
+Exporting transactions as CSV or JSON (M1.29, `orre export`).
 
 An export is one row per line of the ledger (the `ledger_line` view): a
 transaction that isn't split is one row, and a split transaction is one
@@ -73,7 +73,7 @@ any of them (OR).
   names joined with `"; "`; a tag name can itself hold `;`, so the JSON
   form is the exact one. The CSV has no version marker: its header row
   is the schema.
-- **JSON**: one object, `{"schema": "coffer.export", "schema_version":
+- **JSON**: one object, `{"schema": "orre.export", "schema_version":
   1, "includes": {"notes": …, "private_tags": …}, "rows": [ … ]}`, each
   row an object with the columns below as keys, in that order. A missing
   value is `null`, a list is an array of strings, a boolean is

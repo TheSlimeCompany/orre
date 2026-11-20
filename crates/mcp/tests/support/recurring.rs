@@ -18,15 +18,15 @@
 //! All merchants, amounts, account details and dates are made up.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, ScheduleId};
-use coffer_core::import;
-use coffer_core::money::{Currency, Money};
-use coffer_core::recurring::Cadence;
-use coffer_core::schedule::{self, NewSchedule, Tolerance};
-use coffer_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, ScheduleId};
+use orre_core::import;
+use orre_core::money::{Currency, Money};
+use orre_core::recurring::Cadence;
+use orre_core::schedule::{self, NewSchedule, Tolerance};
+use orre_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
 
 use super::Fixture;
 

@@ -1365,7 +1365,7 @@ impl NamedRows {
 /// The pending rule suggestions from AI clients that would take over
 /// transactions rule `rule` filed: their rule matches at least one row whose
 /// category `rule` set (the Rules inspector's "Claude suggests a rule for …
-/// above this one", D6.7). Oldest first; Coffer's own suggestions aren't
+/// above this one", D6.7). Oldest first; Orre's own suggestions aren't
 /// included. Reads only.
 pub fn touching_rule(db: &Database, rule: RuleId) -> Result<Vec<Suggestion>, ApproveError> {
     let pending = super::list(
@@ -1377,7 +1377,7 @@ pub fn touching_rule(db: &Database, rule: RuleId) -> Result<Vec<Suggestion>, App
     )?;
     let mut touching = Vec::new();
     for suggestion in pending {
-        if suggestion.source_client == super::COFFER_SOURCE {
+        if suggestion.source_client == super::ORRE_SOURCE {
             continue;
         }
         let Payload::Rule(definition) = &suggestion.payload else {

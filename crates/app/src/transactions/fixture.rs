@@ -9,18 +9,18 @@
 //! table shows suggestions with the Inbox (M3.6). Amounts are integer pence.
 
 use chrono::{NaiveDate, NaiveTime};
-use coffer_core::account::AccountKind;
-use coffer_core::category::{CategoryKey, CategoryKind};
-use coffer_core::exclusion::ExclusionReason;
-use coffer_core::id::{AccountId, BatchId, TagId, TransactionId, TransferGroupId};
-use coffer_core::manual::Origin;
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::register::{
+use gpui_kit::Rgba;
+use orre_core::account::AccountKind;
+use orre_core::category::{CategoryKey, CategoryKind};
+use orre_core::exclusion::ExclusionReason;
+use orre_core::id::{AccountId, BatchId, TagId, TransactionId, TransferGroupId};
+use orre_core::manual::Origin;
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::register::{
     Colour, Register, RegisterAccount, RegisterCategory, RegisterRow, RegisterTag, RowCategory,
     RowPair, RowShare, RowSource, SplitPart,
 };
-use coffer_core::transfer::TransferStatus;
-use gpui_kit::Rgba;
+use orre_core::transfer::TransferStatus;
 
 use crate::theme::tokens::color;
 use crate::ui::marker::Marker;
@@ -884,7 +884,7 @@ fn rows() -> Vec<RegisterRow> {
 /// and an explicit plus where `sign` asks (`docs/DESIGN.md` → "Money").
 pub fn gbp(pence: i64, sign: Sign) -> String {
     crate::format::money(
-        coffer_core::money::Money::new(pence, coffer_core::money::Currency::GBP),
+        orre_core::money::Money::new(pence, orre_core::money::Currency::GBP),
         sign,
     )
 }

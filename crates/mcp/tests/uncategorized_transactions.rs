@@ -3,7 +3,7 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
+use orre_core::access_log::Outcome;
 use serde_json::{Value, json};
 use support::reports::*;
 use support::*;

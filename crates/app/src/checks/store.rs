@@ -4,31 +4,31 @@
 //! which checks the restore lock, so a restore can swap the file.
 //!
 //! Everything it reads and every change is core's: the queues are
-//! [`coffer_core::checks::review`]; merging is
+//! [`orre_core::checks::review`]; merging is
 //! [`duplicate::merge_preview`] then [`duplicate::merge`] (which plans
 //! again and refuses a stale preview or a locked row); dismissing and
 //! reopening are [`duplicate::dismiss`] and [`duplicate::reopen`]; undoing a
 //! merge is [`change::undo`]; locking is [`reconciliation::lock`] and
 //! [`reconciliation::unlock`]. Owed to you (M3.11) is
-//! [`coffer_core::link::owed::queue`]; confirming or rejecting a payment's
+//! [`orre_core::link::owed::queue`]; confirming or rejecting a payment's
 //! claims and renaming a person go through [`edit`], one undoable change
 //! batch each.
 
 use std::path::PathBuf;
 
 use chrono::NaiveDate;
-use coffer_core::backup::gate;
-use coffer_core::change::{self, UndoSummary};
-use coffer_core::checks::{self, Pair, Review};
-use coffer_core::db::Database;
-use coffer_core::duplicate::{self, MergeRequest, Merged};
-use coffer_core::edit;
-use coffer_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, LinkId, TransactionId};
-use coffer_core::link::ShareLabel;
-use coffer_core::link::owed::{self, OwedQueue};
-use coffer_core::reconciliation;
-use coffer_core::reporting::palette::{Palette, category_palette};
-use coffer_core::schedule;
+use orre_core::backup::gate;
+use orre_core::change::{self, UndoSummary};
+use orre_core::checks::{self, Pair, Review};
+use orre_core::db::Database;
+use orre_core::duplicate::{self, MergeRequest, Merged};
+use orre_core::edit;
+use orre_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, LinkId, TransactionId};
+use orre_core::link::ShareLabel;
+use orre_core::link::owed::{self, OwedQueue};
+use orre_core::reconciliation;
+use orre_core::reporting::palette::{Palette, category_palette};
+use orre_core::schedule;
 
 use crate::accounts::store::StoreError;
 

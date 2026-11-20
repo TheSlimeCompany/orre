@@ -11,11 +11,11 @@
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
-use coffer_core::category::CategoryKey;
-use coffer_core::id::{SplitId, TransactionId};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::split::{self, SplitLine};
+use orre_core::category::CategoryKey;
+use orre_core::id::{SplitId, TransactionId};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::split::{self, SplitLine};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OpenFlags};
 

@@ -1,6 +1,6 @@
 //! The Delete account dialog, opened by "Delete account…" in the account
 //! inspector, which shows only on an account core lets go
-//! ([`coffer_core::account::close::deletion`]: no transactions, imports,
+//! ([`orre_core::account::close::deletion`]: no transactions, imports,
 //! pots, rules or schedules, and no lock; `ARCHITECTURE.md` → "Decision
 //! record: accounts you keep yourself", point 4).
 //!
@@ -11,12 +11,12 @@
 //! `danger` under the body. Nothing shows after deleting: there's nothing
 //! to undo.
 
-use coffer_core::account::{AccountKind, Deletion};
-use coffer_core::id::AccountId;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, Entity, EventEmitter, FocusHandle, IntoElement, Render, SharedString, Window,
 };
+use orre_core::account::{AccountKind, Deletion};
+use orre_core::id::AccountId;
 
 use crate::theme::tokens::color;
 use crate::ui::button::{Button, ButtonVariant};

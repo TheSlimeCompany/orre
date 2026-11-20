@@ -1,9 +1,9 @@
 //! The title bar (`docs/DESIGN.md` → "Components" → **Title bar**, Paper
 //! `OU-0`; on the Rules artboard `B8Y-0`, with the Settings button on
-//! Settings · AI clients `B08-0`): Coffer's mark and wordmark, the view
+//! Settings · AI clients `B08-0`): Orre's mark and wordmark, the view
 //! tabs, the command bar, the Settings button and the window controls.
 //!
-//! Custom rather than the stock `TitleBar`, which is a fixed 34px (Coffer's
+//! Custom rather than the stock `TitleBar`, which is a fixed 34px (Orre's
 //! is 40) and draws its own window controls. The window behaviour is the
 //! stock title bar's: the bar is the window's drag area, a press-and-move
 //! starts a window move, a double click maximises, and on Linux a right
@@ -49,7 +49,7 @@ const TAB_LABEL: TextRole = TextRole {
 pub fn window_options() -> WindowOptions {
     WindowOptions {
         titlebar: Some(TitlebarOptions {
-            title: Some("Coffer".into()),
+            title: Some("Orre".into()),
             appears_transparent: true,
             traffic_light_position: None,
         }),
@@ -59,7 +59,7 @@ pub fn window_options() -> WindowOptions {
     }
 }
 
-/// One of Coffer's views, as a tab in the title bar.
+/// One of Orre's views, as a tab in the title bar.
 ///
 /// Built on the unstyled `gpui-base` [`Tab`]: it owns the click, the
 /// accessible tab role with its selected state and position, and stops the
@@ -251,7 +251,7 @@ impl TitleBar {
 
 impl RenderOnce for TitleBar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let drag = window.use_keyed_state("coffer-title-bar-drag", cx, |_, _| DragState {
+        let drag = window.use_keyed_state("orre-title-bar-drag", cx, |_, _| DragState {
             pressed: false,
         });
         let linux = cfg!(target_os = "linux");
@@ -271,7 +271,7 @@ impl RenderOnce for TitleBar {
                     .child(
                         div()
                             .text_color(color::TEXT)
-                            .child(Tracked::new(WORDMARK, "Coffer")),
+                            .child(Tracked::new(WORDMARK, "Orre")),
                     ),
             )
             .child(div().flex_none().w(spacing::S3));

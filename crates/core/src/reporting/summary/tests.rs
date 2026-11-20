@@ -72,7 +72,7 @@ fn household() -> TestLedger {
     let out = ledger.row(current, "2026-11-09", -10_000, None);
     let into = ledger.row(savings, "2026-11-09", 10_000, None);
     ledger.transfer(out, into);
-    // An unconfirmed move to an account Coffer doesn't see.
+    // An unconfirmed move to an account Orre doesn't see.
     ledger.row(current, "2026-11-10", -500, Some("transfer.savings"));
     // Money in without a category.
     ledger.row(current, "2026-11-11", 700, None);

@@ -9,10 +9,10 @@
 //! through it too.
 
 use chrono::NaiveDate;
-use coffer_core::change::Field;
-use coffer_core::checks::{Added, BankIds, PairRow, Why};
-use coffer_core::money::Money;
-use coffer_core::reconciliation::BalanceSource;
+use orre_core::change::Field;
+use orre_core::checks::{Added, BankIds, PairRow, Why};
+use orre_core::money::Money;
+use orre_core::reconciliation::BalanceSource;
 
 use crate::format::{self, Sign};
 pub use crate::inbox::text::{NAME_SHOWN, Part, count, plain, rich, unsigned};
@@ -90,7 +90,7 @@ pub fn differences(why: &Why) -> Vec<&'static str> {
 
 /// The caption after the criteria: "An exact match is skipped at import.
 /// These two differ in their text and only one has the bank's ID, so
-/// Coffer can't be sure and asks you."
+/// Orre can't be sure and asks you."
 pub fn why_caption(why: &Why) -> String {
     let mut reasons = Vec::new();
     if !why.same_text {
@@ -106,12 +106,12 @@ pub fn why_caption(why: &Why) -> String {
         }
     }
     if reasons.is_empty() {
-        return "An exact match is skipped at import. Coffer can’t be sure these two are one \
+        return "An exact match is skipped at import. Orre can’t be sure these two are one \
                 payment, so it asks you."
             .to_owned();
     }
     format!(
-        "An exact match is skipped at import. These two {}, so Coffer can’t be sure and asks you.",
+        "An exact match is skipped at import. These two {}, so Orre can’t be sure and asks you.",
         join(&reasons)
     )
 }
@@ -250,9 +250,9 @@ pub fn not_checked(no_balance: &[String], valued: &[String], pots: usize) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use coffer_core::checks::Added;
-    use coffer_core::duplicate::DuplicateWindow;
-    use coffer_core::money::Currency;
+    use orre_core::checks::Added;
+    use orre_core::duplicate::DuplicateWindow;
+    use orre_core::money::Currency;
 
     fn why(days: u32, same_text: bool, bank_ids: BankIds, manual: bool) -> Why {
         Why {
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(
             why_caption(&why(1, false, BankIds::OneOnly, false)),
             "An exact match is skipped at import. These two differ in their text and only one \
-             has the bank’s ID, so Coffer can’t be sure and asks you."
+             has the bank’s ID, so Orre can’t be sure and asks you."
         );
     }
 
@@ -321,11 +321,11 @@ mod tests {
     fn a_row_says_where_it_came_from() {
         let today = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
         let mut row = PairRow {
-            transaction: coffer_core::id::TransactionId::new(1),
+            transaction: orre_core::id::TransactionId::new(1),
             date: today,
             merchant: Some("Ocado\u{202e}".to_owned()),
             amount: Money::new(-4_250, Currency::GBP),
-            category: coffer_core::checks::RowCategory::Uncategorised,
+            category: orre_core::checks::RowCategory::Uncategorised,
             bank_text: "OCADO".to_owned(),
             bank_id: Some("tx_1".to_owned()),
             added: Added::Imported {

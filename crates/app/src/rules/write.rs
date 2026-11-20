@@ -30,9 +30,9 @@
 //! change's items, what undoing would do) change nothing:
 //! [`Rules::query`] opens the database for them with the same refusal.
 
-use coffer_core::db::Database;
-use coffer_core::id::ChangeBatchId;
 use gpui_kit::{Context, SharedString};
+use orre_core::db::Database;
+use orre_core::id::ChangeBatchId;
 
 use crate::accounts::store::StoreError;
 

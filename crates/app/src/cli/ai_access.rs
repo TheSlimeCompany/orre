@@ -1,4 +1,4 @@
-//! `coffer ai-access`: which AI clients may use Coffer's MCP server and at
+//! `orre ai-access`: which AI clients may use Orre's MCP server and at
 //! which level, the kill switch, and the access log (ROADMAP M2.11–M2.12;
 //! the app's Settings take this over in M3.15).
 //!
@@ -29,11 +29,11 @@ use std::path::Path;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args, Subcommand};
-use coffer_core::access_log::{self, LoggedCall};
-use coffer_core::db::Database;
-use coffer_core::envelope::strip_invisible;
-use coffer_core::mcp_client::{self, AccessLevel, ClientInfo, ClientName};
-use coffer_core::setting;
+use orre_core::access_log::{self, LoggedCall};
+use orre_core::db::Database;
+use orre_core::envelope::strip_invisible;
+use orre_core::mcp_client::{self, AccessLevel, ClientInfo, ClientName};
+use orre_core::setting;
 
 use super::{open_existing, write_table};
 
@@ -43,7 +43,7 @@ pub const PURPOSE_CHARS: usize = 60;
 /// How many characters of a call's redacted arguments the log shows.
 pub const ARGS_CHARS: usize = 120;
 
-/// How many calls `coffer ai-access log` shows unless `--limit` says.
+/// How many calls `orre ai-access log` shows unless `--limit` says.
 pub const DEFAULT_LOG_LIMIT: u32 = 50;
 
 #[derive(Debug, Args)]
@@ -78,14 +78,14 @@ pub enum AiAccessCommand {
 
 #[derive(Debug, Args)]
 pub struct ClientArgs {
-    /// The client's name, as `coffer mcp --client` was given it.
+    /// The client's name, as `orre mcp --client` was given it.
     #[arg(value_name = "NAME")]
     pub name: ClientName,
 }
 
 #[derive(Debug, Args)]
 pub struct LevelArgs {
-    /// The client's name, as `coffer mcp --client` was given it.
+    /// The client's name, as `orre mcp --client` was given it.
     #[arg(value_name = "NAME")]
     pub name: ClientName,
 
@@ -115,7 +115,7 @@ fn level_parser() -> impl TypedValueParser<Value = AccessLevel> {
     })
 }
 
-/// Runs `coffer ai-access` against the database at `database`, which must
+/// Runs `orre ai-access` against the database at `database`, which must
 /// exist.
 pub fn run(database: &Path, args: AiAccessArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let mut db = open_existing(database)?;
@@ -150,7 +150,7 @@ pub fn run(database: &Path, args: AiAccessArgs, out: &mut dyn Write) -> anyhow::
             mcp_client::revoke(&mut db, &args.name)?;
             writeln!(
                 out,
-                "Revoked {}: its next call is refused. `coffer ai-access enable {}` \
+                "Revoked {}: its next call is refused. `orre ai-access enable {}` \
                  enables it again, at aggregate.",
                 args.name, args.name
             )?;
@@ -170,7 +170,7 @@ pub fn run(database: &Path, args: AiAccessArgs, out: &mut dyn Write) -> anyhow::
             writeln!(
                 out,
                 "AI access is off: every client's next call is refused. \
-                 `coffer ai-access on` switches it back on."
+                 `orre ai-access on` switches it back on."
             )?;
             Ok(())
         }
@@ -183,7 +183,7 @@ pub fn run(database: &Path, args: AiAccessArgs, out: &mut dyn Write) -> anyhow::
     }
 }
 
-/// `coffer ai-access list`.
+/// `orre ai-access list`.
 fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     let reader = db.reader()?;
     if setting::mcp_enabled(&reader)? {
@@ -191,7 +191,7 @@ fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     } else {
         writeln!(
             out,
-            "AI access is off: every client is refused. `coffer ai-access on` switches it \
+            "AI access is off: every client is refused. `orre ai-access on` switches it \
              back on."
         )?;
     }
@@ -200,7 +200,7 @@ fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
         writeln!(
             out,
             "No AI clients yet. A client appears here after its first \
-             `coffer mcp --client <name>`; `coffer ai-access enable <name>` enables one."
+             `orre mcp --client <name>`; `orre ai-access enable <name>` enables one."
         )?;
         return Ok(());
     }
@@ -231,24 +231,24 @@ fn client_row(client: &ClientInfo) -> Vec<String> {
     ]
 }
 
-/// `coffer ai-access enable <name>`.
+/// `orre ai-access enable <name>`.
 fn enable(db: &mut Database, name: &ClientName, out: &mut dyn Write) -> anyhow::Result<()> {
     let info = mcp_client::enable(db, name)?;
     writeln!(
         out,
-        "Enabled {name} at {}. `coffer ai-access level {name} <level>` changes its level.",
+        "Enabled {name} at {}. `orre ai-access level {name} <level>` changes its level.",
         info.level
     )?;
     if !setting::mcp_enabled(&db.reader()?)? {
         writeln!(
             out,
-            "AI access is off, so its calls are refused until `coffer ai-access on`."
+            "AI access is off, so its calls are refused until `orre ai-access on`."
         )?;
     }
     Ok(())
 }
 
-/// `coffer ai-access log`.
+/// `orre ai-access log`.
 fn log(db: &Database, args: &LogArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let reader = db.reader()?;
     let calls = access_log::recent_for(

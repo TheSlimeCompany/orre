@@ -8,21 +8,21 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use chrono::{NaiveDate, NaiveDateTime, TimeZone as _, Utc};
-use coffer_core::access_log::activity::{ClientActivity, Written};
-use coffer_core::access_log::{LoggedCall, Outcome};
-use coffer_core::backup::detail::{Contents, Detail, ImportSince, Since};
-use coffer_core::backup::{self, Backup, Reason};
-use coffer_core::db::Database;
-use coffer_core::export::Counts;
-use coffer_core::id::AccountId;
-use coffer_core::mcp_client::{AccessLevel, ClientName};
+use orre_core::access_log::activity::{ClientActivity, Written};
+use orre_core::access_log::{LoggedCall, Outcome};
+use orre_core::backup::detail::{Contents, Detail, ImportSince, Since};
+use orre_core::backup::{self, Backup, Reason};
+use orre_core::db::Database;
+use orre_core::export::Counts;
+use orre_core::id::AccountId;
+use orre_core::mcp_client::{AccessLevel, ClientName};
 
 use super::data::{
     AiData, BackupRow, BackupsData, ClientRow, Clock, ExportChoices, LogRow, RequestRow,
 };
 
 /// The data file's path in the panel's foot (Paper `BRB-0`).
-pub const DATA_FILE: &str = "~/.local/share/coffer/coffer.db";
+pub const DATA_FILE: &str = "~/.local/share/orre/orre.db";
 
 /// Tuesday 10 November 2026, 10:42:07.
 pub fn clock() -> Clock {
@@ -343,7 +343,7 @@ pub fn backups() -> BackupsData {
             BackupRow {
                 backup: Backup {
                     path: PathBuf::from(format!(
-                        "~/.local/share/coffer/backups/{}",
+                        "~/.local/share/orre/backups/{}",
                         backup::file_name(reason, taken_at)
                     )),
                     reason,

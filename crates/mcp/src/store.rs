@@ -16,14 +16,14 @@
 //!   row yet ([`crate::access::for_request`]). It never enables a client or
 //!   changes a level.
 //!
-//! Every query runs on the separate read-only [`Reader`](coffer_core::db::Reader).
+//! Every query runs on the separate read-only [`Reader`](orre_core::db::Reader).
 
 use std::sync::{Mutex, MutexGuard};
 
-use coffer_core::access_log::{self, NewEntry, pending};
-use coffer_core::db::Database;
-use coffer_core::inbox::{self, Filed, NewReport, NewSuggestion};
-use coffer_core::mcp_client::{self, AccessLevel, ClientName};
+use orre_core::access_log::{self, NewEntry, pending};
+use orre_core::db::Database;
+use orre_core::inbox::{self, Filed, NewReport, NewSuggestion};
+use orre_core::mcp_client::{self, AccessLevel, ClientName};
 
 use crate::registry::ToolError;
 

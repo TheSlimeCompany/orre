@@ -2,7 +2,7 @@
 -- → "MCP surface", "Decision record: Inbox impact preview (2026-11-10)").
 --
 -- A suggestion is filed `pending` (V1) with a payload that core has
--- checked for its kind (`coffer_core::inbox::payload`) and stored in
+-- checked for its kind (`orre_core::inbox::payload`) and stored in
 -- canonical form, so two identical proposals have identical
 -- `payload_json`. The user approves or rejects it in the app or the CLI,
 -- never over MCP. This migration records that decision:

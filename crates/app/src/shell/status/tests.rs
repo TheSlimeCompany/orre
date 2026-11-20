@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
-use coffer_core::import::BatchStatus;
-use coffer_core::money::Currency;
+use orre_core::import::BatchStatus;
+use orre_core::money::Currency;
 
 use super::*;
 use crate::accounts::fixture;

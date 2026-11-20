@@ -20,16 +20,16 @@
 //! period), is said in `danger` under the form and nothing is added.
 
 use chrono::NaiveDate;
-use coffer_core::category::CategoryKey;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::manual::ManualTransaction;
-use coffer_core::money::{Currency, Money};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable as _, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
 };
+use orre_core::category::CategoryKey;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::manual::ManualTransaction;
+use orre_core::money::{Currency, Money};
 
 use crate::accounts::DialogClosed;
 use crate::format::{currency_prefix, field_date, parse_amount, parse_date};
@@ -82,11 +82,11 @@ pub fn read_entry(typed: &Typed, today: NaiveDate) -> Result<ManualTransaction, 
         .account
         .ok_or_else(|| SharedString::from("Choose the account it's on."))?;
     let date = parse_date(&typed.date, today).ok_or_else(|| {
-        SharedString::from("The date isn't one Coffer can read. Type it as 9 Nov 2026.")
+        SharedString::from("The date isn't one Orre can read. Type it as 9 Nov 2026.")
     })?;
     let unreadable = || {
         SharedString::from(
-            "The amount isn't one Coffer can read. Type it as 12.80, and choose Out or In.",
+            "The amount isn't one Orre can read. Type it as 12.80, and choose Out or In.",
         )
     };
     let amount = parse_amount(&typed.amount, currency).map_err(|_| unreadable())?;

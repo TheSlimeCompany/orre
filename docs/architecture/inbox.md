@@ -1,4 +1,4 @@
-# Coffer — Architecture: Inbox
+# Orre — Architecture: Inbox
 
 Suggestions waiting for the user: the Inbox and its impact preview.
 
@@ -8,7 +8,7 @@ that list.
 
 ## Inbox
 
-`coffer_core::inbox` files, previews and decides suggestions; `crates/app/src/inbox/` is
+`orre_core::inbox` files, previews and decides suggestions; `crates/app/src/inbox/` is
 the screen. The rule in force is below; the records under "Decision records" are the
 history. What MCP may file is `mcp.md` → "MCP surface" and "Decision record: M2: MCP
 server", block E.
@@ -20,7 +20,7 @@ server", block E.
   (V13) with a typed payload (`inbox::payload`, `Payload`) in canonical form, checked
   against the database when filed and again when approved.
 - **Sources.** An MCP client at `standard` (the `propose_*` tools; the server sets the
-  source to the client's name), or Coffer itself (`COFFER_SOURCE`, stored as `coffer`).
+  source to the client's name), or Orre itself (`ORRE_SOURCE`, stored as `orre`).
   `insert_suggestion` and `insert_report` are the only writes an MCP tool can make
   (`AGENTS.md` → Invariants). An agent's rule may use only `set_category`,
   `split_template`, `set_merchant` and `add_tag` ("M2: MCP server", E.4).
@@ -68,9 +68,9 @@ a pending `transfer_pair` suggestion for the same pair in the same DB transactio
 (`decide_transfer`, `mark_transfer`): approved on confirm, rejected as
 `DECIDED_IN_TRANSACTIONS` on reject ("transfer-pair confirmation (built)", point 8).
 
-**Where.** Only in the app's Inbox and `coffer inbox approve|reject`, never over MCP.
+**Where.** Only in the app's Inbox and `orre inbox approve|reject`, never over MCP.
 The Inbox applies a rule to history (decision record "Inbox", point 2); the CLI does only
-with `--apply-to-history`. `coffer inbox approve` needs an interactive terminal, and
+with `--apply-to-history`. `orre inbox approve` needs an interactive terminal, and
 `reject` doesn't ("approval needs the user's terminal", points 3 and 4).
 
 ### The impact preview
@@ -79,7 +79,7 @@ with `--apply-to-history`. `coffer inbox approve` needs an interactive terminal,
   amounts, never text); `inbox::preview::preview` lists the rows approving would change,
   what each has now and after, the rows left alone because the user set them, the rule
   that decides a rule's matches today, and the categorisations a rule settles (decision
-  record "Inbox", point 1). `coffer inbox show` prints the impact; neither is for MCP.
+  record "Inbox", point 1). `orre inbox show` prints the impact; neither is for MCP.
 - **Computed when shown, by the approval itself.** Both run the approval as the Inbox
   makes it (a rule applied to history) in a rolled-back DB transaction
   (`change::dry_run`) against today's data, so they can't drift from what approving does
@@ -127,23 +127,23 @@ with `--apply-to-history`. `coffer inbox approve` needs an interactive terminal,
   preview", point 3). Rejecting here records no reason.
 - **Left panel**: INBOX (status), CHECKS (the review queues, `links-and-checks.md` →
   "review queues (built)"), KIND, SOURCE. A client is shown by its `--client` name;
-  Coffer's own as "Coffer" "from your edits" (`text::source_name`).
-- **Badge.** The tab counts pending suggestions from AI clients, not Coffer's own
+  Orre's own as "Orre" "from your edits" (`text::source_name`).
+- **Badge.** The tab counts pending suggestions from AI clients, not Orre's own
   (`Inbox::badge`).
 - **Colours.** `reporting::palette::category_palette` ranks category colours when read,
   with the Transactions register's ranking (decision record "Inbox", point 6).
 - **After a decision** the bar says what changed, without Undo. "Show in Transactions"
   and "Edit in Rules…" aren't built (decision record "Inbox", point 9).
 
-### Coffer's own suggestions
+### Orre's own suggestions
 
-`inbox::own` ("M2: MCP server", E.8). `own::recategorize` is how the app and `coffer
+`inbox::own` ("M2: MCP server", E.8). `own::recategorize` is how the app and `orre
 categorize` set categories as the user: one `bulk_edit` batch, refusing a row that takes
 no category of its own (`RecategorizeError::NoOwnCategory`). In the same DB transaction,
 for each display merchant and category just set, it counts the unsplit rows that hold
 that category with `category_source = user` now. At `RULE_SUGGESTION_THRESHOLD` (3), and
 only when every counted row's bank merchant cleans to one text, it files `merchant is
-<cleaned merchant>` → `set_category` from `coffer`, with a fixed rationale and no
+<cleaned merchant>` → `set_category` from `orre`, with a fixed rationale and no
 merchant text. It files nothing when an identical suggestion is pending or was ever
 decided, a stored rule has that definition, or the source is at its cap; the user's edit
 never fails for it.
@@ -224,7 +224,7 @@ the build. Everything else follows `DESIGN.md` → "Inbox", "Inbox impact previe
    database per call through `backup::gate`, which checks the restore lock. The pending list is read with every
    preview when the Inbox opens and after each decision, on the main thread (decision
    record "Inbox impact preview", point 6). The tab's badge counts pending suggestions
-   from AI clients; Coffer's own aren't counted.
+   from AI clients; Orre's own aren't counted.
 9. **Left for later (user).** D6.4's CHECKS section (M3.12), "Show in Transactions"
    (needs M3.3's filters) and "Edit in Rules…" (M3.7, M3.13) aren't drawn. Client display
    names come with the AI access settings (M3.15); until then the Inbox shows the

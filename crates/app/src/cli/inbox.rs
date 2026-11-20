@@ -1,23 +1,23 @@
-//! `coffer inbox` (ROADMAP M2.7): review the suggestions AI clients (and
-//! Coffer itself) filed, and approve or reject them, until the app has an
-//! Inbox screen ([`coffer_core::inbox`] documents what each does).
+//! `orre inbox` (ROADMAP M2.7): review the suggestions AI clients (and
+//! Orre itself) filed, and approve or reject them, until the app has an
+//! Inbox screen ([`orre_core::inbox`] documents what each does).
 //!
-//! - `coffer inbox [list]`: the pending suggestions, one line each: ID,
+//! - `orre inbox [list]`: the pending suggestions, one line each: ID,
 //!   status, kind, source, date filed and a summary of IDs, category keys
 //!   and amounts. `--all`, `--status` and `--kind` choose others.
-//! - `coffer inbox show <ID>`: one suggestion in full and, while it is
+//! - `orre inbox show <ID>`: one suggestion in full and, while it is
 //!   pending, what approving it would change now ([`inbox::impact`]).
-//! - `coffer inbox approve <ID>... [--apply-to-history]`: applies them all
+//! - `orre inbox approve <ID>... [--apply-to-history]`: applies them all
 //!   and marks them approved, or none of them. `--apply-to-history` is for
 //!   rules only.
-//! - `coffer inbox reject <ID>... [--reason <TEXT>]`: marks each rejected.
-//! - `coffer inbox reports`: the saved reports, newest first, one line each:
+//! - `orre inbox reject <ID>... [--reason <TEXT>]`: marks each rejected.
+//! - `orre inbox reports`: the saved reports, newest first, one line each:
 //!   ID, period, source, date saved and title. No body.
-//! - `coffer inbox report <ID>`: one saved report in full, as plain text.
-//! - `coffer inbox delete-report <ID>... [--yes]` or
-//!   `coffer inbox delete-report --client <NAME> [--before <DATE>] [--yes]`:
+//! - `orre inbox report <ID>`: one saved report in full, as plain text.
+//! - `orre inbox delete-report <ID>... [--yes]` or
+//!   `orre inbox delete-report --client <NAME> [--before <DATE>] [--yes]`:
 //!   deletes saved reports, all or none ([`inbox::delete_reports`]). Without
-//!   `--yes` it only lists what would go, like `coffer restore`. This is how
+//!   `--yes` it only lists what would go, like `orre restore`. This is how
 //!   the user makes room for a client at the report cap.
 //!
 //! Approving here is the user's action: the IDs are named on the command
@@ -29,7 +29,7 @@
 //! refused.
 //!
 //! **Untrusted text.** Rationales, rule patterns, merchant names and tag
-//! names in a payload are an AI client's words, or (for Coffer's own
+//! names in a payload are an AI client's words, or (for Orre's own
 //! suggestions) taken from transaction text; a saved report's period, title
 //! and body are an AI client's words. They are printed labelled with where
 //! they came from, stripped of the characters the MCP envelope strips
@@ -37,7 +37,7 @@
 //! invisible characters), saying how many were removed, and cut to a
 //! length. Each is on one line, except a report's body, which keeps its
 //! line breaks with every line indented under a bar, so it can't pass for
-//! Coffer's own output. A body is printed as written, markdown and all:
+//! Orre's own output. A body is printed as written, markdown and all:
 //! nothing is rendered, no link is followed, nothing is fetched. The
 //! summary in `list` leaves free text out altogether, and `reports` and
 //! `delete-report` show only the title and period. None of it decides
@@ -50,17 +50,17 @@ use anyhow::{Context, bail};
 use chrono::NaiveDate;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args, Subcommand};
-use coffer_core::db::Database;
-use coffer_core::envelope;
-use coffer_core::inbox::payload::CategorizationItem;
-use coffer_core::inbox::{
-    self, Applied, ApproveOptions, Approved, COFFER_SOURCE, Filter, Payload, ReportHeading,
+use orre_core::db::Database;
+use orre_core::envelope;
+use orre_core::inbox::payload::CategorizationItem;
+use orre_core::inbox::{
+    self, Applied, ApproveOptions, Approved, Filter, ORRE_SOURCE, Payload, ReportHeading,
     ReportSelection, Suggestion, SuggestionId, SuggestionKind, SuggestionStatus,
 };
-use coffer_core::mcp_client::ClientName;
-use coffer_core::reporting::Limit;
-use coffer_core::reporting::catalog::{self, SavedReport};
-use coffer_core::rule::{RuleAction, RuleDefinition};
+use orre_core::mcp_client::ClientName;
+use orre_core::reporting::Limit;
+use orre_core::reporting::catalog::{self, SavedReport};
+use orre_core::rule::{RuleAction, RuleDefinition};
 
 use super::import::plural;
 use super::schedules::parse_date;
@@ -111,14 +111,14 @@ pub struct ListArgs {
 
 #[derive(Debug, Args)]
 pub struct ShowArgs {
-    /// The suggestion's ID, as `coffer inbox` lists it.
+    /// The suggestion's ID, as `orre inbox` lists it.
     #[arg(value_name = "ID")]
     pub id: i64,
 }
 
 #[derive(Debug, Args)]
 pub struct ApproveArgs {
-    /// The suggestions' IDs, as `coffer inbox` lists them.
+    /// The suggestions' IDs, as `orre inbox` lists them.
     #[arg(value_name = "ID", required = true)]
     pub ids: Vec<i64>,
 
@@ -130,7 +130,7 @@ pub struct ApproveArgs {
 
 #[derive(Debug, Args)]
 pub struct RejectArgs {
-    /// The suggestions' IDs, as `coffer inbox` lists them.
+    /// The suggestions' IDs, as `orre inbox` lists them.
     #[arg(value_name = "ID", required = true)]
     pub ids: Vec<i64>,
 
@@ -141,14 +141,14 @@ pub struct RejectArgs {
 
 #[derive(Debug, Args)]
 pub struct ReportArgs {
-    /// The report's ID, as `coffer inbox reports` lists it.
+    /// The report's ID, as `orre inbox reports` lists it.
     #[arg(value_name = "ID")]
     pub id: i64,
 }
 
 #[derive(Debug, Args)]
 pub struct DeleteReportArgs {
-    /// The reports' IDs, as `coffer inbox reports` lists them.
+    /// The reports' IDs, as `orre inbox reports` lists them.
     #[arg(
         value_name = "ID",
         required_unless_present = "client",
@@ -192,7 +192,7 @@ fn kind_parser() -> impl TypedValueParser<Value = SuggestionKind> {
     })
 }
 
-/// `coffer inbox`.
+/// `orre inbox`.
 pub fn run(db: &mut Database, args: InboxArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     match args.command {
         None => list(db, &ListArgs::default(), out),
@@ -208,7 +208,7 @@ pub fn run(db: &mut Database, args: InboxArgs, out: &mut dyn Write) -> anyhow::R
 
 // Listing -----------------------------------------------------------------------
 
-/// `coffer inbox list`.
+/// `orre inbox list`.
 pub fn list(db: &Database, args: &ListArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let filter = Filter {
         status: if args.all {
@@ -250,8 +250,8 @@ pub fn list(db: &Database, args: &ListArgs, out: &mut dyn Write) -> anyhow::Resu
         writeln!(out)?;
         writeln!(
             out,
-            "`coffer inbox show <ID>` shows one in full and what approving it changes; \
-             `coffer inbox approve <ID>` or `coffer inbox reject <ID>` decides it."
+            "`orre inbox show <ID>` shows one in full and what approving it changes; \
+             `orre inbox approve <ID>` or `orre inbox reject <ID>` decides it."
         )?;
     }
     Ok(())
@@ -345,7 +345,7 @@ const RATIONALE_SHOWN: usize = 500;
 /// The longest pattern, name or tag shown, in characters.
 const TEXT_SHOWN: usize = 200;
 
-/// `coffer inbox show`.
+/// `orre inbox show`.
 pub fn show(db: &Database, args: &ShowArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let s = inbox::get(db, SuggestionId::new(args.id))?;
     let from = source_name(&s.source_client);
@@ -395,7 +395,7 @@ pub fn show(db: &Database, args: &ShowArgs, out: &mut dyn Write) -> anyhow::Resu
         writeln!(out, "Change batch: {batch}")?;
     }
     if let Some(applied) = &s.applied {
-        // Coffer's own record of what it made, by ID.
+        // Orre's own record of what it made, by ID.
         writeln!(out, "Made: {applied}")?;
     }
     Ok(())
@@ -493,10 +493,10 @@ fn write_rule(out: &mut dyn Write, rule: &RuleDefinition, from: &str) -> std::io
     Ok(())
 }
 
-/// Who filed a suggestion, for labels: the client's name, or Coffer.
+/// Who filed a suggestion, for labels: the client's name, or Orre.
 fn source_name(source: &str) -> String {
-    if source == COFFER_SOURCE {
-        "Coffer".to_owned()
+    if source == ORRE_SOURCE {
+        "Orre".to_owned()
     } else {
         // A checked client name when it was filed; stripped all the same.
         untrusted(source, 64).text
@@ -505,7 +505,7 @@ fn source_name(source: &str) -> String {
 
 // Deciding ----------------------------------------------------------------------
 
-/// `coffer inbox approve`.
+/// `orre inbox approve`.
 pub fn approve(db: &mut Database, args: &ApproveArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let suggestions = all_pending(db, &args.ids, "approved")?;
     if args.apply_to_history && !suggestions.iter().any(|s| s.kind == SuggestionKind::Rule) {
@@ -589,7 +589,7 @@ fn write_approved(out: &mut dyn Write, approved: &Approved) -> std::io::Result<(
     Ok(())
 }
 
-/// `coffer inbox reject`.
+/// `orre inbox reject`.
 pub fn reject(db: &mut Database, args: &RejectArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let suggestions = all_pending(db, &args.ids, "rejected")?;
     let mut done = Vec::new();
@@ -665,7 +665,7 @@ const PERIOD_SHOWN: usize = inbox::MAX_REPORT_PERIOD_CHARS;
 /// body is cut only if it was stored some other way.
 const BODY_SHOWN: usize = inbox::MAX_REPORT_BODY_CHARS;
 
-/// `coffer inbox reports`.
+/// `orre inbox reports`.
 pub fn reports(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     let reader = db.reader().context("couldn't read the reports")?;
     let saved = catalog::reports(&reader, Limit::MAX).context("couldn't read the reports")?;
@@ -686,8 +686,8 @@ pub fn reports(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     writeln!(
         out,
         "Periods and titles are the AI clients' own words, unverified. \
-         `coffer inbox report <ID>` shows one in full; \
-         `coffer inbox delete-report <ID>` deletes it."
+         `orre inbox report <ID>` shows one in full; \
+         `orre inbox delete-report <ID>` deletes it."
     )?;
     let counts = inbox::report_counts(db).context("couldn't count the reports")?;
     for (source, count) in counts {
@@ -695,7 +695,7 @@ pub fn reports(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
             writeln!(
                 out,
                 "{} has saved {count} reports, the most one client may keep, and can't save \
-                 more until you delete some: `coffer inbox delete-report --client {}` deletes \
+                 more until you delete some: `orre inbox delete-report --client {}` deletes \
                  them (with --before <DATE>, only older ones).",
                 source_name(&source),
                 untrusted(&source, 64).text
@@ -723,7 +723,7 @@ fn write_report_table(out: &mut dyn Write, rows: &[Vec<String>]) -> std::io::Res
     write_table(out, &["ID", "PERIOD", "FROM", "SAVED", "TITLE"], rows)
 }
 
-/// `coffer inbox report`.
+/// `orre inbox report`.
 pub fn report(db: &Database, args: &ReportArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let reader = db.reader().context("couldn't read the report")?;
     let Some(report) = catalog::report(&reader, args.id).context("couldn't read the report")?
@@ -734,7 +734,7 @@ pub fn report(db: &Database, args: &ReportArgs, out: &mut dyn Write) -> anyhow::
     Ok(())
 }
 
-/// `coffer inbox delete-report`. Without `--yes` it lists what would be
+/// `orre inbox delete-report`. Without `--yes` it lists what would be
 /// deleted and changes nothing.
 pub fn delete_report(
     db: &mut Database,

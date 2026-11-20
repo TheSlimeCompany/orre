@@ -1,7 +1,7 @@
 //! The Source section's confirmations (ROADMAP M3.10), `--container-dialog`
 //! wide: undoing an import and deleting a manual transaction.
 //!
-//! Composed for M3.10 from the dialog spec and the CLI's `coffer
+//! Composed for M3.10 from the dialog spec and the CLI's `orre
 //! undo-import`, not drawn (`DESIGN.md` says "Undo import… opens the
 //! existing batch-undo confirmation", and the app had none: the import
 //! notification's Undo runs at once, right after importing):
@@ -19,15 +19,15 @@
 //!   from Cash. This can't be undone.", Cancel and the destructive solid
 //!   "Delete transaction". Only manual rows have it; core refuses others.
 //!
-//! [`import::undo_preview`]: coffer_core::import::undo_preview
+//! [`import::undo_preview`]: orre_core::import::undo_preview
 
-use coffer_core::id::{BatchId, TransactionId};
-use coffer_core::import::UndoPreview;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Window, div,
 };
+use orre_core::id::{BatchId, TransactionId};
+use orre_core::import::UndoPreview;
 
 use crate::accounts::DialogClosed;
 use crate::theme::tokens::{color, spacing, typography};
@@ -359,9 +359,9 @@ impl Render for DeleteTransactionDialog {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::id::AccountId;
-    use coffer_core::import::{BatchInfo, BatchStatus};
-    use coffer_core::statement::SourceFormat;
+    use orre_core::id::AccountId;
+    use orre_core::import::{BatchInfo, BatchStatus};
+    use orre_core::statement::SourceFormat;
 
     use super::*;
 
@@ -412,7 +412,7 @@ mod tests {
         );
 
         let mut corrections = preview();
-        corrections.restored = vec![coffer_core::id::TransactionId::new(7)];
+        corrections.restored = vec![orre_core::id::TransactionId::new(7)];
         corrections.superseded = 2;
         let lines = undo_lines(&corrections, "Current account");
         assert_eq!(

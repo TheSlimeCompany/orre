@@ -19,7 +19,7 @@
 //! records them in a pending file next to it instead ([`pending`]), and
 //! they are moved into the log, with their own times, the next time
 //! anything opens the database to write: any server's next call or listing,
-//! `coffer ai-access`, or the restore itself. Each keeps the ID it was given
+//! `orre ai-access`, or the restore itself. Each keeps the ID it was given
 //! when recorded (`pending_id`, unique, V14), so one is never moved in twice.
 //! The log is read newest first by time, so they show where they happened.
 //!
@@ -196,7 +196,7 @@ fn expire_on(conn: &Connection) -> Result<usize, Error> {
     )?)
 }
 
-/// The columns every Coffer log has had since V11; V14 added the last two.
+/// The columns every Orre log has had since V11; V14 added the last two.
 const V11_COLUMNS: &str = "at, client, tool, access_level, outcome, purpose, \
                            args_redacted_json, row_count, result_hash, withheld_count";
 
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn appends_and_reads_back() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let ok = NewEntry {
             purpose: Some("x".repeat(MAX_PURPOSE_LEN + 10)),
             row_count: 12,
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn a_refused_call_carries_no_result() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         for refused in [
             NewEntry {
                 row_count: 1,
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn filters_by_client() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         append(&mut db, &entry(Outcome::Ok)).unwrap();
         append(
             &mut db,
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn rows_older_than_twelve_months_expire() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let insert_at = |db: &Database, modifier: &str| {
             db.conn()
                 .execute(
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn rows_are_read_only() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let id = append(&mut db, &entry(Outcome::Ok)).unwrap();
         assert!(
             db.conn()

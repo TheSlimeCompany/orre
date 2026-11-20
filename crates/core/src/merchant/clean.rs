@@ -44,7 +44,7 @@ use crate::rule::collapse_whitespace;
 /// interpreted, and never logged.
 ///
 /// ```
-/// use coffer_core::merchant::clean;
+/// use orre_core::merchant::clean;
 ///
 /// assert_eq!(clean("SQ *ACME COFFEE"), "ACME COFFEE");
 /// assert_eq!(clean("CONTACTLESS  Acme Bakery 12/11"), "Acme Bakery");

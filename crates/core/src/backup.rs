@@ -2,12 +2,12 @@
 //! restoring one.
 //!
 //! Backups live in `backups/` next to the database file (so `<data
-//! dir>/backups`, and wherever a test or `COFFER_DATA_DIR` puts the
-//! database). The directory is `0700` when Coffer creates it; every backup
+//! dir>/backups`, and wherever a test or `ORRE_DATA_DIR` puts the
+//! database). The directory is `0700` when Orre creates it; every backup
 //! is `0600`.
 //!
 //! **Metadata lives in the file name only**: the UTC time and the
-//! [`Reason`], as in `coffer-20261111T153012.345Z-import.db`. There is no
+//! [`Reason`], as in `orre-20261111T153012.345Z-import.db`. There is no
 //! table for them, because restoring would roll the table back. Names sort
 //! by time and parse back ([`parse_file_name`]); anything else in the
 //! directory isn't a backup and is never touched.
@@ -15,14 +15,14 @@
 //! **Rotation.** Automatic backups (before an import commit, a migration or
 //! a restore) rotate: the [`KEEP_RECENT`] most recent are kept, plus the
 //! newest of each of the [`KEEP_MONTHS`] calendar months (UTC) before the
-//! current one; older monthly backups are deleted. Manual backups (`coffer
+//! current one; older monthly backups are deleted. Manual backups (`orre
 //! backup`, "Back up now") are never deleted automatically: they stay until
 //! the user deletes them ([`delete`]). Backups hold what the database held,
 //! deleted reports and undone imports included, so the user can see their
 //! total size and delete any of them.
 //!
 //! **Restore** checks a copy of the backup (SQLite's `integrity_check`,
-//! Coffer's migration history, a schema no newer than this build's) before
+//! Orre's migration history, a schema no newer than this build's) before
 //! anything is swapped, backs the current database up (reason
 //! [`Reason::Restore`]), swaps the checked copy in with a rename, and opens
 //! it with [`Database::open`], which migrates an older schema. A refused
@@ -107,7 +107,7 @@ pub const KEEP_RECENT: usize = 10;
 /// newest automatic backup of. Older monthly backups are deleted.
 pub const KEEP_MONTHS: i32 = 12;
 
-const NAME_PREFIX: &str = "coffer-";
+const NAME_PREFIX: &str = "orre-";
 const NAME_SUFFIX: &str = ".db";
 /// UTC, to the millisecond: `20261111T153012.345Z`.
 const STAMP_FORMAT: &str = "%Y%m%dT%H%M%S%.3fZ";
@@ -133,8 +133,8 @@ pub enum Error {
     #[error("{} isn't a SQLite database", path.display())]
     NotADatabase { path: PathBuf },
 
-    #[error("{} isn't a Coffer database: it has no migration history", path.display())]
-    NotCoffer { path: PathBuf },
+    #[error("{} isn't an Orre database: it has no migration history", path.display())]
+    NotOrre { path: PathBuf },
 
     #[error(
         "{} failed SQLite's integrity check ({count} {}; the first: {first})",
@@ -147,7 +147,7 @@ pub enum Error {
         first: String,
     },
 
-    /// From a newer Coffer ([`db::Error::SchemaTooNew`]), or with a migration
+    /// From a newer Orre ([`db::Error::SchemaTooNew`]), or with a migration
     /// history that differs from this build's ([`db::Error::MigrationHistory`]).
     #[error("{} can't be restored: {source}", path.display())]
     Incompatible {
@@ -169,7 +169,7 @@ pub enum Error {
 
     #[error(
         "{} is still open in another program (its -wal file remains); \
-         close Coffer and anything else using it, then restore again",
+         close Orre and anything else using it, then restore again",
         path.display()
     )]
     InUse { path: PathBuf },
@@ -232,7 +232,7 @@ pub enum Reason {
     Migration,
     /// Before a restore replaced the database.
     Restore,
-    /// Asked for: `coffer backup`, the app's "Back up now".
+    /// Asked for: `orre backup`, the app's "Back up now".
     Manual,
 }
 
@@ -258,7 +258,7 @@ impl Reason {
         Self::ALL.into_iter().find(|reason| reason.key() == key)
     }
 
-    /// Whether Coffer took it by itself. Only automatic backups rotate.
+    /// Whether Orre took it by itself. Only automatic backups rotate.
     pub fn is_automatic(self) -> bool {
         self != Reason::Manual
     }
@@ -284,7 +284,7 @@ pub fn backups_dir(db_path: &Path) -> PathBuf {
         .join(BACKUPS_DIR)
 }
 
-/// A backup's file name: `coffer-20261111T153012.345Z-import.db`.
+/// A backup's file name: `orre-20261111T153012.345Z-import.db`.
 /// `taken_at` is written to the millisecond.
 pub fn file_name(reason: Reason, taken_at: DateTime<Utc>) -> String {
     format!(
@@ -618,7 +618,7 @@ pub fn check(db_path: &Path, backup: &Path) -> Result<RestoreCheck, Error> {
 ///
 /// 1. `backup` is copied next to the database (`0600`), and the copy is
 ///    checked: a SQLite database that passes `PRAGMA integrity_check`, with
-///    Coffer's migration history matching this build's and a schema no
+///    Orre's migration history matching this build's and a schema no
 ///    newer. The user's file is only ever read, so the check can't change
 ///    it (or leave `-wal`/`-shm` files beside it).
 /// 2. The current database, if there is one, is checkpointed and closed:
@@ -642,11 +642,11 @@ pub fn check(db_path: &Path, backup: &Path) -> Result<RestoreCheck, Error> {
 /// step 4's rename, which is atomic, so after it the database is the
 /// backup. A migration in [`Database::open`] is one transaction, so the
 /// backup is then at its old version or migrated. A hidden
-/// `.coffer-restore-…` copy may be left next to the database, or a
-/// `.coffer-partial-…` in the backups directory; nothing reads them, and
+/// `.orre-restore-…` copy may be left next to the database, or a
+/// `.orre-partial-…` in the backups directory; nothing reads them, and
 /// they can be deleted.
 ///
-/// No other Coffer process may hold the database open during a restore:
+/// No other Orre process may hold the database open during a restore:
 /// one that does keeps reading the replaced file. MCP servers and the app's
 /// views open it per call through [`gate::open`], so they don't; step 2
 /// notices any other open connection in WAL mode (after waiting
@@ -829,7 +829,7 @@ fn check_copy(copy: &Path, backup: &Path) -> Result<SchemaVersion, Error> {
         other => Error::Database(other),
     })?;
     if version == 0 {
-        return Err(Error::NotCoffer {
+        return Err(Error::NotOrre {
             path: backup.to_path_buf(),
         });
     }
@@ -937,7 +937,7 @@ fn interrupted(db_path: &Path) -> Result<Option<Interrupted>, Error> {
         Err(TryLockError::Error(err)) => return Err(io_error("lock", &path)(err)),
     }
     let mut marker = String::new();
-    // A marker is two short lines; anything longer isn't Coffer's.
+    // A marker is two short lines; anything longer isn't Orre's.
     (&mut file)
         .take(4096)
         .read_to_string(&mut marker)
@@ -1067,7 +1067,7 @@ fn release(db_path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// A file Coffer is writing that isn't a backup (or the database) yet:
+/// A file Orre is writing that isn't a backup (or the database) yet:
 /// hidden, `0600`, and removed with its sidecars when dropped unless
 /// [`disarm`](Scratch::disarm)ed or published.
 struct Scratch {
@@ -1076,13 +1076,13 @@ struct Scratch {
 }
 
 impl Scratch {
-    /// Creates `.coffer-<kind>-<pid>-<n>.db` in `dir`, empty, `0600`. The
+    /// Creates `.orre-<kind>-<pid>-<n>.db` in `dir`, empty, `0600`. The
     /// name never parses as a backup's.
     fn create(dir: &Path, kind: &str) -> Result<Scratch, Error> {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         loop {
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = dir.join(format!(".coffer-{kind}-{}-{n}.db", std::process::id()));
+            let path = dir.join(format!(".orre-{kind}-{}-{n}.db", std::process::id()));
             match create_private_file(&path) {
                 Ok(()) => return Ok(Scratch { path, armed: true }),
                 // Left by a crashed process that had the same ID.

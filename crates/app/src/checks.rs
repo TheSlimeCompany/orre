@@ -1,6 +1,6 @@
 //! The review queues (ROADMAP M3.12; `docs/DESIGN.md` → "Review queues";
 //! `docs/ARCHITECTURE.md` → "Decision record: review queues" and "Decision
-//! record: review queues (built)"): Coffer's own checks, under CHECKS in
+//! record: review queues (built)"): Orre's own checks, under CHECKS in
 //! the Inbox's left panel.
 //!
 //! - **Possible duplicates**: each pending pair, the selected one open in
@@ -12,15 +12,15 @@
 //!   transactions, a failure's window and the pair that explains it, and
 //!   locking an account's checked history (and unlocking it).
 //! - **Owed to you** (M3.11): outstanding expense claims, with the payment
-//!   Coffer matched to some of them ("Link as reimbursement", "Not this"),
+//!   Orre matched to some of them ("Link as reimbursement", "Not this"),
 //!   and the people who owe the user for shared costs, a person's costs,
 //!   payments and name in the inspector.
 //!
 //! [`Checks`] holds what the queues show (from [`store::ChecksStore`],
 //! which opens the database per call), which queue is open, the
 //! selection and the last outcome. Every change is core's
-//! ([`coffer_core::duplicate`], [`coffer_core::reconciliation`],
-//! [`coffer_core::change`]); this only picks the IDs. Merchant names and
+//! ([`orre_core::duplicate`], [`orre_core::reconciliation`],
+//! [`orre_core::change`]); this only picks the IDs. Merchant names and
 //! bank text are untrusted and shown plain ([`text`]).
 
 pub mod balances;
@@ -34,13 +34,13 @@ pub mod store;
 pub mod text;
 pub mod view;
 
-use coffer_core::checks::{AccountReview, CheckRow, Pair};
-use coffer_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, LinkId, TransactionId};
-use coffer_core::link::ShareLabel;
-use coffer_core::link::owed::Person;
-use coffer_core::money::Currency;
-use coffer_core::reconciliation::BalanceRef;
 use gpui_kit::{Context, EventEmitter, SharedString};
+use orre_core::checks::{AccountReview, CheckRow, Pair};
+use orre_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, LinkId, TransactionId};
+use orre_core::link::ShareLabel;
+use orre_core::link::owed::Person;
+use orre_core::money::Currency;
+use orre_core::reconciliation::BalanceRef;
 
 use crate::accounts::store::StoreError;
 use crate::ui::list::{self, Move};
@@ -716,7 +716,7 @@ impl Checks {
     /// "Not this": the payment isn't suggested for those claims again.
     pub fn reject_match(&mut self, links: Vec<LinkId>, cx: &mut Context<Self>) {
         self.link_edit(
-            "Coffer won't suggest that payment again".into(),
+            "Orre won't suggest that payment again".into(),
             cx,
             |store| store.reject_links(&links),
         );

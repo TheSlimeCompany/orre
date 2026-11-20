@@ -6,16 +6,16 @@
 use std::collections::BTreeSet;
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::inbox::{self, NewSuggestion, SuggestionKind, own};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::mcp_client::{self, ClientName};
-use coffer_core::merchant::{self, DisplayName};
-use coffer_core::money::{Currency, Money};
-use coffer_core::rule::{self, AmountBounds, MatchField, MatchKind, Pattern, RuleAction};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::inbox::{self, NewSuggestion, SuggestionKind, own};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::mcp_client::{self, ClientName};
+use orre_core::merchant::{self, DisplayName};
+use orre_core::money::{Currency, Money};
+use orre_core::rule::{self, AmountBounds, MatchField, MatchKind, Pattern, RuleAction};
 use serde_json::{Value, json};
 
 /// The agent the sample suggestions come from.
@@ -201,7 +201,7 @@ pub fn seed(db: &mut Database) {
         .into_iter()
         .map(|(day, minor, merchant, category)| (s.row(day, minor, merchant, None), category))
         .collect();
-    // Three hand edits to WASABI: Coffer suggests a rule itself.
+    // Three hand edits to WASABI: Orre suggests a rule itself.
     let wasabi: Vec<TransactionId> = [(10, 15), (10, 22), (11, 5)]
         .into_iter()
         .map(|day| s.row(day, -895, "WASABI", None))

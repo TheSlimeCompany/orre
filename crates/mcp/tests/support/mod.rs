@@ -15,7 +15,7 @@
 //! - [`Fixture::access_log`] reads back the access log.
 //!
 //! Every database lives under one scratch data directory, and
-//! `COFFER_DATA_DIR` points there for the whole test process, so nothing
+//! `ORRE_DATA_DIR` points there for the whole test process, so nothing
 //! can reach the real data dir.
 //!
 //! Each test binary uses a different subset, hence `dead_code`.
@@ -35,30 +35,30 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use chrono::NaiveDate;
-use coffer_core::access_log::{self, LoggedCall};
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::import;
-use coffer_core::link::{self, ShareLabel, Sharing};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::mcp_client::{self, ClientName};
-use coffer_core::money::{Currency, Money};
-use coffer_core::note;
-use coffer_core::paths::{DATA_DIR_ENV, DATABASE_FILE};
-use coffer_core::statement::Statement;
-use coffer_core::tag::{self, TagName};
-use coffer_import::AnyImporter;
-use coffer_import::preset::Presets;
-use coffer_mcp::Server;
-use coffer_mcp::registry::Registry;
+use orre_core::access_log::{self, LoggedCall};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::import;
+use orre_core::link::{self, ShareLabel, Sharing};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::mcp_client::{self, ClientName};
+use orre_core::money::{Currency, Money};
+use orre_core::note;
+use orre_core::paths::{DATA_DIR_ENV, DATABASE_FILE};
+use orre_core::statement::Statement;
+use orre_core::tag::{self, TagName};
+use orre_import::AnyImporter;
+use orre_import::preset::Presets;
+use orre_mcp::Server;
+use orre_mcp::registry::Registry;
 use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
 use rmcp::service::{RunningService, ServiceError};
 use rmcp::{RoleClient, ServiceExt};
 use serde_json::Value;
 use tempfile::TempDir;
 
-pub use coffer_core::mcp_client::AccessLevel;
+pub use orre_core::mcp_client::AccessLevel;
 
 /// Every access level, lowest first.
 pub const LEVELS: &[AccessLevel] = AccessLevel::ALL;
@@ -156,7 +156,7 @@ fn visit_strings(value: &Value, visit: &mut impl FnMut(&str)) {
 /// The names of the tools registered for `level`, straight from the
 /// registry.
 pub fn registered_tools(level: AccessLevel) -> Vec<String> {
-    coffer_mcp::tools::registry()
+    orre_mcp::tools::registry()
         .tools_for(level)
         .into_iter()
         .map(|tool| tool.name.into_owned())
@@ -164,7 +164,7 @@ pub fn registered_tools(level: AccessLevel) -> Vec<String> {
 }
 
 /// The scratch data directory every fixture database lives in. Creating it
-/// points `COFFER_DATA_DIR` at it for the rest of the process.
+/// points `ORRE_DATA_DIR` at it for the rest of the process.
 static DATA_DIR: LazyLock<TempDir> = LazyLock::new(|| {
     let dir = TempDir::new().unwrap();
     // SAFETY: set once, the first time any test builds a fixture, before
@@ -280,13 +280,13 @@ impl Fixture {
         &self.path
     }
 
-    /// Opens the database as `coffer mcp` does: existing, never migrated.
+    /// Opens the database as `orre mcp` does: existing, never migrated.
     pub fn open(&self) -> Database {
         Database::open_existing(&self.path).unwrap()
     }
 
     /// Enables `client` at `level` through core's client API, as
-    /// `coffer ai-access enable` and `level` do (which also creates the
+    /// `orre ai-access enable` and `level` do (which also creates the
     /// pseudonym key).
     pub fn set_client(&self, client: &str, level: AccessLevel) {
         let mut db = self.open();
@@ -298,8 +298,7 @@ impl Fixture {
     /// Starts a server for `client`, enabled at `level`, and connects to it.
     pub async fn connect(&self, client: &str, level: AccessLevel) -> TestClient {
         self.set_client(client, level);
-        self.connect_with(client, coffer_mcp::tools::registry())
-            .await
+        self.connect_with(client, orre_mcp::tools::registry()).await
     }
 
     /// Starts a server for `client` with the tools in `registry`, without

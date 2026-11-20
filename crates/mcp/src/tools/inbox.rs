@@ -5,20 +5,20 @@
 //! is `aggregate`, the proposals `standard`.
 //!
 //! Each proposal turns its typed arguments into the JSON payload of its
-//! suggestion kind, in exactly the shape `coffer_core::inbox::payload`
+//! suggestion kind, in exactly the shape `orre_core::inbox::payload`
 //! parses, and files it. Core checks the shape and every ID and key it
 //! names; a refusal comes back to the client as an invalid-arguments error
 //! naming IDs, keys and limits, and nothing is written. The source is
 //! always the server's client name, never an argument.
 //!
-//! Results say what was filed, by ID, and that the user decides in Coffer.
+//! Results say what was filed, by ID, and that the user decides in Orre.
 //! They never echo the client's text (patterns, names, rationales, report
-//! bodies): that is stored as untrusted text and shown only in Coffer.
+//! bodies): that is stored as untrusted text and shown only in Orre.
 
-use coffer_core::inbox::{NewReport, NewSuggestion, SuggestionKind};
-use coffer_core::link::LinkKind;
-use coffer_core::merchant::AliasKind;
-use coffer_core::rule::{ActionKind, MatchField, MatchKind};
+use orre_core::inbox::{NewReport, NewSuggestion, SuggestionKind};
+use orre_core::link::LinkKind;
+use orre_core::merchant::AliasKind;
+use orre_core::rule::{ActionKind, MatchField, MatchKind};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -39,7 +39,7 @@ pub const PROPOSE_CATEGORIZATIONS: ToolSpec = ToolSpec {
     name: "propose_categorizations",
     description: "Suggests categories for transactions (by transaction_id) or for lines of \
                   split transactions (by split_id), up to 100 at once, using category keys from \
-                  list_categories. Nothing changes yet: the suggestion waits in Coffer's inbox \
+                  list_categories. Nothing changes yet: the suggestion waits in Orre's inbox \
                   until the user approves or rejects it. Proposing the same thing again returns \
                   the pending suggestion.",
     level: AccessLevel::Standard,
@@ -51,7 +51,7 @@ pub const PROPOSE_RULE: ToolSpec = ToolSpec {
     description: "Suggests a rule that acts on matching transactions, now and at future \
                   imports. A suggested rule may only use the actions set_category, \
                   split_template, set_merchant and add_tag; it never excludes rows, writes \
-                  notes or changes shares. Nothing changes yet: the rule waits in Coffer's inbox \
+                  notes or changes shares. Nothing changes yet: the rule waits in Orre's inbox \
                   until the user approves it.",
     level: AccessLevel::Standard,
     writes: Writes::Inbox,
@@ -61,7 +61,7 @@ pub const PROPOSE_TRANSFER_PAIR: ToolSpec = ToolSpec {
     name: "propose_transfer_pair",
     description: "Suggests that two transactions are one transfer between the user's own \
                   accounts: money out of one account and the same amount into another, in the \
-                  same currency. Nothing changes yet: the suggestion waits in Coffer's inbox \
+                  same currency. Nothing changes yet: the suggestion waits in Orre's inbox \
                   until the user approves it.",
     level: AccessLevel::Standard,
     writes: Writes::Inbox,
@@ -71,7 +71,7 @@ pub const PROPOSE_MERCHANT_ALIAS: ToolSpec = ToolSpec {
     name: "propose_merchant_alias",
     description: "Suggests a clean display name for the merchants whose cleaned bank text \
                   matches a pattern (exactly, by prefix, or by regular expression). Nothing \
-                  changes yet: the alias waits in Coffer's inbox until the user approves it.",
+                  changes yet: the alias waits in Orre's inbox until the user approves it.",
     level: AccessLevel::Standard,
     writes: Writes::Inbox,
 };
@@ -80,7 +80,7 @@ pub const PROPOSE_REFUND_LINK: ToolSpec = ToolSpec {
     name: "propose_refund_link",
     description: "Suggests linking money in (a refund or a reimbursement) to the purchase it \
                   pays back, in the same currency. Nothing changes yet: the link waits in \
-                  Coffer's inbox until the user approves it.",
+                  Orre's inbox until the user approves it.",
     level: AccessLevel::Standard,
     writes: Writes::Inbox,
 };
@@ -88,8 +88,8 @@ pub const PROPOSE_REFUND_LINK: ToolSpec = ToolSpec {
 pub const SAVE_REPORT: ToolSpec = ToolSpec {
     name: "save_report",
     description: "Saves a written review of the user's finances for a period, such as a \
-                  monthly summary, so the user can read it in Coffer. The body is plain \
-                  markdown: Coffer shows it as AI-written text, without HTML, images or links.",
+                  monthly summary, so the user can read it in Orre. The body is plain \
+                  markdown: Orre shows it as AI-written text, without HTML, images or links.",
     level: AccessLevel::Aggregate,
     writes: Writes::Inbox,
 };
@@ -99,9 +99,9 @@ pub const SAVE_REPORT: ToolSpec = ToolSpec {
 /// What a proposal did.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Proposed {
-    /// The suggestion's ID in Coffer's inbox.
+    /// The suggestion's ID in Orre's inbox.
     pub suggestion_id: i64,
-    /// Always `pending`: the user approves or rejects it in Coffer.
+    /// Always `pending`: the user approves or rejects it in Orre.
     pub status: Status,
     /// An identical suggestion was already pending: `suggestion_id` is that
     /// one, and nothing new was filed.
@@ -118,7 +118,7 @@ pub enum Status {
     Pending,
 }
 
-const NEXT_STEP: &str = "The user reviews it in Coffer's inbox; nothing changes unless they \
+const NEXT_STEP: &str = "The user reviews it in Orre's inbox; nothing changes unless they \
                          approve it.";
 
 /// What `save_report` did.
@@ -537,7 +537,7 @@ fn save_report(call: &Call<'_>, args: ReportArgs) -> Result<Reply<Saved>, ToolEr
     Ok(Reply::new(
         Saved {
             report_id: id,
-            next_step: "The user reads it in Coffer.",
+            next_step: "The user reads it in Orre.",
         },
         1,
     ))
