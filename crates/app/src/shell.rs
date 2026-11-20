@@ -662,7 +662,7 @@ impl ShellView {
     ) {
         if let Some(open) = self.import_dialog.as_ref().and_then(WeakEntity::upgrade) {
             if let Some(path) = path {
-                open.update(cx, |dialog, cx| dialog.open_path(path, cx));
+                open.update(cx, |dialog, cx| dialog.open_dropped(&[path], cx));
             }
             return;
         }
@@ -674,6 +674,30 @@ impl ShellView {
         let dialog = cx.new(|cx| ImportDialog::new(imports, selected, path, window, cx));
         self.import_dialog = Some(dialog.downgrade());
         self.open_dialog(dialog, window, cx);
+    }
+
+    /// Opens the Import dialog on the first of `paths`, dropped together on
+    /// the window; the dialog says so when it left others.
+    pub fn open_import_dropped(
+        &mut self,
+        paths: &[std::path::PathBuf],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(open) = self.import_dialog.as_ref().and_then(WeakEntity::upgrade) {
+            open.update(cx, |dialog, cx| dialog.open_dropped(paths, cx));
+            return;
+        }
+        let Some(first) = paths.first().cloned() else {
+            return;
+        };
+        self.open_import(Some(first), window, cx);
+        // A new dialog reads the first once its setup has loaded.
+        if paths.len() > 1
+            && let Some(open) = self.import_dialog.as_ref().and_then(WeakEntity::upgrade)
+        {
+            open.update(cx, |dialog, cx| dialog.note_dropped(paths.len(), cx));
+        }
     }
 
     /// Shows the sample Import dialog (snapshots): the sample export on
@@ -1419,9 +1443,7 @@ impl Render for ShellView {
                 }))
                 // A statement dropped anywhere on the window (`6J4-0`).
                 .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
-                    if let Some(path) = paths.paths().first().cloned() {
-                        this.open_import(Some(path), window, cx);
-                    }
+                    this.open_import_dropped(paths.paths(), window, cx);
                 }))
                 .size_full()
                 .flex()
