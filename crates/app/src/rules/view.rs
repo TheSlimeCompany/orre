@@ -197,6 +197,8 @@ impl RulesView {
         }
         view._subscriptions = subscriptions;
         view.sync(window, cx);
+        // Rules made with `Rules::unloaded` are read in the background.
+        view.rules.update(cx, |rules, cx| rules.start_loading(cx));
         view
     }
 

@@ -20,7 +20,13 @@
 //!
 //! [`Accounts`] holds what they show and which account is selected, and
 //! makes every change through [`store::AccountStore`], which opens the
-//! database for each call; core decides what's allowed. Screens drawn
+//! database for each call; core decides what's allowed. The accounts are
+//! read on a background thread ([`Accounts::reload`]: at 100,000
+//! transactions the account tree takes longer than a frame, decision record
+//! "performance at 100,000 transactions", `docs/architecture/app.md`);
+//! writes run on the UI thread and then ask for a read. Until the first read
+//! is back the panel says nothing about accounts; later reads keep showing
+//! the last one. Screens drawn
 //! without a database (snapshots, tests) use [`fixture`] data, which can't
 //! change.
 
@@ -99,7 +105,7 @@ use coffer_core::account::{AccountEdit, EnteredBalance, NewAccount};
 use coffer_core::id::AccountId;
 use coffer_core::money::Money;
 use coffer_core::reporting::account_tree::AccountNode;
-use gpui_kit::{Context, EventEmitter, SharedString};
+use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
 
 use crate::ui::list;
 use data::AccountsData;
@@ -173,6 +179,11 @@ pub struct Accounts {
     selected: Option<AccountId>,
     /// Why the accounts couldn't be read, shown in the panel.
     load_error: Option<SharedString>,
+    /// Whether a read has come back, or there is nothing to read: until
+    /// then an empty panel means "not yet", not "no accounts".
+    loaded: bool,
+    /// The background read in flight; a newer one replaces it.
+    loading: Option<Task<()>>,
     /// The account closed last, until the bar is dismissed.
     closed: Option<Closed>,
     /// Why Undo couldn't reopen it, said in the bar.
@@ -186,20 +197,40 @@ pub struct Accounts {
 impl EventEmitter<AccountsEvent> for Accounts {}
 
 impl Accounts {
-    /// The accounts in `store`, read now.
+    /// The accounts in `store`, read now, on this thread: for tests and the
+    /// snapshot. The app uses [`Accounts::unloaded`].
     pub fn from_store(store: AccountStore) -> Self {
         let mut accounts = Self {
             data: AccountsData::empty(Vec::new(), today()),
             source: Source::Database(store),
             selected: None,
             load_error: None,
+            loaded: true,
+            loading: None,
             closed: None,
             closed_error: None,
             #[cfg(test)]
             panel_ring: Default::default(),
         };
-        accounts.load();
+        accounts.read_now();
         accounts
+    }
+
+    /// The accounts in `store`, not read yet: the shell starts the first
+    /// read (`start_loading`), on a background thread.
+    pub fn unloaded(store: AccountStore) -> Self {
+        Self {
+            loaded: false,
+            data: AccountsData::empty(Vec::new(), today()),
+            source: Source::Database(store),
+            selected: None,
+            load_error: None,
+            loading: None,
+            closed: None,
+            closed_error: None,
+            #[cfg(test)]
+            panel_ring: Default::default(),
+        }
     }
 
     /// No accounts, because they can't be read: `reason` shows in the
@@ -210,6 +241,8 @@ impl Accounts {
             data: AccountsData::empty(Vec::new(), today()),
             selected: None,
             load_error: Some(reason.into()),
+            loaded: true,
+            loading: None,
             closed: None,
             closed_error: None,
             #[cfg(test)]
@@ -224,6 +257,8 @@ impl Accounts {
             data,
             selected: None,
             load_error: None,
+            loaded: true,
+            loading: None,
             closed: None,
             closed_error: None,
             #[cfg(test)]
@@ -245,6 +280,12 @@ impl Accounts {
     /// Why Undo couldn't reopen the account.
     pub fn closed_error(&self) -> Option<&SharedString> {
         self.closed_error.as_ref()
+    }
+
+    /// Whether the accounts have been read (or there are none to read):
+    /// until then an empty panel says nothing about accounts.
+    pub fn loaded(&self) -> bool {
+        self.loaded
     }
 
     pub fn data(&self) -> &AccountsData {
@@ -358,33 +399,79 @@ impl Accounts {
         cx.emit(AccountsEvent::NewCategoryRequested);
     }
 
-    /// Reads the accounts again. A selected account that has gone (closed
-    /// or deleted) is let go, and the views filtering by it are told.
+    /// Reads the accounts again, on a background thread. What is shown
+    /// stays until the read is back; a read asked for meanwhile replaces
+    /// this one. When it lands, a selected account that has gone (closed or
+    /// deleted) is let go, and the views filtering by it are told.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
-        let before = self.selected;
-        self.load();
-        if before.is_some() && self.selected.is_none() {
-            cx.emit(AccountsEvent::Selected(None));
-        }
-        cx.notify();
+        let Source::Database(store) = &self.source else {
+            cx.notify();
+            return;
+        };
+        let store = store.clone();
+        self.loading = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { store.load(store.presets()) })
+                .await
+                .map_err(|error| SharedString::from(error.to_string()));
+            this.update(cx, |this, cx| {
+                this.loading = None;
+                // A failed read keeps the last data, which may lack an
+                // account selected since: only a read that worked lets go.
+                if this.take(result) {
+                    this.let_go_of_missing_selection(cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
-    fn load(&mut self) {
+    /// Starts the first read, if it hasn't been asked for.
+    pub(crate) fn start_loading(&mut self, cx: &mut Context<Self>) {
+        if !self.loaded && self.loading.is_none() {
+            self.reload(cx);
+        }
+    }
+
+    /// Reads on this thread (tests and the snapshot).
+    fn read_now(&mut self) {
         let Source::Database(store) = &self.source else {
             return;
         };
-        match store.load(store.presets()) {
+        let result = store
+            .load(store.presets())
+            .map_err(|error| SharedString::from(error.to_string()));
+        self.take(result);
+        if self.selected.is_some_and(|id| !self.data.contains(id)) {
+            self.selected = None;
+        }
+    }
+
+    /// Takes a read; whether it worked.
+    fn take(&mut self, result: Result<AccountsData, SharedString>) -> bool {
+        self.loaded = true;
+        match result {
             Ok(data) => {
                 self.data = data;
                 self.load_error = None;
+                true
             }
             Err(error) => {
                 tracing::warn!(%error, "couldn't read the accounts");
-                self.load_error = Some(error.to_string().into());
+                self.load_error = Some(error);
+                false
             }
         }
+    }
+
+    /// The read that lands was started after every write that selected an
+    /// account (a read asked for earlier was replaced), so a selected
+    /// account that is missing from it has gone.
+    fn let_go_of_missing_selection(&mut self, cx: &mut Context<Self>) {
         if self.selected.is_some_and(|id| !self.data.contains(id)) {
             self.selected = None;
+            cx.emit(AccountsEvent::Selected(None));
         }
     }
 
@@ -408,6 +495,7 @@ impl Accounts {
             .create(account, balance)
             .map_err(|error| SharedString::from(error.to_string()))?;
         self.reload(cx);
+        // Selected at once, by ID; the read just started has the account.
         self.select(Some(id), cx);
         Ok(id)
     }

@@ -1164,13 +1164,19 @@ that changes a decision needs a new decision record in its topic file.
   still doesn't show `skipped_categories` or `skipped_splits`, and the Inbox doesn't show
   or discount a split template's `skipped_splits`
 
-- ⬜ R.19 Accounts and Rules read on the UI thread (from R.14). At 100,606 transactions the
+- ✅ R.19 Accounts and Rules read on the UI thread (from R.14). At 100,606 transactions the
   Accounts load takes 117 ms (`reporting::account_tree` 104 ms, up to ~220 ms in one run)
   and the Rules load 521 ms (`rule::overview` 412 ms, of which reading the transactions
   the rules see is ~100 ms), against a 50 ms budget. Move both to a background read as
   the Inbox does (`Inbox::unloaded`, `reload` on `background_spawn`, keeping the last data
   until the new read lands), and decide what each view does between an edit and its
-  reload
+  reload. Done (composed): both read in the background (`Accounts::unloaded`,
+  `Rules::unloaded`), saying nothing until the first read; writes stay on the UI thread.
+  A new account is selected at once. Rules does at once what the next input needs: a
+  move reorders, a delete removes the row, a create closes its preview and selects the
+  item when the read lands, a save isn't repeated, and a read doesn't overwrite a form
+  edited since it was asked for (`app.md`, "Accounts and Rules read in the background").
+  The Rules view's apply preview and other selection reads stay on the UI thread
 
 **Exit criteria:** every item is fixed, or closed by a decision record that says why it
 stays as it is.

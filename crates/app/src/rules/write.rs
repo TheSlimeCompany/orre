@@ -15,10 +15,15 @@
 //!   ([`Outcome::Refused`]), only to the dialog that asked, or on the undo
 //!   bar, which offers the same Undo again with the reason. The text is
 //!   core's error as a sentence.
-//! - **A save** takes the bar away, reads everything again
-//!   ([`Rules::reload`]) and tells the shell [`RulesEvent::Changed`] when the
-//!   policy names it: when a transaction changed, or what Transactions shows
-//!   of one (its category, its rule, its name). Choosing what is selected
+//! - **A save** takes the bar away, asks for everything to be read again
+//!   ([`Rules::reload`], on a background thread) and tells the shell
+//!   [`RulesEvent::Changed`] when the policy names it: when a transaction
+//!   changed, or what Transactions shows of one (its category, its rule, its
+//!   name). The write itself runs here, on the UI thread. Until the read
+//!   lands the view shows the last one, so the caller does what must show at
+//!   once: a moved rule takes its new place, a deleted row goes, a created
+//!   rule or category is selected when the read lands, and what was saved is
+//!   remembered so the same save isn't made twice. Choosing what is selected
 //!   afterwards stays with the caller, from what `op` returned.
 //!
 //! Reads that fill the view (a preview, the suggestions over a rule, a
@@ -83,9 +88,10 @@ impl<T> Policy<T> {
 impl Rules {
     /// Opens the database and runs `op` on it as `policy` says: refused
     /// without a database; an error said where the policy says; after a save
-    /// the bar goes, everything is read again and the shell is told as the
-    /// policy says. Returns what `op` returned, or why it didn't save
-    /// (already said, unless the policy leaves it to the dialog).
+    /// the bar goes, a read of everything is asked for (it lands later) and
+    /// the shell is told as the policy says. Returns what `op` returned, or
+    /// why it didn't save (already said, unless the policy leaves it to the
+    /// dialog).
     pub(super) fn write<T, E: Into<StoreError>>(
         &mut self,
         policy: Policy<T>,
@@ -103,6 +109,7 @@ impl Rules {
                 if (policy.tells_shell)(&value) {
                     cx.emit(RulesEvent::Changed);
                 }
+                cx.notify();
                 Ok(value)
             }
             Err(error) => {

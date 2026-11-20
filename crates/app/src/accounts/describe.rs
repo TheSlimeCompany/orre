@@ -310,7 +310,8 @@ impl Accounts {
                         .chain(node.pots.iter().map(|pot| row(pot, true)))
                 })
                 .collect(),
-            note: (kept.is_empty() && self.load_error().is_none()).then_some(panel::NO_ACCOUNTS),
+            note: (self.loaded() && kept.is_empty() && self.load_error().is_none())
+                .then_some(panel::NO_ACCOUNTS),
         };
         let valued_section = PanelSection {
             title: panel::VALUED,

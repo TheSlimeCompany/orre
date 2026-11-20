@@ -5,8 +5,9 @@
 //! server, the app holds no connection between reads and writes: each call
 //! opens the database at the path it was given, creating and migrating it
 //! as the CLI does, through [`gate::open`], which checks the restore lock
-//! before and after opening, so a restore can swap the file. Reads and
-//! writes are small (a person's accounts) and run on the main thread.
+//! before and after opening, so a restore can swap the file. Reads run
+//! on a background thread ([`super::Accounts::reload`]); writes are small
+//! (a person's accounts) and run on the UI thread.
 //!
 //! All the business rules are core's ([`coffer_core::account`]): this only
 //! opens the database and reads what the panel and inspector show.

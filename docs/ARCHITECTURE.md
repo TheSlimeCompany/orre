@@ -160,6 +160,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 - Decision record: the status bar reads the database (2026-11-17)
 - Decision record: views that describe themselves stay out of the release binary (2026-11-18)
 - Decision record: performance at 100,000 transactions (2026-11-19)
+- Decision record: Accounts and Rules read in the background (2026-11-19)
 
 ### In this file
 

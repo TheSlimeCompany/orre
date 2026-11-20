@@ -350,6 +350,52 @@ fn a_refused_move_is_said_as_a_drops_is(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn presses_before_the_read_lands_add_up_and_undo_returns_to_the_start(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    let waitrose = rule(&scratch, 5);
+    select(&shell, &rules, waitrose, cx);
+
+    // Two ⌥↑ with no read landing between them: the second moves on from
+    // where the first put the rule, and the table shows it there at once.
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.reorder_selected(false, cx);
+            rules.reorder_selected(false, cx);
+        })
+    });
+    assert!(cx.update(|_, cx| rules.read(cx).loading.is_some()));
+    assert_eq!(stored_at(&scratch, waitrose), 3);
+    let order = cx.update(|_, cx| rules.read(cx).rule_order());
+    assert_eq!(order, stored_order(&scratch));
+    assert_eq!(
+        outcome(&rules, cx),
+        Some(Outcome::Moved(Moved {
+            rule: waitrose,
+            from: 5
+        }))
+    );
+    let shown = describe(&shell, cx);
+    let row = &rule_rows(&shown)[3];
+    assert_eq!((row.number, row.selected), (4, true));
+    assert_eq!(
+        shown.bar,
+        moved("Moved “Merchant contains WAITROSE” to rule 4 of 14")
+    );
+
+    // Undo, still before the read: back where the presses began.
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.undo(cx)));
+    assert_eq!(stored_at(&scratch, waitrose), 5);
+    redraw(cx);
+    assert_eq!(stored_at(&scratch, waitrose), 5);
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).data().position(waitrose)),
+        Some(5)
+    );
+    assert_eq!(selected(&rules, cx), Some(waitrose));
+}
+
+#[gpui_kit::test]
 fn a_reload_that_finds_another_order_drops_the_bar(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let (shell, rules, cx) = open(cx, &scratch);
@@ -361,6 +407,7 @@ fn a_reload_that_finds_another_order_drops_the_bar(cx: &mut TestAppContext) {
     // Read again with nothing changed (back from another view): the bar
     // stays, and Undo still knows where the rule began.
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reload(cx)));
+    redraw(cx);
     assert!(matches!(outcome(&rules, cx), Some(Outcome::Moved(_))));
 
     // Moved elsewhere (another rule put first, as an approved suggestion
@@ -368,6 +415,29 @@ fn a_reload_that_finds_another_order_drops_the_bar(cx: &mut TestAppContext) {
     let last = rule(&scratch, 13);
     core_rule::move_to(&mut scratch.db(), last, 0).unwrap();
     cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reload(cx)));
+    redraw(cx);
     assert_eq!(outcome(&rules, cx), None);
     assert_eq!(describe(&shell, cx).bar, None);
+}
+
+#[gpui_kit::test]
+fn a_move_takes_the_shown_rule_s_place_while_a_rule_made_elsewhere_is_unread(
+    cx: &mut TestAppContext,
+) {
+    let scratch = Scratch::new();
+    let (_shell, rules, cx) = open(cx, &scratch);
+    let (waitrose, next) = (rule(&scratch, 5), rule(&scratch, 6));
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_rule(Some(waitrose), cx)));
+    redraw(cx);
+    // A rule stored first, elsewhere, that the view hasn't read: every rule
+    // is one place further down in the database than on screen.
+    let proposal = core_rule::propose(&scratch.db(), scratch.seeded.vinted)
+        .unwrap()
+        .expect("VINTED proposes a rule");
+    core_rule::create(&mut scratch.db(), &proposal.definition).unwrap();
+    // ⌥↓: just below the next row shown, in the database too.
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reorder_selected(true, cx)));
+    assert_eq!(stored_at(&scratch, waitrose), stored_at(&scratch, next) + 1);
+    redraw(cx);
+    assert_eq!(stored_at(&scratch, waitrose), stored_at(&scratch, next) + 1);
 }

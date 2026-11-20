@@ -305,7 +305,7 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
     };
     let (accounts, source) = match paths::database_path() {
         Ok(database) => (
-            Accounts::from_store(AccountStore::new(database.clone())),
+            Accounts::unloaded(AccountStore::new(database.clone())),
             transactions::Source::Database(TransactionStore::new(database)),
         ),
         // Without a data folder there's nothing to read: the panel says why,
@@ -362,7 +362,7 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
             let checks = cx.new(|_| checks);
             shell.install_checks(checks, window, cx);
             let rules = cx.new(|_| match paths::database_path() {
-                Ok(database) => Rules::from_store(RulesStore::new(database)),
+                Ok(database) => Rules::unloaded(RulesStore::new(database)),
                 Err(error) => Rules::unavailable(format!("Coffer has no data folder: {error}")),
             });
             shell.install_rules(rules, window, cx);
@@ -514,6 +514,7 @@ impl ShellView {
             transactions
         });
         let panel_categories = transactions.read(cx).panel_categories();
+        accounts.update(cx, |accounts, cx| accounts.start_loading(cx));
         let subscriptions = vec![
             cx.subscribe_in(&accounts, window, |this, _, event, window, cx| {
                 this.on_accounts_event(*event, window, cx)

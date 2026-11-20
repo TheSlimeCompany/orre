@@ -450,16 +450,25 @@ impl Render for DragGhost {
 }
 
 /// The open section's empty state, when it has one: its icon, title and
-/// caption.
+/// caption. Until the first read lands there is none: an empty table means
+/// "not yet", as in the Inbox and Transactions; nor while a rule just created
+/// waits for the read that brings it.
 pub fn empty_text(rules: &Rules) -> Option<(Glyph, &'static str, &'static str)> {
+    if !rules.loaded() {
+        return None;
+    }
     let data = rules.data();
     match rules.section() {
-        Section::Rules if rules.apply().is_none() && data.rules.is_empty() => Some((
-            Glyph::ArrowLarge,
-            "No rules yet",
-            "Set a category on a transaction and Coffer offers to turn it into a rule once the \
+        Section::Rules
+            if rules.apply().is_none() && data.rules.is_empty() && rules.pending_rule.is_none() =>
+        {
+            Some((
+                Glyph::ArrowLarge,
+                "No rules yet",
+                "Set a category on a transaction and Coffer offers to turn it into a rule once the \
              merchant comes back. Or start one with New rule.",
-        )),
+            ))
+        }
         Section::Names if data.names.is_empty() && rules.selected_name().is_none() => Some((
             Glyph::NameTag,
             "No merchant names yet",

@@ -10,10 +10,12 @@ use std::rc::Rc;
 use coffer_core::change as core_change;
 use coffer_core::id::{RuleId, TransactionId};
 use coffer_core::reporting::register::Register;
+use coffer_core::rule::{self as core_rule, MatchKind};
 use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 
 use super::describe::{BarDescription, CanvasDescription};
 use super::tests::{Scratch, describe, item, open, redraw};
+use super::view::Input;
 use super::write::NO_DATABASE;
 use super::*;
 
@@ -28,6 +30,11 @@ fn capture(rules: &Entity<Rules>, cx: &mut VisualTestContext) -> Rc<RefCell<Vec<
         .detach()
     });
     events
+}
+
+/// Whether a read is in flight: asked for, not landed.
+fn reading(rules: &Entity<Rules>, cx: &mut VisualTestContext) -> bool {
+    cx.update(|_, cx| rules.read(cx).loading.is_some())
 }
 
 /// The transactions `rule` filed, from the register.
@@ -239,6 +246,7 @@ fn editing_a_merchant_name_tells_the_shell(cx: &mut TestAppContext) {
             rules.edit_name(true, |form| form.name = "Renamed".into(), cx);
         })
     });
+    redraw(cx);
 
     assert_eq!(*events.borrow(), [RulesEvent::Changed]);
     let shown = describe(&shell, cx);
@@ -281,5 +289,256 @@ fn moving_a_rule_keeps_what_was_typed_for_the_selected_one(cx: &mut TestAppConte
     assert_eq!(
         cx.update(|_, cx| rules.read(cx).data().position(uber)),
         Some(0)
+    );
+}
+
+#[gpui_kit::test]
+fn a_read_that_lands_keeps_what_was_typed_since_it_was_asked_for(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    let pret = scratch.seeded.rules[3];
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_rule(Some(pret), cx)));
+    redraw(cx);
+    let view = cx.update(|_, cx| shell.read(cx).rules_view().clone());
+
+    // A select saves at once and asks for a read; before it lands, a valid
+    // pattern is typed and not saved.
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit(true, |form| form.kind = MatchKind::StartsWith, cx)
+        })
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.type_into(Input::Pattern, "PRET", window, cx)
+        })
+    });
+    assert!(reading(&rules, cx));
+    redraw(cx);
+
+    let text = cx.update(|_, cx| rules.read(cx).form().map(|form| form.text.clone()));
+    assert_eq!(text.as_deref(), Some("PRET"), "the read didn't refill it");
+    let stored = coffer_core::rule::get(&scratch.db(), pret).unwrap();
+    assert_eq!(
+        (
+            stored.definition().pattern().kind(),
+            stored.definition().pattern().as_str()
+        ),
+        (MatchKind::StartsWith, "PRET A MANGER"),
+        "the select saved; the typing didn't"
+    );
+
+    // The same when the shell asks for a read before the save's lands: the
+    // newer read stands in for the older, and the typing came after that.
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit(true, |form| form.kind = MatchKind::Contains, cx)
+        })
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.type_into(Input::Pattern, "PRET A", window, cx)
+        })
+    });
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reload(cx)));
+    redraw(cx);
+    let text = cx.update(|_, cx| rules.read(cx).form().map(|form| form.text.clone()));
+    assert_eq!(text.as_deref(), Some("PRET A"));
+}
+
+#[gpui_kit::test]
+fn a_save_while_its_read_is_pending_is_not_made_again(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    let events = capture(&rules, cx);
+
+    // A name: saved once, then the same save again (a blur, a selection
+    // moving) before the read lands is skipped, so the shell isn't told
+    // twice. Typed back to what it was, it saves again.
+    let original = cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.show(Section::Names, cx);
+            let original = rules.name_form().map(|form| form.name.clone());
+            rules.edit_name(true, |form| form.name = "Renamed".into(), cx);
+            rules.edit_name(true, |_| {}, cx);
+            original.expect("the first name opens")
+        })
+    });
+    assert_eq!(*events.borrow(), [RulesEvent::Changed]);
+    assert!(reading(&rules, cx));
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit_name(true, |form| form.name = original.clone(), cx)
+        })
+    });
+    assert_eq!(*events.borrow(), [RulesEvent::Changed, RulesEvent::Changed]);
+    redraw(cx);
+    assert_eq!(item(&describe(&shell, cx)).title, original);
+
+    // A rule: saved, then deleted behind the view's back; saving the same
+    // again before the read lands would be refused, so it wasn't tried.
+    let pret = scratch.seeded.rules[3];
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.select_rule(Some(pret), cx);
+            rules.edit(true, |form| form.kind = MatchKind::StartsWith, cx);
+        })
+    });
+    core_rule::delete(&mut scratch.db(), pret).unwrap();
+    assert!(reading(&rules, cx));
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.save_rule(cx)));
+    assert_eq!(cx.update(|_, cx| rules.read(cx).outcome().cloned()), None);
+
+    // A category's name, likewise: one rename, told once.
+    events.borrow_mut().clear();
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.show(Section::Categories, cx);
+            rules.edit_category(true, |form| form.name = "Food shop".into(), cx);
+            rules.save_category_name(cx);
+        })
+    });
+    assert_eq!(*events.borrow(), [RulesEvent::Changed]);
+    assert!(reading(&rules, cx));
+    redraw(cx);
+    assert_eq!(*events.borrow(), [RulesEvent::Changed]);
+}
+
+#[gpui_kit::test]
+fn reopening_a_rule_before_its_read_lands_keeps_what_was_saved(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_shell, rules, cx) = open(cx, &scratch);
+    let pret = scratch.seeded.rules[3];
+    let other = scratch.seeded.rules[4];
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_rule(Some(pret), cx)));
+    redraw(cx);
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.edit(true, |form| form.kind = MatchKind::StartsWith, cx)
+        })
+    });
+    // Away and back, then away again, before the read lands: the form opens
+    // as saved, so leaving it doesn't save the older rule back.
+    let reopened = cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.select_rule(Some(other), cx);
+            rules.select_rule(Some(pret), cx);
+            let kind = rules.form().map(|form| form.kind);
+            rules.select_rule(Some(other), cx);
+            kind
+        })
+    });
+    assert!(reading(&rules, cx));
+    assert_eq!(reopened, Some(MatchKind::StartsWith));
+    let stored = core_rule::get(&scratch.db(), pret).unwrap();
+    assert_eq!(stored.definition().pattern().kind(), MatchKind::StartsWith);
+}
+
+#[gpui_kit::test]
+fn open_rule_on_a_rule_made_elsewhere_selects_it_when_the_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    cx.update(|window, cx| {
+        shell.update(cx, |shell, cx| {
+            shell.show(crate::shell::View::Transactions, window, cx)
+        })
+    });
+    redraw(cx);
+    // A rule made outside the Rules view (an approved Inbox suggestion).
+    let proposal = core_rule::propose(&scratch.db(), scratch.seeded.vinted)
+        .unwrap()
+        .expect("VINTED proposes a rule");
+    let made = core_rule::create(&mut scratch.db(), &proposal.definition).unwrap();
+    let transactions = cx.update(|_, cx| shell.read(cx).transactions().clone());
+    cx.update(|_, cx| {
+        transactions.update(cx, |_, cx| {
+            cx.emit(crate::transactions::TransactionsEvent::OpenRule(made))
+        })
+    });
+    redraw(cx);
+    assert!(cx.update(|_, cx| shell.read(cx).view() == crate::shell::View::Rules));
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).selected_rule_id()),
+        Some(made)
+    );
+}
+
+#[gpui_kit::test]
+fn reopening_a_name_or_category_before_its_read_lands_keeps_what_was_saved(
+    cx: &mut TestAppContext,
+) {
+    let scratch = Scratch::new();
+    let (_shell, rules, cx) = open(cx, &scratch);
+    let events = capture(&rules, cx);
+    let reopened = cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.show(Section::Names, cx);
+            let ids: Vec<_> = rules.names().iter().map(|n| n.alias.id()).collect();
+            let (first, second) = (ids[0], ids[1]);
+            assert_eq!(rules.selected_name(), Some(NameSelection::Stored(first)));
+            rules.edit_name(true, |form| form.name = "Renamed".into(), cx);
+            rules.select_name(Some(NameSelection::Stored(second)), cx);
+            rules.select_name(Some(NameSelection::Stored(first)), cx);
+            let name = rules.name_form().map(|form| form.name.clone());
+            rules.select_name(Some(NameSelection::Stored(second)), cx);
+            name
+        })
+    });
+    assert!(reading(&rules, cx));
+    assert_eq!(
+        reopened.as_deref(),
+        Some("Renamed"),
+        "the name form opens as saved"
+    );
+    assert_eq!(
+        *events.borrow(),
+        [RulesEvent::Changed],
+        "the name is saved once"
+    );
+    redraw(cx);
+    events.borrow_mut().clear();
+
+    let (id, reopened) = cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.show(Section::Categories, cx);
+            let ids: Vec<i64> = rules
+                .category_rows()
+                .iter()
+                .map(|row| row.summary.category.id())
+                .collect();
+            let Some(CategorySelection::Stored(first)) = rules.selected_category() else {
+                panic!("a category is selected")
+            };
+            let other = *ids.iter().find(|id| **id != first).unwrap();
+            rules.edit_category(true, |form| form.name = "Food shop".into(), cx);
+            rules.select_category(Some(CategorySelection::Stored(other)), cx);
+            rules.select_category(Some(CategorySelection::Stored(first)), cx);
+            let name = rules.category_form().map(|form| form.name.clone());
+            rules.select_category(Some(CategorySelection::Stored(other)), cx);
+            (first, name)
+        })
+    });
+    assert!(reading(&rules, cx));
+    assert_eq!(
+        reopened.as_deref(),
+        Some("Food shop"),
+        "the category form opens as saved"
+    );
+    assert_eq!(
+        *events.borrow(),
+        [RulesEvent::Changed],
+        "the category is saved once"
+    );
+    let label = scratch
+        .db()
+        .categories()
+        .unwrap()
+        .iter()
+        .find(|category| category.id() == id)
+        .map(|category| category.label().to_owned());
+    assert_eq!(
+        label.as_deref(),
+        Some("Food shop"),
+        "the stored label stays"
     );
 }

@@ -8,7 +8,7 @@ use coffer_core::db::Database;
 use coffer_core::id::AccountId;
 use coffer_core::money::{Currency, Money};
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 use tempfile::TempDir;
 
 use super::describe::{
@@ -1273,4 +1273,176 @@ fn account_names_are_shown_and_described_plain(cx: &mut TestAppContext) {
         shown.undo_bar.map(|(message, _)| message),
         Some(format!("{plain} 2 closed"))
     );
+}
+
+/// An [`Accounts::unloaded`] store as the panel describes it before any read
+/// is back, then a shell over it (which starts the read, so it is read by the
+/// time the window is up).
+fn open_unloaded<'a>(
+    cx: &'a mut TestAppContext,
+    scratch: &Scratch,
+) -> (
+    AccountsDescription,
+    Entity<ShellView>,
+    Entity<Accounts>,
+    &'a mut VisualTestContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+    });
+    let unread = cx.new(|_| Accounts::unloaded(AccountStore::new(scratch.path.clone())));
+    let before = cx.update(|cx| {
+        assert!(!unread.read(cx).loaded());
+        unread.read(cx).describe(None, cx)
+    });
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        ShellView::with_accounts(View::Transactions, unread.clone(), window, cx)
+    });
+    (before, shell, unread, cx)
+}
+
+/// Records the events `accounts` emits.
+fn record_events(
+    accounts: &Entity<Accounts>,
+    cx: &mut VisualTestContext,
+) -> std::rc::Rc<std::cell::RefCell<Vec<AccountsEvent>>> {
+    let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = events.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(accounts, move |_, event: &AccountsEvent, _| {
+            sink.borrow_mut().push(*event)
+        })
+        .detach()
+    });
+    events
+}
+
+#[gpui_kit::test]
+fn reads_in_the_background_and_says_nothing_until_it_is_back(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (before, shell, accounts, cx) = open_unloaded(cx, &scratch);
+    assert!(rows(&before).is_empty());
+    assert_eq!(before.sections[0].note, None, "not \"No accounts yet\"");
+    assert_eq!(before.sections[1].note, None);
+    assert_eq!(before.net_worth, [panel::NO_NET_WORTH]);
+
+    redraw(cx);
+    assert!(cx.update(|_, cx| accounts.read(cx).loaded()));
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        listed(&shown),
+        [("Current account", "£100.00"), ("Holiday", "No balance")]
+    );
+    assert_eq!(shown.error, None);
+}
+
+#[gpui_kit::test]
+fn a_database_with_no_accounts_says_so_once_it_is_read(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let scratch = Scratch {
+        path: dir.path().join("coffer.db"),
+        _dir: dir,
+        current: AccountId::new(0),
+        pot: AccountId::new(0),
+    };
+    Database::open(&scratch.path).unwrap();
+    let (before, shell, accounts, cx) = open_unloaded(cx, &scratch);
+    assert_eq!(before.sections[0].note, None);
+    redraw(cx);
+    assert_eq!(
+        describe(&shell, &accounts, cx).sections[0].note,
+        Some(panel::NO_ACCOUNTS)
+    );
+}
+
+#[gpui_kit::test]
+fn a_reload_keeps_showing_the_last_read_until_the_new_one_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let house = valued(&scratch, "House", AccountKind::Asset, 38_500_000);
+    cx.update(|_, cx| accounts.update(cx, |accounts, cx| accounts.reload(cx)));
+    let before = describe(&shell, &accounts, cx);
+    assert!(!listed(&before).iter().any(|(name, _)| *name == "House"));
+    assert!(!cx.update(|_, cx| accounts.read(cx).data().contains(house)));
+
+    redraw(cx);
+    let after = describe(&shell, &accounts, cx);
+    assert!(listed(&after).iter().any(|(name, _)| *name == "House"));
+    assert!(cx.update(|_, cx| accounts.read(cx).data().contains(house)));
+}
+
+#[gpui_kit::test]
+fn a_selected_account_deleted_elsewhere_is_let_go_when_the_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let house = valued(&scratch, "House", AccountKind::Asset, 38_500_000);
+    let (_shell, accounts, cx) = open(cx, &scratch);
+    let events = record_events(&accounts, cx);
+    click(&row(house), cx);
+    assert_eq!(selected(&accounts, cx), Some(house));
+    events.borrow_mut().clear();
+
+    account::close::delete(&mut scratch.db(), house).unwrap();
+    cx.update(|_, cx| accounts.update(cx, |accounts, cx| accounts.reload(cx)));
+    assert_eq!(selected(&accounts, cx), Some(house), "until the read lands");
+    assert!(events.borrow().is_empty());
+
+    redraw(cx);
+    assert_eq!(selected(&accounts, cx), None);
+    assert_eq!(*events.borrow(), [AccountsEvent::Selected(None)]);
+}
+
+#[gpui_kit::test]
+fn a_new_account_is_selected_at_once_and_stays_selected_when_the_read_lands(
+    cx: &mut TestAppContext,
+) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let events = record_events(&accounts, cx);
+    let id = cx
+        .update(|_, cx| {
+            accounts.update(cx, |accounts, cx| {
+                let account = NewAccount::new("Amex", AccountKind::Current, Currency::GBP);
+                accounts.create(&account, None, cx)
+            })
+        })
+        .unwrap();
+    assert_eq!(selected(&accounts, cx), Some(id), "at once");
+    assert_eq!(*events.borrow(), [AccountsEvent::Selected(Some(id))]);
+
+    redraw(cx);
+    assert_eq!(selected(&accounts, cx), Some(id));
+    assert_eq!(*events.borrow(), [AccountsEvent::Selected(Some(id))]);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(selected_row(&shown).map(|(name, _)| name), Some("Amex"));
+}
+
+#[gpui_kit::test]
+fn a_new_account_s_inspector_fills_in_when_its_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(panel::ADD_ACCOUNT, cx);
+    type_into("new-account-name", "Amex", cx);
+    type_into("new-account-bank", "American Express", cx);
+    click("new-account-add", cx);
+    let added = account::list(&scratch.db())
+        .unwrap()
+        .into_iter()
+        .find(|account| account.name == "Amex")
+        .expect("Amex was added");
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(value(section(&shown, None), "Name"), Some("Amex"));
+    assert_eq!(
+        value(section(&shown, None), "Bank"),
+        Some("American Express")
+    );
+    // An edit in the inspector changes only what was edited.
+    click("account-name", cx);
+    press("end", cx);
+    cx.update(|window, cx| window.input(" Gold", cx));
+    press("enter", cx);
+    let stored = account::get(&scratch.db(), added.id).unwrap();
+    assert_eq!(stored.name, "Amex Gold");
+    assert_eq!(stored.institution.as_deref(), Some("American Express"));
 }
