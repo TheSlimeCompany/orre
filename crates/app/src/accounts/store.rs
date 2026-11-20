@@ -22,7 +22,7 @@ use orre_core::account::count::{self, Expectation, Recorded};
 use orre_core::account::{self, AccountEdit, EnteredBalance, NewAccount};
 use orre_core::backup::gate;
 use orre_core::db::Database;
-use orre_core::id::AccountId;
+use orre_core::id::{AccountId, BalanceId};
 use orre_core::import::{self, BatchStatus};
 use orre_core::money::Money;
 use orre_core::reporting::account_tree::account_tree;
@@ -146,6 +146,27 @@ impl AccountStore {
         let mut db = self.open()?;
         account::add_balance(&mut db, id, balance)?;
         Ok(())
+    }
+
+    /// Changes one balance the user entered.
+    pub fn update_balance(
+        &self,
+        id: AccountId,
+        balance: BalanceId,
+        entered: &EnteredBalance,
+    ) -> Result<(), StoreError> {
+        let mut db = self.open()?;
+        Ok(account::update_balance(&mut db, id, balance, entered)?)
+    }
+
+    /// Removes one balance the user entered; returns it, to put back.
+    pub fn remove_balance(
+        &self,
+        id: AccountId,
+        balance: BalanceId,
+    ) -> Result<EnteredBalance, StoreError> {
+        let mut db = self.open()?;
+        Ok(account::remove_balance(&mut db, id, balance)?)
     }
 
     /// What Orre expects of a cash count of `counted` on `date`.

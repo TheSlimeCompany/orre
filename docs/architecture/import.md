@@ -788,3 +788,28 @@ user's; the rest are **(composed)**.
    a hash, and the number is never needed back); a plain unkeyed hash (a short numeric
    account number could be recovered by trying every number); no warning at all for an
    account with no hash (it would miss account A's file going into a new account B).
+
+### Decision record: New account from Import (2026-11-20)
+
+M3.P3, from the user's M3 exit check: with no account to import into, Import was a dead
+end (close it, add the account in the panel, import again). The user chose to reuse the
+New account dialog. Drawn on M3 punch list · states (`IS2-0`; `DESIGN.md` → "M3 punch
+list"). **No migration.**
+
+1. **The Account menu always ends with "New account…"**, under a hairline
+   (`ui::menu::MenuGroup::footer`), and under the menu's empty row ("No accounts yet",
+   "No accounts to import into") when there's nothing to choose. Map's footer points at
+   it: "There are no accounts yet. Choose New account… in the Account menu."
+2. **It opens the existing New account dialog over Import**, hosted by the Import dialog
+   itself (the shell shows one dialog at a time): Import draws it after its own content
+   and gives it Escape, so Escape and Cancel close only New account. The shell passes
+   the accounts entity in (`ImportDialog::with_accounts`); the sample dialog has none, so
+   the item is disabled there.
+3. **Prefilled from the file** (`NewAccountDialog::prefill`): the file's currency, the
+   detected preset's bank, Kind Current (a preset names no kind), the name empty and
+   focused, and a caption saying where the values came from.
+4. **On Add account** the account is created through `Accounts`, as from the panel (so
+   the panel shows it), `NewAccountDialog` emits `AccountCreated(id)` before closing,
+   and Import reads its accounts again and chooses it, keeping the file, the mapping and
+   the step. A currency the user changed in New account is still caught by Review's
+   currency check.

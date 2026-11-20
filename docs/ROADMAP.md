@@ -937,20 +937,26 @@ Every tool call appears in the access log.
   menu with no options ("No accounts yet", or "No accounts to import into" when there are
   accounts but none can take an import; one row; the footer says what to add);
   "No matches" stays for a filter that left none
-- ⬜ M3.P3 Import: "New account…" in the Account menu, so a fresh database isn't a dead end
+- ✅ M3.P3 Import: "New account…" in the Account menu, so a fresh database isn't a dead end
   (today: close the dialog, add the account in the panel, import again). New UI: decide
   whether to draw it in Paper first or reuse the New account dialog, with the file's
-  currency filled in and the new account chosen on return
+  currency filled in and the new account chosen on return. Built (user: reuse the
+  dialog): the menu always ends with a hairline and "New account…"
+  (`MenuGroup::footer`); it opens New account over Import, hosted by the Import dialog,
+  with the file's currency and the preset's bank; Add account chooses it and Import
+  carries on. Drawn on `IS2-0`; decision record "New account from Import" (`import.md`)
 - ✅ M3.P4 Import: dropping several files on the window imports only the first and drops the
   rest without a word (`shell.rs` and `import/dialog.rs` take `paths().first()`); import
   them in turn, or say that only one was taken. Built: the second option, on the window
   and the drop zone ("Only the first of 3 files was opened. Drop the others one at a
   time."); a queue would need a design for what Cancel does to the rest
-- ⬜ M3.P5 Date fields hide the first digit of a two-digit day: `ui::field::date_input` is 96px
+- ✅ M3.P5 Date fields hide the first digit of a two-digit day: `ui::field::date_input` is 96px
   (`--container-column-amount`) in Geist Mono, too narrow for `17 Nov 2026`, so the text
   scrolls and reads `7 Nov 2026` while 17 Nov is what gets saved. Used by New account, Add
   balance and valuations, Close, New transaction and the manual row's Date in the
-  inspector. Design the width (or size) in Paper first, then check every caller
+  inspector. Design the width (or size) in Paper first, then check every caller. Built:
+  a new token `--container-field-date` (112px, `size::FIELD_DATE`; tokens re-exported,
+  hash `f0be798c`); the manual row's Date still fills its row
 - ✅ M3.P6 Add balance: the date starts on today, so on an account created today with an opening
   balance the default is always refused (one entered balance per account and day); start
   on a free day, or say so before the first click. Built: the second option (the date
@@ -964,11 +970,14 @@ Every tool call appears in the access log.
   field's `17 Nov 2026`. Built: the dialog writes every ISO date in core's refusal as the
   field does (also `AfterClosing` and `Locked`), leaving dates inside paths and
   timestamps alone
-- ⬜ M3.P9 Entered balances can't be edited or removed: core has `account::add_balance` only, so
+- ✅ M3.P9 Entered balances can't be edited or removed: core has `account::add_balance` only, so
   a wrong opening balance can't be corrected, yet `BalanceExists` says "edit that one
   instead". Needs core functions (with the lock-date guard) and inspector UI, designed in
-  Paper first
-- ⬜ M3.P10 Accounts panel: right-click menus on its rows (user). The app has no context menu yet
+  Paper first. Built: `account::update_balance` (the old and new day both after the
+  lock) and `remove_balance`; a balance row in the inspector opens Edit (Add balance with
+  its values, "Remove balance"); removing shows an undo bar. Drawn on `IS2-0`; decision
+  record "editing and removing entered balances (built)" (`accounts.md`)
+- ✅ M3.P10 Accounts panel: right-click menus on its rows (user). The app has no context menu yet
   and DESIGN.md has none, so draw it in Paper first (likely `ui::menu` opened at the
   pointer). Proposed actions, each one the app already has elsewhere:
   - Account: Show transactions, Add balance…, Import into this account…, New
@@ -979,26 +988,38 @@ Every tool call appears in the access log.
   - Category: Show transactions, Rename…, New subcategory…, Hide, Delete… (only when
     unused), Open in Rules
   - Uncategorised: Show transactions
-- ⬜ M3.P11 Transfer or refund (user: "poor UX"): money in that matches a purchase in another
+
+  Built: `MenuList::context` opened at the pointer (`ui::menu::at_pointer`), items from
+  `accounts::context_menu`, each an existing action. A category's Rename…, New
+  subcategory…, Hide and Delete… open Rules → Categories on it (the editor can't be
+  driven from outside yet); a cash account has no Import item. Drawn on `IS2-0`; decision
+  record "right-click menus on the accounts panel" (`app.md`)
+- ✅ M3.P11 Transfer or refund (user: "poor UX"): money in that matches a purchase in another
   account (same amount, days apart) is always suggested as a transfer, and while a row is
   in a suggested transfer the Links section is hidden (`RegisterRow::takes_links`), so the
   only way to link it as a refund is "Not a transfer" first, which nothing hints at. Found
   with a manual +£12.40 in a cash account against an imported −£12.40 purchase. Offer the
   refund in the suggestion itself (e.g. "Is this a transfer?" with Confirm transfer, Link
   as refund, Neither), or let detection prefer a refund when the money out is a purchase
-  rather than a transfer out; decide the wording and layout in Paper first
+  rather than a transfer out; decide the wording and layout in Paper first. Built (user:
+  in the card): "Transfer or refund?" with Transfer / Refund / Neither when the money out
+  is spending; Refund is `inbox::link_as_refund` (reject the pair and link, one DB
+  transaction, one undo). Drawn on `IS2-0`; decision record "transfer or refund in the
+  suggestion card" (`transactions.md`)
 - ✅ M3.P12 Transactions: "This week" and "Last week" in the Date chip's menu (user). Today
   `reporting::register::DatePreset` has This month, Last month, Last 3 months, This year and
   All time. Decide which day a week starts on (Monday, or a setting). Built:
   `DatePreset::ThisWeek`/`LastWeek`, first in the menu; weeks run Monday to Sunday (ISO
   8601, not a setting), and This week runs to Sunday as This month runs to its end
-- ⬜ M3.P13 Transactions: sorting by a column looks like it does nothing (user, test 5.2). By
+- ✅ M3.P13 Transactions: sorting by a column looks like it does nothing (user, test 5.2). By
   design it sorts only within each day (`docs/ARCHITECTURE.md`, Transactions decision 5;
   `Register::select`), and with one or two rows a day, as in the fixtures and much real
   data, nothing visibly moves. Revisit the decision: e.g. a column sort that drops the day
   grouping (one flat list, date as a column) until it's cleared, keeping today's within-day
   sort only if it still earns its place. Changing it is a new decision record and a Paper
-  pass on the flat table
+  pass on the flat table. Built (user: flat): any column sort is one flat list with a
+  Date column first and no day headers or nets; DATE or a third click goes back to days.
+  Drawn on `IS2-0`; decision record "a column sort is one flat list" (`transactions.md`)
 
 **Exit criteria:** day-to-day use (import, categorize, split, link refunds, review the inbox
 and duplicates) without the CLI.

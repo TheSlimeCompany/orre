@@ -766,7 +766,7 @@ fn single(
     ];
     for section in Section::of(view, row) {
         sections.extend(match section {
-            Section::Transfer => super::transfer::transfer_section(view, row, cx),
+            Section::Transfer => super::transfer::transfer_section(view, row, window, cx),
             Section::Share => Some(super::links::share_section(view, row, window, cx)),
             Section::Links => Some(super::links::links_section(view, row, window, cx)),
             Section::Split => Some(split_section(view, window, cx)),

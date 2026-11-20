@@ -38,20 +38,22 @@
 //! balance has no figure, and its caption says so; a change core refuses is
 //! put back and the reason shown under Details in `danger`.
 
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
-    SharedString, Styled as _, Subscription, Window, div,
+    AnyElement, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, div,
 };
 use orre_core::account::{AccountEdit, AccountKind, Deletion, StoredBalance, Usage};
-use orre_core::id::AccountId;
+use orre_core::id::{AccountId, BalanceId};
 use orre_core::money::Currency;
 use orre_core::reconciliation::BalanceSource;
 use orre_core::reporting::account_tree::AccountNode;
 
 use crate::format::{Sign, list_date, money};
-use crate::theme::tokens::{color, size, spacing, typography};
+use crate::theme::tokens::{color, radius, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::field::{FieldRow, LockedValue, SelectField, date_lane, error_caption, text_input};
 use crate::ui::icon::Glyph;
@@ -258,7 +260,27 @@ pub(super) struct BalanceText {
     pub date: String,
     pub label: String,
     pub amount: String,
+    /// The balance's ID when the user entered it (not the opening balance,
+    /// which lives on the account row).
+    pub id: Option<BalanceId>,
+    /// Inside the locked period: shown with a lock, and it can't change.
+    pub locked: bool,
 }
+
+impl BalanceText {
+    /// Whether a click opens the edit dialog.
+    pub fn editable(&self) -> bool {
+        self.id.is_some() && !self.locked
+    }
+}
+
+/// The element id of an entered balance's row.
+pub fn balance_row_id(id: BalanceId) -> SharedString {
+    format!("balance-{id}").into()
+}
+
+/// The sentence added to the balances caption while a row can be changed.
+pub const EDIT_HINT: &str = "Click one to change or remove it.";
 
 /// The balances section's rows, newest first: a cash account's counts are
 /// labelled as counts.
@@ -280,6 +302,12 @@ pub(super) fn balance_rows(
                 balance_label(balance)
             },
             amount: money(balance.balance, Sign::Negative),
+            id: balance.id,
+            locked: balance.id.is_some()
+                && node
+                    .account
+                    .reconciled_through
+                    .is_some_and(|through| balance.date <= through),
         })
         .collect()
 }
@@ -735,13 +763,32 @@ impl AccountInspector {
         let rows = balance_rows(node, balances, data);
         let with_year = rows.iter().any(|row| row.date.len() > 6);
         let cash = node.account.kind == AccountKind::Cash;
+        let any_editable = rows.iter().any(BalanceText::editable);
+        let account = node.account.id;
         let rows = rows.into_iter().map(|row| {
+            let editable = row.editable();
+            let locked = row.locked;
+            let entered = row.id;
+            let accounts = self.accounts.clone();
             div()
+                .id(entered.map_or_else(|| "balance-opening".into(), balance_row_id))
                 .flex()
                 .flex_none()
                 .items_center()
                 .gap(spacing::S2)
                 .h(size::CONTROL)
+                .px(spacing::S1_5)
+                .mx(-spacing::S1_5)
+                .rounded(radius::MD)
+                .when_some(entered.filter(|_| editable), |this, id| {
+                    this.cursor_pointer()
+                        .hover(|style| style.bg(color::HOVER))
+                        .on_click(move |_, _, cx| {
+                            accounts.update(cx, |accounts, cx| {
+                                accounts.request_edit_balance(account, id, cx)
+                            })
+                        })
+                })
                 .child(
                     div()
                         .flex_none()
@@ -752,13 +799,24 @@ impl AccountInspector {
                 )
                 .child(
                     div()
+                        .flex()
                         .flex_1()
                         .min_w_0()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_role(typography::BODY)
-                        .text_color(color::TEXT_SECONDARY)
-                        .child(row.label),
+                        .items_center()
+                        .gap(spacing::S1_5)
+                        .child(
+                            div()
+                                .min_w_0()
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .text_role(typography::BODY)
+                                .text_color(color::TEXT_SECONDARY)
+                                .child(row.label),
+                        )
+                        .when(locked, |this| {
+                            this.child(Glyph::Lock.render().text_color(color::ICON_FAINT))
+                        }),
                 )
                 .child(
                     div()
@@ -767,6 +825,8 @@ impl AccountInspector {
                         .text_color(color::TEXT)
                         .child(row.amount),
                 )
+                .test_support()
+                .into_any_element()
         });
         let id = node.account.id;
         let accounts = self.accounts.clone();
@@ -794,6 +854,13 @@ impl AccountInspector {
                 "Orre counts forward from the balances you enter and the ones in your imports. Each one is checked against the transactions.",
             )
         };
+        let note = note.map(|note| {
+            if any_editable {
+                format!("{note} {EDIT_HINT}")
+            } else {
+                note.to_owned()
+            }
+        });
         section(true)
             .gap(spacing::S1)
             .child(section_title_row(title, add))

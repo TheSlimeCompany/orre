@@ -33,12 +33,16 @@
 //! marks the row selected; clicking the selected row there clears it. The
 //! `+` opens Rules on a new category. The arrow keys move through the
 //! accounts only. Composed, not drawn (user, 2026-11-17).
+//!
+//! Right-clicking a row opens its context menu ([`super::context_menu`],
+//! M3.P10) and doesn't change the selection; the row keeps the `hover` fill
+//! while its menu is open.
 
 use gpui_kit::base::actions::{Cancel, Confirm};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    AnyElement, App, Entity, FocusHandle, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
 use orre_core::account::AccountKind;
 use orre_core::id::AccountId;
@@ -46,15 +50,17 @@ use orre_core::reporting::account_tree::AccountNode;
 
 use crate::format::{Sign, money};
 use crate::theme::tokens::typography::TextRole;
-use crate::theme::tokens::{color, font, size, spacing, typography};
+use crate::theme::tokens::{color, font, radius, size, spacing, typography};
 use crate::ui::button::IconButton;
 use crate::ui::icon::Glyph;
 use crate::ui::list::{Keys, ListKeysExt as _};
 use crate::ui::list_row::{ListRow, TrailingTone};
 use crate::ui::marker::Marker;
+use crate::ui::menu::MenuGroup;
 use crate::ui::section_label::SectionLabelRow;
 use crate::ui::text::TextRoleExt as _;
 
+use super::context_menu::{self, ContextTarget};
 use super::data::AccountsData;
 use super::{Accounts, AddValuation, CategoryPick};
 
@@ -218,7 +224,54 @@ fn note_row(text: impl Into<SharedString>) -> gpui_kit::Div {
         .child(text.into())
 }
 
+/// `row` with the context menu a right-click opens (`groups`, on `target`),
+/// and the `hover` fill while that menu is open (`open`).
+fn with_context_menu(
+    row: impl IntoElement,
+    target: ContextTarget,
+    groups: Vec<MenuGroup>,
+    open: bool,
+    accounts: &Entity<Accounts>,
+    focus: &FocusHandle,
+) -> AnyElement {
+    let (accounts, focus) = (accounts.clone(), focus.clone());
+    div()
+        .rounded(radius::MD)
+        .when(open, |this| this.bg(color::HOVER))
+        .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+            cx.stop_propagation();
+            accounts.update(cx, |accounts, cx| {
+                accounts.open_context_menu(
+                    target,
+                    groups.clone(),
+                    event.position,
+                    focus.clone(),
+                    window,
+                    cx,
+                )
+            })
+        })
+        .child(row)
+        .into_any_element()
+}
+
 fn account_row(
+    node: &AccountNode,
+    nested: bool,
+    accounts: &Entity<Accounts>,
+    state: &Accounts,
+    selected: bool,
+    ring: bool,
+    focus: &FocusHandle,
+) -> AnyElement {
+    let target = ContextTarget::Account(node.account.id);
+    let open = state.context_menu().map(|menu| menu.target) == Some(target);
+    let groups = context_menu::account_groups(state.data(), node.account.id);
+    let row = plain_account_row(node, nested, accounts, selected, ring, focus);
+    with_context_menu(row, target, groups, open, accounts, focus)
+}
+
+fn plain_account_row(
     node: &AccountNode,
     nested: bool,
     accounts: &Entity<Accounts>,
@@ -270,6 +323,7 @@ pub fn render(
     #[cfg(test)]
     state.record_panel_ring(ring);
 
+    let menu_target = state.context_menu().map(|menu| menu.target);
     let totals = net_worth(data);
     let net_worth = div()
         .flex()
@@ -315,6 +369,7 @@ pub fn render(
             node,
             false,
             accounts,
+            state,
             selected == Some(node.account.id),
             ring,
             focus,
@@ -324,6 +379,7 @@ pub fn render(
                 pot,
                 true,
                 accounts,
+                state,
                 selected == Some(pot.account.id),
                 ring,
                 focus,
@@ -360,6 +416,7 @@ pub fn render(
                 node,
                 false,
                 accounts,
+                state,
                 selected == Some(node.account.id),
                 ring,
                 focus,
@@ -382,14 +439,23 @@ pub fn render(
     let categories_section = list_section(SectionLabelRow::new("Categories").action(add_category))
         .children(categories.groups.iter().map(|group| {
             let picked = CategoryPick::Category(group.id);
-            ListRow::new(category_row_id(group.id), group.label.clone())
+            let target = ContextTarget::Category(group.id);
+            let row = ListRow::new(category_row_id(group.id), group.label.clone())
                 .marker(group.marker)
                 .selected(categories.picked == Some(picked))
                 .trailing(group.rows.to_string())
                 .trailing_tone(TrailingTone::Faint)
-                .on_click(pick(picked))
+                .on_click(pick(picked));
+            with_context_menu(
+                row,
+                target,
+                context_menu::category_groups(group.rows),
+                menu_target == Some(target),
+                accounts,
+                focus,
+            )
         }))
-        .child(
+        .child(with_context_menu(
             ListRow::new(UNCATEGORISED_ROW, "Uncategorised")
                 .marker(Marker::None)
                 .dimmed(true)
@@ -397,7 +463,12 @@ pub fn render(
                 .trailing(categories.uncategorised.to_string())
                 .trailing_tone(TrailingTone::Faint)
                 .on_click(pick(CategoryPick::Uncategorised)),
-        );
+            ContextTarget::Uncategorised,
+            context_menu::uncategorised_groups(),
+            menu_target == Some(ContextTarget::Uncategorised),
+            accounts,
+            focus,
+        ));
 
     let (step, clear, add_value) = (accounts.clone(), accounts.clone(), accounts.clone());
     let (checks, panel) = (accounts.clone(), focus.clone());
@@ -441,4 +512,9 @@ pub fn render(
         .child(accounts_section)
         .child(valued_section)
         .child(categories_section)
+        .children(
+            state
+                .context_menu()
+                .map(|menu| context_menu::render(menu, accounts, cx)),
+        )
 }

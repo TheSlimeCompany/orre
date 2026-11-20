@@ -380,7 +380,7 @@ impl TransactionsView {
 // Rendering -------------------------------------------------------------------
 
 /// A caption from parts, in caption type, `text-muted`.
-fn rich_caption(window: &Window, parts: Vec<Part>) -> AnyElement {
+pub(super) fn rich_caption(window: &Window, parts: Vec<Part>) -> AnyElement {
     div()
         .text_role(typography::CAPTION)
         .child(rich(window, typography::CAPTION, color::TEXT_MUTED, parts))
@@ -668,7 +668,7 @@ fn link_row(
 
 /// The 28px `field` strip naming a purchase (Paper `APV-0`): mono date,
 /// merchant, mono amount.
-fn purchase_strip(view: &TransactionsView, purchase: &RegisterRow) -> AnyElement {
+pub(super) fn purchase_strip(view: &TransactionsView, purchase: &RegisterRow) -> AnyElement {
     div()
         .flex()
         .flex_none()

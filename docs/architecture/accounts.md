@@ -70,9 +70,14 @@ here; core checks first so the error says why.
   (`BalanceExists`), in its currency, none on or before the lock date (`Locked`) or after
   `closed_on` (`AfterClosing`). A liability's valuation above zero is refused
   (`LiabilityAboveZero`); the app's Owed field is unsigned and negated. The optional
-  note is user text, not sent over MCP by default. Editing or deleting one entered
-  balance isn't built. File balances (`ofx`, `csv`) belong to their batch and go when it
-  is undone.
+  note is user text, not sent over MCP by default. File balances (`ofx`, `csv`) belong
+  to their batch and go when it is undone.
+- **Editing and removing an entered balance** (`account::update_balance`,
+  `remove_balance`): only one the user entered; a file's balance, or another account's,
+  is refused (`NotEnteredBalance`). An edit passes `add_balance`'s guards with its own
+  day left free, and both its old and new day must be after the lock date. Removing is
+  refused on or before the lock date and returns the balance, so undo adds it back
+  ("Decision record: editing and removing entered balances (built)").
 - **Cash counts** (`account::count::expectation`, `count::record`; cash accounts only,
   `NotCash`): a count is a `manual` entered balance. Orre expects the last passing
   balance (or the starting point) plus the transactions after it, up to the count's day.
@@ -364,3 +369,32 @@ M3.10, the cash half. Follows `DESIGN.md` → "Accounts you keep yourself" (D6.9
    `AccountsEvent::AddBalanceRequested`. Its title, captions, the "Starting point" row and
    the first count's single "Save count" are composed.
 6. **Open.** The expectation ignores a count already entered after the chosen day.
+
+### Decision record: editing and removing entered balances (built) (2026-11-20)
+
+M3.P9, from the user's M3 exit check: a wrong opening balance couldn't be corrected, yet
+`BalanceExists` said "edit that one instead". Drawn on M3 punch list · states (`IS2-0`;
+`DESIGN.md` → "M3 punch list"). **No migration.**
+
+1. **Core** (`account::update_balance`, `account::remove_balance`). Both act only on a
+   balance the user entered (`manual`, `statement`, `valuation`) on that account; a
+   file's balance belongs to its import batch and is refused, as is an unknown ID or
+   another account's (`Error::NotEnteredBalance`). Each runs in one DB transaction.
+2. **An edit passes the same guards as adding** (`check_balance`, shared with
+   `add_balance`): the source fits the kind, the currency is the account's, a liability
+   stays at or below zero, nothing after `closed_on`, one per day with the balance's own
+   day left free. The lock is checked on **both** the old and the new day: moving a
+   balance out of a locked period would change what the lock froze.
+3. **Removing** is refused on or before the lock date, and returns what it removed. Undo
+   is `add_balance` with it, so it re-checks every guard; if something changed since
+   (a balance entered on that day, a lock), undo says why in the bar and adds nothing.
+   Not a change batch: no transaction changes, as with adding a balance.
+4. **The app.** Each balance the user entered in the inspector's Balances (and
+   Valuations) opens Edit: the Add balance dialog with its values filled in ("Edit a
+   balance / valuation / count for …"), a destructive outline "Remove balance", Cancel
+   and Save. A locked one shows the lock and doesn't open. Remove asks nothing; the
+   accounts undo bar ("Removed the balance on 17 Nov 2026", with Undo) is the way back,
+   shared with the close account bar. Editing a cash count edits its balance only: a
+   "Cash count difference" row it added stays as it is.
+5. **Not editable here:** the account row's own opening balance
+   (`account.opening_balance_minor`, which nothing writes any more) and file balances.

@@ -18,10 +18,10 @@
 //!   Account chip mirrors it), and hides the Account column. The Category
 //!   and Date chips open menus; Uncategorised toggles. Search matches the
 //!   merchant, the bank's merchant and the raw description.
-//! - **Sort.** Clicking a column title sorts each day's rows by it, then
-//!   reverses, then goes back to newest first. Days never move. Each title
-//!   is a Tab stop after the toolbar, where Enter or Space sorts as a click
-//!   does (`DESIGN.md` → "Keyboard paths").
+//! - **Sort.** Clicking a column title lists every row in that order, with
+//!   no day headers (P13), then reverses, then goes back to the days,
+//!   newest first. Each title is a Tab stop after the toolbar, where Enter
+//!   or Space sorts as a click does (`DESIGN.md` → "Keyboard paths").
 //! - **Selection.** A click selects a row, ⇧-click a range and ⌘-click
 //!   (Ctrl on Linux and Windows) adds or removes one. From the keyboard, ↑↓
 //!   move the selection and ⇧↑⇧↓ extend it; ⌘↑/⌘↓ move the keyboard row
@@ -295,8 +295,16 @@ enum TableItem {
     Row(usize),
 }
 
-/// The list's entries: each day's header, then its rows.
+/// The list's entries: each day's header, then its rows; a flat listing
+/// (sorted by a column) is just its rows.
 fn table_items(listing: &Listing) -> Vec<TableItem> {
+    if listing.flat {
+        return listing
+            .rows
+            .iter()
+            .map(|&row| TableItem::Row(row))
+            .collect();
+    }
     let mut items = Vec::with_capacity(listing.rows.len() + listing.days.len());
     for (day, entry) in listing.days.iter().enumerate() {
         items.push(TableItem::Day {
@@ -312,12 +320,15 @@ fn table_items(listing: &Listing) -> Vec<TableItem> {
     items
 }
 
-fn sort_column(column: TransactionColumn) -> SortColumn {
+/// The register's sort column for a title; `None` for Date, which isn't a
+/// sort but the way back to days (M3.P13).
+fn sort_column(column: TransactionColumn) -> Option<SortColumn> {
     match column {
-        TransactionColumn::Merchant => SortColumn::Merchant,
-        TransactionColumn::Category => SortColumn::Category,
-        TransactionColumn::Account => SortColumn::Account,
-        TransactionColumn::Amount => SortColumn::Amount,
+        TransactionColumn::Merchant => Some(SortColumn::Merchant),
+        TransactionColumn::Category => Some(SortColumn::Category),
+        TransactionColumn::Account => Some(SortColumn::Account),
+        TransactionColumn::Amount => Some(SortColumn::Amount),
+        TransactionColumn::Date => None,
     }
 }
 
@@ -484,6 +495,9 @@ enum UndoAction {
     /// Unmarks a pair "Mark as transfer" recorded: not a change batch
     /// either.
     Marked(core_transfer::Marked),
+    /// Deletes the refund a suggested pair was linked as and suggests the
+    /// pair again: not a change batch either.
+    RefundLinked(orre_core::inbox::RefundLinked),
 }
 
 /// A change the undo bar can revert.
@@ -1033,7 +1047,10 @@ impl TransactionsView {
     }
 
     fn sort_by(&mut self, column: TransactionColumn, cx: &mut Context<Self>) {
-        self.sort = self.sort.next(sort_column(column));
+        self.sort = match sort_column(column) {
+            Some(column) => self.sort.next(column),
+            None => Sort::Default,
+        };
         self.refilter(cx);
     }
 
@@ -1504,6 +1521,7 @@ impl TransactionsView {
             }
             UndoAction::Transfer(decision) => self.undo_transfer(decision, cx),
             UndoAction::Marked(marked) => self.unmark_transfer(marked, cx),
+            UndoAction::RefundLinked(linked) => self.undo_refund_linked(linked, cx),
         }
         cx.notify();
     }
@@ -1752,6 +1770,9 @@ impl TransactionsView {
             suggested_transfer,
         } = RowText::of(self, row);
         TransactionRow::new(format!("txn-{id}"), merchant, cell.cell(), amount)
+            .when(self.listing.flat, |this| {
+                this.date(format::list_date(row.date, self.today))
+            })
             .suggested_transfer(suggested_transfer)
             .when_some(account, |this, account| this.account(account))
             .when_some(original, |this, original| this.original_amount(original))
@@ -1923,6 +1944,7 @@ impl TransactionsView {
         let header = TransactionHeader::new()
             .full_bleed(true)
             .show_account(self.filter.account.is_none())
+            .date_column(self.listing.flat)
             .on_sort(move |column, by, window, cx| {
                 view.update(cx, |this, cx| {
                     this.sort_by(column, cx);

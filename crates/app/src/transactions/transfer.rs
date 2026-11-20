@@ -14,11 +14,9 @@
 
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::{
-    AnyElement, Context, IntoElement, ParentElement as _, SharedString, Styled as _, div,
-};
+use gpui_kit::{AnyElement, Context, IntoElement, ParentElement as _, Styled as _, Window, div};
 use orre_core::id::TransferGroupId;
-use orre_core::inbox::{self, TransferDecided};
+use orre_core::inbox::{self, RefundDecided, RefundLinked, TransferDecided};
 use orre_core::reporting::pairing::{self, Pair};
 use orre_core::reporting::register::RegisterRow;
 use orre_core::transfer::{self, Action, Blocked, Decision, TransferStatus};
@@ -35,6 +33,7 @@ use crate::ui::text::TextRoleExt as _;
 use super::editor::EditPlace;
 use super::write::{Offer, Policy, Said};
 use super::{TransactionsEvent, TransactionsView, UndoAction};
+use super::{linking, links};
 
 /// What confirming does, from the Inbox transfer pair's preview (D6.6).
 pub const CONFIRM_EFFECT: &str =
@@ -69,6 +68,32 @@ pub fn why(row: &RegisterRow, partner: &RegisterRow) -> String {
         1 => "Same amount out and in, 1 day apart".to_owned(),
         n => format!("Same amount out and in, {n} days apart"),
     }
+}
+
+/// Why Orre suggested the pair, on the card that also offers a refund:
+/// "Same amount out of Current account, 2 days earlier." Money in names the
+/// account the money left; money out, the account it went into. Days are
+/// the other row's, relative to `row`.
+pub fn refund_why(row: &RegisterRow, partner: &RegisterRow, account: &str) -> String {
+    let direction = if row.amount.is_positive() {
+        "out of"
+    } else {
+        "into"
+    };
+    let days = (row.date - partner.date).num_days();
+    let when = match days {
+        0 => "the same day".to_owned(),
+        1 => "1 day earlier".to_owned(),
+        -1 => "1 day later".to_owned(),
+        n if n > 0 => format!("{n} days earlier"),
+        n => format!("{} days later", -n),
+    };
+    format!("Same amount {direction} {account}, {when}.")
+}
+
+/// The undo bar's message after linking a pair as a refund of `purchase`.
+pub fn refund_undo_message(purchase: &str) -> String {
+    format!("Linked as refund: {purchase}")
 }
 
 /// The undo bar's message after `action`.
@@ -121,6 +146,41 @@ impl TransactionsView {
             .ok();
     }
 
+    /// Rejects the suggested pair `group` that `row` is in and links it as a
+    /// refund, in one write; the undo bar offers to reverse both.
+    pub(super) fn link_pair_as_refund(
+        &mut self,
+        row: &RegisterRow,
+        partner: &RegisterRow,
+        group: TransferGroupId,
+        cx: &mut Context<Self>,
+    ) {
+        let purchase = if row.amount.is_negative() {
+            row
+        } else {
+            partner
+        };
+        let message = refund_undo_message(&linking::name(&purchase.merchant));
+        let policy = transfer_policy()
+            .log("couldn't link a pair as a refund")
+            .undo(move |decided: &RefundDecided| {
+                Offer::Show(UndoAction::RefundLinked(decided.linked), message.into())
+            });
+        self.write(policy, cx, |db| inbox::link_as_refund(db, group))
+            .ok();
+    }
+
+    /// The undo bar's Undo after linking a pair as a refund; failures are
+    /// offered again as [`Self::undo_transfer`]'s are.
+    pub(super) fn undo_refund_linked(&mut self, linked: RefundLinked, cx: &mut Context<Self>) {
+        let policy = transfer_policy()
+            .log("couldn't undo a refund link")
+            .retry(UndoAction::RefundLinked(linked))
+            .always();
+        self.write(policy, cx, |db| inbox::undo_refund_linked(db, &linked))
+            .ok();
+    }
+
     /// The pair's accounts, money out first: "Current account", "Savings".
     fn pair_accounts(&self, row: &RegisterRow) -> (String, String) {
         let name = |row: &RegisterRow| {
@@ -147,13 +207,14 @@ pub(super) fn has_section(view: &TransactionsView, row: &RegisterRow) -> bool {
 pub(super) fn transfer_section(
     view: &TransactionsView,
     row: &RegisterRow,
+    window: &Window,
     cx: &mut Context<TransactionsView>,
 ) -> Option<AnyElement> {
     let pair = pairing::pair(&view.register, row)?;
     let body = match (pair.status, pair.partner) {
         (_, None) => vec![fields::caption(blocked_text(Blocked::NotTwoSided)).into_any_element()],
         (TransferStatus::Confirmed, Some(partner)) => confirmed(view, row, &pair, partner, cx),
-        (_, Some(partner)) => vec![suggestion_card(view, row, &pair, partner, cx)],
+        (_, Some(partner)) => vec![suggestion_card(view, row, &pair, partner, window, cx)],
     };
     Some(
         section(true)
@@ -294,18 +355,50 @@ fn partner_strip(view: &TransactionsView, row: &RegisterRow, partner: &RegisterR
         .into_any_element()
 }
 
-/// A suggested pair: Orre's suggestion card (D6.5, `APQ-0`), neutral,
-/// with "Confirm transfer" and "Not a transfer".
+/// A suggested pair: Orre's suggestion card (D6.5, `APQ-0`), neutral. It
+/// asks "Is this a transfer?" with "Confirm transfer" and "Not a transfer";
+/// when the pair could be a refund too (P11), "Transfer or refund?" with
+/// "Transfer", "Refund" and "Neither".
 fn suggestion_card(
     view: &TransactionsView,
     row: &RegisterRow,
     pair: &Pair<'_>,
     partner: &RegisterRow,
+    window: &Window,
     cx: &mut Context<TransactionsView>,
 ) -> AnyElement {
     let group = pair.group;
-    let (confirm_row, reject_row) = (row.clone(), row.clone());
+    let (confirm_row, reject_row, refund_row) = (row.clone(), row.clone(), row.clone());
+    let refund_partner = partner.clone();
     let blocked = pair.confirm.err();
+    let refundable = pair.refund.is_ok();
+    let purchase = if row.amount.is_negative() {
+        row
+    } else {
+        partner
+    };
+    let (title, why) = if refundable {
+        let account = view
+            .register
+            .account(partner.account)
+            .map_or("", |account| account.name.as_str());
+        ("Transfer or refund?", refund_why(row, partner, account))
+    } else {
+        ("Is this a transfer?", why(row, partner))
+    };
+    let strip = if refundable {
+        links::purchase_strip(view, partner)
+    } else {
+        partner_strip(view, row, partner)
+    };
+    let effect = match blocked {
+        Some(blocked) => fields::caption(blocked_text(blocked)).into_any_element(),
+        None if refundable => links::rich_caption(
+            window,
+            linking::transfer_or_refund_effect(&view.register, purchase),
+        ),
+        None => fields::caption(CONFIRM_EFFECT).into_any_element(),
+    };
     div()
         .flex()
         .flex_col()
@@ -324,46 +417,62 @@ fn suggestion_card(
                     div()
                         .text_role(typography::SECTION_TITLE)
                         .text_color(color::TEXT)
-                        .child("Is this a transfer?"),
+                        .child(title),
                 )
                 .child(
                     div()
                         .text_role(typography::CAPTION)
                         .text_color(color::TEXT_MUTED)
-                        .child(why(row, partner)),
+                        .child(why),
                 ),
         )
-        .child(partner_strip(view, row, partner))
-        .child(
-            div()
-                .text_role(typography::CAPTION)
-                .text_color(color::TEXT_MUTED)
-                .child(SharedString::from(match blocked {
-                    Some(blocked) => blocked_text(blocked),
-                    None => CONFIRM_EFFECT,
-                })),
-        )
+        .child(strip)
+        .child(effect)
         .child(
             div()
                 .flex()
                 .gap(spacing::S1_5)
                 .child(
-                    Button::new("confirm-transfer", "Confirm transfer")
-                        .with_variant(ButtonVariant::Outline)
-                        .with_surface(color::FLOAT)
-                        .disabled(blocked.is_some())
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            view.decide_transfer(&confirm_row, group, Action::Confirm, cx)
-                        })),
+                    Button::new(
+                        "confirm-transfer",
+                        if refundable {
+                            "Transfer"
+                        } else {
+                            "Confirm transfer"
+                        },
+                    )
+                    .with_variant(ButtonVariant::Outline)
+                    .with_surface(color::FLOAT)
+                    .disabled(blocked.is_some())
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.decide_transfer(&confirm_row, group, Action::Confirm, cx)
+                    })),
                 )
+                .when(refundable, |buttons| {
+                    buttons.child(
+                        Button::new("link-pair-as-refund", "Refund")
+                            .with_variant(ButtonVariant::Outline)
+                            .with_surface(color::FLOAT)
+                            .on_click(cx.listener(move |view, _, _, cx| {
+                                view.link_pair_as_refund(&refund_row, &refund_partner, group, cx)
+                            })),
+                    )
+                })
                 .child(
-                    Button::new("reject-transfer", "Not a transfer")
-                        .with_variant(ButtonVariant::Ghost)
-                        .with_surface(color::FLOAT)
-                        .disabled(pair.reject.is_err())
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            view.decide_transfer(&reject_row, group, Action::Reject, cx)
-                        })),
+                    Button::new(
+                        "reject-transfer",
+                        if refundable {
+                            "Neither"
+                        } else {
+                            "Not a transfer"
+                        },
+                    )
+                    .with_variant(ButtonVariant::Ghost)
+                    .with_surface(color::FLOAT)
+                    .disabled(pair.reject.is_err())
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.decide_transfer(&reject_row, group, Action::Reject, cx)
+                    })),
                 ),
         )
         .into_any_element()
@@ -384,6 +493,7 @@ mod tests {
             "Marked as not a transfer"
         );
         assert_eq!(undo_message(Action::Unpair, "a", "b"), "Unpaired transfer");
+        assert_eq!(refund_undo_message("Odeon"), "Linked as refund: Odeon");
         assert!(blocked_text(Blocked::PotPair).contains("Undo the import"));
     }
 }
