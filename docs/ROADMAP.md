@@ -385,7 +385,7 @@ is decided in `ARCHITECTURE.md`. The choices marked "review" in this track and i
 
 ---
 
-## M1 — Core + import (headless) 🚧
+## M1 — Core + import (headless) ✅
 
 Import real statements into a local database from the command line.
 
@@ -924,31 +924,46 @@ Every tool call appears in the access log.
 
 **Punch list from the user's exit check** (found 2026-11-17; to do later, user):
 
-- ⬜ M3.P1 Import: say why Review is disabled. `ImportDialog::review_blocker`
+- ✅ M3.P1 Import: say why Review is disabled. `ImportDialog::review_blocker`
   (`crates/app/src/import/dialog.rs`) already words the reason ("Choose the account to
   import into.", a currency mismatch, no rows, a mapping problem) but only greys out the
-  button; show it in the footer in place of "Nothing is saved until you import…"
-- ⬜ M3.P2 Import: the Account menu with no accounts says "No matches", the filter's wording;
-  it should say there are no accounts yet
+  button; show it in the footer in place of "Nothing is saved until you import…".
+  Built: the Map footer's caption is the blocker while there is one (with no accounts:
+  "There are no accounts yet. Add one in the Accounts panel to import into."; with
+  accounts but none that can take an import, all closed, pots, assets or liabilities:
+  "No account can take an import. Add a current or card account in the Accounts panel.")
+- ✅ M3.P2 Import: the Account menu with no accounts says "No matches", the filter's wording;
+  it should say there are no accounts yet. Built: `MenuList`/`Select::empty_text` for a
+  menu with no options ("No accounts yet", or "No accounts to import into" when there are
+  accounts but none can take an import; one row; the footer says what to add);
+  "No matches" stays for a filter that left none
 - ⬜ M3.P3 Import: "New account…" in the Account menu, so a fresh database isn't a dead end
   (today: close the dialog, add the account in the panel, import again). New UI: decide
   whether to draw it in Paper first or reuse the New account dialog, with the file's
   currency filled in and the new account chosen on return
-- ⬜ M3.P4 Import: dropping several files on the window imports only the first and drops the
+- ✅ M3.P4 Import: dropping several files on the window imports only the first and drops the
   rest without a word (`shell.rs` and `import/dialog.rs` take `paths().first()`); import
-  them in turn, or say that only one was taken
+  them in turn, or say that only one was taken. Built: the second option, on the window
+  and the drop zone ("Only the first of 3 files was opened. Drop the others one at a
+  time."); a queue would need a design for what Cancel does to the rest
 - ⬜ M3.P5 Date fields hide the first digit of a two-digit day: `ui::field::date_input` is 96px
   (`--container-column-amount`) in Geist Mono, too narrow for `17 Nov 2026`, so the text
   scrolls and reads `7 Nov 2026` while 17 Nov is what gets saved. Used by New account, Add
   balance and valuations, Close, New transaction and the manual row's Date in the
   inspector. Design the width (or size) in Paper first, then check every caller
-- ⬜ M3.P6 Add balance: the date starts on today, so on an account created today with an opening
+- ✅ M3.P6 Add balance: the date starts on today, so on an account created today with an opening
   balance the default is always refused (one entered balance per account and day); start
-  on a free day, or say so before the first click
-- ⬜ M3.P7 Add balance: the error stays after the fields change; clear it on edit as the other
+  on a free day, or say so before the first click. Built: the second option (the date
+  stays today; an earlier one would sit before the opening balance): "This account already
+  has a balance on 17 Nov 2026. Choose another day." live under the caption, the Date
+  field in a `danger` border and Add balance disabled until the day is free (drawn:
+  `IRD-0`, snapshot `add-balance-day-taken`)
+- ✅ M3.P7 Add balance: the error stays after the fields change; clear it on edit as the other
   dialogs do (`crates/app/src/accounts/add_balance.rs`)
-- ⬜ M3.P8 Add balance: `account::Error::BalanceExists` shows its date as `2026-11-17`, not the
-  field's `17 Nov 2026`
+- ✅ M3.P8 Add balance: `account::Error::BalanceExists` shows its date as `2026-11-17`, not the
+  field's `17 Nov 2026`. Built: the dialog writes every ISO date in core's refusal as the
+  field does (also `AfterClosing` and `Locked`), leaving dates inside paths and
+  timestamps alone
 - ⬜ M3.P9 Entered balances can't be edited or removed: core has `account::add_balance` only, so
   a wrong opening balance can't be corrected, yet `BalanceExists` says "edit that one
   instead". Needs core functions (with the lock-date guard) and inspector UI, designed in
@@ -972,9 +987,11 @@ Every tool call appears in the access log.
   refund in the suggestion itself (e.g. "Is this a transfer?" with Confirm transfer, Link
   as refund, Neither), or let detection prefer a refund when the money out is a purchase
   rather than a transfer out; decide the wording and layout in Paper first
-- ⬜ M3.P12 Transactions: "This week" and "Last week" in the Date chip's menu (user). Today
+- ✅ M3.P12 Transactions: "This week" and "Last week" in the Date chip's menu (user). Today
   `reporting::register::DatePreset` has This month, Last month, Last 3 months, This year and
-  All time. Decide which day a week starts on (Monday, or a setting)
+  All time. Decide which day a week starts on (Monday, or a setting). Built:
+  `DatePreset::ThisWeek`/`LastWeek`, first in the menu; weeks run Monday to Sunday (ISO
+  8601, not a setting), and This week runs to Sunday as This month runs to its end
 - ⬜ M3.P13 Transactions: sorting by a column looks like it does nothing (user, test 5.2). By
   design it sorts only within each day (`docs/ARCHITECTURE.md`, Transactions decision 5;
   `Register::select`), and with one or two rows a day, as in the fixtures and much real
@@ -988,7 +1005,7 @@ and duplicates) without the CLI.
 
 ---
 
-## Architecture review — findings ⬜
+## Architecture review — findings ✅
 
 From an adversarial review of `ARCHITECTURE.md` and `docs/architecture/` on 2026-11-17.
 Not a milestone: the items cut across M1–M3's code and are ordered by severity. R.1–R.5

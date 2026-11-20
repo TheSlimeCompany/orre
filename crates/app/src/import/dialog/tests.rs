@@ -53,12 +53,20 @@ fn open<'a>(
     cx: &'a mut TestAppContext,
     scratch: &Scratch,
 ) -> (Entity<ShellView>, &'a mut VisualTestContext) {
+    open_database(cx, &scratch.path)
+}
+
+/// The shell importing into the database at `path`.
+fn open_database<'a>(
+    cx: &'a mut TestAppContext,
+    path: &Path,
+) -> (Entity<ShellView>, &'a mut VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::component::install(cx);
         crate::shell::init(cx);
     });
-    let store = ImportStore::new(scratch.path.clone());
+    let store = ImportStore::new(path.to_owned());
     let (shell, cx) = cx.add_window_view(|window, cx| {
         let accounts = cx.new(|_| Accounts::fixture(crate::accounts::fixture::accounts()));
         let mut shell = ShellView::with_accounts(View::Transactions, accounts, window, cx);
@@ -424,4 +432,151 @@ fn the_warning_names_the_account_the_file_belongs_to() {
             text::joined(&block.body)
         );
     }
+}
+
+#[gpui_kit::test]
+fn the_map_footer_says_why_review_is_disabled_until_it_isnt(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, cx) = open(cx, &scratch);
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import(Some(fixture("csv/signed-amount.csv")), window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).map_footer()),
+        "Choose the date format."
+    );
+    dialog.update(cx, |dialog, cx| {
+        dialog.choose(Pick::Format, &"%d/%m/%Y".into(), cx)
+    });
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).map_footer()),
+        "Nothing is saved until you import. A backup is taken first."
+    );
+}
+
+#[gpui_kit::test]
+fn several_files_dropped_on_the_window_say_only_the_first_was_taken(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, cx) = open(cx, &scratch);
+    let paths = [
+        fixture("csv/signed-amount.csv"),
+        fixture("csv/signed-amount.csv"),
+        fixture("csv/signed-amount.csv"),
+    ];
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import_dropped(&paths, window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    let note = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| dialog.read(cx).dropped_note().map(|note| note.to_string()))
+    };
+    assert_eq!(
+        note(cx).as_deref(),
+        Some("Only the first of 3 files was opened. Drop the others one at a time.")
+    );
+
+    // On the open dialog too; one file says nothing, and opening it clears
+    // the note.
+    dialog.update(cx, |dialog, cx| dialog.open_dropped(&paths[..2], cx));
+    assert_eq!(
+        note(cx).as_deref(),
+        Some("Only the first of 2 files was opened. Drop the others one at a time.")
+    );
+    // A drop while that file is still being read is ignored, and so is
+    // the note: it still holds.
+    dialog.update(cx, |dialog, cx| dialog.open_dropped(&paths[..1], cx));
+    assert_eq!(
+        note(cx).as_deref(),
+        Some("Only the first of 2 files was opened. Drop the others one at a time.")
+    );
+    redraw(cx);
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).step),
+        Step::Map,
+        "the first file was opened"
+    );
+    dialog.update(cx, |dialog, cx| dialog.open_dropped(&paths[..1], cx));
+    assert_eq!(note(cx), None);
+}
+
+/// Opens a CSV no preset recognises on a database with the accounts `make`
+/// adds, and checks that the Map footer, the statement the preview reads
+/// and the Account menu's one row all say why nothing can be imported.
+fn nowhere_to_import(
+    cx: &mut TestAppContext,
+    make: impl FnOnce(&mut Database),
+    footer: &str,
+    menu_row: &str,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("orre.db");
+    make(&mut Database::open(&path).unwrap());
+    let (shell, cx) = open_database(cx, &path);
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import(Some(fixture("csv/signed-amount.csv")), window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).step), Step::Map);
+
+    // The footer says it before the date format still to choose.
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).map_footer()), footer);
+    // A mapping of your own has no account's currency to be read in, and
+    // the statement the preview reads says the same.
+    let statement = cx.update(|_, cx| {
+        dialog
+            .read(cx)
+            .mapped
+            .as_ref()
+            .and_then(|mapped| mapped.statement.as_ref().err().cloned())
+    });
+    assert_eq!(statement.as_deref(), Some(footer));
+
+    // The Account menu, opened, shows its owner's words in one row, not
+    // the filter's "No matches".
+    click("import-account", cx);
+    let row = cx.update(|window, _| window.try_find("menu-empty"));
+    let row = row.expect("the Account menu is open and empty");
+    assert_eq!(row.label(), Some(menu_row));
+    assert_eq!(row.bounds().size.height, size::CONTROL);
+}
+
+#[gpui_kit::test]
+fn with_no_accounts_at_all_import_says_to_add_one(cx: &mut TestAppContext) {
+    nowhere_to_import(
+        cx,
+        |_| {},
+        "There are no accounts yet. Add one in the Accounts panel to import into.",
+        "No accounts yet",
+    );
+}
+
+#[gpui_kit::test]
+fn with_only_accounts_that_cant_take_an_import_import_says_which_to_add(cx: &mut TestAppContext) {
+    // A closed current account, its pot (closed with it) and a house.
+    nowhere_to_import(
+        cx,
+        |db| {
+            let current = account::create(
+                db,
+                &NewAccount::new("Old current account", AccountKind::Current, Currency::GBP),
+            )
+            .unwrap();
+            let mut pot = NewAccount::new("Holiday", AccountKind::Pot, Currency::GBP);
+            pot.parent = Some(current);
+            account::create(db, &pot).unwrap();
+            account::create(
+                db,
+                &NewAccount::new("House", AccountKind::Asset, Currency::GBP),
+            )
+            .unwrap();
+            let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
+            account::close::close(db, current, day).unwrap();
+        },
+        "No account can take an import. Add a current or card account in the Accounts panel.",
+        "No accounts to import into",
+    );
 }
