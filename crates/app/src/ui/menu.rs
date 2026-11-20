@@ -29,6 +29,15 @@
 //! [`MenuList`] is the same floating list opened from something other than
 //! a select field (a filter chip, a table cell, the bulk-action bar), with
 //! its own keys: ↑↓ move, Enter chooses, Escape and a click outside close.
+//!
+//! Composed for M3.P10 (Paper "Context menu · account"): a context menu is
+//! the same list opened at the pointer ([`at_pointer`], [`MenuList::context`])
+//! by a right-click on a row. It is 240px wide ([`size::SEARCH_FIELD`]) and
+//! carries no icons: its items are 28px rows with 8px inline padding and
+//! the label in `text`, groups are separated by a `hairline` 4px above and
+//! below and inset 4px, and an item that can't be chosen is faded to
+//! `opacity-disabled` with its reason right-aligned after the label in
+//! 11/14 `text-muted`.
 
 use std::rc::Rc;
 
@@ -132,6 +141,10 @@ impl MenuOption {
 pub struct MenuGroup {
     pub label: Option<SharedString>,
     pub options: Vec<MenuOption>,
+    /// A trailing action set apart by a hairline, after the options and
+    /// after the empty row when there are none (Import's "New account…",
+    /// M3.P3).
+    pub footer: bool,
 }
 
 impl MenuGroup {
@@ -139,6 +152,17 @@ impl MenuGroup {
         Self {
             label: label.map(SharedString::from),
             options,
+            footer: false,
+        }
+    }
+
+    /// Options under a hairline at the menu's foot, with no label: an
+    /// action rather than a choice (Paper "Menu · Account").
+    pub fn footer(options: Vec<MenuOption>) -> Self {
+        Self {
+            label: None,
+            options,
+            footer: true,
         }
     }
 
@@ -148,6 +172,7 @@ impl MenuGroup {
         Self {
             label: Some(label.into()),
             options,
+            footer: false,
         }
     }
 }
@@ -176,6 +201,7 @@ pub fn filter_groups(groups: &[MenuGroup], query: &str) -> Vec<MenuGroup> {
             (!options.is_empty()).then(|| MenuGroup {
                 label: group.label.clone(),
                 options,
+                footer: group.footer,
             })
         })
         .collect()
@@ -328,6 +354,8 @@ pub struct MenuList {
     /// left none.
     empty_text: Option<SharedString>,
     own_keys: bool,
+    /// A context menu: no icon or tick slots, hairlines between groups.
+    context: bool,
     on_choose: Option<Choose>,
     on_move: Option<Move>,
     on_dismiss: Option<Dismiss>,
@@ -355,10 +383,19 @@ impl MenuList {
             filter: None,
             empty_text: None,
             own_keys: false,
+            context: false,
             on_choose: None,
             on_move: None,
             on_dismiss: None,
         }
+    }
+
+    /// Draws the list as a context menu (module docs): plain items, with
+    /// a disabled item's reason on the right, and a hairline between
+    /// groups; group labels aren't drawn.
+    pub fn context(mut self) -> Self {
+        self.context = true;
+        self
     }
 
     /// What the list says when it has no options at all ("No accounts
@@ -417,7 +454,62 @@ impl MenuList {
         self
     }
 
+    /// A context menu's item: the label, and a disabled item's reason after
+    /// it on the right.
+    fn render_context_option(&self, option: &MenuOption) -> AnyElement {
+        let highlighted = self.highlighted.as_ref() == Some(&option.key);
+        let key = option.key.clone();
+        let on_choose = self.on_choose.clone();
+        div()
+            .id(ElementId::Name(format!("option-{}", option.key).into()))
+            .role(gpui_kit::Role::ListBoxOption)
+            .aria_label(option.label.clone())
+            .when(highlighted, |this| this.aria_active_descendant())
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(spacing::S2)
+            .h(size::CONTROL)
+            .px(spacing::S2)
+            .rounded(radius::MD)
+            .when(highlighted, |this| this.bg(color::HOVER))
+            .when(option.disabled, |this| this.opacity(opacity::DISABLED))
+            .when(!option.disabled, |this| {
+                this.hover(|style| style.bg(color::HOVER))
+                    .on_click(move |_, window, cx| {
+                        if let Some(handler) = &on_choose {
+                            handler(&key, window, cx);
+                        }
+                    })
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_role(typography::BODY)
+                    .text_color(color::TEXT)
+                    .child(option.label.clone()),
+            )
+            .when_some(option.hint.clone(), |this, hint| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_role(typography::CAPTION)
+                        .text_color(color::TEXT_MUTED)
+                        .child(hint),
+                )
+            })
+            .test_support()
+            .into_any_element()
+    }
+
     fn render_option(&self, option: &MenuOption) -> AnyElement {
+        if self.context {
+            return self.render_context_option(option);
+        }
         let chosen = self.chosen.as_ref() == Some(&option.key);
         let ticked = chosen || option.checked;
         let highlighted = self.highlighted.as_ref() == Some(&option.key);
@@ -506,7 +598,16 @@ impl MenuList {
     fn render_rows(&self, filtered: bool) -> Vec<AnyElement> {
         let mut rows: Vec<AnyElement> = Vec::new();
         for (index, group) in self.groups.iter().enumerate() {
-            if let Some(label) = &group.label {
+            if group.footer && !self.context {
+                if rows.is_empty() {
+                    rows.push(self.render_empty_row(filtered));
+                }
+                rows.push(hairline());
+            } else if self.context {
+                if index > 0 {
+                    rows.push(hairline());
+                }
+            } else if let Some(label) = &group.label {
                 rows.push(group_label(label.clone(), index > 0).into_any_element());
             }
             for option in &group.options {
@@ -514,26 +615,41 @@ impl MenuList {
             }
         }
         if rows.is_empty() {
-            // Composed (M3.3): the panel's empty-row treatment.
-            let text = self.empty_row_text(filtered);
-            rows.push(
-                div()
-                    .id("menu-empty")
-                    .aria_label(text.clone())
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .h(size::CONTROL)
-                    .px(spacing::S2)
-                    .text_role(typography::BODY)
-                    .text_color(color::TEXT_MUTED)
-                    .child(text)
-                    .test_support()
-                    .into_any_element(),
-            );
+            rows.push(self.render_empty_row(filtered));
         }
         rows
     }
+
+    /// The row an empty menu shows. Composed (M3.3): the panel's empty-row
+    /// treatment.
+    fn render_empty_row(&self, filtered: bool) -> AnyElement {
+        let text = self.empty_row_text(filtered);
+        div()
+            .id("menu-empty")
+            .aria_label(text.clone())
+            .flex()
+            .flex_none()
+            .items_center()
+            .h(size::CONTROL)
+            .px(spacing::S2)
+            .text_role(typography::BODY)
+            .text_color(color::TEXT_MUTED)
+            .child(text)
+            .test_support()
+            .into_any_element()
+    }
+}
+
+/// The hairline between a context menu's groups, and above a footer: 1px
+/// `hairline`, 4px above and below, inset 4px.
+fn hairline() -> AnyElement {
+    div()
+        .flex_none()
+        .h(size::HAIRLINE)
+        .mx(spacing::S1)
+        .my(spacing::S1)
+        .bg(color::HAIRLINE)
+        .into_any_element()
 }
 
 impl RenderOnce for MenuList {
@@ -663,6 +779,20 @@ pub fn below(offset: Pixels, menu: impl IntoElement) -> gpui_kit::Div {
         )
         .with_priority(MENU_PRIORITY),
     )
+}
+
+/// Draws `menu` with its top-left corner at `position` (window
+/// coordinates: where the pointer was), after everything else, and moved
+/// back inside the window when it would run off.
+pub fn at_pointer(position: gpui_kit::Point<Pixels>, menu: impl IntoElement) -> AnyElement {
+    deferred(
+        anchored()
+            .position(position)
+            .snap_to_window_with_margin(spacing::S2)
+            .child(menu),
+    )
+    .with_priority(MENU_PRIORITY)
+    .into_any_element()
 }
 
 /// Draws `menu` above its anchor: its bottom edge `gap` over the anchor's
@@ -921,6 +1051,27 @@ mod tests {
             let worded = plain.empty_text("No accounts yet.");
             assert_eq!(worded.empty_row_text(false), "No accounts yet.");
             assert_eq!(worded.empty_row_text(true), "No matches");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_footer_follows_the_empty_row_under_a_hairline(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            let state = SelectState::new(cx);
+            let footer = MenuGroup::footer(vec![MenuOption::new("new", "New account…")]);
+            // No options: the empty row, the hairline, the footer's item.
+            let empty = MenuList::new("Account", vec![footer.clone()], None, &state)
+                .empty_text("No accounts yet");
+            assert_eq!(empty.render_rows(false).len(), 3);
+            // With options: they, the hairline and the item; no empty row.
+            let mut groups = groups();
+            groups.push(footer);
+            let full = MenuList::new("Account", groups, None, &state);
+            assert_eq!(full.render_rows(false).len(), 2 + 4 + 1 + 1);
+            // A filter keeps the footer a footer.
+            let filtered = filter_groups(&full.groups, "new");
+            assert_eq!(filtered.len(), 1);
+            assert!(filtered[0].footer);
         });
     }
 

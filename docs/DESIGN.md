@@ -14,12 +14,12 @@ this file covers how the app looks and feels.
 | Tool | [Paper](https://paper.design), read and written via the Paper MCP server |
 | Orre file | **Orre** — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Orre design work happens here |
 | Orre page | `Page 1` (`p-1-0`) |
-| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide |
-| Orre tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1; content hash `6a126241` (see "Tokens") |
+| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide. M3 punch list (M3.P3, P5, P9, P10, P11, P13): M3 punch list · states (`IS2-0`), 1440 wide |
+| Orre tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1, `--container-field-date` added for M3.P5; content hash `f0be798c` (see "Tokens") |
 | Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Orre's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
 | Reference page | `Editor — v1` (`p-1-0`) |
 | Reference artboards | Editor (`1-0`), Empty file (`JK-0`), 1920×1080 |
-| Token snapshot | [`design/tokens.json`](../design/tokens.json), [`design/tokens.css`](../design/tokens.css) — exported from the **Orre** file in D1.5 and re-exported in D3.1, D6.3 and D6.1, content hash `6a126241`, extracted 2026-11-10. `tokens.json` keeps each token's Paper description |
+| Token snapshot | [`design/tokens.json`](../design/tokens.json), [`design/tokens.css`](../design/tokens.css) — exported from the **Orre** file in D1.5 and re-exported in D3.1, D6.3, D6.1 and for M3.P5, content hash `f0be798c`, extracted 2026-11-20. `tokens.json` keeps each token's Paper description |
 
 The reference artboards show a design-editor app. What carries over to Orre is the
 **system** (tokens, chrome, components, interaction states, the AI-agent colour role), not
@@ -68,7 +68,7 @@ strongbox, sits before the wordmark in the title bar (see "Logo").
 
 ## Tokens
 
-The Orre file holds 126 tokens (content hash `6a126241`), exported to
+The Orre file holds 127 tokens (content hash `f0be798c`), exported to
 [`design/tokens.json`](../design/tokens.json) and [`design/tokens.css`](../design/tokens.css)
 and checked against the theme module by its drift test. Every node on the Foundations,
 Components, Transactions (D3, D6), Overview and D6.1 artboards is bound to them. Motion durations, shadows and border widths have
@@ -236,6 +236,7 @@ type for widths and heights); layout widths are `container` tokens, like `--cont
 | `--container-dialog` | `440px` | Short dialogs: a confirmation or a form of a few fields (added in D6.3) | `size::DIALOG` |
 | `--container-dialog-wide` | `760px` | Wide dialogs that pair a form with a preview: Import (added in D6.1) | `size::DIALOG_WIDE` |
 | `--container-reading` | `560px` | Measure of reading text: a saved review, about 75 characters of 13px body (added in D6.1) | `size::READING_MEASURE` |
+| `--container-field-date` | `112px` | A typed date field (`17 Nov 2026` in Geist Mono 12px, 8px inline padding, room for the caret; added for M3.P5) | `size::FIELD_DATE` |
 
 Paper drops a token used as a border width or a shadow offset, so 1px and 1.5px borders,
 rings and shadow geometry stay typed. `calc()` over tokens works and is used where a size
@@ -651,7 +652,7 @@ bar `112-0`.
 | Header | 28px, sticky, `canvas` fill, bottom `hairline`; section-label type. Sortable columns show an 8px chevron (`icon-faint`) on hover; the active sort column label is `text` |
 | Day group header | 28px, 8px top padding, no fill: "Tue 14 Oct" 11/14 600 `text-secondary`, daily net right-aligned in mono 11/14 `text-muted` |
 | Row | 28px, radius 6, 8px inline padding, 12px column gap; no row dividers (hairlines only between day groups) |
-| Columns | Merchant (12/16 `text`, truncates, flexible) · Category (8×8 marker + 12/16 `text-secondary`, 180px) · Account (12/16 `text-muted`, 140px; hidden when filtered to one account) · Amount (mono 12/16, right-aligned, min 96px). The date lives in the day header |
+| Columns | Merchant (12/16 `text`, truncates, flexible) · Category (8×8 marker + 12/16 `text-secondary`, 180px) · Account (12/16 `text-muted`, 140px; hidden when filtered to one account) · Amount (mono 12/16, right-aligned, min 96px). The date lives in the day header; sorted by a column, the list is flat and the date is its first column (M3.P13, "M3 punch list") |
 | Hover / selected | `hover` fill / `molten-soft` fill with `text` labels; multi-select with ⇧/⌘ |
 | Bulk actions | Floating toolbar centred 24px above the bottom edge: "3 selected · Categorise · Mark as transfer · Create rule · ✕". Mark as transfer is enabled for exactly two rows that make one transfer and shows the undo bar; Create rule opens Rules on the rule the rows share, or says why there isn't one under the selection's Category select (`ARCHITECTURE.md` → "Mark as transfer and Create rule from the bulk-action bar") |
 | Uncategorised | Dashed 1px `text-muted` marker + "Uncategorised" in `text-muted` |
@@ -1069,7 +1070,7 @@ replace it with their own lists.
   outline "Close account…" (hides the account and keeps its history; there's no delete for
   an account with transactions).
 - **New account dialog** (`--container-dialog`): Name, Bank, Kind (select), Currency
-  (select), Balance (`£` prefix, optional, with its date beside it in a 96px field). Caption:
+  (select), Balance (`£` prefix, optional, with its date beside it in a 112px field, `--container-field-date`, M3.P5). Caption:
   a credit card owes money as a negative balance; skip the balance when the export has
   one; pots come from imports. Cancel / "Add account" (neutral primary).
 - Cash, asset and liability accounts: drawn in D6.9, see "Accounts you keep yourself".
@@ -1077,14 +1078,14 @@ replace it with their own lists.
   and approved by the user, 2026-11-14), from "Add balance…" on a bank or cash account.
   D6.9's "Add a balance for Mortgage" with the bank's wording: title "Add a balance for
   {account}"; Balance (the currency's symbol in mono `text-faint`, the amount in mono,
-  signed: typed with a minus when overdrawn) with its date in a 96px field; Note; caption
+  signed: typed with a minus when overdrawn) with its date in a 112px field; Note; caption
   "Your balance at the end of that day, as your bank shows it. Type a minus if the
   account is overdrawn. Orre checks it against the transactions since the last
   balance."; Cancel / "Add balance" (neutral primary). No new tokens.
   - *Day taken* (`IRD-0`, "Item · Add balance · day taken", under it on the states
     board; M3.P6): while the date already has an entered balance (one per account and
     day), it says so before any click. The Date field takes a 1px `danger` border (no
-    alert icon: the 96px field has no room), and the caption and a `danger` caption
+    alert icon: the date field has no room), and the caption and a `danger` caption
     ("This account already has a balance on 1 Sep 2026. Choose another day.";
     "count" for cash, "valuation" for an asset) stack as one group 8px apart, not the
     dialog's 16px. "Add balance" (and a count's Save buttons) is at `opacity-disabled`
@@ -1799,7 +1800,7 @@ House £385,000.00, Workplace pension £41,820.00, Stocks ISA £7,030.55 and Mor
     a failed check.
   - **Close House?**: body first (it leaves the panel and counts as £0 from the date,
     so net worth drops by its value then; earlier net worth keeps its valuations; it can be
-    reopened), then "Sold on" (96px date field), Cancel / "Close account" (neutral primary:
+    reopened), then "Sold on" (112px date field), Cancel / "Close account" (neutral primary:
     reversible).
 - **Data-model questions: decided** (user, 2026-11-10; `ARCHITECTURE.md` → "Decision
   record: accounts you keep yourself"). Each went with the recommendation below, which the
@@ -2649,6 +2650,71 @@ and ⌥ is Alt on Linux and Windows. No new tokens or components.
   rule 2" is a button).
 - **Out of scope**: dragging the window by the title bar, double-clicking it to zoom, and
   its right-click menu belong to the window manager, which has its own keys.
+
+**M3 punch list** — the states the user's M3 exit check asked for (M3.P3, P5, P9, P10, P11,
+P13), drawn 2026-11-20 on M3 punch list · states (`IS2-0`, 1440 wide). Every state is
+built from an existing component; the only new token is `--container-field-date`.
+- **Right-click menu on the accounts panel** (P10; "Context menu · account"). The Menu
+  pattern above, opened at the pointer: `float`, 1px `border`, `radius-lg`, the menu
+  shadow, 4px padding, 240px (`--container-search-field`). Items are 28px, 8px inline
+  padding, label 12/16 `text`, and **no icon slot**: a context menu's items are verbs, and
+  the row it opened from already shows what they act on. Groups are split by a hairline
+  (4px above and below, 4px inset). An unavailable item is at `opacity-disabled` with its
+  reason right-aligned in 11/14 `text-muted` ("Has transactions", "In use"). The row
+  right-clicked takes `hover` while its menu is open; right-clicking doesn't change the
+  selection. Escape, a click outside or choosing an item closes it; ↑↓ and Enter work.
+  Drawn for an account (Savings): Show transactions · New transaction… · Import into this
+  account… · Add balance… · Edit in the inspector, then Close account… · Delete account…
+  (unavailable, "Has transactions"); a cash account has no Import item, and its Add balance… is the count. Not drawn, same menu: a pot (Show transactions, Add
+  balance…); an asset or liability (Add value… or the liability's wording, Edit in the
+  inspector, then Close account…, Delete account…); a category (Show transactions, Open
+  in Rules, Rename…, New subcategory…, Hide, Delete…, unavailable "In use" while used; the four editor items open Rules → Categories on it until that editor can be driven from outside);
+  Uncategorised (Show transactions).
+- **Editing a balance** (P9; "Inspector · Balances", "Dialog · Edit balance",
+  "Notification · balance removed · undo"). In the inspector's Balances (and Valuations),
+  each balance the user entered is a 28px row with 6px inline padding and `radius-md`
+  that takes `hover` under the pointer and opens Edit; one on or before the lock date
+  shows a 10px `icon-faint` lock after "Entered by you" and doesn't open. The caption adds
+  "Click one to change or remove it." Edit is Add balance with the values filled in:
+  title "Edit a balance for {account}", caption "Your balance at the end of that day, as
+  your bank shows it. Orre checks it again, and the next balance after it, against the
+  transactions.", and a footer of **destructive outline** "Remove balance" on the left,
+  then Cancel and neutral primary "Save". The day-taken state (`IRD-0`) ignores the
+  balance being edited. Remove asks nothing: the dialog closes and the undo bar says
+  "Removed the balance on 17 Nov 2026", with Undo putting it back.
+- **The date field** (P5; every "Date field · 112px"). A typed date is
+  `--container-field-date` (112px) wide, not the 96px amount lane, so `17 Nov 2026` in
+  Geist Mono 12px fits with the caret; at 96px the text scrolled and read `7 Nov 2026`.
+  Used by New account, Add and Edit balance, Close account, New transaction and the cash
+  count. The manual row's Date in the Transactions inspector fills its field row, as before.
+- **New account from Import** (P3; "Menu · Account", "Dialog · New account · from
+  Import"). The Import Account menu always ends with a hairline and "New account…"
+  (`plus` in the 16px icon slot), under "No accounts yet" when there are none. It opens
+  New account over Import with what the file gives: the detected preset's bank and the
+  file's currency; Kind is Current (a preset doesn't name a kind); the name empty, and the caption "For {file}: the bank, kind and currency come from the file.
+  Add account chooses it in Import, which carries on where it was." Add account chooses
+  the new account in Import's Account select; Cancel and Escape close only New account.
+  Map's footer says "There are no accounts yet. Choose New account… in the Account menu."
+  (and "No account can take an import. Choose New account… in the Account menu.").
+- **Transfer or refund** (P11; "Card · transfer or refund"). When a suggested pair's money
+  in could also be linked as a refund of its money out, and the money out is spending (a
+  `spending` category), the inspector's transfer card is
+  Orre's refund prompt card (`APQ-0`) asking both: "Transfer or refund?", "Same amount out
+  of {account}, {n} days earlier.", the other row as the card's strip (date mono
+  `text-muted`, merchant, signed amount), the effect "A transfer leaves both out of income
+  and spending. A refund takes the purchase's category, so it's £12.40 less Eating out."
+  (amount mono and the change in `text-strong`), and three compact buttons: outline
+  "Transfer", outline "Refund", ghost "Neither" — short labels, so the three fit the
+  inspector's 241px card in one row. Otherwise the card is unchanged ("Is this a
+  transfer?", Confirm transfer / Not a transfer). Undo bars: "Confirmed transfer: A → B",
+  "Linked as refund: {merchant}", "Marked as not a transfer".
+- **Sorted by a column** (P13; "Item · Sorted by a column (P13)"). Sorting by Merchant,
+  Category, Account or Amount shows one flat list: no day headers or day nets, and a
+  **Date** column first, 96px (`--container-column-amount`), titled DATE like the others,
+  each date in Geist Mono 11/14 `text-muted` (`14 Oct`; `14 Oct 25` outside the current
+  year, as the app's other lists write it). DATE has no chevron and is click-only (not a
+  Tab stop): it isn't a sort. Rows keep every look they have in the grouped list. Clicking DATE, or a third
+  click on the sorted column, goes back to days, newest first.
 
 **Not drawn in D6.1:** empty states for these screens (empty Inbox, no budgets, no
 reviews), the Approved / Rejected inbox lists, Save as preset (M3.5), and the screens

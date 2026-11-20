@@ -9,9 +9,12 @@
 //! the database changed since the register was read, and then the write
 //! refuses.
 
+use crate::category::CategoryKind;
+use crate::id::TransactionId;
 use crate::link::LinkStatus;
+use crate::link::MAX_LINKED_PURCHASE_MINOR;
 use crate::manual::Origin;
-use crate::transfer::{self, Action, Availability, PairRow, TransferStatus};
+use crate::transfer::{self, Action, Availability, Blocked, PairRow, TransferStatus};
 
 use super::register::{Register, RegisterRow, RowCategory, RowSource};
 use crate::id::TransferGroupId;
@@ -27,6 +30,31 @@ pub struct Pair<'a> {
     pub confirm: Availability,
     pub reject: Availability,
     pub unpair: Availability,
+    /// Whether the pair can be linked as a refund instead
+    /// ([`inbox::link_as_refund`](crate::inbox::link_as_refund)).
+    pub refund: Result<(), RefundBlocked>,
+}
+
+/// Why a suggested pair can't be linked as a refund now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefundBlocked {
+    /// The pair can't be rejected, which linking as a refund does first.
+    NotRejectable(Blocked),
+    /// The pair isn't one money in and one money out.
+    NotInAndOut,
+    /// The two are in different currencies.
+    Currency,
+    /// The money in is split, shared or a duplicate, so it takes no link.
+    InflowTakesNoLink(TransactionId),
+    /// The money out is a duplicate or too large for a link.
+    PurchaseTakesNoLink(TransactionId),
+    /// Either side has less left to link than the refund would take.
+    NothingLeft,
+    /// The money out isn't spending (no category of kind `spending`, its
+    /// own or a split line's): most likely a transfer out, so the card
+    /// doesn't offer a refund. Not a link rule: [`inbox::link_as_refund`]
+    /// (crate::inbox::link_as_refund) doesn't check it.
+    PurchaseNotSpending(TransactionId),
 }
 
 impl Pair<'_> {
@@ -62,6 +90,10 @@ pub fn pair<'a>(register: &'a Register, row: &RegisterRow) -> Option<Pair<'a>> {
         [a, b] if b.id == row.id => Some(*a),
         _ => None,
     };
+    let refund = match partner {
+        Some(partner) => refund_available(register, row, partner, allowed(Action::Reject)),
+        None => Err(RefundBlocked::NotRejectable(Blocked::NotTwoSided)),
+    };
     Some(Pair {
         group: found.group,
         status: found.status,
@@ -69,7 +101,62 @@ pub fn pair<'a>(register: &'a Register, row: &RegisterRow) -> Option<Pair<'a>> {
         confirm: allowed(Action::Confirm),
         reject: allowed(Action::Reject),
         unpair: allowed(Action::Unpair),
+        refund,
     })
+}
+
+/// Whether the pair of `row` and `partner` can be linked as a refund: the
+/// pair can be rejected (`reject`), and the checks
+/// [`link::create`](crate::link::create) runs on a refund of the money in
+/// for its whole amount hold, as does the link dialog's rule that a
+/// duplicate takes no link. On top of those, the money out must be
+/// spending ([`RefundBlocked::PurchaseNotSpending`], M3.P11): detection
+/// pairs every matching in and out, and a plain move between the user's
+/// accounts shouldn't ask whether it's a refund.
+fn refund_available(
+    register: &Register,
+    row: &RegisterRow,
+    partner: &RegisterRow,
+    reject: Availability,
+) -> Result<(), RefundBlocked> {
+    reject.map_err(RefundBlocked::NotRejectable)?;
+    let (inflow, purchase) = match (row.amount.is_positive(), partner.amount.is_positive()) {
+        (true, false) => (row, partner),
+        (false, true) => (partner, row),
+        _ => return Err(RefundBlocked::NotInAndOut),
+    };
+    if !purchase.amount.is_negative() {
+        return Err(RefundBlocked::NotInAndOut);
+    }
+    if inflow.amount.currency() != purchase.amount.currency() {
+        return Err(RefundBlocked::Currency);
+    }
+    let duplicate = |row: &RegisterRow| {
+        row.excluded
+            .is_some_and(crate::exclusion::ExclusionReason::leaves_balance)
+    };
+    if matches!(inflow.category, RowCategory::Split(_))
+        || inflow.share.my_share.is_some()
+        || inflow.share.label.is_some()
+        || duplicate(inflow)
+    {
+        return Err(RefundBlocked::InflowTakesNoLink(inflow.id));
+    }
+    if purchase.amount.minor() < -MAX_LINKED_PURCHASE_MINOR || duplicate(purchase) {
+        return Err(RefundBlocked::PurchaseTakesNoLink(purchase.id));
+    }
+    let spending = register
+        .row_categories(purchase)
+        .iter()
+        .any(|category| category.kind == CategoryKind::Spending);
+    if !spending {
+        return Err(RefundBlocked::PurchaseNotSpending(purchase.id));
+    }
+    let amount = inflow.amount.minor();
+    if inflow.share.left.minor() < amount || purchase.share.left.minor() < amount {
+        return Err(RefundBlocked::NothingLeft);
+    }
+    Ok(())
 }
 
 /// What [`transfer::availability`] needs of a register row.
@@ -148,6 +235,18 @@ mod tests {
         Register::load(&db.reader().unwrap(), day(14)).unwrap()
     }
 
+    /// Gives row `id` a spending category, as a purchase has.
+    fn spend(db: &Database, id: TransactionId) {
+        db.conn()
+            .execute(
+                "UPDATE \"transaction\" SET category_source = 'user', category_id = \
+                 (SELECT id FROM category WHERE kind = 'spending' ORDER BY id LIMIT 1) \
+                 WHERE id = ?1",
+                [id],
+            )
+            .unwrap();
+    }
+
     #[test]
     fn a_suggested_pair_names_the_other_side_and_can_be_decided() {
         let f = fixture();
@@ -193,6 +292,75 @@ mod tests {
         transfer::reject(&mut f.db, f.group).unwrap();
         let read = register(&f.db);
         assert!(super::pair(&read, read.row(f.inn).unwrap()).is_none());
+    }
+
+    #[test]
+    fn a_suggested_pair_of_money_in_and_out_can_be_a_refund() {
+        let mut f = fixture();
+        // A plain move between accounts: the money out isn't spending.
+        let read = register(&f.db);
+        for id in [f.out, f.inn] {
+            let pair = pair(&read, read.row(id).unwrap()).unwrap();
+            assert_eq!(pair.refund, Err(RefundBlocked::PurchaseNotSpending(f.out)));
+        }
+        // A purchase: it can be a refund.
+        spend(&f.db, f.out);
+        let read = register(&f.db);
+        for id in [f.out, f.inn] {
+            let pair = pair(&read, read.row(id).unwrap()).unwrap();
+            assert_eq!(pair.refund, Ok(()));
+        }
+        // What it offers, the write does.
+        crate::inbox::link_as_refund(&mut f.db, f.group).unwrap();
+    }
+
+    #[test]
+    fn a_pair_that_cannot_be_linked_offers_no_refund() {
+        let f = fixture();
+        // Two outflows: not money in and out.
+        f.db.conn()
+            .execute(
+                "UPDATE \"transaction\" SET amount_minor = -5000 WHERE id = 2",
+                [],
+            )
+            .unwrap();
+        let read = register(&f.db);
+        let pair = pair(&read, read.row(f.out).unwrap()).unwrap();
+        assert_eq!(pair.refund, Err(RefundBlocked::NotInAndOut));
+
+        // A pair that can't be rejected can't become a refund.
+        let f = fixture();
+        f.db.conn()
+            .execute("UPDATE transfer_group SET status = 'confirmed'", [])
+            .unwrap();
+        let read = register(&f.db);
+        let pair = super::pair(&read, read.row(f.out).unwrap()).unwrap();
+        assert!(matches!(
+            pair.refund,
+            Err(RefundBlocked::NotRejectable(Blocked::WrongStatus { .. }))
+        ));
+
+        // The purchase has less left than the refund would take.
+        let f = fixture();
+        spend(&f.db, f.out);
+        f.db.conn()
+            .execute(
+                "INSERT INTO \"transaction\" (account_id, date, amount_minor, currency, \
+                 description_raw, description_normalized, origin) \
+                 VALUES (2, '2026-11-03', 100, 'GBP', 'Other', 'other', 'manual')",
+                [],
+            )
+            .unwrap();
+        f.db.conn()
+            .execute(
+                "INSERT INTO transaction_link (kind, inflow_id, target_id, amount_minor, status) \
+                 VALUES ('refund', 4, 1, 100, 'confirmed')",
+                [],
+            )
+            .unwrap();
+        let read = register(&f.db);
+        let pair = super::pair(&read, read.row(f.inn).unwrap()).unwrap();
+        assert_eq!(pair.refund, Err(RefundBlocked::NothingLeft));
     }
 
     /// The register's answer and the database's ([`transfer::pair_of`])

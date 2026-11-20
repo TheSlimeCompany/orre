@@ -373,6 +373,9 @@ pub mod size {
     pub const READING_MEASURE: Pixels = px(560.);
     /// `--container-field-label`: inspector field-row label column.
     pub const FIELD_LABEL: Pixels = px(64.);
+    /// `--container-field-date`: a typed date field (`17 Nov 2026`), wide
+    /// enough for a two-digit day with room for the caret.
+    pub const FIELD_DATE: Pixels = px(112.);
     /// `--container-column-category`: transactions table category column.
     pub const COLUMN_CATEGORY: Pixels = px(180.);
     /// `--container-column-account`: transactions table account column.
@@ -825,6 +828,7 @@ pub(crate) mod tests {
             ("--container-dialog", pixels(size::DIALOG)),
             ("--container-dialog-wide", pixels(size::DIALOG_WIDE)),
             ("--container-reading", pixels(size::READING_MEASURE)),
+            ("--container-field-date", pixels(size::FIELD_DATE)),
             // Spacing.
             ("--spacing-0_5", pixels(spacing::S0_5)),
             ("--spacing-1", pixels(spacing::S1)),

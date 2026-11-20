@@ -463,3 +463,27 @@ measured in R.14 (nothing was re-measured: the same reads run, on another thread
    headless tests (`accounts/tests.rs`, `rules/tests.rs`, `write_tests.rs`,
    `reorder_tests.rs`, `state_tests.rs`) and the snapshots, whose Rules shots are
    unchanged.
+
+### Decision record: right-click menus on the accounts panel (2026-11-20)
+
+M3.P10, asked for by the user in the M3 exit check. The app had no context menu.
+Drawn on M3 punch list · states (`IS2-0`, "Context menu · account"; `DESIGN.md` → "M3
+punch list"). **No migration.**
+
+1. **One context menu, built on `ui::menu::MenuList`** (`MenuList::context`, drawn at the
+   pointer by `ui::menu::at_pointer`): the same keys as the other menus (↑↓, Enter,
+   Escape, a click outside), no icons, hairlines between groups, an unavailable item faded
+   with its reason. A right-click doesn't change the selection.
+2. **Every item runs something the app already does** (`accounts::context_menu`, which
+   builds the items per row kind, and `AccountsEvent`, which the shell carries out):
+   Show transactions, New transaction…, Import into this account… (selects the account,
+   then opens Import, which preselects it), Add balance… (a cash account's count), Edit
+   in the inspector, Close account…, Delete account… (with `account::deletion`'s reason
+   when refused); a pot's Show transactions and Add balance…; an asset's or liability's
+   Add value…; a category's Show transactions and Open in Rules; Uncategorised's Show
+   transactions. A cash account has no Import item, as its toolbar has none.
+3. **A category's Rename…, New subcategory…, Hide and Delete…** open Rules →
+   Categories on that category, as Open in Rules does: the categories editor can't yet be
+   driven to start one of them from outside, and no new dialogs were drawn for it.
+   Delete… is unavailable ("In use") while the group holds transactions, which every
+   group the panel lists does.

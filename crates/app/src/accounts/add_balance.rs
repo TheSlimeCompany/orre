@@ -17,6 +17,14 @@
 //! one (decided with the user, 2026-11-14): "Add a valuation for House",
 //! Value, unsigned, and "Add valuation". Neither takes a minus.
 //!
+//! Opened on a balance the user entered ([`AddBalanceDialog::edit`], M3.P9)
+//! it is the Edit dialog: "Edit a balance for Current account", the fields
+//! filled in, and a footer of a destructive outline "Remove balance" (no
+//! confirmation: the undo bar puts it back), then Cancel and Save
+//! ([`orre_core::account::update_balance`], [`orre_core::account::remove_balance`]).
+//! The day the balance has is its own, so it isn't taken. A cash count
+//! opens as a plain balance there, labelled Counted.
+//!
 //! On a cash account it is the Cash count dialog (D6.9, `EPF-0`; M3.10):
 //! "Count cash for Cash", Counted (the currency's symbol and the date),
 //! then, from the second count, Orre's expectation and the Difference
@@ -37,13 +45,13 @@ use gpui_kit::{
 };
 use orre_core::account::count::Expectation;
 use orre_core::account::{AccountKind, EnteredBalance, EnteredSource};
-use orre_core::id::AccountId;
+use orre_core::id::{AccountId, BalanceId};
 use orre_core::money::Currency;
 use orre_core::money::Money;
 use orre_core::reconciliation::BalanceSource;
 
 use crate::format::{
-    Sign, currency_prefix, field_date, list_date, money, parse_amount, parse_date,
+    Sign, currency_prefix, field_amount, field_date, list_date, money, parse_amount, parse_date,
 };
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
@@ -56,6 +64,12 @@ use super::new_account::{read_balance, sentence};
 use super::{Accounts, DialogClosed};
 
 /// The dialog's caption (Paper `I7I-0`).
+/// The caption when editing a bank account's balance.
+const EDIT_CAPTION: &str = "Your balance at the end of that day, as your bank shows it. Orre checks it again, and the next balance after it, against the transactions.";
+
+/// The caption when editing a cash count.
+const EDIT_COUNT_CAPTION: &str = "What you counted at the end of that day. Orre checks it again, and the next count after it, against the entries between them.";
+
 const CAPTION: &str = "Your balance at the end of that day, as your bank shows it. Type a minus if the account is overdrawn. Orre checks it against the transactions since the last balance.";
 
 /// The caption for an asset (composed from `FS6-0`).
@@ -68,6 +82,12 @@ const COUNT_CAPTION: &str = "Orre checks your count against the last one and wha
 
 /// The caption of the first cash count (composed from `EPF-0`).
 const FIRST_COUNT_CAPTION: &str = "This is your first count, so it's the starting point: Orre counts forward from it and checks every later count against what you enter.";
+
+/// The edit dialog's destructive action.
+pub const REMOVE: &str = "Remove balance";
+
+/// The edit dialog's save.
+pub const SAVE_EDIT: &str = "Save";
 
 /// A count's plain save, when it agrees or is the first.
 const SAVE: &str = "Save count";
@@ -141,6 +161,15 @@ impl Wording {
     }
 }
 
+/// What a balance on an account of `kind` is called in a sentence.
+pub(super) const fn noun(kind: AccountKind) -> &'static str {
+    match kind {
+        AccountKind::Cash => "count",
+        AccountKind::Asset => "valuation",
+        _ => "balance",
+    }
+}
+
 /// The value an asset or liability stores for `typed`, which must not be
 /// below zero: a liability's is what's owed, stored below zero (D6.9).
 pub fn stored_value(kind: AccountKind, typed: Money) -> Result<Money, SharedString> {
@@ -180,7 +209,7 @@ pub fn owed_caption(typed: Option<Money>) -> String {
 /// it (`17 Nov 2026`): core's errors name their dates in ISO form. Only a
 /// date standing as a word is rewritten, not one inside a path, a file name
 /// or a timestamp (`/tmp/orre-2026-11-17/`, `2026-11-17T09:00`).
-fn field_dates(message: &str) -> String {
+pub(super) fn field_dates(message: &str) -> String {
     // Characters that make a date part of something larger.
     let joins_before = |c: char| c.is_alphanumeric() || matches!(c, '/' | '\\' | '-' | '_' | '.');
     let joins_after = |c: char| c.is_alphanumeric() || matches!(c, '/' | '\\' | '-' | '_' | ':');
@@ -211,6 +240,13 @@ fn field_dates(message: &str) -> String {
     shown
 }
 
+/// The balance an edit dialog changes.
+#[derive(Clone, Copy, Debug)]
+struct Editing {
+    id: BalanceId,
+    source: EnteredSource,
+}
+
 /// Add balance, for one account.
 pub struct AddBalanceDialog {
     accounts: Entity<Accounts>,
@@ -229,6 +265,8 @@ pub struct AddBalanceDialog {
     counting: Option<Counting>,
     /// Whether the account has no count yet: this one is the starting point.
     first_count: bool,
+    /// The balance being changed, when this is the edit dialog.
+    editing: Option<Editing>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -299,15 +337,102 @@ impl AddBalanceDialog {
             today,
             counting: None,
             first_count,
+            editing: None,
             _subscriptions: subscriptions,
         };
         dialog.refresh_counting(cx);
         dialog
     }
 
+    /// The edit dialog for one of `account`'s entered balances: the fields
+    /// hold what it has now. With a balance that isn't there (it went
+    /// since the click) it is Add balance.
+    pub fn edit(
+        accounts: Entity<Accounts>,
+        account: AccountId,
+        balance: BalanceId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut dialog = Self::new(accounts.clone(), account, window, cx);
+        let stored = accounts
+            .read(cx)
+            .data()
+            .detail(account)
+            .and_then(|detail| {
+                detail
+                    .balances
+                    .iter()
+                    .find(|stored| stored.id == Some(balance))
+            })
+            .cloned();
+        let Some(stored) = stored else {
+            return dialog;
+        };
+        let source = match stored.source {
+            BalanceSource::Statement => EnteredSource::Statement,
+            BalanceSource::Valuation => EnteredSource::Valuation,
+            _ => EnteredSource::Manual,
+        };
+        dialog.editing = Some(Editing {
+            id: balance,
+            source,
+        });
+        let name = accounts
+            .read(cx)
+            .data()
+            .node(account)
+            .map(|node| super::name(&node.account.name))
+            .unwrap_or_default();
+        dialog.title = format!("{} {name}", dialog.edit_title()).into();
+        // A liability's amount is typed unsigned, and stored below zero.
+        let typed = if dialog.kind == AccountKind::Liability {
+            stored.balance.checked_neg().unwrap_or(stored.balance)
+        } else {
+            stored.balance
+        };
+        let amount = SharedString::from(field_amount(typed));
+        let date = SharedString::from(field_date(stored.date));
+        let note = SharedString::from(stored.note.unwrap_or_default());
+        dialog
+            .amount
+            .update(cx, |input, cx| input.set_value(amount, window, cx));
+        dialog
+            .date
+            .update(cx, |input, cx| input.set_value(date, window, cx));
+        dialog
+            .note
+            .update(cx, |input, cx| input.set_value(note, window, cx));
+        // Setting the fields is no edit: nothing to say yet.
+        dialog.error = None;
+        dialog
+    }
+
+    /// The title's start in edit mode, by kind.
+    fn edit_title(&self) -> &'static str {
+        match self.kind {
+            AccountKind::Asset => "Edit a valuation for",
+            AccountKind::Cash => "Edit a count for",
+            _ => "Edit a balance for",
+        }
+    }
+
+    /// Whether this is the edit dialog.
+    pub fn is_editing(&self) -> bool {
+        self.editing.is_some()
+    }
+
     /// Whether this counts cash rather than adding a balance.
     pub fn is_count(&self) -> bool {
-        self.kind == AccountKind::Cash
+        self.kind == AccountKind::Cash && self.editing.is_none()
+    }
+
+    /// The amount field's label: Counted for a cash count being edited.
+    fn amount_label(&self) -> &'static str {
+        match self.kind {
+            AccountKind::Cash => "Counted",
+            kind => Wording::of(kind).label,
+        }
     }
 
     /// What a cash count shows: Orre's expectation and the difference.
@@ -369,20 +494,21 @@ impl AddBalanceDialog {
     pub fn day_taken(&self, cx: &gpui_kit::App) -> Option<SharedString> {
         let date = parse_date(&self.date.read(cx).value(), self.today)?;
         let accounts = self.accounts.read(cx);
+        let own = self.editing.map(|editing| editing.id);
         let taken = accounts
             .data()
             .detail(self.account)?
             .balances
             .iter()
-            .any(|balance| balance.date == date && balance.source != BalanceSource::Opening);
+            .any(|balance| {
+                balance.date == date
+                    && balance.source != BalanceSource::Opening
+                    && (own.is_none() || balance.id != own)
+            });
         taken.then(|| {
-            let noun = match self.kind {
-                AccountKind::Cash => "count",
-                AccountKind::Asset => "valuation",
-                _ => "balance",
-            };
             format!(
-                "This account already has a {noun} on {}. Choose another day.",
+                "This account already has a {} on {}. Choose another day.",
+                noun(self.kind),
                 field_date(date)
             )
             .into()
@@ -432,7 +558,7 @@ impl AddBalanceDialog {
         let read = if amount.trim().is_empty() {
             Err(format!(
                 "Type the {}, as 1,284.10.",
-                Wording::of(self.kind).label.to_lowercase()
+                self.amount_label().to_lowercase()
             )
             .into())
         } else {
@@ -464,12 +590,17 @@ impl AddBalanceDialog {
         let entered = EnteredBalance {
             date,
             balance,
-            source: EnteredSource::for_kind(self.kind),
+            source: self.editing.map_or_else(
+                || EnteredSource::for_kind(self.kind),
+                |editing| editing.source,
+            ),
             note: (!note.is_empty()).then_some(note),
         };
         let account = self.account;
-        let result = self.accounts.update(cx, |accounts, cx| {
-            accounts.add_balance(account, &entered, cx)
+        let editing = self.editing;
+        let result = self.accounts.update(cx, |accounts, cx| match editing {
+            Some(editing) => accounts.update_balance(account, editing.id, &entered, cx),
+            None => accounts.add_balance(account, &entered, cx),
         });
         match result {
             Ok(()) => cx.emit(DialogClosed),
@@ -533,6 +664,25 @@ impl AddBalanceDialog {
 
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
         cx.emit(DialogClosed);
+    }
+
+    /// "Remove balance": removes the balance being edited, with no
+    /// confirmation (the undo bar adds it back), or says why it can't.
+    pub fn remove(&mut self, cx: &mut Context<Self>) {
+        let Some(editing) = self.editing else {
+            return;
+        };
+        let account = self.account;
+        let result = self.accounts.update(cx, |accounts, cx| {
+            accounts.remove_balance(account, editing.id, cx)
+        });
+        match result {
+            Ok(()) => cx.emit(DialogClosed),
+            Err(error) => {
+                self.error = Some(sentence(&field_dates(&error)));
+                cx.notify();
+            }
+        }
     }
 
     /// The Cash count dialog: Counted, Orre's expectation, the
@@ -677,6 +827,8 @@ impl AddBalanceDialog {
                 owed_caption(parse_amount(&self.amount.read(cx).value(), self.currency).ok())
             }
             AccountKind::Asset => ASSET_CAPTION.to_owned(),
+            AccountKind::Cash if self.editing.is_some() => EDIT_COUNT_CAPTION.to_owned(),
+            _ if self.editing.is_some() => EDIT_CAPTION.to_owned(),
             _ => CAPTION.to_owned(),
         }
     }
@@ -727,7 +879,7 @@ impl AddBalanceDialog {
         }
         let wording = Wording::of(self.kind);
         let mut fields = vec![
-            (wording.label.to_owned(), value(&self.amount)),
+            (self.amount_label().to_owned(), value(&self.amount)),
             (String::new(), value(&self.date)),
             ("Note".to_owned(), value(&self.note)),
         ];
@@ -741,7 +893,15 @@ impl AddBalanceDialog {
                 .day_taken(cx)
                 .or_else(|| self.error.clone())
                 .map(|error| error.to_string()),
-            actions: vec![cancel, Action::button(wording.button, free)],
+            actions: if self.editing.is_some() {
+                vec![
+                    Action::button(REMOVE, true),
+                    cancel,
+                    Action::button(SAVE_EDIT, free),
+                ]
+            } else {
+                vec![cancel, Action::button(wording.button, free)]
+            },
         }
     }
 }
@@ -752,13 +912,14 @@ impl Render for AddBalanceDialog {
             return self.render_count(cx).into_any_element();
         }
         let wording = Wording::of(self.kind);
+        let editing = self.editing.is_some();
         let caption_text = self.caption_text(cx);
         let fields = div()
             .flex()
             .flex_col()
             .gap(spacing::S2)
             .child(FieldRow::new(
-                wording.label,
+                self.amount_label(),
                 div()
                     .flex()
                     .flex_1()
@@ -788,12 +949,25 @@ impl Render for AddBalanceDialog {
                     .with_surface(color::FLOAT)
                     .on_click(cancel),
             )
+            .when(editing, |this| {
+                this.footer_lead(
+                    div().flex().child(
+                        Button::new("remove-balance", REMOVE)
+                            .with_variant(ButtonVariant::DestructiveOutline)
+                            .with_surface(color::FLOAT)
+                            .on_click(cx.listener(|this, _, _, cx| this.remove(cx))),
+                    ),
+                )
+            })
             .action(
-                Button::new("add-balance-add", wording.button)
-                    .with_variant(ButtonVariant::Primary)
-                    .with_surface(color::FLOAT)
-                    .disabled(taken.is_some())
-                    .on_click(add),
+                Button::new(
+                    "add-balance-add",
+                    if editing { SAVE_EDIT } else { wording.button },
+                )
+                .with_variant(ButtonVariant::Primary)
+                .with_surface(color::FLOAT)
+                .disabled(taken.is_some())
+                .on_click(add),
             )
             .on_cancel(move |_, cx| {
                 let _ = on_cancel.update(cx, |this, cx| this.cancel(cx));

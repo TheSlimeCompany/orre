@@ -27,6 +27,7 @@ use gpui_kit::{
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
 };
 use orre_core::account::{AccountKind, EnteredBalance, EnteredSource, NewAccount};
+use orre_core::id::AccountId;
 use orre_core::money::Currency;
 
 use crate::format::{currency_prefix, field_date, parse_amount, parse_date};
@@ -95,6 +96,24 @@ enum Which {
     Currency,
 }
 
+/// Emitted when the dialog has added an account, just before
+/// [`DialogClosed`]: the Import dialog (which hosts this one for "New
+/// account…" in its Account menu) chooses it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AccountCreated(pub AccountId);
+
+/// What the dialog starts with when opened from the Import dialog: the
+/// fields a file settles, and the caption that says so.
+pub struct NewAccountPrefill {
+    /// The file's currency, when it has one.
+    pub currency: Option<Currency>,
+    /// The detected preset's bank name.
+    pub bank: Option<String>,
+    pub kind: AccountKind,
+    /// Replaces the dialog's caption.
+    pub caption: SharedString,
+}
+
 /// The New account dialog.
 pub struct NewAccountDialog {
     accounts: Entity<Accounts>,
@@ -109,11 +128,13 @@ pub struct NewAccountDialog {
     kind_select: SelectState,
     currency_select: SelectState,
     error: Option<SharedString>,
+    caption: Option<SharedString>,
     today: NaiveDate,
     _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<DialogClosed> for NewAccountDialog {}
+impl EventEmitter<AccountCreated> for NewAccountDialog {}
 
 impl NewAccountDialog {
     pub fn new(accounts: Entity<Accounts>, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -162,14 +183,47 @@ impl NewAccountDialog {
             kind_select: SelectState::new(cx),
             currency_select: SelectState::new(cx),
             error: None,
+            caption: None,
             today,
             _subscriptions: subscriptions,
         }
     }
 
-    /// The kind and currency chosen so far.
+    /// Starts the fields from what an import file settles (Import's "New
+    /// account…"): the currency, the bank, the kind and a caption saying so.
+    pub fn prefill(
+        &mut self,
+        prefill: NewAccountPrefill,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(currency) = prefill.currency {
+            self.currency = currency;
+        }
+        if let Some(bank) = prefill.bank {
+            self.bank
+                .update(cx, |input, cx| input.set_value(bank, window, cx));
+        }
+        self.kind = prefill.kind;
+        self.caption = Some(prefill.caption);
+        cx.notify();
+    }
+
+    /// Types `name` into the Name field.
+    #[cfg(test)]
+    pub fn type_name(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.name
+            .update(cx, |input, cx| input.set_value(name.to_owned(), window, cx));
+    }
+
+    /// The kind chosen so far.
     pub fn kind(&self) -> AccountKind {
         self.kind
+    }
+
+    /// The currency chosen so far.
+    pub fn currency(&self) -> Currency {
+        self.currency
     }
 
     pub fn error(&self) -> Option<&SharedString> {
@@ -229,7 +283,10 @@ impl NewAccountDialog {
             accounts.create(&account, balance.as_ref(), cx)
         });
         match result {
-            Ok(_) => cx.emit(DialogClosed),
+            Ok(id) => {
+                cx.emit(AccountCreated(id));
+                cx.emit(DialogClosed);
+            }
             Err(error) => {
                 self.error = Some(sentence(&error));
                 cx.notify();
@@ -409,7 +466,9 @@ impl Render for NewAccountDialog {
         let on_cancel = cx.entity().downgrade();
         Dialog::new(TITLE, &self.focus)
             .body(fields)
-            .body(caption(if valued { VALUED_CAPTION } else { CAPTION }))
+            .body(caption(self.caption.clone().unwrap_or_else(|| {
+                if valued { VALUED_CAPTION } else { CAPTION }.into()
+            })))
             .when_some(self.error.clone(), |this, error| {
                 this.body(error_caption(error))
             })

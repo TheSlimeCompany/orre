@@ -207,6 +207,27 @@ pub fn refund_effect(register: &Register, purchase: &RegisterRow, amount: Money)
     parts
 }
 
+/// What the "Transfer or refund?" card says each choice does: "A transfer
+/// leaves both out of income and spending. A refund takes the purchase's
+/// category, so it's £12.40 less Groceries."
+pub fn transfer_or_refund_effect(register: &Register, purchase: &RegisterRow) -> Vec<Part> {
+    let mut parts = vec![
+        Part::text(
+            "A transfer leaves both out of income and spending. \
+             A refund takes the purchase's category, so it's ",
+        ),
+        Part::mono(unsigned(absolute(purchase.amount))).color(color::TEXT_STRONG),
+    ];
+    if register.row_categories(purchase).is_empty() {
+        parts.push(Part::text(" less spending").color(color::TEXT_STRONG));
+    } else {
+        let category = present::category_label(register, purchase);
+        parts.push(Part::text(format!(" less {category}")).color(color::TEXT_STRONG));
+    }
+    parts.push(Part::text("."));
+    parts
+}
+
 /// The suggestion card's title and why, for a payment's set of claims
 /// (composed for M3.11 from the refund card and Owed to you's strip).
 pub fn reimbursement_why(claims: usize) -> (&'static str, String) {

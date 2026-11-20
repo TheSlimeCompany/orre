@@ -12,6 +12,7 @@
 //! - [`valuations`]: what replaces the transaction table while an asset or
 //!   liability account is selected: its values, as a step-line chart and a
 //!   table (M3.17).
+//! - [`context_menu`]: the right-click menus on the panel's rows (M3.P10).
 //! - [`close`] and [`delete`]: the Close and Delete account dialogs (M3.17).
 //!
 //! After closing, the undo bar says so and Undo reopens the account
@@ -32,6 +33,7 @@
 
 pub mod add_balance;
 pub mod close;
+pub mod context_menu;
 pub mod data;
 pub mod delete;
 #[cfg(test)]
@@ -103,7 +105,7 @@ use chrono::NaiveDate;
 use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
 use orre_core::account::count::Expectation;
 use orre_core::account::{AccountEdit, EnteredBalance, NewAccount};
-use orre_core::id::AccountId;
+use orre_core::id::{AccountId, BalanceId};
 use orre_core::money::Money;
 use orre_core::reporting::account_tree::AccountNode;
 
@@ -137,6 +139,27 @@ pub enum AccountsEvent {
     /// "Add balance…" in the inspector (or "Add valuation…", ⌘N): open
     /// Add balance for the account.
     AddBalanceRequested(AccountId),
+    /// A balance the user entered, clicked in the inspector or the
+    /// valuations table: open Add balance's edit mode on it.
+    EditBalanceRequested(AccountId, BalanceId),
+    /// "Show transactions" in an account's context menu: select it and show
+    /// Transactions.
+    ShowTransactionsRequested(AccountId),
+    /// "New transaction…" in an account's context menu: open New transaction
+    /// on it.
+    NewTransactionRequested(AccountId),
+    /// "Import into this account…" in an account's context menu: open
+    /// Import with it chosen.
+    ImportRequested(AccountId),
+    /// "Edit in the inspector" in an account's context menu: select it and
+    /// show Transactions, where the inspector is.
+    InspectRequested(AccountId),
+    /// "Show transactions" in a category's context menu: filter
+    /// Transactions to it, whatever the filter was.
+    CategoryShowRequested(CategoryPick),
+    /// A category group's context menu, other than Show transactions: open
+    /// Rules on it.
+    CategoryRulesRequested(i64),
     /// "Close account…" in the inspector.
     CloseRequested(AccountId),
     /// "Delete account…" in the inspector.
@@ -172,6 +195,15 @@ pub struct Closed {
     pub message: SharedString,
 }
 
+/// A balance just removed: the undo bar's message, and what Undo adds back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemovedBalance {
+    pub account: AccountId,
+    pub balance: EnteredBalance,
+    /// "Removed the balance on 17 Nov 2026".
+    pub message: SharedString,
+}
+
 /// The accounts the app shows, and which one is selected.
 pub struct Accounts {
     source: Source,
@@ -188,6 +220,12 @@ pub struct Accounts {
     closed: Option<Closed>,
     /// Why Undo couldn't reopen it, said in the bar.
     closed_error: Option<SharedString>,
+    /// The balance removed last, until the bar is dismissed.
+    removed: Option<RemovedBalance>,
+    /// Why Undo couldn't put it back, said in the bar.
+    removed_error: Option<SharedString>,
+    /// The context menu open on a panel row, if any.
+    context_menu: Option<context_menu::ContextMenu>,
     /// Whether the panel last drew its focus ring, for `describe()`
     /// (test-only).
     #[cfg(test)]
@@ -209,6 +247,9 @@ impl Accounts {
             loading: None,
             closed: None,
             closed_error: None,
+            removed: None,
+            removed_error: None,
+            context_menu: None,
             #[cfg(test)]
             panel_ring: Default::default(),
         };
@@ -228,6 +269,9 @@ impl Accounts {
             loading: None,
             closed: None,
             closed_error: None,
+            removed: None,
+            removed_error: None,
+            context_menu: None,
             #[cfg(test)]
             panel_ring: Default::default(),
         }
@@ -245,6 +289,9 @@ impl Accounts {
             loading: None,
             closed: None,
             closed_error: None,
+            removed: None,
+            removed_error: None,
+            context_menu: None,
             #[cfg(test)]
             panel_ring: Default::default(),
         }
@@ -261,6 +308,9 @@ impl Accounts {
             loading: None,
             closed: None,
             closed_error: None,
+            removed: None,
+            removed_error: None,
+            context_menu: None,
             #[cfg(test)]
             panel_ring: Default::default(),
         }
@@ -332,6 +382,71 @@ impl Accounts {
         }
     }
 
+    /// The context menu open on a panel row.
+    pub fn context_menu(&self) -> Option<&context_menu::ContextMenu> {
+        self.context_menu.as_ref()
+    }
+
+    /// Opens a context menu of `groups` at `position`, on the row for
+    /// `target`, and takes focus into it; closing it gives focus back to
+    /// `trigger`. The selection doesn't change.
+    pub fn open_context_menu(
+        &mut self,
+        target: context_menu::ContextTarget,
+        groups: Vec<crate::ui::menu::MenuGroup>,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+        trigger: gpui_kit::FocusHandle,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        if groups.is_empty() {
+            return;
+        }
+        let mut select = crate::ui::menu::SelectState::with_trigger(trigger, cx);
+        select.set_open(true, None, window, cx);
+        self.context_menu = Some(context_menu::ContextMenu {
+            target,
+            position,
+            groups,
+            select,
+        });
+        cx.notify();
+    }
+
+    /// Closes the context menu (Escape, a click outside) and gives focus
+    /// back to the panel.
+    pub fn close_context_menu(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        if let Some(mut menu) = self.context_menu.take() {
+            menu.select.set_open(false, None, window, cx);
+            cx.notify();
+        }
+    }
+
+    /// The arrow keys in the context menu.
+    pub fn move_context_highlight(&mut self, by: isize, cx: &mut Context<Self>) {
+        if let Some(menu) = self.context_menu.as_mut() {
+            menu.select.move_highlight(&menu.groups, by);
+            cx.notify();
+        }
+    }
+
+    /// An item of the context menu was chosen (click or Enter): closes the
+    /// menu and asks for what the item does.
+    pub fn choose_context_item(
+        &mut self,
+        key: &str,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(target) = self.context_menu.as_ref().map(|menu| menu.target) else {
+            return;
+        };
+        self.close_context_menu(window, cx);
+        if let Some(event) = context_menu::event(target, key) {
+            cx.emit(event);
+        }
+    }
+
     /// Asks the shell to open New account.
     pub fn request_new_account(&mut self, cx: &mut Context<Self>) {
         cx.emit(AccountsEvent::NewAccountRequested);
@@ -358,6 +473,17 @@ impl Accounts {
             }
             _ => false,
         }
+    }
+
+    /// Asks the shell to open the edit dialog for one of `account`'s
+    /// entered balances.
+    pub fn request_edit_balance(
+        &mut self,
+        account: AccountId,
+        balance: BalanceId,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(AccountsEvent::EditBalanceRequested(account, balance));
     }
 
     /// Asks the shell to open Close account for `account`.
@@ -535,6 +661,8 @@ impl Accounts {
             message: format!("{name} closed").into(),
         });
         self.closed_error = None;
+        self.removed = None;
+        self.removed_error = None;
         self.reload(cx);
         Ok(())
     }
@@ -634,6 +762,95 @@ impl Accounts {
         Ok(())
     }
 
+    /// Changes one balance the user entered. The error says why it
+    /// wasn't.
+    pub fn update_balance(
+        &mut self,
+        account: AccountId,
+        balance: BalanceId,
+        entered: &EnteredBalance,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        self.store()?
+            .update_balance(account, balance, entered)
+            .map_err(|error| SharedString::from(error.to_string()))?;
+        self.reload(cx);
+        Ok(())
+    }
+
+    /// Removes one balance the user entered and shows the undo bar. The
+    /// error says why it wasn't removed.
+    pub fn remove_balance(
+        &mut self,
+        account: AccountId,
+        balance: BalanceId,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let kind = self.data.node(account).map(|node| node.account.kind);
+        let removed = self
+            .store()?
+            .remove_balance(account, balance)
+            .map_err(|error| SharedString::from(error.to_string()))?;
+        let noun = add_balance::noun(kind.unwrap_or(orre_core::account::AccountKind::Current));
+        self.removed = Some(RemovedBalance {
+            account,
+            message: format!(
+                "Removed the {noun} on {}",
+                crate::format::field_date(removed.date)
+            )
+            .into(),
+            balance: removed,
+        });
+        self.removed_error = None;
+        self.closed = None;
+        self.closed_error = None;
+        self.reload(cx);
+        Ok(())
+    }
+
+    /// The balance removed last, while its undo bar shows.
+    pub fn removed(&self) -> Option<&RemovedBalance> {
+        self.removed.as_ref()
+    }
+
+    /// Why Undo couldn't put the removed balance back.
+    pub fn removed_error(&self) -> Option<&SharedString> {
+        self.removed_error.as_ref()
+    }
+
+    /// Undo on the bar after removing a balance: adds it back, as it was.
+    pub fn undo_remove_balance(&mut self, cx: &mut Context<Self>) {
+        let Some(removed) = self.removed.clone() else {
+            return;
+        };
+        match self.add_balance(removed.account, &removed.balance, cx) {
+            Ok(()) => {
+                self.removed = None;
+                self.removed_error = None;
+            }
+            Err(error) => {
+                self.removed_error = Some(new_account::sentence(&add_balance::field_dates(&error)));
+                cx.notify();
+            }
+        }
+    }
+
+    /// Undo on the bar: whatever it last did, a removed balance or a close.
+    pub fn undo_notice(&mut self, cx: &mut Context<Self>) {
+        if self.removed.is_some() {
+            self.undo_remove_balance(cx);
+        } else {
+            self.undo_close(cx);
+        }
+    }
+
+    /// Closes the undo bar, whichever it is; the change stays.
+    pub fn dismiss_notice(&mut self, cx: &mut Context<Self>) {
+        self.removed = None;
+        self.removed_error = None;
+        self.dismiss_closed(cx);
+    }
+
     /// Records a balance for `account`. The error says why it wasn't.
     pub fn add_balance(
         &mut self,
@@ -662,11 +879,17 @@ pub fn notice_layer(
     use crate::ui::undo_bar::UndoBar;
 
     let state = accounts.read(cx);
-    let closed = state.closed()?;
-    let message = state
-        .closed_error()
-        .cloned()
-        .unwrap_or_else(|| closed.message.clone());
+    let message = match (state.removed(), state.closed()) {
+        (Some(removed), _) => state
+            .removed_error()
+            .cloned()
+            .unwrap_or_else(|| removed.message.clone()),
+        (None, Some(closed)) => state
+            .closed_error()
+            .cloned()
+            .unwrap_or_else(|| closed.message.clone()),
+        (None, None) => return None,
+    };
     let (undo, dismiss) = (accounts.downgrade(), accounts.downgrade());
     Some(
         div()
@@ -679,10 +902,10 @@ pub fn notice_layer(
             .child(
                 UndoBar::new(message)
                     .on_undo(move |_, _, cx| {
-                        let _ = undo.update(cx, |accounts, cx| accounts.undo_close(cx));
+                        let _ = undo.update(cx, |accounts, cx| accounts.undo_notice(cx));
                     })
                     .on_dismiss(move |_, _, cx| {
-                        let _ = dismiss.update(cx, |accounts, cx| accounts.dismiss_closed(cx));
+                        let _ = dismiss.update(cx, |accounts, cx| accounts.dismiss_notice(cx));
                     }),
             )
             .into_any_element(),

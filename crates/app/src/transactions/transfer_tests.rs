@@ -8,9 +8,11 @@ use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
 use orre_core::account::{self, AccountKind, NewAccount};
 use orre_core::db::Database;
+use orre_core::exclusion::{self, ExclusionReason};
 use orre_core::id::{AccountId, TransactionId, TransferGroupId};
 use orre_core::import::{self, Committed};
 use orre_core::inbox::{self, NewSuggestion, SuggestionKind, SuggestionStatus};
+use orre_core::link::{self, LinkKind, LinkStatus, LinkTarget};
 use orre_core::mcp_client::ClientName;
 use orre_core::money::{Currency, Money};
 use orre_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
@@ -112,6 +114,14 @@ impl Scratch {
         transfer::group(&Database::open(&self.path).unwrap(), self.group)
             .unwrap()
             .status
+    }
+
+    /// Makes the money out a purchase: a spending category, so the pair
+    /// could also be a refund (M3.P11).
+    fn spend(&self) {
+        let key = orre_core::category::CategoryKey::new("food.eating_out").unwrap();
+        inbox::own::recategorize(&mut Database::open(&self.path).unwrap(), &[(self.out, key)])
+            .unwrap();
     }
 
     fn suggestion(&self) -> SuggestionStatus {
@@ -264,4 +274,79 @@ fn a_refused_undo_keeps_the_bar_and_says_why(cx: &mut TestAppContext) {
     let (place, reason) = description.one().unwrap().error.clone().unwrap();
     assert_eq!(place, EditPlace::Transfer);
     assert_eq!(message, format!("Couldn't undo: {reason}"));
+}
+
+#[gpui_kit::test]
+fn a_pair_that_could_be_a_refund_offers_the_three_way_card(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    scratch.spend();
+    let (_view, cx) = open(cx, &scratch);
+    click(format!("txn-{}", scratch.inn), cx);
+    assert!(shows("confirm-transfer", cx));
+    assert!(shows("link-pair-as-refund", cx));
+    assert!(shows("reject-transfer", cx));
+}
+
+#[gpui_kit::test]
+fn refund_links_the_pair_hides_it_and_undo_restores_it(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    scratch.spend();
+    let (view, cx) = open(cx, &scratch);
+    click(format!("txn-{}", scratch.inn), cx);
+
+    click("link-pair-as-refund", cx);
+
+    assert_eq!(scratch.status(), TransferStatus::Rejected);
+    assert_eq!(scratch.suggestion(), SuggestionStatus::Rejected);
+    assert!(!shows("link-pair-as-refund", cx), "the pair is gone");
+    let links = link::links_of(&Database::open(&scratch.path).unwrap(), scratch.inn).unwrap();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].kind, LinkKind::Refund);
+    assert_eq!(links[0].status, LinkStatus::Confirmed);
+    assert_eq!(links[0].target, LinkTarget::Purchase(scratch.out));
+    let description = describe(&view, cx);
+    let message = description.undo_message().unwrap();
+    assert!(message.starts_with("Linked as refund: "), "{message}");
+
+    click("undo-change", cx);
+
+    assert_eq!(scratch.status(), TransferStatus::Suggested);
+    assert!(
+        link::links_of(&Database::open(&scratch.path).unwrap(), scratch.inn)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(shows("link-pair-as-refund", cx));
+    assert!(shows("confirm-transfer", cx));
+}
+
+#[gpui_kit::test]
+fn a_plain_move_between_accounts_keeps_the_two_button_card(cx: &mut TestAppContext) {
+    // No spending category on the money out: a transfer, not a purchase.
+    let scratch = Scratch::new();
+    let (_view, cx) = open(cx, &scratch);
+    click(format!("txn-{}", scratch.inn), cx);
+    assert!(shows("confirm-transfer", cx));
+    assert!(shows("reject-transfer", cx));
+    assert!(!shows("link-pair-as-refund", cx));
+}
+
+#[gpui_kit::test]
+fn a_pair_that_cannot_be_a_refund_keeps_the_two_button_card(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    scratch.spend();
+    // The savings side is a duplicate, which takes no link; the purchase is
+    // still listed, with the pair suggested.
+    exclusion::exclude(
+        &mut Database::open(&scratch.path).unwrap(),
+        scratch.inn,
+        ExclusionReason::Duplicate,
+        None,
+    )
+    .unwrap();
+    let (_view, cx) = open(cx, &scratch);
+    click(format!("txn-{}", scratch.out), cx);
+    assert!(shows("confirm-transfer", cx));
+    assert!(shows("reject-transfer", cx));
+    assert!(!shows("link-pair-as-refund", cx));
 }

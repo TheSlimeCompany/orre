@@ -27,6 +27,7 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
 ### Accounts
 
 - `account`: accounts and entered balances (M1.11–M1.13, `V3__import_flags.sql`);
+  `update_balance` and `remove_balance` for a balance the user entered (M3.P9);
   editing (`update`, `usage`), `create_with_balance`, `entered_balances` and the preset
   (`V15__account_preset.sql`, M3.2); valuations as entered balances
   (`EnteredSource::Valuation`) and `account::close` (closing with the lock-date guard,
@@ -98,6 +99,8 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
   `transfer::{confirm, reject, unpair, undo, pair_of, availability}` (M3.8);
   `transfer/mark.rs`: `transfer::{markable, mark, unmark}`, two rows marked as a transfer
   by hand (the bulk-action bar; `inbox::mark_transfer` settles an agent's suggestion).
+  `inbox::link_as_refund` / `undo_refund_linked`: a suggested pair rejected and its money
+  in linked as a refund, in one DB transaction (M3.P11; `Pair::refund` says when).
 
 ### Links, duplicates and reconciliation
 
@@ -121,7 +124,7 @@ M1.20–M1.27 have no CLI commands yet.
   `catalog` (`reports_visible_to`: a client's own reports at its level or below, R.2,
   `V19__report_access_level.sql`). App read models: `account_tree` (the accounts panel, M3.2), `register` (the
   Transactions table: every transaction, filtered, grouped by day and sorted in memory,
-  category colours ranked at read time; rows carry tags, notes, links, share, `pair`,
+  category colours ranked at read time, or one flat list when sorted by a column, M3.P13; rows carry tags, notes, links, share, `pair`,
   `RowSource` and exclusion details; M3.3), `palette` (category colours ranked at read
   time), `linking` (how a row counts, the link dialog's candidates, why a refund was
   suggested), `pairing` over `RegisterRow::pair`.
@@ -197,7 +200,9 @@ per call through its own store and changes data only through core.
   (`shell::window_state`). Actions such as `shell::ImportStatement` (⌘I) and
   `shell::NewTransaction` (⌘N). Views without a screen yet show `ui::empty_state`.
 - `ui::`: Orre's components. `ui::dialog` (also wide) and `ui::menu` (with `MenuList`,
-  the menu opened from a chip, a row or the bulk-action bar, with a filter field) on the
+  the menu opened from a chip, a row or the bulk-action bar, with a filter field;
+  `MenuList::context` and `at_pointer` for right-click menus, `MenuGroup::footer` for a
+  trailing action) on the
   unstyled `gpui-base` roots; `ui::toggle`, `ui::segmented` (also panel size,
   `Segmented::fill`), `ui::notification`, `ui::undo_bar`, `ui::tag`, and the rest of
   `crates/app/src/ui/`. Variants added for later views: `ButtonVariant::Ghost`,
@@ -259,8 +264,9 @@ per call through its own store and changes data only through core.
   inspector's Counts), the `new_account` and `add_balance` dialogs (also for assets and
   liabilities; `add_balance.rs` has the Count cash dialog), `valuations` (the canvas for
   an asset or liability: step-line chart and table, ⌘N), the `close` and `delete`
-  dialogs, `notice_layer` (the undo bar after closing), and `fixture` (`valued` is
-  D6.9's).
+  dialogs, `notice_layer` (the undo bar after closing or removing a balance),
+  `context_menu` (the panel rows' right-click menus, M3.P10), and `fixture` (`valued` is
+  D6.9's). `add_balance.rs` also edits a balance (`AddBalanceDialog::edit`, M3.P9).
 
 ### Import (M3.4, M3.5)
 
@@ -268,7 +274,8 @@ per call through its own store and changes data only through core.
   reload the panel and Transactions), `dialog` (`ImportDialog`: File → Map → Review,
   Save as preset… and Save a copy…), `session` (one file in memory: preset, account,
   mapping, statement, preview rows), `store` (`ImportStore`, the database and disk on a
-  background thread), `text`, `fixture` (a synthetic Monzo-style export). Opened by ⌘I,
+  background thread), `text`, `fixture` (a synthetic Monzo-style export). The Account
+  menu's "New account…" hosts `NewAccountDialog` over the dialog (M3.P3). Opened by ⌘I,
   the Transactions toolbar's Import, or a file dropped on the window.
 
 ### Inbox and checks (M3.6, M3.14, M3.12)

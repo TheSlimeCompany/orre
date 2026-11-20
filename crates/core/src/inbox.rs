@@ -63,8 +63,9 @@ use crate::mcp_client::{AccessLevel, ClientName, RESERVED_CLIENT_NAME};
 use crate::rule::{UnknownKey, key_enum};
 
 pub use approve::{
-    Applied, ApproveError, ApproveOptions, Approved, DECIDED_IN_TRANSACTIONS, TransferDecided,
-    TransferMarked, approve, approve_all, decide_transfer, mark_transfer, reject, reject_all,
+    Applied, ApproveError, ApproveOptions, Approved, DECIDED_IN_TRANSACTIONS, RefundDecided,
+    RefundLinked, TransferDecided, TransferMarked, approve, approve_all, decide_transfer,
+    link_as_refund, mark_transfer, reject, reject_all, undo_refund_linked,
 };
 pub use impact::{
     AliasImpact, CategorizationImpact, Detail, Impact, LinkImpact, RuleImpact, TransferImpact,
