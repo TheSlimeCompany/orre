@@ -8,7 +8,7 @@ see where your money goes, and talk to your data through any MCP-capable AI clie
 Status legend: ✅ done · 🚧 in progress · ⬜ not started
 
 Tasks are numbered `<milestone>.<n>` (e.g. `M1.3`, `D2.4`; `L` for Later, `R` for the
-architecture review, `U` for the UI review) so they can be referenced. Numbers are stable: append new tasks rather than renumbering.
+architecture review, `U` for the UI review, `LU` for live updates, `FT` for full-text search) so they can be referenced. Numbers are stable: append new tasks rather than renumbering.
 
 Each milestone ends with something usable, and has explicit exit criteria.
 
@@ -1247,6 +1247,141 @@ done or closed by a note saying why not; every drag in the app has a keyboard pa
 
 ---
 
+## Live updates ⬜
+
+What SurrealDB's live queries give, built on SQLite. Today a view reloads after the
+app's own changes and when it's shown (`ShellView::show`), so a change made by another
+process is seen only when the user moves around: an MCP client filing suggestions,
+`coffer import`, `undo-import` or `categorize` in a terminal. The Inbox badge and
+Transactions stay stale meanwhile. SQLite can't push a change to another process, so the
+app notices it itself. Not a milestone. Order: LU.1, LU.2, LU.4, then LU.3 and LU.5;
+LU.6 alongside.
+
+- ⬜ LU.1 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`)
+  before code. To decide:
+  - **Detection by the files.** Once a second, read the size and modified time of the
+    database and its `-wal` file, plus the database file's identity. Every commit from
+    any process touches `-wal`. This opens nothing, so "no connection is held" stands.
+  - **Rejected: a held connection polling `PRAGMA data_version`.** Restore renames a new
+    file over the database (`backup::restore`), so a held connection keeps reading the
+    old one. It would also block that rename on Windows (L.10).
+  - **Rejected: a change-journal table filled by triggers.** A trigger on `suggestion`
+    would write another table on every MCP insert, against "MCP writes go to the inbox
+    only". It would also cost a write per imported row.
+  - **The poll interval, and slowing it when the window isn't focused.**
+- ⬜ LU.2 A watcher in core (`coffer_core::watch`, no GPUI), with two steps:
+  - **Stamp:** the file metadata above. An unchanged stamp ends the check.
+  - **Fingerprints:** on a changed stamp, one open through `backup::gate::open` runs a
+    cheap indexed query per topic, e.g. the Inbox's newest suggestion id and pending
+    count, or the newest transaction and `change_batch` ids. It returns the topics that
+    differ from last time.
+
+  Tests:
+  - A write from a second connection reports its topic.
+  - A checkpoint with no data change reports none.
+  - A restore (a new file identity) reports every topic.
+  - A held restore lock skips the check, and the next check catches up.
+- ⬜ LU.3 Shell wiring:
+  - A background timer, like `ShellView::keep_time`, and only in the app: tests and
+    snapshots don't run it.
+  - It maps each topic to the views that reload: Inbox and its badge; Transactions,
+    Accounts and Checks; Rules; Settings (AI clients). The status bar follows the
+    reloads, as now.
+  - Everything off the UI thread, within the 50 ms budget.
+- ⬜ LU.4 Reloading keeps your place. A reload that arrives unasked must not lose what the
+  user is doing. Per view:
+  - **Transactions:** selection, scroll, filters, search, an inline edit or open dialog.
+  - **Accounts:** selection and the inspector form.
+  - **Inbox:** the selected and open suggestion. A suggestion decided elsewhere, or by
+    an approval in flight, goes without moving the selection.
+  - **Checks:** the open queue.
+  - **Rules:** already keeps forms (`Rules::form_edits`); check that it holds for
+    reloads nobody asked for.
+  - **Settings.**
+
+  Each view gets a test on its `describe()`: an outside change lands mid-task, and the
+  view's state is unchanged apart from the new data.
+- ⬜ LU.5 Showing what arrived, designed in Paper first: for example the badge counting
+  up, new rows marked briefly, a quiet "3 suggestions from Claude Code" in the status
+  bar. Never a toast that takes focus.
+- ⬜ LU.6 Cost: measure an idle tick and a fingerprint check at 100,000 transactions
+  (`ledger_bench` or a new example) and record it in LU.1's record. Fingerprints use
+  existing indexes, or a new migration adds them.
+
+**Exit criteria:** with Coffer open, a suggestion filed by an MCP client and a
+`coffer import` run in a terminal both show within about two seconds, without clicking.
+Nothing typed, selected or scrolled is lost. The idle cost is measured and recorded.
+Checked by tests, and in the real window by the user.
+
+---
+
+## Full-text search (FTS5) ⬜
+
+Ranked, fuzzy matching over bank text, with SQLite's FTS5 in place of a vector index:
+deterministic, no model and no new dependency. The bundled SQLite is built with
+`SQLITE_ENABLE_FTS5`. Text is searched in two places today:
+
+- **The Transactions search box** filters the register already in memory
+  (`Register::select`) and never reads the database (M3.3). It stays as it is.
+- **The database text filter** (`reporting::ledger`, behind MCP's `search_transactions`)
+  is `LIKE '%…%'` over the display merchant, bank merchant and raw description, a scan of
+  every row.
+
+FTS5's `trigram` tokenizer answers the same substring question from an index, and ranks
+by `bm25`, which "similar transactions" builds on. Not a milestone. Order: FT.1, FT.2,
+FT.3, then FT.4 and FT.5; FT.6 alongside.
+
+- ⬜ FT.1 Decision record in `docs/architecture/reporting.md` (listed in
+  `ARCHITECTURE.md`) before code. To decide:
+  - **What's indexed:** the display merchant, the bank merchant and the raw description.
+    Notes stay out, since they never reach MCP at any level.
+  - **The table:** an external-content FTS5 table (no second copy of the text) with the
+    `trigram` tokenizer, case-insensitive.
+  - **How it stays in sync:** triggers on `"transaction"` and on wherever the display
+    merchant is stored. MCP never writes either, so "MCP writes go to the inbox only"
+    is untouched.
+  - **Untrusted text:** the index holds bank text, which is untrusted, but it's used only
+    for matching, as now.
+  - **Access levels unchanged:** text search stays at `standard` only (`mcp.md`, "Text
+    search").
+  - **Queries under three characters,** which trigrams can't index, fall back to `LIKE`.
+- ⬜ FT.2 The migration and a core search module:
+  - The migration creates the table and its triggers, and builds the index for existing
+    rows.
+  - The module turns user or MCP text into an FTS5 query that is always a literal
+    phrase, never FTS5 syntax, so `OR`, `NEAR`, `*` or quotes in a query can't change
+    what it means.
+
+  Tests: the index follows an import, an undo, an edit to the display merchant, a
+  supersede and a restore of an older backup (its migration rebuilds the index).
+- ⬜ FT.3 `reporting::ledger`'s text filter, and so `search_transactions`, read through
+  the index. A test runs both the `LIKE` path and the index on the fixtures and checks
+  they return the same rows; the MCP access-level tests are unchanged.
+- ⬜ FT.4 Similar transactions: a core function returning a transaction's nearest
+  neighbours, ranked by `bm25` over its cleaned merchant stem (as `rule::proposal` cuts
+  it), the same sign and a similar amount. Uses, each drawn in Paper first where it
+  shows:
+  - **A category suggestion for an uncategorised row,** from its nearest categorised
+    neighbours, filed as Coffer's own suggestion (source `coffer`), not an AI one. It's
+    made after an import commits, never inside it.
+  - **"Similar" in the transaction inspector.**
+  - **A read tool at `standard`** (later, with L.32), with its access-level test.
+- ⬜ FT.5 L.29's structured search syntax uses this as its text engine (noted in L.29);
+  no work here until L.29 starts.
+- ⬜ FT.6 Cost: measure at 100,000 transactions and record in FT.1's record:
+  - the index's size on disk, and so the size of backups
+  - the time an import adds
+  - a text query through the index against `LIKE`
+
+  If it doesn't pay at that size, FT.3 stays on `LIKE`, and the index serves only FT.4.
+
+**Exit criteria:** `search_transactions` with a `query` returns the same rows as before
+and is measured faster at 100,000 transactions. An uncategorised row with categorised
+look-alikes gets Coffer's own category suggestion. Query text can't change a search's
+meaning.
+
+---
+
 ## M4 — Analytics ⬜
 
 - ⬜ M4.1 Monthly overview: income vs spending vs net (bar/line), category breakdown, MoM change
@@ -1328,7 +1463,7 @@ Good candidates for contributors are marked 🙋.
 - L.27 Transfers: a queue for one-sided transfers; cross-currency pairs with the FX difference
 - L.28 FX: bank-applied rate and fee per transaction; an FX fees report
 - L.29 Structured search syntax shared by the GUI, exports and MCP; saved queries and
-  formula cards
+  formula cards. Its text terms use the FTS5 index (FT.5)
 - 🙋 L.30 100k-transaction performance benchmark
 - L.31 Account groups with subtotals and report include/exclude
 - L.32 More MCP: `find_duplicates`, `preview_rule`, `reconcile_preview`, `list_suggestions`,
