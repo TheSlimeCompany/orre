@@ -284,5 +284,8 @@ be done before launch.
 or backup no longer opens: the app reports a migration history it doesn't recognise, and
 restore refuses the file. Start from an empty data directory. Decision records written
 before this one say Orre where they said Coffer; git history has the original wording.
-The Paper file is still named "Coffer" and `design/tokens.json` records that name until the
-next token export; the mark and app icon (a strongbox) are unchanged.
+The Paper file was renamed Orre the same day, with every wordmark, eyebrow and caption in
+it; its tokens didn't change (content hash `6a126241`), so `design/tokens.json` changed only
+its `fileName`. The "Logo · concepts" artboard is a record of the exploration and keeps its
+captions' meaning, such as coin stack B spelling a C. The mark and app icon (a strongbox)
+are unchanged.
