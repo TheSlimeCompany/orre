@@ -1,14 +1,14 @@
 //! UI integration tests for accounts management: the shell's panel,
 //! inspector and dialogs in a headless window, against a scratch database
-//! through [`AccountStore`], as `coffer` runs them.
+//! through [`AccountStore`], as `orre` runs them.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::id::AccountId;
-use coffer_core::money::{Currency, Money};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use orre_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
+use orre_core::db::Database;
+use orre_core::id::AccountId;
+use orre_core::money::{Currency, Money};
 use tempfile::TempDir;
 
 use super::describe::{
@@ -29,7 +29,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let mut current = NewAccount::new("Current account", AccountKind::Current, Currency::GBP);
         current.institution = Some("Example Bank".into());
@@ -639,7 +639,7 @@ fn the_assets_plus_adds_an_asset_shown_by_its_values(cx: &mut TestAppContext) {
     assert_eq!(values[0].balance.minor(), 38_500_000);
     assert_eq!(
         values[0].source,
-        coffer_core::reconciliation::BalanceSource::Valuation
+        orre_core::reconciliation::BalanceSource::Valuation
     );
     assert_eq!(values[0].note.as_deref(), Some("Remortgage survey"));
     assert_eq!(selected(&accounts, cx), Some(house.id));
@@ -719,7 +719,7 @@ fn a_liability_stores_what_is_owed_below_zero(cx: &mut TestAppContext) {
         "the canvas lists them"
     );
     click("add-balance", cx);
-    // A minus is refused: Coffer stores what's owed below zero itself.
+    // A minus is refused: Orre stores what's owed below zero itself.
     type_into("add-balance-amount", "-1", cx);
     retype_date("add-balance-date", "1 Nov 2026", cx);
     click("add-balance-add", cx);
@@ -740,7 +740,7 @@ fn a_liability_stores_what_is_owed_below_zero(cx: &mut TestAppContext) {
     assert_eq!(field(dialog(&shown), "Owed"), Some("212,640"));
     let caption = &dialog(&shown).fields.last().unwrap().1;
     assert!(
-        caption.contains("Coffer stores it as −£212,640.00"),
+        caption.contains("Orre stores it as −£212,640.00"),
         "the caption says what will be stored: {caption}"
     );
     click("add-balance-add", cx);
@@ -839,7 +839,7 @@ fn delete_shows_only_where_core_allows_it(cx: &mut TestAppContext) {
     assert_eq!(selected(&accounts, cx), None);
 }
 
-/// A cash account counted at £50.00 on 1 Nov with £27.00 spent since: Coffer
+/// A cash account counted at £50.00 on 1 Nov with £27.00 spent since: Orre
 /// expects £23.00.
 fn cash_account(scratch: &Scratch, counted: bool) -> AccountId {
     let mut db = scratch.db();
@@ -857,13 +857,13 @@ fn cash_account(scratch: &Scratch, counted: bool) -> AccountId {
             note: None,
         };
         account::count::record(&mut db, cash, &count, false).unwrap();
-        let spent = coffer_core::manual::ManualTransaction::new(
+        let spent = orre_core::manual::ManualTransaction::new(
             cash,
             on(4),
             Money::new(-2_700, Currency::GBP),
             "Market",
         );
-        coffer_core::manual::create(&mut db, &spent).unwrap();
+        orre_core::manual::create(&mut db, &spent).unwrap();
     }
     cash
 }
@@ -906,7 +906,7 @@ fn a_short_cash_count_offers_its_difference_and_saves_both(cx: &mut TestAppConte
     let counting = count_dialog(&shell, cx).expect("the count can be read");
     assert_eq!(counting.expectation.expected.unwrap().minor(), 2_300);
     let shown = describe(&shell, &accounts, cx);
-    let expected = field(dialog(&shown), "Coffer").unwrap();
+    let expected = field(dialog(&shown), "Orre").unwrap();
     assert!(
         expected.starts_with("£23.00 from transactions since the 1 Nov"),
         "{expected}"
@@ -1342,7 +1342,7 @@ fn reads_in_the_background_and_says_nothing_until_it_is_back(cx: &mut TestAppCon
 fn a_database_with_no_accounts_says_so_once_it_is_read(cx: &mut TestAppContext) {
     let dir = TempDir::new().unwrap();
     let scratch = Scratch {
-        path: dir.path().join("coffer.db"),
+        path: dir.path().join("orre.db"),
         _dir: dir,
         current: AccountId::new(0),
         pot: AccountId::new(0),

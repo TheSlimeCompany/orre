@@ -2,7 +2,7 @@
 
 Instructions for AI coding agents (Claude Code, Codex, etc.) working in this repository.
 
-Coffer is a local-first personal finance dashboard: a Rust + GPUI desktop app that
+Orre is a local-first personal finance dashboard: a Rust + GPUI desktop app that
 imports bank exports (CSV, OFX/QFX) into a local SQLite database, shows them as tables and
 charts, and exposes the data to AI clients through an MCP server.
 
@@ -33,7 +33,7 @@ Run everything inside the dev shell (see "Environment").
 
 ```sh
 cargo build
-cargo test -p <package> <name>                    # one package / test, e.g. -p coffer-core
+cargo test -p <package> <name>                    # one package / test, e.g. -p orre-core
 cargo test                                        # all tests (whole workspace)
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
@@ -64,13 +64,13 @@ it with `--no-verify`.
   Outside direnv, use `devenv shell -- <command>`.
 - Rust stable, edition 2024. Toolchain components: clippy, rustfmt, rust-analyzer.
 - Add system libraries in `devenv.nix`, not with ad-hoc installs.
-- Set `COFFER_DATA_DIR` to a scratch directory when running Coffer against test data,
+- Set `ORRE_DATA_DIR` to a scratch directory when running Orre against test data,
   so it never touches the real database in the platform data dir.
 - Paper (design work): the Paper MCP server is the local Paper Desktop app, configured
   as `paper` and loaded lazily. Run `mcp_connect` with `paper` before any Paper task. Its
   tools (`mcp_paper_*`) only appear on the next turn, so connect, then end the turn or
   ask the user before using them. Most tools require `fileId` even where the description
-  says it's optional; Coffer's is in `docs/DESIGN.md` → "Source of truth". If the tools
+  says it's optional; Orre's is in `docs/DESIGN.md` → "Source of truth". If the tools
   fail, ask the user to check that Paper Desktop is running, rather than working around it.
 
 ## Architecture
@@ -89,8 +89,8 @@ Dependency direction: `app` and `mcp` depend on `core` and `import`; `import` de
 `core`. `core` must not depend on GPUI, MCP, or any network/AI crate. Keep business
 logic out of `app` so it stays testable without a window.
 
-One binary, `coffer`: no subcommand opens the GUI; `mcp` runs the MCP server
-(`coffer mcp --client <name>` names the client, which selects its access level);
+One binary, `orre`: no subcommand opens the GUI; `mcp` runs the MCP server
+(`orre mcp --client <name>` names the client, which selects its access level);
 `import`, `accounts`, `undo-import`, `backup`, `restore`, `export`, `ai-access`,
 `budgets`, `schedules`, `inbox` and `categorize` are headless CLI commands.
 
@@ -114,7 +114,7 @@ Changing any of these needs an explicit decision recorded in the topic's file un
   `report` and nothing else. Transactions, rules, categories, and accounts change
   only through user action in the app or CLI. The server's own `mcp_access_log` audit
   record is not a tool write (decision record in `docs/ARCHITECTURE.md`, 2026-11-09).
-  Approval happens only in Coffer's own UI or CLI, never through MCP elicitation,
+  Approval happens only in Orre's own UI or CLI, never through MCP elicitation,
   sampling, or MCP Apps. CLI commands that act as the user need an interactive terminal
   (2026-11-18), but that is a speed bump: a client with a shell can fake one or open the
   database, so containment holds only while the client has no shell, or a sandbox denies
@@ -137,7 +137,7 @@ Changing any of these needs an explicit decision recorded in the topic's file un
   outbound requests. Saved reports render without HTML, images, or live links, so they
   can't trigger a request.
 - **A view's `describe()` and anything that runs its actions are test-only or dev-feature
-  only.** Never in a release build, never reachable from `coffer mcp` (decision record
+  only.** Never in a release build, never reachable from `orre mcp` (decision record
   in `docs/ARCHITECTURE.md`, 2026-11-18).
 - **Schema changes are new migrations.** Never edit a migration that has shipped.
 
@@ -170,7 +170,7 @@ Changing any of these needs an explicit decision recorded in the topic's file un
 ## Conventions
 
 - Errors: `thiserror` in library crates, `anyhow` only in the binary and its CLI layer
-  (`coffer_app::cli`, in the lib so it's testable).
+  (`orre_app::cli`, in the lib so it's testable).
 - Keep dependencies few; justify new ones. Check license compatibility with
   `MIT OR Apache-2.0`.
 - Add or update tests with every behaviour change. Importer quirks found in real files

@@ -15,7 +15,7 @@
 //! - [`close`] and [`delete`]: the Close and Delete account dialogs (M3.17).
 //!
 //! After closing, the undo bar says so and Undo reopens the account
-//! ([`notice_layer`]); a closed account is reopened later with `coffer
+//! ([`notice_layer`]); a closed account is reopened later with `orre
 //! accounts reopen` (decided with the user, 2026-11-14).
 //!
 //! [`Accounts`] holds what they show and which account is selected, and
@@ -54,7 +54,7 @@ pub fn name(raw: &str) -> String {
 }
 
 gpui_kit::actions!(
-    coffer_accounts,
+    orre_accounts,
     [
         /// ⌘N while an asset or liability account is selected: add a
         /// valuation (`DESIGN.md` → "Accounts you keep yourself"). On other
@@ -100,12 +100,12 @@ pub fn init(cx: &mut gpui_kit::App) {
 }
 
 use chrono::NaiveDate;
-use coffer_core::account::count::Expectation;
-use coffer_core::account::{AccountEdit, EnteredBalance, NewAccount};
-use coffer_core::id::AccountId;
-use coffer_core::money::Money;
-use coffer_core::reporting::account_tree::AccountNode;
 use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
+use orre_core::account::count::Expectation;
+use orre_core::account::{AccountEdit, EnteredBalance, NewAccount};
+use orre_core::id::AccountId;
+use orre_core::money::Money;
+use orre_core::reporting::account_tree::AccountNode;
 
 use crate::ui::list;
 use data::AccountsData;
@@ -113,12 +113,12 @@ use store::AccountStore;
 
 /// Today, where the computer's clock can be read.
 fn today() -> chrono::NaiveDate {
-    coffer_core::schedule::local_today().unwrap_or_else(|_| fixture::today())
+    orre_core::schedule::local_today().unwrap_or_else(|_| fixture::today())
 }
 
 /// Where the accounts come from.
 enum Source {
-    /// The database: what `coffer` opens.
+    /// The database: what `orre` opens.
     Database(AccountStore),
     /// Sample data that can't change.
     Fixture,
@@ -380,7 +380,7 @@ impl Accounts {
     pub fn request_selected_checks(&mut self, cx: &mut Context<Self>) -> bool {
         let flagged = self
             .selected_node()
-            .filter(|node| node.status == coffer_core::reconciliation::Status::Mismatch)
+            .filter(|node| node.status == orre_core::reconciliation::Status::Mismatch)
             .map(|node| node.account.id);
         if let Some(account) = flagged {
             self.request_checks(account, cx);
@@ -583,7 +583,7 @@ impl Accounts {
         Ok(())
     }
 
-    /// What Coffer expects of a cash count of `counted` on `date` in
+    /// What Orre expects of a cash count of `counted` on `date` in
     /// `account`, and how far the count is from it. Sample data answers from
     /// [`data::AccountDetail::cash_expected`].
     pub fn cash_expectation(

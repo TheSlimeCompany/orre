@@ -30,17 +30,6 @@
 
 use std::path::PathBuf;
 
-use coffer_core::account::Account;
-use coffer_core::id::AccountId;
-use coffer_core::import::{Committed, Error as ImportError};
-use coffer_core::money::{Currency, DecimalMark};
-use coffer_core::statement::Statement;
-use coffer_import::SourceFile;
-use coffer_import::csv::{
-    AmountDraft, Column, CsvFile, DateFormat, Delimiter, SplitSigns, TextEncoding, columns,
-    date_formats,
-};
-use coffer_import::preset::{Preset, PresetParts, slug};
 use gpui_kit::component::Disableable as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -49,6 +38,17 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, Rgba, SharedString,
     Styled as _, Subscription, Task, Window, div,
 };
+use orre_core::account::Account;
+use orre_core::id::AccountId;
+use orre_core::import::{Committed, Error as ImportError};
+use orre_core::money::{Currency, DecimalMark};
+use orre_core::statement::Statement;
+use orre_import::SourceFile;
+use orre_import::csv::{
+    AmountDraft, Column, CsvFile, DateFormat, Delimiter, SplitSigns, TextEncoding, columns,
+    date_formats,
+};
+use orre_import::preset::{Preset, PresetParts, slug};
 
 use crate::accounts::DialogClosed;
 use crate::settings::table::{Run, mono as mono_run, plain as plain_run, rich};
@@ -1180,7 +1180,7 @@ impl ImportDialog {
                         .map(|(index, statement)| {
                             let label = statement_label(statement);
                             MenuOption::new(index.to_string(), label).disabled(
-                                statement.kind == coffer_import::ofx::OfxStatementKind::Investment,
+                                statement.kind == orre_import::ofx::OfxStatementKind::Investment,
                             )
                         })
                         .collect();
@@ -1831,11 +1831,11 @@ impl ImportDialog {
             .child(field_caption(
                 match account {
                     Some(account) => format!(
-                        "Saved in Coffer’s data folder, it recognises this bank’s files from now \
+                        "Saved in Orre’s data folder, it recognises this bank’s files from now \
                          on, and {account} uses it for its next import. It holds the column \
                          layout only, never your transactions."
                     ),
-                    None => "Saved in Coffer’s data folder, it recognises this bank’s files from \
+                    None => "Saved in Orre’s data folder, it recognises this bank’s files from \
                              now on. It holds the column layout only, never your transactions."
                         .to_owned(),
                 }
@@ -2290,9 +2290,9 @@ fn column_label(column: &Column) -> String {
 /// GBP · 52`.
 fn statement_label(statement: &super::session::OfxChoice) -> String {
     let kind = match statement.kind {
-        coffer_import::ofx::OfxStatementKind::Bank => "Bank account",
-        coffer_import::ofx::OfxStatementKind::CreditCard => "Credit card",
-        coffer_import::ofx::OfxStatementKind::Investment => "Investments",
+        orre_import::ofx::OfxStatementKind::Bank => "Bank account",
+        orre_import::ofx::OfxStatementKind::CreditCard => "Credit card",
+        orre_import::ofx::OfxStatementKind::Investment => "Investments",
     };
     let suffix = statement
         .suffix

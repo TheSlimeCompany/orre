@@ -3,7 +3,7 @@
 //! an approval.
 //!
 //! **Untrusted text.** A rationale, pattern or name is an AI client's (or,
-//! for Coffer's own suggestions, the bank's) text, and bank text is the
+//! for Orre's own suggestions, the bank's) text, and bank text is the
 //! bank's. Each goes through [`plain`] before it's drawn: the characters
 //! [`envelope::shown`] strips (control, zero-width, bidi and other invisible
 //! characters) are removed, whitespace runs become one space, and it's cut
@@ -13,15 +13,15 @@
 use std::ops::Range;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use coffer_core::category::assign::NoOwnCategory;
-use coffer_core::envelope;
-use coffer_core::inbox::preview::{After, CategoryRef, Subject};
-use coffer_core::inbox::{COFFER_SOURCE, Payload, SuggestionId, SuggestionKind};
-use coffer_core::merchant::AliasKind;
-use coffer_core::money::Money;
-use coffer_core::reporting::palette::Palette;
-use coffer_core::rule::{MatchField, MatchKind, RuleAction, RuleDefinition};
 use gpui_kit::{Font, FontWeight, Rgba, StyledText, TextRun, Window};
+use orre_core::category::assign::NoOwnCategory;
+use orre_core::envelope;
+use orre_core::inbox::preview::{After, CategoryRef, Subject};
+use orre_core::inbox::{ORRE_SOURCE, Payload, SuggestionId, SuggestionKind};
+use orre_core::merchant::AliasKind;
+use orre_core::money::Money;
+use orre_core::reporting::palette::Palette;
+use orre_core::rule::{MatchField, MatchKind, RuleAction, RuleDefinition};
 
 use crate::format::{self, Sign};
 use crate::theme::tokens::typography::TextRole;
@@ -173,12 +173,12 @@ pub fn kind_glyph(kind: SuggestionKind) -> Glyph {
     }
 }
 
-/// A source's name, and the words after it: "Coffer" + "from your edits"
-/// for Coffer's own, else the client's `--client` name (display names come
+/// A source's name, and the words after it: "Orre" + "from your edits"
+/// for Orre's own, else the client's `--client` name (display names come
 /// with the AI access settings).
 pub fn source_name(source: &str) -> (String, Option<&'static str>) {
-    if source == COFFER_SOURCE {
-        ("Coffer".to_owned(), Some("from your edits"))
+    if source == ORRE_SOURCE {
+        ("Orre".to_owned(), Some("from your edits"))
     } else {
         (plain(source, NAME_SHOWN), None)
     }
@@ -292,7 +292,7 @@ pub fn ago(stored: &str, now: DateTime<Utc>) -> String {
     }
 }
 
-/// When Coffer filed one of its own: "today", else the date.
+/// When Orre filed one of its own: "today", else the date.
 pub fn day_of(stored: &str, now: DateTime<Utc>) -> String {
     match timestamp(stored) {
         Some(then) if then.date_naive() == now.date_naive() => "today".to_owned(),
@@ -348,7 +348,7 @@ pub fn approved_message(data: &InboxData, ids: &[SuggestionId]) -> Option<String
         return match (&entry.suggestion.payload, &entry.subject) {
             (Payload::Rule(rule), subject) => {
                 let recategorised = match &preview.impact.detail {
-                    coffer_core::inbox::Detail::Rule(impact) => impact.recategorises,
+                    orre_core::inbox::Detail::Rule(impact) => impact.recategorises,
                     _ => changed,
                 };
                 let category = rule_category(subject)
@@ -362,7 +362,7 @@ pub fn approved_message(data: &InboxData, ids: &[SuggestionId]) -> Option<String
             }
             (Payload::MerchantAlias(alias), _) => {
                 let renamed = match &preview.impact.detail {
-                    coffer_core::inbox::Detail::MerchantAlias(impact) => impact.renames,
+                    orre_core::inbox::Detail::MerchantAlias(impact) => impact.renames,
                     _ => changed,
                 };
                 Some(format!(
@@ -391,7 +391,7 @@ pub fn approved_message(data: &InboxData, ids: &[SuggestionId]) -> Option<String
                 },
             ) => {
                 let amount = match &preview.impact.detail {
-                    coffer_core::inbox::Detail::RefundLink(link) => unsigned(link.amount),
+                    orre_core::inbox::Detail::RefundLink(link) => unsigned(link.amount),
                     _ => String::new(),
                 };
                 Some(format!(

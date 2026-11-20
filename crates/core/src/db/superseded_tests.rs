@@ -171,7 +171,7 @@ fn populate_v18(conn: &Connection) {
 #[test]
 fn the_rebuild_keeps_every_row_reference_and_trigger() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let (transactions, others, before) = {
         let db = super::open_at_version(&path, before_superseded()).unwrap();
         let conn = db.conn();
@@ -282,7 +282,7 @@ impl Fixture {
     /// source ID `tx_1` (ID 1).
     fn new() -> Fixture {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         db.conn()
             .execute_batch(
                 "INSERT INTO account (name, kind, currency) VALUES ('Current', 'current', 'GBP');

@@ -24,14 +24,14 @@
 //! Amount condition's second row, the Split action's lines, the Exclude
 //! reason row, the Tag action's pills, New rule and New name from scratch.
 
-use coffer_core::change::BatchStatus;
-use coffer_core::rule::{ActionKind, RuleOrigin};
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, Entity, InteractiveElement as _, IntoElement, ParentElement as _,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::change::BatchStatus;
+use orre_core::rule::{ActionKind, RuleOrigin};
 
 use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
 use crate::theme::tokens::{color, font, radius, size, spacing, typography, weight};
@@ -394,7 +394,7 @@ pub struct NeverReachedText {
     pub caption: String,
     /// The rule above it, 1 first, and its ID.
     pub position: usize,
-    pub above: coffer_core::id::RuleId,
+    pub above: orre_core::id::RuleId,
 }
 
 /// The card's buttons.
@@ -411,7 +411,7 @@ impl NeverReachedText {
     /// catches its matches is there.
     pub fn of(
         data: &super::store::RulesData,
-        summary: &coffer_core::rule::RuleSummary,
+        summary: &orre_core::rule::RuleSummary,
     ) -> Option<Self> {
         let catch = summary.caught_by.filter(|_| summary.never_reached())?;
         let above = data.rule(catch.rule)?;
@@ -445,7 +445,7 @@ impl NeverReachedText {
 
 fn never_reached(
     entity: &Entity<Rules>,
-    summary: &coffer_core::rule::RuleSummary,
+    summary: &orre_core::rule::RuleSummary,
     card: NeverReachedText,
     window: &Window,
 ) -> AnyElement {
@@ -527,7 +527,7 @@ fn when_section(
         |account| text::plain(&account.name, text::NAME_SHOWN),
     );
     let pattern_error = error.filter(|error| error.is_pattern() && !form.text.is_empty());
-    let pattern_label = if form.kind == coffer_core::rule::MatchKind::Regex {
+    let pattern_label = if form.kind == orre_core::rule::MatchKind::Regex {
         "Pattern"
     } else {
         "Text"
@@ -664,7 +664,7 @@ fn when_section(
         );
     }
     let caption_words = match form.kind {
-        coffer_core::rule::MatchKind::Regex => {
+        orre_core::rule::MatchKind::Regex => {
             "Matches and the preview update as you type once the pattern is valid. Matching \
              always finishes quickly, whatever the pattern."
         }
@@ -989,8 +989,8 @@ fn split_control(
                         .child(format!(
                             "{}%",
                             super::form::percent_text(
-                                coffer_core::rule::Share::new(total.min(10_000))
-                                    .unwrap_or(coffer_core::rule::Share::WHOLE)
+                                orre_core::rule::Share::new(total.min(10_000))
+                                    .unwrap_or(orre_core::rule::Share::WHOLE)
                             )
                         )),
                 ),
@@ -1000,7 +1000,7 @@ fn split_control(
 
 fn past_section(
     entity: &Entity<Rules>,
-    touching: &[coffer_core::inbox::Suggestion],
+    touching: &[orre_core::inbox::Suggestion],
     applying: bool,
     window: &Window,
 ) -> AnyElement {
@@ -1082,9 +1082,9 @@ pub const CREATE_CATEGORY: &str = "Create category";
 /// The line under Apply when an agent's pending rule would take over this
 /// rule's rows: "claude-code suggests a rule for `UBER` above this one.
 /// Review in the Inbox". The pattern goes through [`text::pattern`].
-pub fn touching_parts(suggestion: &coffer_core::inbox::Suggestion) -> Vec<Part> {
+pub fn touching_parts(suggestion: &orre_core::inbox::Suggestion) -> Vec<Part> {
     let pattern = match &suggestion.payload {
-        coffer_core::inbox::Payload::Rule(rule) => text::pattern(rule),
+        orre_core::inbox::Payload::Rule(rule) => text::pattern(rule),
         _ => String::new(),
     };
     let (client, _) = crate::inbox::text::source_name(&suggestion.source_client);
@@ -1098,7 +1098,7 @@ pub fn touching_parts(suggestion: &coffer_core::inbox::Suggestion) -> Vec<Part> 
 
 /// The rule's footer: "Created on " and the date, if it's known.
 pub fn rule_created(
-    summary: &coffer_core::rule::RuleSummary,
+    summary: &orre_core::rule::RuleSummary,
     data: &super::store::RulesData,
     today: chrono::NaiveDate,
 ) -> (&'static str, Option<String>) {
@@ -1116,7 +1116,7 @@ pub fn rule_created(
 
 fn rule_footer(
     entity: &Entity<Rules>,
-    summary: &coffer_core::rule::RuleSummary,
+    summary: &orre_core::rule::RuleSummary,
     data: &super::store::RulesData,
     today: chrono::NaiveDate,
 ) -> AnyElement {
@@ -1192,7 +1192,7 @@ pub fn name_header(rules: &Rules) -> Option<HeaderText> {
 /// The name's footer date: "Added on " it.
 pub fn name_added(
     data: &super::store::RulesData,
-    summary: &coffer_core::merchant::AliasSummary,
+    summary: &orre_core::merchant::AliasSummary,
     today: chrono::NaiveDate,
 ) -> Option<String> {
     data.name_added
@@ -1445,7 +1445,7 @@ fn change_sections(
             "Undone{when}. Each value went back where it still held this change’s."
         )));
     } else {
-        let rule_words = if entry.batch.kind == coffer_core::change::ChangeKind::RuleApply {
+        let rule_words = if entry.batch.kind == orre_core::change::ChangeKind::RuleApply {
             " The rule itself stays."
         } else {
             ""
@@ -1547,7 +1547,7 @@ pub fn stored_category_header(rules: &Rules) -> Option<HeaderText> {
     })
 }
 
-fn subcategories(rules: &Rules, summary: &coffer_core::category::CategorySummary) -> usize {
+fn subcategories(rules: &Rules, summary: &orre_core::category::CategorySummary) -> usize {
     rules
         .data()
         .category_group(summary.category.key())
@@ -1556,13 +1556,13 @@ fn subcategories(rules: &Rules, summary: &coffer_core::category::CategorySummary
 
 /// Whether "Delete category…" is offered: nothing uses it and it has no
 /// subcategories.
-pub fn deletable(rules: &Rules, summary: &coffer_core::category::CategorySummary) -> bool {
+pub fn deletable(rules: &Rules, summary: &orre_core::category::CategorySummary) -> bool {
     summary.usage.is_unused() && subcategories(rules, summary) == 0
 }
 
 /// The In pickers button: "Hide category", or "Show category" for a hidden
 /// one.
-pub fn hide_label(category: &coffer_core::category::Category) -> &'static str {
+pub fn hide_label(category: &orre_core::category::Category) -> &'static str {
     if category.is_hidden() {
         "Show category"
     } else {
@@ -1773,7 +1773,7 @@ fn new_category_sections(
         .and_then(|key| data.category_group(key))
         .map(|group| group.group.category.clone());
     let key = (!form.name.trim().is_empty()).then(|| {
-        coffer_core::category::derive_key(&form.name, group.as_ref().map(|g| g.key()), |key| {
+        orre_core::category::derive_key(&form.name, group.as_ref().map(|g| g.key()), |key| {
             data.category(key).is_some() || data.retired_keys.contains(key)
         })
     });
@@ -1796,7 +1796,7 @@ fn new_category_sections(
             }
             control
                 .on_choose(move |key, _, cx| {
-                    if let Ok(kind) = key.parse::<coffer_core::category::CategoryKind>() {
+                    if let Ok(kind) = key.parse::<orre_core::category::CategoryKind>() {
                         let _ = view_handle.update(cx, |this, cx| this.set_category_kind(kind, cx));
                     }
                 })

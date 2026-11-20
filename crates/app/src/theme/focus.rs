@@ -1,4 +1,4 @@
-//! Coffer's keyboard focus ring (`docs/DESIGN.md` → "Interaction states").
+//! Orre's keyboard focus ring (`docs/DESIGN.md` → "Interaction states").
 //!
 //! The ring is a [`size::FOCUS_RING`] line in [`color::MOLTEN`], drawn only
 //! while an element has keyboard focus (GPUI's focus-visible: focused, and the
@@ -7,7 +7,7 @@
 //! element's plus the offset. Rows in scrolling lists draw it inset instead,
 //! because a scroll container clips anything outside its rows.
 //!
-//! Coffer's own components draw it with [`FocusRingExt::focus_visible_ring`].
+//! Orre's own components draw it with [`FocusRingExt::focus_visible_ring`].
 //! Stock `gpui-component` controls draw their own focus style; see
 //! [`super::component`].
 
@@ -20,7 +20,7 @@ use gpui_kit::{
 use super::tokens::{color, size};
 
 /// Debug selector of the ring element, for `debug_bounds` in tests.
-pub(crate) const RING_SELECTOR: &str = "coffer-focus-ring";
+pub(crate) const RING_SELECTOR: &str = "orre-focus-ring";
 
 /// Where a focus ring sits relative to the element it marks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -98,7 +98,7 @@ fn snap_offset(distance: Pixels, scale_factor: f32) -> Pixels {
     px(device_pixels(distance, scale_factor) / scale_factor)
 }
 
-/// Draws Coffer's focus ring on an element.
+/// Draws Orre's focus ring on an element.
 pub trait FocusRingExt: Styled + ParentElement + Sized {
     /// Draws the focus ring while `focus` has keyboard focus; otherwise
     /// leaves the element unchanged. See [`show_focus_ring`](Self::show_focus_ring)

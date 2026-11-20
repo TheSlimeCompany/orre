@@ -9,16 +9,16 @@
 mod common;
 
 use chrono::NaiveDate;
-use coffer_core::balance::CheckResult;
-use coffer_core::import::{
+use orre_core::balance::CheckResult;
+use orre_core::import::{
     self, CheckedBalance, Committed, Confirmations, Error, FileBalance, FileBalanceKind,
     FileBalanceStatus, FileOrder, FlagKind, PreviewCounts, ReconciliationStatus, RunningMismatch,
 };
-use coffer_core::money::{Currency, Money};
-use coffer_core::statement::{RowProblem, SourceFormat, SourceLocation};
-use coffer_import::csv::TextEncoding;
-use coffer_import::preset::{Preset, Presets};
-use coffer_import::{AnyImporter, Detect, Detection, Importer, SourceFile, detect};
+use orre_core::money::{Currency, Money};
+use orre_core::statement::{RowProblem, SourceFormat, SourceLocation};
+use orre_import::csv::TextEncoding;
+use orre_import::preset::{Preset, Presets};
+use orre_import::{AnyImporter, Detect, Detection, Importer, SourceFile, detect};
 
 use common::*;
 
@@ -81,14 +81,14 @@ fn each_preset_recognises_only_its_own_fixture() {
     }
 
     // A preset without a header row can't recognise its file: it's only
-    // ever chosen by name (`coffer import --preset`).
+    // ever chosen by name (`orre import --preset`).
     let headerless = presets.get("uk-example-headerless").unwrap();
     assert_eq!(
         headerless.importer().detect(&fixture(HEADERLESS)),
         Detection::Format
     );
 
-    let ofx_importer = coffer_import::ofx::OfxImporter::new();
+    let ofx_importer = orre_import::ofx::OfxImporter::new();
     for file in [
         "ofx/bank-sgml.ofx",
         "ofx/creditcard-xml.ofx",

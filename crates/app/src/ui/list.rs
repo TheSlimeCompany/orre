@@ -27,7 +27,7 @@ use gpui_kit::{App, InteractiveElement, KeyBinding, ListState, ScrollHandle, Win
 use crate::ui::keys::Hint;
 
 gpui_kit::actions!(
-    coffer_list,
+    orre_list,
     [
         /// ⇧↑: extend the selection one row up.
         ExtendSelectionUp,

@@ -7,7 +7,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 
 /// An ISO 4217 currency, e.g. `GBP`.
 ///
-/// Only codes in Coffer's table ([`Currency::all`]) can be built, so every
+/// Only codes in Orre's table ([`Currency::all`]) can be built, so every
 /// `Currency` knows its minor units: the number of decimal places an amount
 /// has (`GBP` 2, `JPY` 0, `KWD` 3).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -16,7 +16,7 @@ pub struct Currency {
     minor_units: u8,
 }
 
-/// The table: every code Coffer accepts and its ISO 4217 minor units, sorted
+/// The table: every code Orre accepts and its ISO 4217 minor units, sorted
 /// by code.
 ///
 /// Hand-written and frozen by the tests below: changing a value changes
@@ -207,9 +207,9 @@ const TABLE: &[(&str, u8)] = &[
     ("ZWL", 2), // withdrawn 2024, replaced by ZWG
 ];
 
-/// A code that isn't in Coffer's currency table.
+/// A code that isn't in Orre's currency table.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{code:?} isn't an ISO 4217 currency code Coffer knows")]
+#[error("{code:?} isn't an ISO 4217 currency code Orre knows")]
 pub struct UnknownCurrency {
     /// The text that was given, truncated to 16 characters.
     pub code: String,
@@ -242,7 +242,7 @@ impl Currency {
         Currency { code, minor_units }
     }
 
-    /// Every currency Coffer knows, in code order.
+    /// Every currency Orre knows, in code order.
     pub fn all() -> impl ExactSizeIterator<Item = Currency> {
         TABLE
             .iter()

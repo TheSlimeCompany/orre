@@ -15,26 +15,26 @@ mod common;
 use std::collections::BTreeSet;
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, EnteredBalance, EnteredSource};
-use coffer_core::backup::{self, Reason};
-use coffer_core::category::CategoryKey;
-use coffer_core::change::{self, Field, Value};
-use coffer_core::duplicate::{self, CandidateStatus, MergeRequest};
-use coffer_core::exclusion::ExclusionReason;
-use coffer_core::export::{self, Filter, Format, Options};
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::import::{self, Committed};
-use coffer_core::link::{self, LinkKind, LinkTarget, NewLink, ShareLabel, Sharing};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reconciliation::{self, Status};
-use coffer_core::rule::{
+use common::*;
+use orre_core::account::{self, AccountKind, EnteredBalance, EnteredSource};
+use orre_core::backup::{self, Reason};
+use orre_core::category::CategoryKey;
+use orre_core::change::{self, Field, Value};
+use orre_core::duplicate::{self, CandidateStatus, MergeRequest};
+use orre_core::exclusion::ExclusionReason;
+use orre_core::export::{self, Filter, Format, Options};
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::import::{self, Committed};
+use orre_core::link::{self, LinkKind, LinkTarget, NewLink, ShareLabel, Sharing};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::reconciliation::{self, Status};
+use orre_core::rule::{
     self, ActionText, AmountBounds, ExcludeReason, MatchField, MatchKind, Pattern, RuleAction,
     RuleDefinition, Share, TagList,
 };
-use coffer_core::split::{self, SplitLine};
-use coffer_core::tag::{self, TagName};
-use common::*;
+use orre_core::split::{self, SplitLine};
+use orre_core::tag::{self, TagName};
 
 fn day(month: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, month, d).unwrap()

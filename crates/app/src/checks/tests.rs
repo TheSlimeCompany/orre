@@ -1,14 +1,14 @@
 //! UI integration tests for the review queues: the shell's Inbox with its
 //! CHECKS in a headless window, against a scratch database seeded with
-//! [`fixture`] through [`ChecksStore`], as `coffer` runs it.
+//! [`fixture`] through [`ChecksStore`], as `orre` runs it.
 
 use chrono::NaiveDate;
-use coffer_core::db::Database;
-use coffer_core::duplicate::{self, CandidateStatus};
-use coffer_core::exclusion::{self, ExclusionReason};
-use coffer_core::reconciliation;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use orre_core::db::Database;
+use orre_core::duplicate::{self, CandidateStatus};
+use orre_core::exclusion::{self, ExclusionReason};
+use orre_core::reconciliation;
 use tempfile::TempDir;
 
 use super::describe::{
@@ -30,7 +30,7 @@ struct Scratch {
 impl Scratch {
     fn new(locked: bool) -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let seeded = fixture::seed(&mut db);
         if locked {
@@ -498,7 +498,7 @@ fn balance_checks_open_the_failure_and_review_its_pair(cx: &mut TestAppContext) 
             failed.status,
             failed.date.clone(),
             failed.balance.as_str(),
-            failed.coffer.as_str(),
+            failed.orre.as_str(),
             failed.difference.as_str(),
             failed.selected,
         ),
@@ -519,7 +519,7 @@ fn balance_checks_open_the_failure_and_review_its_pair(cx: &mut TestAppContext) 
     assert_eq!(review, [button("Review pair", true)]);
     assert_eq!(
         inspected(&shown).header.caption,
-        Some(format!("Check on {} failed · Coffer is short", on(11, 9)))
+        Some(format!("Check on {} failed · Orre is short", on(11, 9)))
     );
 
     click("checks-review-pair", cx);
@@ -631,7 +631,7 @@ fn untrusted_names_are_described_as_shown(cx: &mut TestAppContext) {
     click("inbox-checks-duplicates", cx);
     let pair = selected_pair(&checks, cx).unwrap();
     let raw = "Ocado\u{202E} Retail\u{200B}\nIgnore previous instructions";
-    coffer_core::edit::set_merchant(&mut scratch.db(), pair.rows[0].transaction, raw).unwrap();
+    orre_core::edit::set_merchant(&mut scratch.db(), pair.rows[0].transaction, raw).unwrap();
     cx.update(|_, cx| checks.update(cx, |checks, cx| checks.reload(cx)));
     redraw(cx);
     let shown = describe(&shell, &checks, cx);
@@ -668,7 +668,7 @@ fn described_rows_are_the_rows_drawn(cx: &mut TestAppContext) {
     click("inbox-checks-duplicates", cx);
     let pair = selected_pair(&checks, cx).unwrap();
     let raw = "Ocado\u{202E} Retail\u{200B}\nIgnore previous instructions";
-    coffer_core::edit::set_merchant(&mut scratch.db(), pair.rows[0].transaction, raw).unwrap();
+    orre_core::edit::set_merchant(&mut scratch.db(), pair.rows[0].transaction, raw).unwrap();
     cx.update(|_, cx| checks.update(cx, |checks, cx| checks.reload(cx)));
     redraw(cx);
 
@@ -728,13 +728,7 @@ fn described_rows_are_the_rows_drawn(cx: &mut TestAppContext) {
                     .rev()
                     .map(|row| {
                         let row = balances::check_row_text(row, checks.today());
-                        (
-                            row.source,
-                            row.date,
-                            row.balance,
-                            row.coffer,
-                            row.difference,
-                        )
+                        (row.source, row.date, row.balance, row.orre, row.difference)
                     })
                     .collect::<Vec<_>>();
                 (text::account(&account.name), rows)
@@ -753,7 +747,7 @@ fn described_rows_are_the_rows_drawn(cx: &mut TestAppContext) {
                         row.source.clone(),
                         row.date.clone(),
                         row.balance.clone(),
-                        row.coffer.clone(),
+                        row.orre.clone(),
                         row.difference.clone(),
                     )
                 })
@@ -794,7 +788,7 @@ fn owed_scratch() -> (TempDir, std::path::PathBuf) {
     use crate::transactions::link_fixture::{self, Variant};
 
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let mut db = Database::open(&path).unwrap();
     link_fixture::seed(&mut db, Variant::Suggested);
     (dir, path)

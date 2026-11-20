@@ -147,7 +147,7 @@ fn columns(
 }
 
 /// Test selector on the category name, so layout tests can find its lane.
-const CATEGORY_LABEL: &str = "coffer-category-label";
+const CATEGORY_LABEL: &str = "orre-category-label";
 
 /// One line of text that truncates with an ellipsis.
 fn truncating(text: impl Into<SharedString>) -> Div {
@@ -162,7 +162,7 @@ fn truncating(text: impl Into<SharedString>) -> Div {
 /// (`DESIGN.md` → "Keyboard paths"). Its owner binds them to [`Confirm`]
 /// here: deeper than the table's own context, so Enter sorts rather than
 /// opening a row's category menu.
-pub const TITLE_CONTEXT: &str = "CofferColumnTitle";
+pub const TITLE_CONTEXT: &str = "OrreColumnTitle";
 
 /// The table's column header: 28px, `canvas` fill (it stays put while the
 /// rows scroll under it), bottom `hairline`, section-label type.
@@ -623,8 +623,8 @@ impl RowColors {
 /// accessible name reads the merchant, category and amount.
 ///
 /// ```
-/// use coffer_app::theme::tokens::color;
-/// use coffer_app::ui::transaction_row::{CategoryCell, TransactionRow};
+/// use orre_app::theme::tokens::color;
+/// use orre_app::ui::transaction_row::{CategoryCell, TransactionRow};
 ///
 /// let row = TransactionRow::new(
 ///     "txn-01",

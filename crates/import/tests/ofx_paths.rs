@@ -6,16 +6,16 @@
 mod common;
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, EnteredBalance, EnteredSource};
-use coffer_core::balance::CheckResult;
-use coffer_core::import::{
+use orre_core::account::{self, AccountKind, EnteredBalance, EnteredSource};
+use orre_core::balance::CheckResult;
+use orre_core::import::{
     self, CheckedBalance, Committed, Confirmations, Error, FileBalance, FileBalanceKind,
     FileBalanceStatus, FlagKind, PreviewCounts, ReconciliationStatus,
 };
-use coffer_core::money::{Currency, Money};
-use coffer_core::statement::{SourceFormat, SourceLocation};
-use coffer_import::ofx::OfxImporter;
-use coffer_import::{AnyImporter, Detect, Detection, ImportError, SourceFile};
+use orre_core::money::{Currency, Money};
+use orre_core::statement::{SourceFormat, SourceLocation};
+use orre_import::ofx::OfxImporter;
+use orre_import::{AnyImporter, Detect, Detection, ImportError, SourceFile};
 
 use common::*;
 
@@ -33,7 +33,7 @@ fn kinds(rows: &[(u64, &str)]) -> Vec<(u64, String)> {
         .collect()
 }
 
-fn anchor(scratch: &mut Scratch, account: coffer_core::id::AccountId, on: NaiveDate, minor: i64) {
+fn anchor(scratch: &mut Scratch, account: orre_core::id::AccountId, on: NaiveDate, minor: i64) {
     account::add_balance(
         &mut scratch.db,
         account,
@@ -246,7 +246,7 @@ fn the_next_statement_overlaps_corrects_and_reconciles() {
     };
     assert_eq!(
         (correction.existing, correction.was_amount),
-        (coffer_core::id::TransactionId::new(cash.id), gbp(-5000))
+        (orre_core::id::TransactionId::new(cash.id), gbp(-5000))
     );
     assert_eq!(
         preview.balances(),

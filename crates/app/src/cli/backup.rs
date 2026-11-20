@@ -1,13 +1,13 @@
-//! `coffer backup`, `coffer backup --list`, `coffer backup --delete <file>`
-//! and `coffer restore <file>` (M1.28, R.12): local backups in `<data
-//! dir>/backups` ([`coffer_core::backup`]).
+//! `orre backup`, `orre backup --list`, `orre backup --delete <file>`
+//! and `orre restore <file>` (M1.28, R.12): local backups in `<data
+//! dir>/backups` ([`orre_core::backup`]).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use clap::Args;
-use coffer_core::backup::{self, Current, Reason, RestoreCheck};
+use orre_core::backup::{self, Current, Reason, RestoreCheck};
 
 use super::write_table;
 
@@ -29,7 +29,7 @@ pub struct BackupArgs {
 
 #[derive(Debug, Args)]
 pub struct RestoreArgs {
-    /// The backup: a path, or a file name from `coffer backup --list`.
+    /// The backup: a path, or a file name from `orre backup --list`.
     #[arg(value_name = "FILE")]
     pub file: PathBuf,
 
@@ -39,7 +39,7 @@ pub struct RestoreArgs {
     pub yes: bool,
 }
 
-/// `coffer backup`: a manual backup of an existing database (kept until
+/// `orre backup`: a manual backup of an existing database (kept until
 /// the user deletes it), or with `--list` the backups, newest first, or
 /// with `--delete` one backup deleted (`terminal` gates `--delete --yes`).
 pub fn run(database: &Path, args: &BackupArgs, out: &mut dyn Write) -> anyhow::Result<()> {
@@ -66,7 +66,7 @@ fn list(database: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
     if backups.is_empty() {
         writeln!(
             out,
-            "No backups in {} yet. Run `coffer backup` to take one.",
+            "No backups in {} yet. Run `orre backup` to take one.",
             dir.display()
         )?;
         return Ok(());
@@ -103,14 +103,14 @@ fn list(database: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         out,
         "Automatic backups (import, migration, restore) rotate: the {} most recent are kept, \
          plus the newest of each of the {} months before this one. Manual ones stay until \
-         you delete them (`coffer backup --delete <FILE>`).",
+         you delete them (`orre backup --delete <FILE>`).",
         backup::KEEP_RECENT,
         backup::KEEP_MONTHS
     )?;
     Ok(())
 }
 
-/// `coffer backup --delete <file>`. Without `--yes` it says which backup it
+/// `orre backup --delete <file>`. Without `--yes` it says which backup it
 /// would delete and deletes nothing.
 fn delete(database: &Path, file: &Path, yes: bool, out: &mut dyn Write) -> anyhow::Result<()> {
     let dir = backup::backups_dir(database);
@@ -123,7 +123,7 @@ fn delete(database: &Path, file: &Path, yes: bool, out: &mut dyn Write) -> anyho
         .find(|backup| in_dir && backup.path.file_name() == file.file_name());
     let Some(found) = found else {
         bail!(
-            "there is no backup {} in {}; `coffer backup --list` lists the backups",
+            "there is no backup {} in {}; `orre backup --list` lists the backups",
             file.display(),
             dir.display()
         );
@@ -156,7 +156,7 @@ fn delete(database: &Path, file: &Path, yes: bool, out: &mut dyn Write) -> anyho
     Ok(())
 }
 
-/// `coffer restore`. Without `--yes` it checks the backup, says what
+/// `orre restore`. Without `--yes` it checks the backup, says what
 /// restoring would do, and succeeds without changing anything.
 pub fn restore(database: &Path, args: &RestoreArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let file = resolve(database, &args.file)?;
@@ -222,7 +222,7 @@ fn resolve(database: &Path, file: &Path) -> anyhow::Result<PathBuf> {
         }
     }
     bail!(
-        "there is no backup {} (nor in {}); `coffer backup --list` lists the backups",
+        "there is no backup {} (nor in {}); `orre backup --list` lists the backups",
         file.display(),
         dir.display()
     );
@@ -245,7 +245,7 @@ fn write_check(
     if checked.schema_version < checked.supported_version {
         writeln!(
             out,
-            "  schema version {}, older than this Coffer's ({}): it is updated after restoring",
+            "  schema version {}, older than this Orre's ({}): it is updated after restoring",
             checked.schema_version, checked.supported_version
         )?;
     } else {
@@ -253,7 +253,7 @@ fn write_check(
     }
     writeln!(
         out,
-        "  passed SQLite's integrity check and matches this Coffer's migration history"
+        "  passed SQLite's integrity check and matches this Orre's migration history"
     )?;
 
     match checked.current {
@@ -294,7 +294,7 @@ fn write_check(
         out,
         "Your own bank presets ({}) aren't in backups: restoring doesn't change them, and an \
          account whose preset isn't on this computer needs its mapping chosen again at import.",
-        coffer_core::paths::presets_dir(database).display()
+        orre_core::paths::presets_dir(database).display()
     )?;
 
     if let Some(interrupted) = &checked.interrupted {

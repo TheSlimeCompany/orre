@@ -23,18 +23,18 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use coffer_core::db::Reader;
-use coffer_core::envelope;
-use coffer_core::mcp_client::ClientName;
-use coffer_core::money::Money;
-use coffer_core::reporting::rows;
-use coffer_core::setting::PseudonymKey;
+use orre_core::db::Reader;
+use orre_core::envelope;
+use orre_core::mcp_client::ClientName;
+use orre_core::money::Money;
+use orre_core::reporting::rows;
+use orre_core::setting::PseudonymKey;
 use rmcp::model::{JsonObject, Tool, ToolAnnotations};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-pub use coffer_core::mcp_client::AccessLevel;
+pub use orre_core::mcp_client::AccessLevel;
 
 use crate::output::{Amount, MerchantLabel, UntrustedText};
 use crate::store::Inbox;
@@ -86,7 +86,7 @@ pub enum ToolError {
 
     /// A core query or write failed. The cause stays in the server's debug
     /// log.
-    #[error("Coffer couldn't complete the request")]
+    #[error("Orre couldn't complete the request")]
     Core(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     /// A tool used something it didn't declare, or the server is broken.
@@ -108,7 +108,7 @@ pub struct NoArgs {}
 /// The arguments a client sends: the tool's own, plus `purpose`.
 #[derive(serde::Deserialize, JsonSchema)]
 struct Args<A> {
-    /// Why you are calling this tool, in a few words. Coffer records it in
+    /// Why you are calling this tool, in a few words. Orre records it in
     /// its access log for the user to read; it doesn't change the result.
     #[serde(default)]
     #[allow(dead_code)] // Read from the raw arguments, for the log.
@@ -122,7 +122,7 @@ struct Args<A> {
 pub const HIDDEN_MERCHANT: &str = "M-hidden";
 
 /// What [`Call::untrusted`] gives below `standard`, in place of bank text.
-/// Coffer's words, like the withheld marker.
+/// Orre's words, like the withheld marker.
 pub const HIDDEN_DESCRIPTION: &str =
     "[hidden: descriptions name merchants, so they aren't shared at this access level]";
 

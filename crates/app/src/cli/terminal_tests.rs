@@ -4,9 +4,9 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use coffer_core::db::Database;
-use coffer_core::mcp_client::{self, AccessLevel, ClientName};
-use coffer_core::setting;
+use orre_core::db::Database;
+use orre_core::mcp_client::{self, AccessLevel, ClientName};
+use orre_core::setting;
 
 use super::terminal::require_terminal_for;
 use super::*;
@@ -96,7 +96,7 @@ const UNGATED: &[&[&str]] = &[
 ];
 
 fn command(args: &[&str]) -> Command {
-    Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+    Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
         .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"))
         .command
         .expect("a subcommand")
@@ -108,7 +108,7 @@ fn name(client: &str) -> ClientName {
 
 /// A path no command here ever opens: the check comes first.
 fn no_database() -> PathBuf {
-    PathBuf::from("/nonexistent/coffer.db")
+    PathBuf::from("/nonexistent/orre.db")
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn every_gated_command_is_refused_without_a_terminal() {
             typed
         };
         assert!(
-            message.contains(&format!("`coffer {typed}`")),
+            message.contains(&format!("`orre {typed}`")),
             "{args:?}: {message}"
         );
     }
@@ -185,7 +185,7 @@ fn previews_need_no_terminal_but_the_commit_does() {
 /// A scratch database where `claude-code` is enabled at `pseudonymous`.
 fn database_with_client() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let mut db = Database::open(&path).unwrap();
     mcp_client::enable(&mut db, &name("claude-code")).unwrap();
     mcp_client::set_level(&mut db, &name("claude-code"), AccessLevel::Pseudonymous).unwrap();
@@ -223,7 +223,7 @@ fn refused_commands_change_nothing_and_ungated_ones_run() {
         Terminal::NotInteractive,
     )
     .unwrap_err();
-    assert!(format!("{error:#}").contains("`coffer ai-access enable`"));
+    assert!(format!("{error:#}").contains("`orre ai-access enable`"));
     assert!(out.is_empty());
     let db = Database::open(&path).unwrap();
     let clients = mcp_client::list(&db.reader().unwrap()).unwrap();

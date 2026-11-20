@@ -1,4 +1,4 @@
--- coffer: foreign_keys=off
+-- orre: foreign_keys=off
 --
 -- A bank's correction supersedes the stored row (ROADMAP R.4, L.21;
 -- `docs/architecture/import.md` → "Decision record: a bank's correction

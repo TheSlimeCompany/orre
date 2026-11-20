@@ -16,7 +16,7 @@
 //!   `TRNTYPE` as the source type. One that can't be read is flagged in its
 //!   place, as is a repeated `FITID` and a correction (`CORRECTACTION`).
 //! - **The account number** (`ACCTID`) goes onto the statement as a
-//!   [`SourceAccountNumber`](coffer_core::statement::SourceAccountNumber)
+//!   [`SourceAccountNumber`](orre_core::statement::SourceAccountNumber)
 //!   (redacted in `Debug`), so core can warn about a file for another
 //!   account; it is never stored or shown.
 //! - **Balances**: `LEDGERBAL` becomes the statement's dated balance.
@@ -28,7 +28,7 @@ mod header;
 mod markup;
 mod normalize;
 
-use coffer_core::statement::{SourceFormat, Statement};
+use orre_core::statement::{SourceFormat, Statement};
 
 pub use document::{OfxFile, OfxStatement, OfxStatementKind};
 

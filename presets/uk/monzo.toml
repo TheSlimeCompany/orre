@@ -55,7 +55,7 @@ row_currency = { column = "Currency" }
 
 # For a card payment abroad, what was charged in the local currency (-10.00
 # EUR against an Amount of -8.62 GBP). Monzo fills these on every row; when
-# they just repeat the amount, Coffer drops them.
+# they just repeat the amount, Orre drops them.
 original_amount = { column = "Local amount", currency_column = "Local currency" }
 
 # "Name" is Monzo's cleaned-up merchant or payee ("Café Lumière"), or the pot's
@@ -76,11 +76,11 @@ note = { column = "Notes and #tags" }
 
 # Columns read on purpose not at all:
 # - Emoji: Monzo's icon for the category or merchant.
-# - Address: the merchant's street address. Coffer has no field for it, and
+# - Address: the merchant's street address. Orre has no field for it, and
 #   it can say where the user was.
-# - Receipt: a receipt attached in the app; attachments are Coffer's own.
+# - Receipt: a receipt attached in the app; attachments are Orre's own.
 # - Category split: Monzo's own split of one payment across categories. Splits
-#   are made in Coffer, not imported.
+#   are made in Orre, not imported.
 # - Money Out, Money In: the same amount as `Amount`, split by direction.
 # There's no running balance column, so nothing is reconciled; the account's
 # balance comes from the user.
@@ -93,7 +93,7 @@ ignore = ["Emoji", "Address", "Receipt", "Category split", "Money Out", "Money I
 #
 # The export has no pot ID (`Description` is empty on these rows; checked
 # against a real export, 2026-11-13), so the pot's name is its key. Renaming a
-# pot in the app therefore makes a new pot in Coffer on the next import, and
+# pot in the app therefore makes a new pot in Orre on the next import, and
 # two pots with the same name are one. The import creates a pot the first time
 # it sees its name. A pot transfer with no name is flagged rather than
 # imported without its pot side.
@@ -107,10 +107,10 @@ key = { column = "Name" }
 name = { column = "Name" }
 category = "transfer.savings"
 
-# Monzo's built-in categories → Coffer's category keys, matched exactly (case
+# Monzo's built-in categories → Orre's category keys, matched exactly (case
 # included). Not mapped, so left for rules or the user:
 # - General: Monzo's catch-all, which says nothing.
-# - Expenses: money to be reimbursed, which Coffer tracks as a link to the
+# - Expenses: money to be reimbursed, which Orre tracks as a link to the
 #   repayment rather than a category.
 # - Transfers: Monzo's category for pot transfers and for payments to and
 #   from people (a friend paying back their half), which are spending or
@@ -120,7 +120,7 @@ category = "transfer.savings"
 # - Categories the user created in the app.
 # "Savings" is money set aside: moving between the user's own accounts, not
 # spending.
-# Family and Finances map to Coffer's group of the same name, since Monzo's
+# Family and Finances map to Orre's group of the same name, since Monzo's
 # category spans several of its subcategories.
 [category_map]
 "Groceries" = "food.groceries"

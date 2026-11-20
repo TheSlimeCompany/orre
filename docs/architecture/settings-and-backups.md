@@ -1,4 +1,4 @@
-# Coffer — Architecture: Settings, AI access and backups
+# Orre — Architecture: Settings, AI access and backups
 
 The Settings view, AI clients and their access, local backups and restore.
 
@@ -13,7 +13,7 @@ earlier one, only the current rule is stated, with the record that set it.
 
 ### The Settings view
 
-`coffer_app::settings` (M3.15, M3.16; `DESIGN.md` → "Settings"). The title bar's
+`orre_app::settings` (M3.15, M3.16; `DESIGN.md` → "Settings"). The title bar's
 Settings button or ⌘, opens it. Its panel has AI ACCESS (Clients, Access log) and DATA
 (Backups, Export…), with the data file's path at its foot. `SettingsView` makes every
 change through `settings::store::SettingsStore`, which opens the database per call
@@ -22,7 +22,7 @@ CLI's `ai-access`, `backup`, `restore` and `export` are the reference behaviour.
 Reads run on the UI thread; backing up, checking a backup and restoring run on a
 background thread. The Enable, Remove client, Delete backup, Restore and Export dialogs
 are opened by the shell from `SettingsEvent`s. Times are read and made local through
-SQLite (`coffer_core::clock`; "Settings, AI access and backups (built)", point 4).
+SQLite (`orre_core::clock`; "Settings, AI access and backups (built)", point 4).
 Export… writes the file the system's save dialog names, through `export::to_file`,
 which refuses the database and its sidecar files (`Error::IsDatabase`); the columns are
 in `docs/EXPORT.md` (built, point 7).
@@ -30,7 +30,7 @@ in `docs/EXPORT.md` (built, point 7).
 ### AI clients and access levels
 
 - **The kill switch** is the `setting` `mcp.enabled`, on unless set off, read by the
-  server on every call (`coffer_mcp::access`); off refuses the next call
+  server on every call (`orre_mcp::access`); off refuses the next call
   (`refused_off`). The status bar shows "AI access off" while it is
   ("Settings, AI access and backups (2026-11-10)", point 1).
 - **Clients** are `mcp_client` rows keyed by the `--client` name, which is also the
@@ -57,25 +57,25 @@ in `docs/EXPORT.md` (built, point 7).
 - **The access log** (`mcp_access_log`, one row per call) is kept for 12 months
   (`access_log::RETENTION_MONTHS`, deleted by `access_log::expire` when a server
   starts). Arguments are redacted to their structure (point 4 of the 2026-11-10
-  record; `mcp.md` → "MCP surface"). The Access log screen shows no more than `coffer
+  record; `mcp.md` → "MCP surface"). The Access log screen shows no more than `orre
   ai-access log`, never the result hash, reading through `access_log::activity`; which
   tools write comes from the MCP registry (`ToolSpec::writes`) (built, point 3).
 
 ### Local backups
 
-`coffer_core::backup` ("local backups", points 1, 2 and 4).
+`orre_core::backup` ("local backups", points 1, 2 and 4).
 
 - **What.** `VACUUM INTO` snapshots in `<data dir>/backups` (`backup::backups_dir`,
   `0700`; files `0600`), written to a hidden temporary file, synced, then given their
   name, never overwriting one.
-- **The name is the metadata.** `coffer-<UTC yyyymmddThhmmss.mmmZ>-<reason>.db`, reason
+- **The name is the metadata.** `orre-<UTC yyyymmddThhmmss.mmmZ>-<reason>.db`, reason
   `import`, `migration`, `restore` or `manual` (`backup::Reason`). Only names that
   `backup::parse_file_name` accepts are backups; nothing else there is listed, rotated
   or deleted. The schema version is read from the file.
 - **When.** `import::commit` takes one before its transaction when it will write;
   `Database::open` takes one before pending migrations on an existing database;
   `backup::restore` takes one of the current database first. If it fails, the import,
-  migration or restore doesn't happen. A manual one is `coffer backup` or "Back up now".
+  migration or restore doesn't happen. A manual one is `orre backup` or "Back up now".
 - **Reading one** (`backup::detail`) opens it read-only and `immutable=1`, so nothing
   is written beside it ("Settings, AI access and backups (built)", point 5).
 
@@ -94,10 +94,10 @@ supersedes "local backups", point 3.
   imports until deleted.
 - **Deleting one.** `backup::delete` deletes only a regular file in the backups
   directory whose name parses; anything else is `Error::NotABackup`. In Settings,
-  "Delete backup…" in the inspector, for any backup; in the CLI, `coffer backup
+  "Delete backup…" in the inspector, for any backup; in the CLI, `orre backup
   --delete <FILE>`, which only says what it would delete without `--yes` and needs an
   interactive terminal with it.
-- **Size.** `backup::total_size`; shown under the Backups table and after `coffer
+- **Size.** `backup::total_size`; shown under the Backups table and after `orre
   backup --list`.
 
 ### Restore
@@ -107,7 +107,7 @@ supersedes "local backups", point 3.
 - **A copy is checked first:** `PRAGMA integrity_check`, a migration history matching
   this build's, a schema no newer. The user's file is only read. An older schema is
   restored, then migrated by `Database::open`; a newer one is refused. `backup::check`
-  runs the checks alone (`coffer restore` without `--yes`), and the app's dialog shows
+  runs the checks alone (`orre restore` without `--yes`), and the app's dialog shows
   them as "intact" and "this version can read it" (`backup::detail::assess`), restoring
   only when both pass and the current database is readable (built, point 6).
 - **Never without a safety backup.** The current database is backed up (`restore`)
@@ -120,7 +120,7 @@ supersedes "local backups", point 3.
 - **The access log isn't rolled back:** rows newer than the backup's newest are
   carried over from the pre-restore backup, then the 12-month retention applied
   (`access_log::carry_forward`), then refused calls moved in from the pending file.
-- `coffer restore --yes` needs an interactive terminal; so does `coffer restore`
+- `orre restore --yes` needs an interactive terminal; so does `orre restore`
   without it, since its check stages a copy in the data dir (`mcp.md`, "approval needs
   the user's terminal", point 4). "Save a copy…" writes a `0600` copy where the user
   chooses, never over the database.
@@ -129,7 +129,7 @@ supersedes "local backups", point 3.
 
 User presets (`<data dir>/presets`, `paths::presets_dir`) are files outside the
 database: no backup holds them and a restore doesn't touch them. The Restore dialog
-(`settings::restore::PRESETS_NOT_IN_BACKUPS`) and `coffer restore`'s check output say
+(`settings::restore::PRESETS_NOT_IN_BACKUPS`) and `orre restore`'s check output say
 so. An account whose preset this computer doesn't have shows "`<id>` · not on this
 computer" in the accounts inspector, and the app's import treats it as an account with
 no preset ("backup retention and presets", points 6 and 7).
@@ -147,7 +147,7 @@ on the designer's recommendation:
    every call, not only at start, so turning it off refuses the next call from a client
    that is already connected. Refused calls are logged: `mcp_access_log` gains `outcome
    [ok|refused_off|refused_not_enabled|refused_level]` (a new migration).
-2. **Unknown clients are recorded as requested.** The first `coffer mcp --client X` with
+2. **Unknown clients are recorded as requested.** The first `orre mcp --client X` with
    an unknown name creates an `mcp_client` row that isn't enabled and is marked
    `requested` (a new migration), and the call is refused. "Ignore" hides the row without
    enabling it. Only the app or CLI enables a client, never the server, and enabling one
@@ -175,21 +175,21 @@ on the designer's recommendation:
 
 ### Decision record: local backups (2026-11-11)
 
-Decided while building M1.28 (`coffer_core::backup`, `coffer backup`, `coffer restore`).
+Decided while building M1.28 (`orre_core::backup`, `orre backup`, `orre restore`).
 Retention and location were decided by the user.
 
 1. **Where and how.** Backups are `VACUUM INTO` snapshots in `backups/` next to the
    database (`<data dir>/backups`, `0700`; files `0600`), derived from the database
-   path, so `COFFER_DATA_DIR` moves them too. Each is written to a hidden temporary name,
+   path, so `ORRE_DATA_DIR` moves them too. Each is written to a hidden temporary name,
    fsynced, then hard-linked to its final name (a rename after checking the name is free
    where hard links aren't supported), so a partial file never looks like a backup and no
    backup is overwritten.
-2. **The name is the metadata.** `coffer-<UTC yyyymmddThhmmss.mmmZ>-<reason>.db`, reason
+2. **The name is the metadata.** `orre-<UTC yyyymmddThhmmss.mmmZ>-<reason>.db`, reason
    `import`, `migration`, `restore` or `manual`. Only names that parse exactly are
    backups; nothing else in the directory is listed, rotated or deleted. The schema
    version is read from the file, not the name.
 3. **Rotation.** Automatic backups (import, migration, restore) keep the 10 most recent
-   plus the newest of each earlier calendar month (UTC). Manual backups (`coffer
+   plus the newest of each earlier calendar month (UTC). Manual backups (`orre
    backup`, "Back up now") are never deleted automatically. A failed rotation is logged
    and doesn't fail the backup. *Changed 2026-11-19 (R.12):* the monthly ones are kept
    for the 12 calendar months before the current one, not for ever, and a backup can be
@@ -204,13 +204,13 @@ Retention and location were decided by the user.
    copy is checked: `PRAGMA integrity_check`, a migration history matching this build's,
    and a schema no newer than it. The user's backup file is only read. An older schema is
    restored and then migrated by `Database::open` (which backs the restored file up as a
-   `migration` backup first). `coffer restore` without `--yes` shows the check and
+   `migration` backup first). `orre restore` without `--yes` shows the check and
    changes nothing.
 6. **Restore never skips its safety backup.** If the current database can't be backed up
    (it's damaged), the restore is refused, and the user moves the file aside first. Its
    `-wal`/`-shm` are checkpointed and removed before the rename, never after. A database
    still open elsewhere (its `-wal` survives our close) is refused. A refused restore
-   leaves the current database untouched. No other Coffer process may have the database
+   leaves the current database untouched. No other Orre process may have the database
    open during a restore; MCP servers refusing calls during the swap come with M2.
 
 ### Decision record: Settings, AI access and backups (built) (2026-11-14)
@@ -232,7 +232,7 @@ the build. Everything else follows `DESIGN.md` → "Settings" or the records abo
    request is `mcp_client::enable_at`, which takes the level the dialog chose (starting
    at `aggregate`) in the same transaction. A request (or an ignored client) can't be
    turned on, only enabled with a level (`Error::NeverEnabled`).
-3. **The access log shows no more than `coffer ai-access log` (user).** Never the
+3. **The access log shows no more than `orre ai-access log` (user).** Never the
    result hash. The purpose and argument keys are cleaned of invisible characters as the
    CLI cleans them; a row cuts the purpose at the CLI's 60 characters, the inspector shows
    it whole. Reading is `access_log::activity` (pages by client and time, counts, what
@@ -240,7 +240,7 @@ the build. Everything else follows `DESIGN.md` → "Settings" or the records abo
    the MCP registry's (`ToolSpec::writes`), passed in by the app, since core doesn't
    know the tools. What a client left in the Inbox counts `suggestion` and `report` rows
    by `source_client`.
-4. **Time comes from SQLite.** chrono is built without its clock; `coffer_core::clock`
+4. **Time comes from SQLite.** chrono is built without its clock; `orre_core::clock`
    reads the time now and converts UTC times to the computer's zone through an
    in-memory SQLite connection (`'localtime'`, the offset of each date), as
    `schedule::local_today` already did.
@@ -264,7 +264,7 @@ the build. Everything else follows `DESIGN.md` → "Settings" or the records abo
    app holds no connection (decision record "Accounts management", 6), so nothing of
    its own blocks the swap; afterwards Settings and the accounts read the database again.
    "Save a copy…" writes a `0600` copy where the user chooses, never over the database.
-7. **Export (user).** `export::Options::include_excluded` (default on, so `coffer
+7. **Export (user).** `export::Options::include_excluded` (default on, so `orre
    export` is unchanged) lets the dialog leave excluded rows out, as its toggle starts.
    The dialog's "Notes and tags · including private ones" sets both `include_notes` and
    `include_private_tags`. `export::count` gives the caption's transactions and rows, and
@@ -307,7 +307,7 @@ backups" point 3 (rotation) and adds to point 5 of "Settings, AI access and back
    backup, manual or automatic, which opens a destructive confirmation (**composed**
    from the dialog spec, as the Remove client dialog): "Delete the backup from 10 Nov,
    14:02?", "The file is deleted for good, not moved to the trash, and can't be undone."
-   (a manual one adds that Coffer would have kept it), Cancel / "Delete backup"
+   (a manual one adds that Orre would have kept it), Cancel / "Delete backup"
    (`DestructiveSolid`). A notification says "Deleted the backup · 4.2 MB". The shell opens it
    (`SettingsEvent::DeleteRequested`, `settings/delete.rs`), as it opens Settings' other
    dialogs.
@@ -317,7 +317,7 @@ backups" point 3 (rotation) and adds to point 5 of "Settings, AI access and back
    (a directory or a symlink with a backup name is refused). Anything else, including a
    backup-named file in another folder or `..`, is `Error::NotABackup` and nothing is
    touched. `backup::total_size` adds the sizes.
-5. **`coffer backup --delete <FILE>` (composed).** It lists nothing new: `coffer backup
+5. **`orre backup --delete <FILE>` (composed).** It lists nothing new: `orre backup
    --list` shows the total after the table, and `--delete` names a backup by file name or
    path. Without `--yes` it says which backup and deletes nothing; with `--yes` it deletes
    it. With `--yes` it needs an interactive terminal, like the other commands that act as
@@ -331,7 +331,7 @@ backups" point 3 (rotation) and adds to point 5 of "Settings, AI access and back
    nothing there. Said in three places: this record, the Restore dialog (a caption: "Your
    own bank presets aren't in backups, so restoring doesn't change them. An account whose
    preset isn't on this computer asks for its columns again at the next import.") and
-   `coffer restore`'s check output (the same, with the folder). Not added to backups: the
+   `orre restore`'s check output (the same, with the folder). Not added to backups: the
    backup is one SQLite file, and copying the presets folder is a file copy the user can
    do.
 7. **An account's missing preset shows as missing (user).** The accounts inspector's
@@ -339,7 +339,7 @@ backups" point 3 (rotation) and adds to point 5 of "Settings, AI access and back
    not on this computer" (**composed**), not the bare ID. The import already copes: the
    app's import (`import::session`) uses an account's preset only when `Presets::get`
    finds it, else detects one from the file's header or suggests a mapping from it, so
-   an account with a missing preset imports as one with none. `coffer import` doesn't
+   an account with a missing preset imports as one with none. `orre import` doesn't
    read `account.preset_id` at all; it takes `--preset` or detects. Nothing in the
    import was changed.
 8. **Existing old monthly backups** go at the next automatic backup's rotation, not at

@@ -12,9 +12,9 @@ publish = false
 
 # Every external version lives here; crates opt in with `<crate>.workspace = true`.
 [workspace.dependencies]
-coffer-core = { path = "crates/core" }
-coffer-import = { path = "crates/import" }
-coffer-mcp = { path = "crates/mcp" }
+orre-core = { path = "crates/core" }
+orre-import = { path = "crates/import" }
+orre-mcp = { path = "crates/mcp" }
 
 # GUI (crates/app only)
 gpui-kit = "0.9.0"
@@ -46,7 +46,7 @@ uuid = { version = "1.29", features = ["v7"] }
 regex = "1.13"
 aho-corasick = "1.1"
 
-# MCP server (`coffer mcp` only; core stays synchronous)
+# MCP server (`orre mcp` only; core stays synchronous)
 rmcp = { version = "3.9", features = ["transport-io"] }
 tokio = { version = "1", features = ["rt", "macros", "io-std"] }
 schemars = "1"

@@ -1,6 +1,6 @@
-# coffer-mcp
+# orre-mcp
 
-Coffer's MCP server: `coffer mcp --client <name>` runs it over stdio. Design and rules:
+Orre's MCP server: `orre mcp --client <name>` runs it over stdio. Design and rules:
 `docs/ARCHITECTURE.md` → "MCP surface" and `AGENTS.md` → Invariants.
 
 ## How a call runs
@@ -19,7 +19,7 @@ Coffer's MCP server: `coffer mcp --client <name>` runs it over stdio. Design and
    written, the call fails and no data goes out.
 
 The database is opened for each call (and each `tools/list` and poll) and closed after
-it: no connection is kept between calls. While `coffer restore` holds the file lock on
+it: no connection is kept between calls. While `orre restore` holds the file lock on
 `<database>-restoring` (`backup::restoring`), checked before and after opening, calls are
 refused with a message. A lock file nobody holds (a crashed restore's) doesn't block
 calls.
@@ -32,9 +32,9 @@ waits there into the log, through `Store::flush_pending`, at the
 calls' own times; IDs make a repeated flush harmless. A restore keeps the log too:
 `backup::restore` carries over the rows logged after the backup was taken
 (`access_log::carry_forward`). Tests: `tests/restore.rs`,
-`tests/unavailable.rs`; the file's own guarantees are tested in `coffer_core`.
+`tests/unavailable.rs`; the file's own guarantees are tested in `orre_core`.
 
-Queries run on `coffer_core::db::Reader`, which SQLite keeps read-only (`query_only`).
+Queries run on `orre_core::db::Reader`, which SQLite keeps read-only (`query_only`).
 The only writes are in `store.rs`: a suggestion, a report (through `Inbox`), the
 access-log row (the wrapper's own, and the refused calls moved in from the pending file)
 and the server's own client name as `requested`.
@@ -52,8 +52,8 @@ its test file). Pick the group by kind of data, not level:
 | `tools/recurring.rs` | `recurring_payments`, schedules |
 | `tools/inbox.rs` | `propose_*`, `save_report` |
 
-1. **Query in core.** Put the SQL in a `coffer-core` function that takes
-   `&coffer_core::db::Reader` and returns domain types (money as `Money`, never floats).
+1. **Query in core.** Put the SQL in a `orre-core` function that takes
+   `&orre_core::db::Reader` and returns domain types (money as `Money`, never floats).
    Business logic stays in core; the tool only shapes the result.
 2. **Spec.** A `const ToolSpec { name, description, level, writes }`:
    - `name`: `snake_case`, unique.
@@ -88,7 +88,7 @@ Copy `tests/list_categories.rs`. The harness is `tests/support/mod.rs`:
 
 - `Fixture::new()` builds a database from the synthetic fixtures through the real import
   path and seeds a user note, a private tag, a share label and bank text with a name,
-  sort code, account number and IBAN. `COFFER_DATA_DIR` points at a scratch directory.
+  sort code, account number and IBAN. `ORRE_DATA_DIR` points at a scratch directory.
 - `fixture.connect(client, level).await` starts the server in-process and returns a
   `TestClient` (`call`, `call_ok`, `try_call`, `tools`, `tool_names`, `close`).
 - `assert_no_pii(&value)`; `call_ok` already runs it on the whole response.
@@ -105,7 +105,7 @@ Each tool's test file checks at least:
 
 Writing tools also check that they write only `suggestion` or `report`, with
 `source_client` set to the calling client. No tool changes or deletes an existing row:
-deleting saved reports is the user's (`coffer inbox delete-report`), and the matrix
+deleting saved reports is the user's (`orre inbox delete-report`), and the matrix
 checks that no server code reaches it.
 
 Then add the tool to `MATRIX` in `tests/matrix.rs`, with its level, whether it writes,

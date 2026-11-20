@@ -7,7 +7,7 @@
 //!
 //! - **Expense claims**: purchases claimed back and not fully repaid,
 //!   oldest first, with the account they were paid from; and each payment
-//!   Coffer suggested as their reimbursement ([`ClaimMatch`]), so "Link as
+//!   Orre suggested as their reimbursement ([`ClaimMatch`]), so "Link as
 //!   reimbursement" confirms those suggestions and "Not this" rejects them.
 //! - **People**: everyone who owes the user, per currency, who owes most
 //!   first (then by name, Paper `CCF-0`). Their
@@ -45,11 +45,11 @@ pub struct ClaimRow {
     pub spent: Money,
     /// What is still to come back: positive.
     pub owed: Money,
-    /// In a payment Coffer suggested ([`ClaimMatch`]).
+    /// In a payment Orre suggested ([`ClaimMatch`]).
     pub matched: bool,
 }
 
-/// A payment Coffer suggested as the reimbursement of some claims.
+/// A payment Orre suggested as the reimbursement of some claims.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClaimMatch {
     /// The money in.

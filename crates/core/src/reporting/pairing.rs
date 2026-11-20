@@ -120,7 +120,7 @@ mod tests {
 
     fn fixture() -> Fixture {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         let conn = db.conn();
         conn.execute_batch(
             "INSERT INTO account (name, kind, currency) VALUES ('Current', 'current', 'GBP'), \

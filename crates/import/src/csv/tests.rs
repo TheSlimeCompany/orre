@@ -2,8 +2,8 @@
 //! fixtures in `fixtures/csv/`.
 
 use chrono::{NaiveDate, NaiveTime};
-use coffer_core::money::{Currency, DecimalMark, Money, ParseAmountError};
-use coffer_core::statement::{Field, RowProblem, SourceLocation, Statement, StatementLine};
+use orre_core::money::{Currency, DecimalMark, Money, ParseAmountError};
+use orre_core::statement::{Field, RowProblem, SourceLocation, Statement, StatementLine};
 
 use super::*;
 use crate::{AnyImporter, detect};
@@ -835,7 +835,7 @@ fn debug_output_leaves_out_transaction_text() {
 
 fn pot_transfers(match_value: &str) -> SubAccountTransfer {
     SubAccountTransfer {
-        kind: coffer_core::statement::SubAccountKind::Pot,
+        kind: orre_core::statement::SubAccountKind::Pot,
         match_column: Column::Index(0),
         match_value: match_value.to_owned(),
         key: Column::Index(2),

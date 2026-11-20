@@ -1,4 +1,4 @@
-# Coffer — Architecture: The app
+# Orre — Architecture: The app
 
 The app shell, window state, the status bar, and how the app opens the database and applies edits.
 
@@ -13,7 +13,7 @@ earlier one, only the current rule is stated, with the record that set it.
 
 ### The shell and navigation
 
-`coffer_app::shell` (M3.1; "the app shell and window state", points 1 and 6). `coffer`
+`orre_app::shell` (M3.1; "the app shell and window state", points 1 and 6). `orre`
 with no subcommand opens one window: the title bar with eight view tabs (Overview,
 Transactions, Trends, Budgets, Net worth, Inbox, Reviews, Rules) and a Settings button,
 the body (the view's own left panel, canvas and inspector), and the status bar. There
@@ -27,7 +27,7 @@ The shell opens every dialog over everything when a view asks.
 
 ### Window state
 
-Key `app.window` in the `setting` table, a JSON `coffer_core::setting::WindowState`:
+Key `app.window` in the `setting` table, a JSON `orre_core::setting::WindowState`:
 mode (windowed, maximised, full screen), restore bounds in whole logical pixels and the
 open view's key. Core refuses an out-of-range write and reads a bad value as an error
 ("the app shell and window state", point 2). `shell::window_state::WindowStore` saves
@@ -56,7 +56,7 @@ artboard for snapshots.
 ### Opening the database
 
 - **One gate.** Every per-call open, in the app and the MCP server, goes through
-  `coffer_core::backup::gate::open`: it checks the restore lock, runs the caller's
+  `orre_core::backup::gate::open`: it checks the restore lock, runs the caller's
   opener, and checks again, refusing ("A backup is being restored; try again when it's
   done.") and closing what it opened if a restore held the lock at either check. The
   lock is checked for an instant, not held for the call ("one gate for opening the
@@ -110,7 +110,7 @@ A view's `describe()` (its rows, selection, dialog and actions as plain data) an
 anything that runs a view's actions from outside the window are `#[cfg(test)]`
 (`ui::describe` and each view's `describe` module). A later driver (U.5) would sit
 behind an off-by-default Cargo feature never enabled in a release build, work only
-against a scratch `COFFER_DATA_DIR` and listen only on a local socket. No MCP tool,
+against a scratch `ORRE_DATA_DIR` and listen only on a local socket. No MCP tool,
 resource or prompt reaches them, in any build. `describe()` is built from the same
 functions the view renders with and the same sanitising (`envelope::shown`), so it
 shows what a person sees ("views that describe themselves stay out of the release
@@ -139,21 +139,21 @@ Everything else follows `DESIGN.md` or an earlier record.
    Settings is open goes back to the view it was opened from (Transactions if the window
    opened on Settings); ⌘, only opens it, as the platform shortcut does elsewhere (user).
 2. **Window state lives in the `setting` table (user).** Key `app.window`, a JSON
-   `WindowState` (`coffer_core::setting`): mode (windowed, maximised, full screen), the
+   `WindowState` (`orre_core::setting`): mode (windowed, maximised, full screen), the
    restore bounds in whole logical pixels, and the open view's key. Core checks the range
    (sides 1–32768, origins within ±32768, a view key of at most 32 `[a-z_]`) and refuses an
    out-of-range write; a stored value that doesn't parse reads as an error and the app uses
    its defaults. It isn't exported and no MCP tool reads it. Restoring a backup rolls it
    back with everything else, which is harmless. The rejected option was a separate
    `window.json` in the data dir, which would have kept the GUI off the database until M3.2.
-3. **So the GUI opens the database from M3.1 on.** `coffer` (no subcommand) opens it with
+3. **So the GUI opens the database from M3.1 on.** `orre` (no subcommand) opens it with
    `Database::open` at startup, creating and migrating it as the CLI does (with the
    migration backup), and opens it again for each save. Like the MCP server, it holds no
    connection between reads and writes, and opens through `backup::gate` (decision record
    "one gate for opening the database"): during a restore it reads nothing and skips the
    save. The window state is a convenience: any
-   failure (no data dir, a database Coffer can't open, a bad value) leaves the window at its
-   defaults with a warning on stderr (`COFFER_LOG`, as `coffer mcp`), and never stops the
+   failure (no data dir, a database Orre can't open, a bad value) leaves the window at its
+   defaults with a warning on stderr (`ORRE_LOG`, as `orre mcp`), and never stops the
    app.
 4. **When it's saved.** After the window has stayed put for 500ms following a move, resize
    or view change (one write per drag), on a background thread; and at once, on the main
@@ -220,8 +220,8 @@ reloads and adds no database reads.
 1. **An item with nothing true to say is left out**, rather than given wording not
    drawn in Paper.
 2. **"N agents connected" counts the enabled clients** (`AiData::enabled`) while AI
-   access is on, and is left out when none is enabled. Coffer can't see a live
-   connection (each client starts `coffer mcp` itself), so enabled is what "connected"
+   access is on, and is left out when none is enabled. Orre can't see a live
+   connection (each client starts `orre mcp` itself), so enabled is what "connected"
    means here. "AI access off" is unchanged.
 3. **"Reconciled" needs at least one balance check** (`checks::Review::has_checks`);
    a failing check still replaces it.
@@ -247,11 +247,11 @@ without a person at the window.
    its driver goes behind a Cargo feature that is off by default, never enabled in a
    release build, and not depended on by any other feature. A release binary contains
    neither.
-2. **Never reachable from `coffer mcp`.** No MCP tool, resource or prompt calls
+2. **Never reachable from `orre mcp`.** No MCP tool, resource or prompt calls
    `describe()` or a view's actions, in any build. A tool that could press Approve would
-   get round "MCP writes go to the inbox only" and "approval happens only in Coffer's own
+   get round "MCP writes go to the inbox only" and "approval happens only in Orre's own
    UI or CLI" (`AGENTS.md` → Invariants).
-3. **A dev driver works only against a scratch `COFFER_DATA_DIR`,** never the platform
+3. **A dev driver works only against a scratch `ORRE_DATA_DIR`,** never the platform
    data dir, and listens only on a local socket.
 4. **`describe()` shows what the view shows.** It is built from the same functions the
    view renders with, and untrusted text goes through the same sanitising
@@ -286,7 +286,7 @@ up, through core's public API (statements committed as imports). Machine: AMD Ry
 default `release` profile (no LTO). To run it:
 
 ```sh
-devenv shell -- cargo run --release -p coffer-core --example ledger_bench -- <empty dir>
+devenv shell -- cargo run --release -p orre-core --example ledger_bench -- <empty dir>
 ```
 
 The first run builds the ledger (about 2 minutes) and measures (about 6 minutes, most

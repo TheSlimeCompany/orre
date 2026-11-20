@@ -1,4 +1,4 @@
-//! `coffer mcp --client <name>`: Coffer's MCP server over stdin/stdout
+//! `orre mcp --client <name>`: Orre's MCP server over stdin/stdout
 //! (M2.1), for Claude Code, Claude Desktop, Codex and other MCP clients.
 //!
 //! The database must already exist and be up to date: the server never
@@ -6,25 +6,25 @@
 //! fails at once with the reason on stderr.
 //!
 //! stdout carries MCP messages and nothing else. Logs go to stderr at
-//! `warn` and above (`COFFER_LOG` sets another filter, e.g. `debug`), and
+//! `warn` and above (`ORRE_LOG` sets another filter, e.g. `debug`), and
 //! never hold transaction text at `info` or above.
 
 use std::path::Path;
 
 use anyhow::Context;
 use clap::Args;
-use coffer_core::db::Database;
-use coffer_core::mcp_client::ClientName;
+use orre_core::db::Database;
+use orre_core::mcp_client::ClientName;
 
 /// Environment variable with a `tracing` filter for the server's stderr
-/// log, e.g. `COFFER_LOG=debug`.
-pub const LOG_ENV: &str = "COFFER_LOG";
+/// log, e.g. `ORRE_LOG=debug`.
+pub const LOG_ENV: &str = "ORRE_LOG";
 
-/// `coffer mcp`'s arguments.
+/// `orre mcp`'s arguments.
 #[derive(Debug, Args)]
 pub struct McpArgs {
     /// The AI client's name, e.g. `claude-code` or `codex`: letters,
-    /// digits, '.', '_' and '-'. Its access level is set in Coffer.
+    /// digits, '.', '_' and '-'. Its access level is set in Orre.
     #[arg(long, value_name = "NAME")]
     pub client: ClientName,
 }
@@ -33,7 +33,7 @@ pub struct McpArgs {
 pub fn run(database: &Path, args: &McpArgs) -> anyhow::Result<()> {
     init_logging();
     let db = Database::open_existing(database).context("couldn't start the MCP server")?;
-    coffer_mcp::run_stdio(db, args.client.clone()).context("the MCP server stopped")
+    orre_mcp::run_stdio(db, args.client.clone()).context("the MCP server stopped")
 }
 
 /// Sends `tracing` output to stderr, `warn` and above unless [`LOG_ENV`]

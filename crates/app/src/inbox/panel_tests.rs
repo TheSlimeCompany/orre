@@ -5,9 +5,9 @@
 //! click does. On the scratch database from [`super::tests`], in a real
 //! window (whose `Root` binds Tab), with the keys pressed as the user would.
 
-use coffer_core::inbox::{COFFER_SOURCE, SuggestionKind, SuggestionStatus};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Entity, SharedString, TestAppContext, VisualTestContext, WindowOptions};
+use orre_core::inbox::{ORRE_SOURCE, SuggestionKind, SuggestionStatus};
 
 use super::describe::{InboxDescription, PanelDescription};
 use super::store::InboxStore;
@@ -255,21 +255,21 @@ fn space_turns_a_kind_or_source_filter_on_and_enter_off(cx: &mut TestAppContext)
     press("enter", cx);
     assert_eq!(opened(&shell, &inbox, cx).2, None);
 
-    // On to Coffer's own source, last.
+    // On to Orre's own source, last.
     press(&["down"; 20].join(" "), cx);
     press("enter", cx);
-    assert_eq!(opened(&shell, &inbox, cx).3.as_deref(), Some(COFFER_SOURCE));
+    assert_eq!(opened(&shell, &inbox, cx).3.as_deref(), Some(ORRE_SOURCE));
     let shown = describe(&shell, &inbox, cx);
-    let coffer = shown.panel.sections[3].rows.last().unwrap();
-    assert_eq!(coffer.label, "Coffer from your edits");
-    assert!(coffer.selected && coffer.cursor);
-    assert!(!coffer.connected, "Coffer's own are neutral");
+    let orre = shown.panel.sections[3].rows.last().unwrap();
+    assert_eq!(orre.label, "Orre from your edits");
+    assert!(orre.selected && orre.cursor);
+    assert!(!orre.connected, "Orre's own are neutral");
     assert!(
         shown.groups.iter().all(|group| group
             .footer
             .as_ref()
-            .is_some_and(|footer| footer.source.starts_with("Coffer"))),
-        "only Coffer's suggestions are listed"
+            .is_some_and(|footer| footer.source.starts_with("Orre"))),
+        "only Orre's suggestions are listed"
     );
 }
 

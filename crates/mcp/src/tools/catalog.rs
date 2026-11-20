@@ -7,14 +7,14 @@
 //! plain fields and [`crate::output`] types, and a handler that runs core
 //! queries on [`Call::reader`] and says how many rows it returns.
 
-use coffer_core::account::AccountKind;
-use coffer_core::category::{Category, CategoryKind};
-use coffer_core::envelope::strip_invisible;
-use coffer_core::money::Money;
-use coffer_core::reporting::Limit;
-use coffer_core::reporting::balance::Anchor;
-use coffer_core::reporting::catalog::{self, ActionSummary, RuleSummary};
-use coffer_core::rule::{ExcludeReason, MatchField, MatchKind};
+use orre_core::account::AccountKind;
+use orre_core::category::{Category, CategoryKind};
+use orre_core::envelope::strip_invisible;
+use orre_core::money::Money;
+use orre_core::reporting::Limit;
+use orre_core::reporting::balance::Anchor;
+use orre_core::reporting::catalog::{self, ActionSummary, RuleSummary};
+use orre_core::rule::{ExcludeReason, MatchField, MatchKind};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -142,7 +142,7 @@ pub struct AccountList {
 /// An account.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct AccountEntry {
-    /// Coffer's ID for the account. Other tools take it as `account_id`.
+    /// Orre's ID for the account. Other tools take it as `account_id`.
     pub id: i64,
     /// The account's kind and its number among the accounts of that kind, in
     /// the order the user added them: `current 1`, `pot 2`. The same in
@@ -255,7 +255,7 @@ pub struct RuleList {
 /// A rule: what it matches and what it does.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RuleEntry {
-    /// Coffer's ID for the rule.
+    /// Orre's ID for the rule.
     pub id: i64,
     /// Lower runs first. Only the order means anything; values can repeat
     /// or skip.
@@ -536,7 +536,7 @@ pub struct ReportList {
 /// A saved report.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ReportEntry {
-    /// Coffer's ID for the report.
+    /// Orre's ID for the report.
     pub id: i64,
     /// The period it covers, as its author wrote it, e.g. `2026-10`.
     pub period: String,

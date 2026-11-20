@@ -9,25 +9,25 @@
 //! record the identities; see `presets/README.md` → "Changing a preset".
 //!
 //! The rows are read back from a scratch database after the real preview and
-//! commit, so the fingerprint stays private to `coffer-core`.
+//! commit, so the fingerprint stays private to `orre-core`.
 //!
 //! To create the golden file of a new preset, run this test once with
-//! `COFFER_BLESS_GOLDEN=1`: it writes the files that are missing and never
+//! `ORRE_BLESS_GOLDEN=1`: it writes the files that are missing and never
 //! overwrites one that exists.
 
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::import::{self, Committed};
-use coffer_import::preset::{Preset, Presets};
-use coffer_import::{AnyImporter, SourceFile};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::import::{self, Committed};
+use orre_import::preset::{Preset, Presets};
+use orre_import::{AnyImporter, SourceFile};
 use rusqlite::{Connection, OpenFlags};
 use tempfile::TempDir;
 
-const BLESS: &str = "COFFER_BLESS_GOLDEN";
+const BLESS: &str = "ORRE_BLESS_GOLDEN";
 
 const HEADER: &str = "\
 # Golden file: the dedupe identity of every row in the preset's fixture, in file
@@ -86,7 +86,7 @@ fn fixtures_of(region: &str, bank: &str) -> Vec<PathBuf> {
 /// golden line per committed imported row, in file order.
 fn identities(preset: &Preset, fixture: &Path) -> Vec<String> {
     let dir = TempDir::new().unwrap();
-    let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
     let account = account::create(
         &mut db,
         &NewAccount::new("Golden", AccountKind::Current, preset.mapping().currency),
@@ -207,7 +207,7 @@ fn every_bundled_preset_keeps_its_dedupe_identity() {
             assert!(
                 bless,
                 "{id} has no golden file at {}. Create it with \
-                 `{BLESS}=1 cargo test -p coffer-import --test preset_golden`, \
+                 `{BLESS}=1 cargo test -p orre-import --test preset_golden`, \
                  check it, and commit it (presets/README.md, \"Changing a preset\").",
                 golden.display()
             );

@@ -1,11 +1,11 @@
 //! The SQLite database.
 //!
-//! One file, `coffer.db` in the data directory ([`crate::paths`]), shared by
+//! One file, `orre.db` in the data directory ([`crate::paths`]), shared by
 //! the app, the CLI and the MCP server. There are two ways to open it:
 //!
 //! - [`Database::open`] (the app and the CLI) creates the database if needed
 //!   and brings it up to date;
-//! - [`Database::open_existing`] (`coffer mcp`) only opens a database that
+//! - [`Database::open_existing`] (`orre mcp`) only opens a database that
 //!   is already up to date, and never creates or migrates one.
 //!
 //! [`Database::reader`] then opens a second, read-only connection to the
@@ -13,7 +13,7 @@
 //! can't write through a query (M2.1).
 //!
 //! An existing database file is checked before anything is changed: it must
-//! be a SQLite database, not from a newer Coffer, and its applied migrations
+//! be a SQLite database, not from a newer Orre, and its applied migrations
 //! must match this build's. A file that fails is left exactly as it was: no
 //! permission change, no WAL switch, no write. Then both make sure that:
 //!
@@ -86,8 +86,8 @@ pub enum Error {
     NotWal(String),
 
     #[error(
-        "the database is at schema version {found}, newer than this version of Coffer \
-         supports ({supported}); update Coffer to open it"
+        "the database is at schema version {found}, newer than this version of Orre \
+         supports ({supported}); update Orre to open it"
     )]
     SchemaTooNew {
         found: SchemaVersion,
@@ -95,7 +95,7 @@ pub enum Error {
     },
 
     #[error(
-        "the database's migration history doesn't match this version of Coffer: \
+        "the database's migration history doesn't match this version of Orre: \
          migration {version} {problem}"
     )]
     MigrationHistory {
@@ -107,15 +107,15 @@ pub enum Error {
     Migration(#[source] Box<refinery::Error>),
 
     #[error(
-        "there is no Coffer database at {}; open Coffer, or run a `coffer` command, \
+        "there is no Orre database at {}; open Orre, or run a `orre` command, \
          to create it",
         path.display()
     )]
     NoDatabase { path: PathBuf },
 
     #[error(
-        "the database is at schema version {found}, older than this version of Coffer \
-         needs ({supported}); open Coffer, or run a `coffer` command, to update it"
+        "the database is at schema version {found}, older than this version of Orre \
+         needs ({supported}); open Orre, or run a `orre` command, to update it"
     )]
     SchemaTooOld {
         found: SchemaVersion,
@@ -152,7 +152,7 @@ impl std::fmt::Display for HistoryProblem {
     }
 }
 
-/// An open, configured and migrated Coffer database.
+/// An open, configured and migrated Orre database.
 #[derive(Debug)]
 pub struct Database {
     conn: Connection,
@@ -218,23 +218,23 @@ impl Database {
     }
 
     /// Opens the database at `path` only if it exists and is at exactly
-    /// the schema version this build supports. For `coffer mcp`, which must
+    /// the schema version this build supports. For `orre mcp`, which must
     /// never create or migrate the database: the app and the CLI do that.
     ///
     /// Fails with [`Error::NoDatabase`] when there is no file,
     /// [`Error::SchemaTooOld`] when migrations are pending (including an
     /// empty file), [`Error::SchemaTooNew`] for a database from a newer
-    /// Coffer and [`Error::MigrationHistory`] when its applied migrations
+    /// Orre and [`Error::MigrationHistory`] when its applied migrations
     /// differ from this build's. A refused file is left untouched.
     ///
     /// The connection is read-write (MCP tools write the inbox tables) and
     /// configured like [`Database::open`]'s. Once the file has passed those
     /// checks, it also gets the same two fixes `open` makes, because both
-    /// keep a verified Coffer database as every Coffer process expects it
+    /// keep a verified Orre database as every Orre process expects it
     /// and neither touches its contents:
     ///
     /// - loose permissions on the file and its `-wal`/`-shm` are tightened
-    ///   to `0600`: the MCP server may be the only Coffer process running
+    ///   to `0600`: the MCP server may be the only Orre process running
     ///   for a long time, and leaving financial data world-readable until
     ///   the app next opens it helps nobody;
     /// - a database not in WAL mode (e.g. copied or restored with another
@@ -288,7 +288,7 @@ impl Database {
         Ok(migrations::current_version(&self.conn)?)
     }
 
-    /// The newest schema version this build of Coffer knows: the number of
+    /// The newest schema version this build of Orre knows: the number of
     /// its last migration.
     pub fn supported_schema_version() -> SchemaVersion {
         migrations::latest_version(&migrations::embedded())
@@ -370,7 +370,7 @@ pub(crate) fn schema_version_on(conn: &Connection) -> Result<SchemaVersion, Erro
 }
 
 /// For tests elsewhere in core: a database with only this build's first
-/// `version` migrations applied, as an older Coffer left it.
+/// `version` migrations applied, as an older Orre left it.
 #[cfg(test)]
 pub(crate) fn open_at_version(path: &Path, version: SchemaVersion) -> Result<Database, Error> {
     let migrations: Vec<_> = migrations::embedded()
@@ -491,7 +491,7 @@ fn restrict_files_to_owner(path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// `coffer.db` → `coffer.db-wal`, `coffer.db-shm`.
+/// `orre.db` → `orre.db-wal`, `orre.db-shm`.
 pub(crate) fn sidecar(path: &Path, suffix: &str) -> PathBuf {
     let mut name = OsString::from(path.as_os_str());
     name.push(suffix);
@@ -499,7 +499,7 @@ pub(crate) fn sidecar(path: &Path, suffix: &str) -> PathBuf {
 }
 
 /// Creates `dir` as `0700` if it doesn't exist. An existing directory is
-/// left alone: it may be one the user chose (`COFFER_DATA_DIR`).
+/// left alone: it may be one the user chose (`ORRE_DATA_DIR`).
 pub(crate) fn create_private_dir(dir: &Path) -> io::Result<()> {
     if dir.is_dir() {
         return Ok(());
@@ -756,7 +756,7 @@ mod tests {
     }
 
     /// A closed database at version 2 in rollback-journal mode with loose
-    /// permissions: what a newer Coffer might leave, and everything an
+    /// permissions: what a newer Orre might leave, and everything an
     /// open could wrongly change.
     fn newer_database(dir: &TempDir) -> PathBuf {
         let path = db_path(dir);

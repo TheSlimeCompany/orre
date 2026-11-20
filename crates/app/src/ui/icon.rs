@@ -1,8 +1,8 @@
-//! Coffer's icons (`docs/DESIGN.md` → "Iconography").
+//! Orre's icons (`docs/DESIGN.md` → "Iconography").
 //!
 //! The paths are copied from the Paper Components artboard, so they keep its
 //! outline style: 1.2–1.3px strokes with round caps and joins, drawn at the
-//! size of their `viewBox`. Only the agent's sparkle and Coffer's mark are
+//! size of their `viewBox`. Only the agent's sparkle and Orre's mark are
 //! filled. GPUI draws an
 //! SVG as a mask in the element's text colour, so the colour inside the
 //! markup is irrelevant (`currentColor`) and the caller sets it with
@@ -17,7 +17,7 @@ use gpui_kit::{Pixels, Styled as _, Svg, svg};
 
 use crate::theme::tokens::size;
 
-/// One of Coffer's icons.
+/// One of Orre's icons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Glyph {
     /// A bank account (card outline). 12px.
@@ -46,7 +46,7 @@ pub enum Glyph {
     Maximize,
     /// Settings (sliders), in the title bar. 14px.
     Settings,
-    /// Coffer's mark, the strongbox (`DESIGN.md` → "Logo"). Filled, drawn
+    /// Orre's mark, the strongbox (`DESIGN.md` → "Logo"). Filled, drawn
     /// in `molten` beside the wordmark. 16px.
     Mark,
     /// A cash account: a banknote (Paper `FHZ-0`, the Kind menu). 12px.
@@ -651,8 +651,8 @@ mod tests {
         let mark = path_data(Glyph::Mark.markup());
         assert_eq!(mark.len(), 2, "lid and body");
         for asset in [
-            include_str!("../../../../assets/brand/coffer-mark.svg"),
-            include_str!("../../../../assets/brand/coffer-icon.svg"),
+            include_str!("../../../../assets/brand/orre-mark.svg"),
+            include_str!("../../../../assets/brand/orre-icon.svg"),
         ] {
             assert_eq!(path_data(asset), mark);
         }

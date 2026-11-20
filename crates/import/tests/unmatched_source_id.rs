@@ -6,11 +6,11 @@
 
 mod common;
 
-use coffer_core::duplicate::{self, Candidate, CandidateReason, CandidateStatus};
-use coffer_core::money::Currency;
-use coffer_core::statement::SourceLocation;
-use coffer_import::AnyImporter;
-use coffer_import::preset::Preset;
+use orre_core::duplicate::{self, Candidate, CandidateReason, CandidateStatus};
+use orre_core::money::Currency;
+use orre_core::statement::SourceLocation;
+use orre_import::AnyImporter;
+use orre_import::preset::Preset;
 
 use common::*;
 
@@ -19,9 +19,9 @@ const SECOND_DOWNLOAD: &str = "regenerated-fitids-second.ofx";
 const CSV_WITH_IDS: &str = "csv/reimport-without-id.csv";
 
 /// The pending candidates, as the stored rows of each pair, oldest first.
-fn pairs(scratch: &Scratch, account: coffer_core::id::AccountId) -> Vec<(Stored, Stored)> {
+fn pairs(scratch: &Scratch, account: orre_core::id::AccountId) -> Vec<(Stored, Stored)> {
     let stored = scratch.stored(account);
-    let find = |id: coffer_core::id::TransactionId| {
+    let find = |id: orre_core::id::TransactionId| {
         stored
             .iter()
             .find(|row| row.id == id.get())
@@ -77,12 +77,9 @@ fn an_ofx_download_with_regenerated_fitids_pairs_every_overlapping_row() {
     );
     let streaming = scratch.by_external_id(account, "RG2-7745").unwrap();
     assert!(
-        duplicate::of_transaction(
-            &scratch.db,
-            coffer_core::id::TransactionId::new(streaming.id)
-        )
-        .unwrap()
-        .is_empty()
+        duplicate::of_transaction(&scratch.db, orre_core::id::TransactionId::new(streaming.id))
+            .unwrap()
+            .is_empty()
     );
 }
 

@@ -78,18 +78,6 @@ mod write;
 use std::rc::Rc;
 
 use chrono::NaiveDate;
-use coffer_core::account::AccountKind;
-use coffer_core::change;
-use coffer_core::exclusion::{self, ExclusionReason};
-use coffer_core::id::{AccountId, BatchId, ChangeBatchId, TransactionId};
-use coffer_core::import::{self, UndoPreview};
-use coffer_core::inbox::own;
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::note::UserNote;
-use coffer_core::reporting::register::{
-    CategoryCounts, DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
-};
-use coffer_core::transfer as core_transfer;
 use gpui_kit::base::actions::{Cancel, Confirm};
 use gpui_kit::component::Disableable as _;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -100,6 +88,18 @@ use gpui_kit::{
     ListState, MouseButton, MouseDownEvent, ParentElement as _, Render, SharedString, Styled as _,
     Subscription, Task, Window, div, list,
 };
+use orre_core::account::AccountKind;
+use orre_core::change;
+use orre_core::exclusion::{self, ExclusionReason};
+use orre_core::id::{AccountId, BatchId, ChangeBatchId, TransactionId};
+use orre_core::import::{self, UndoPreview};
+use orre_core::inbox::own;
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::note::UserNote;
+use orre_core::reporting::register::{
+    CategoryCounts, DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
+};
+use orre_core::transfer as core_transfer;
 
 use crate::accounts::CategoryPick;
 use crate::accounts::inspector::AccountInspector;
@@ -125,7 +125,7 @@ use store::TransactionStore;
 use write::{Offer, Policy, Said};
 
 /// The key context of the canvas, where the arrow keys move the selection.
-const TABLE_CONTEXT: &str = "CofferTransactionsTable";
+const TABLE_CONTEXT: &str = "OrreTransactionsTable";
 
 /// The table's movement keys: ↑↓, ⇧↑⇧↓ to extend the selection, Home and
 /// End.
@@ -134,12 +134,12 @@ const TABLE_KEYS: Keys = Keys::new(TABLE_CONTEXT).with_extend().with_ends();
 /// The key context of the table itself (column header and rows, not the
 /// toolbar or the bar over its foot), where ⌘↑/⌘↓ move the keyboard row and
 /// Space adds or removes it (`DESIGN.md` → "Keyboard paths").
-const ROWS_CONTEXT: &str = "CofferTransactionsRows";
+const ROWS_CONTEXT: &str = "OrreTransactionsRows";
 
 /// Where the cursor keys are bound: the table, unless a text field in it
 /// has focus (a row's category menu's filter), which keeps Space for
 /// typing and ⌘↑/⌘↓ for its own.
-const CURSOR_KEYS_CONTEXT: &str = "CofferTransactionsRows && !Input";
+const CURSOR_KEYS_CONTEXT: &str = "OrreTransactionsRows && !Input";
 
 /// ⌘↑/⌘↓ (Ctrl on Linux and Windows) with what they do, as bound
 /// (`secondary-`) and as a test-only `describe()` lists them.
@@ -167,7 +167,7 @@ const CREATE_RULE: &str = "Create rule";
 const MENU_ROWS: f32 = 8.;
 
 gpui_kit::actions!(
-    coffer_transactions,
+    orre_transactions,
     [
         /// Enter: open the category menu on the keyboard row.
         EditCategory,
@@ -213,7 +213,7 @@ pub fn init(cx: &mut App) {
 
 /// Where the transactions come from.
 pub enum Source {
-    /// The database: what `coffer` opens.
+    /// The database: what `orre` opens.
     Database(TransactionStore),
     /// The Paper fixture, which can't change.
     Fixture,
@@ -224,12 +224,9 @@ pub enum Source {
 pub enum TransactionsEvent {
     /// "Create rule…": open Rules on the preview with this rule, not saved
     /// (M3.13).
-    CreateRule(
-        coffer_core::rule::RuleDefinition,
-        coffer_core::rule::RuleOrigin,
-    ),
+    CreateRule(orre_core::rule::RuleDefinition, orre_core::rule::RuleOrigin),
     /// "Open rule": show this rule in Rules (M3.13).
-    OpenRule(coffer_core::id::RuleId),
+    OpenRule(orre_core::id::RuleId),
     /// "Link…" or "Link a payment…": open the link dialog.
     LinkRequested(links::LinkFrom),
     /// Links or shares changed: Owed to you reads them again.
@@ -612,8 +609,7 @@ impl TransactionsView {
         let today = if fixture {
             crate::accounts::fixture::today()
         } else {
-            coffer_core::schedule::local_today()
-                .unwrap_or_else(|_| crate::accounts::fixture::today())
+            orre_core::schedule::local_today().unwrap_or_else(|_| crate::accounts::fixture::today())
         };
         let mut view = Self {
             source,
@@ -1059,7 +1055,7 @@ impl TransactionsView {
     }
 
     /// The tags of the inspector's transaction.
-    fn row_tags(&self) -> &[coffer_core::id::TagId] {
+    fn row_tags(&self) -> &[orre_core::id::TagId] {
         self.single_row().map_or(&[], |row| row.tags.as_slice())
     }
 
@@ -1127,13 +1123,13 @@ impl TransactionsView {
             Menu::Category => Some(category(self.filter.category).unwrap_or(present::ALL.into())),
             Menu::Date => Some(present::date_key(self.date).into()),
             Menu::Row(id) => self.register.row(id).and_then(|row| match row.category {
-                coffer_core::reporting::register::RowCategory::Category(id) => category(Some(id)),
+                orre_core::reporting::register::RowCategory::Category(id) => category(Some(id)),
                 _ => None,
             }),
             Menu::Inspector | Menu::Bulk => {
                 let selected = self.selected();
                 let mut categories = selected.iter().map(|row| match row.category {
-                    coffer_core::reporting::register::RowCategory::Category(id) => Some(id),
+                    orre_core::reporting::register::RowCategory::Category(id) => Some(id),
                     _ => None,
                 });
                 let first = categories.next().flatten();

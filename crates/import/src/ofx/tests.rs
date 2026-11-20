@@ -2,8 +2,8 @@
 //! in `fixtures/ofx/`.
 
 use chrono::NaiveDate;
-use coffer_core::money::{Currency, Money, ParseAmountError};
-use coffer_core::statement::{
+use orre_core::money::{Currency, Money, ParseAmountError};
+use orre_core::statement::{
     DatedBalance, Field, RowProblem, SourceAccountNumber, SourceLocation, Statement, StatementLine,
 };
 
@@ -472,7 +472,7 @@ fn files_that_fail_as_a_whole() {
     );
     assert_eq!(
         error("<OFX><INVSTMTMSGSRSV1><INVSTMTRS><CURDEF>USD</INVSTMTRS></INVSTMTMSGSRSV1></OFX>"),
-        "Coffer can't import investment statements"
+        "Orre can't import investment statements"
     );
     assert_eq!(
         error(&sgml_statement("", "")),

@@ -3,7 +3,7 @@
 //!
 //! [`insert_suggestion`] and [`insert_report`] are the only writes an MCP
 //! tool can make (`AGENTS.md` → Invariants), and they reach a tool only
-//! through `coffer_mcp::store`. Nothing here changes a transaction, rule,
+//! through `orre_mcp::store`. Nothing here changes a transaction, rule,
 //! category or account when a suggestion is filed: it waits as `pending`
 //! until the user approves or rejects it in the app or the CLI.
 //!
@@ -19,14 +19,14 @@
 //!   ([`Error::TooManyPending`]): the user clears some first. Each source
 //!   has at most [`MAX_REPORTS_PER_SOURCE`] saved reports
 //!   ([`Error::TooManyReports`]) until the user deletes some
-//!   ([`delete_reports`], `coffer inbox delete-report`).
+//!   ([`delete_reports`], `orre inbox delete-report`).
 //! - **Once.** A pending suggestion of the same kind with the same canonical
 //!   payload, from any source, is the same suggestion: filing it again
 //!   returns the existing ID ([`Filed::duplicate`]) and writes nothing. The
 //!   schema enforces it (`V13__inbox.sql`).
 //! - **The source** is the calling client's name, set by the server, never
-//!   taken from the client's arguments; Coffer's own suggestions use
-//!   [`COFFER_SOURCE`] (`own`).
+//!   taken from the client's arguments; Orre's own suggestions use
+//!   [`ORRE_SOURCE`] (`own`).
 //!
 //! Payloads, rationales and report bodies are untrusted text: stored as
 //! given, stripped when shown, never logged.
@@ -92,16 +92,16 @@ pub const MAX_REPORT_BODY_CHARS: usize = 100_000;
 
 /// How many saved reports one source may have. Reports are never decided
 /// like suggestions, so this caps the total: the user deletes old ones in
-/// Coffer ([`delete_reports`]) before the client can save more.
+/// Orre ([`delete_reports`]) before the client can save more.
 pub const MAX_REPORTS_PER_SOURCE: usize = 500;
 
 /// The longest reason the user gives for a rejection, in characters (the
 /// schema checks the same).
 pub const MAX_REASON_CHARS: usize = 500;
 
-/// The source of the suggestions Coffer files itself (M2.14). No MCP
+/// The source of the suggestions Orre files itself (M2.14). No MCP
 /// client can have this name.
-pub const COFFER_SOURCE: &str = RESERVED_CLIENT_NAME;
+pub const ORRE_SOURCE: &str = RESERVED_CLIENT_NAME;
 
 key_enum! {
     /// What a suggestion proposes, as `suggestion.kind` stores it.
@@ -218,7 +218,7 @@ pub enum Error {
 
     #[error(
         "this client has saved {max} reports, the most one client may keep; no more can be \
-         saved until the user deletes some in Coffer (`coffer inbox delete-report`)"
+         saved until the user deletes some in Orre (`orre inbox delete-report`)"
     )]
     TooManyReports { max: usize },
 
@@ -406,7 +406,7 @@ pub struct Suggestion {
     pub payload: Payload,
     /// The client's reason: untrusted, sanitise before showing.
     pub rationale: Option<String>,
-    /// The client's name, or [`COFFER_SOURCE`].
+    /// The client's name, or [`ORRE_SOURCE`].
     pub source_client: String,
     pub created_at: String,
     pub status: SuggestionStatus,
@@ -507,7 +507,7 @@ pub struct Counts {
     pub rejected: usize,
     /// Pending suggestions by kind; kinds with none are left out.
     pub pending_by_kind: std::collections::BTreeMap<SuggestionKind, usize>,
-    /// Suggestions by source (a client's name or [`COFFER_SOURCE`]) with
+    /// Suggestions by source (a client's name or [`ORRE_SOURCE`]) with
     /// how many are pending: every source that filed one, any status.
     pub by_source: std::collections::BTreeMap<String, usize>,
 }

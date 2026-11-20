@@ -4,7 +4,7 @@
 //! read model. Every merchant, amount and ID is invented.
 //!
 //! - **Joint account**: £640.00 on 1 Sep (the starting point), £512.40
-//!   on 30 Sep (passes), £18.40 on 9 Nov (fails: Coffer counts −£24.10);
+//!   on 30 Sep (passes), £18.40 on 9 Nov (fails: Orre counts −£24.10);
 //!   locked through 30 Sep. An imported Ocado on 4 Nov and the same typed
 //!   in by hand on 5 Nov explain the −£42.50.
 //! - **Savings**: an OFX import with balances on 31 Aug, 30 Sep and
@@ -15,18 +15,16 @@
 //! - **Amex** (no balance) and **Stocks ISA** (valued): not checked.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::duplicate::{self, DuplicateWindow};
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::import::{self, Committed};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reconciliation;
-use coffer_core::statement::{
-    DatedBalance, SourceFormat, SourceLocation, Statement, StatementLine,
-};
+use orre_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::duplicate::{self, DuplicateWindow};
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::import::{self, Committed};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::reconciliation;
+use orre_core::statement::{DatedBalance, SourceFormat, SourceLocation, Statement, StatementLine};
 
 fn date(month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, month, day).expect("a fixture date")

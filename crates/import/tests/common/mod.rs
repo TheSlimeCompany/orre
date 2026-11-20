@@ -7,15 +7,15 @@
 
 use std::path::{Path, PathBuf};
 
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::id::AccountId;
-use coffer_core::import::{self, CommitSummary, Committed, ImportPreview, RowOutcome};
-use coffer_core::money::Currency;
-use coffer_core::statement::{SourceLocation, Statement};
-use coffer_import::ofx::OfxImporter;
-use coffer_import::preset::Presets;
-use coffer_import::{AnyImporter, SourceFile};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::id::AccountId;
+use orre_core::import::{self, CommitSummary, Committed, ImportPreview, RowOutcome};
+use orre_core::money::Currency;
+use orre_core::statement::{SourceLocation, Statement};
+use orre_import::ofx::OfxImporter;
+use orre_import::preset::Presets;
+use orre_import::{AnyImporter, SourceFile};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use tempfile::TempDir;
 
@@ -101,7 +101,7 @@ pub struct Scratch {
 impl Scratch {
     pub fn new() -> Scratch {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         Scratch { db, _dir: dir }
     }
 

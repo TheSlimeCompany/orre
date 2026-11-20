@@ -3,11 +3,11 @@
 //! transactions" in `docs/architecture/app.md`).
 //!
 //! ```sh
-//! cargo run --release -p coffer-core --example ledger_bench -- <dir>
+//! cargo run --release -p orre-core --example ledger_bench -- <dir>
 //! ```
 //!
 //! `<dir>` is required and is never the platform data directory: the
-//! ledger (`<dir>/coffer.db`, its backups and its pending files) is built
+//! ledger (`<dir>/orre.db`, its backups and its pending files) is built
 //! there, deterministically, through core's public API: statements
 //! committed as imports (rules, preset-style categories, pots, transfer
 //! pairs and refund links found by the commit's own steps), manual cash
@@ -28,33 +28,31 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use chrono::{Datelike, Days, NaiveDate};
-use coffer_core::access_log::{self, NewEntry, Outcome};
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::backup::gate;
-use coffer_core::category::{self, CategoryKey, NewCategory, Placement};
-use coffer_core::db::Database;
-use coffer_core::id::AccountId;
-use coffer_core::import::{self, Committed, Confirmations};
-use coffer_core::inbox::preview::{self, Preview};
-use coffer_core::inbox::{
-    self, Filter, NewSuggestion, Suggestion, SuggestionKind, SuggestionStatus,
-};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::mcp_client::{self, AccessLevel, ClientName, ClientStatus};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::account_tree::account_tree;
-use coffer_core::reporting::budget_status::budget_status;
-use coffer_core::reporting::net_worth::net_worth_history;
-use coffer_core::reporting::palette::category_palette;
-use coffer_core::reporting::period::Period;
-use coffer_core::reporting::register::Register;
-use coffer_core::reporting::spending::spending_by_category;
-use coffer_core::reporting::summary::monthly_summary;
-use coffer_core::rule::{
+use orre_core::access_log::{self, NewEntry, Outcome};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::backup::gate;
+use orre_core::category::{self, CategoryKey, NewCategory, Placement};
+use orre_core::db::Database;
+use orre_core::id::AccountId;
+use orre_core::import::{self, Committed, Confirmations};
+use orre_core::inbox::preview::{self, Preview};
+use orre_core::inbox::{self, Filter, NewSuggestion, Suggestion, SuggestionKind, SuggestionStatus};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::mcp_client::{self, AccessLevel, ClientName, ClientStatus};
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::account_tree::account_tree;
+use orre_core::reporting::budget_status::budget_status;
+use orre_core::reporting::net_worth::net_worth_history;
+use orre_core::reporting::palette::category_palette;
+use orre_core::reporting::period::Period;
+use orre_core::reporting::register::Register;
+use orre_core::reporting::spending::spending_by_category;
+use orre_core::reporting::summary::monthly_summary;
+use orre_core::rule::{
     self, AmountBounds, MatchField, MatchKind, Pattern, RuleAction, RuleDefinition,
 };
-use coffer_core::schedule;
-use coffer_core::statement::{
+use orre_core::schedule;
+use orre_core::statement::{
     SourceFormat, SourceLocation, Statement, StatementLine, SubAccountKind, SubAccountRef,
 };
 use serde_json::{Value, json};
@@ -86,7 +84,7 @@ fn main() -> ExitCode {
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn run(dir: &Path) -> Result<()> {
-    if let Some(data) = coffer_core::paths::database_path()
+    if let Some(data) = orre_core::paths::database_path()
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf))
         && std::fs::canonicalize(dir)
@@ -95,7 +93,7 @@ fn run(dir: &Path) -> Result<()> {
         return Err("refusing to use the platform data directory".into());
     }
     std::fs::create_dir_all(dir)?;
-    let database = dir.join("coffer.db");
+    let database = dir.join("orre.db");
     if dir.join(MARKER).exists() {
         println!("using the ledger already built in {}", dir.display());
     } else {
@@ -549,9 +547,9 @@ fn build(database: &Path) -> Result<()> {
     }
 
     // Suggested links the user confirmed.
-    let suggested = coffer_core::link::suggestions(&db)?;
+    let suggested = orre_core::link::suggestions(&db)?;
     for link in suggested.iter().take(60) {
-        coffer_core::link::confirm(&mut db, link.id)?;
+        orre_core::link::confirm(&mut db, link.id)?;
     }
 
     // Two clients, each with 200 pending suggestions.
@@ -918,11 +916,11 @@ fn measure(database: &Path) -> Result<()> {
         || {
             let db = open(database)?;
             rule::overview(&db)?;
-            coffer_core::merchant::overview(&db)?;
-            coffer_core::change::history(&db)?;
+            orre_core::merchant::overview(&db)?;
+            orre_core::change::history(&db)?;
             category::overview(&db)?;
             account::list(&db)?;
-            coffer_core::tag::list(&db)?;
+            orre_core::tag::list(&db)?;
             category_palette(&db.reader()?, today)?;
             Ok(())
         },

@@ -4,9 +4,9 @@
 //! As [`crate::accounts::store::AccountStore`]: the app holds no
 //! connection, so each call opens the database at the path it was given,
 //! creating and migrating it as the CLI does, through [`gate::open`], which
-//! checks the restore lock. The rules are core's: [`coffer_core::setting`]
-//! (the kill switch), [`coffer_core::mcp_client`], [`coffer_core::access_log`],
-//! [`coffer_core::backup`] and [`coffer_core::export`]. The CLI's
+//! checks the restore lock. The rules are core's: [`orre_core::setting`]
+//! (the kill switch), [`orre_core::mcp_client`], [`orre_core::access_log`],
+//! [`orre_core::backup`] and [`orre_core::export`]. The CLI's
 //! `ai-access`, `backup`, `restore` and `export` are the reference
 //! behaviour; this shows nothing they don't (no result hash).
 //!
@@ -18,15 +18,15 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use chrono::{DateTime, Duration, Utc};
-use coffer_core::access_log::activity::{self, Cursor, Query};
-use coffer_core::access_log::{self, Outcome};
-use coffer_core::backup::detail::{self, Assessment, Contents, Since};
-use coffer_core::backup::{self, Backup, Reason, Restored, gate};
-use coffer_core::clock;
-use coffer_core::db::Database;
-use coffer_core::export::{self, Counts, Format, Options};
-use coffer_core::mcp_client::{self, AccessLevel, ClientName, ClientStatus};
-use coffer_core::{account, schedule, setting, tag};
+use orre_core::access_log::activity::{self, Cursor, Query};
+use orre_core::access_log::{self, Outcome};
+use orre_core::backup::detail::{self, Assessment, Contents, Since};
+use orre_core::backup::{self, Backup, Reason, Restored, gate};
+use orre_core::clock;
+use orre_core::db::Database;
+use orre_core::export::{self, Counts, Format, Options};
+use orre_core::mcp_client::{self, AccessLevel, ClientName, ClientStatus};
+use orre_core::{account, schedule, setting, tag};
 
 use super::data::{
     AiData, BackupRow, BackupsData, ClientRow, Clock, ExportChoices, LogFilter, LogPage, LogRow,
@@ -42,9 +42,9 @@ pub const LOG_PAGE: u32 = 100;
 fn writing_tools() -> &'static HashSet<&'static str> {
     static TOOLS: OnceLock<HashSet<&'static str>> = OnceLock::new();
     TOOLS.get_or_init(|| {
-        coffer_mcp::tools::registry()
+        orre_mcp::tools::registry()
             .all()
-            .filter(|tool| tool.spec().writes != coffer_mcp::registry::Writes::Nothing)
+            .filter(|tool| tool.spec().writes != orre_mcp::registry::Writes::Nothing)
             .map(|tool| tool.spec().name)
             .collect()
     })
@@ -93,7 +93,7 @@ impl SettingsStore {
 
     /// The kill switch, the clients and the requests, with what each did
     /// in the 7 days before `clock`. First moves any calls refused while
-    /// the database couldn't be opened into the log, as `coffer ai-access`
+    /// the database couldn't be opened into the log, as `orre ai-access`
     /// does (a failure leaves them for next time).
     pub fn load_ai(&self, clock: &Clock) -> Result<AiData, StoreError> {
         let mut db = self.open()?;
@@ -367,14 +367,14 @@ pub fn refused(outcome: Outcome) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::access_log::NewEntry;
+    use orre_core::access_log::NewEntry;
     use tempfile::TempDir;
 
     use super::*;
 
     fn store() -> (TempDir, SettingsStore) {
         let dir = TempDir::new().unwrap();
-        let store = SettingsStore::new(dir.path().join("coffer.db"));
+        let store = SettingsStore::new(dir.path().join("orre.db"));
         (dir, store)
     }
 

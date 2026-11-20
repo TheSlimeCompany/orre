@@ -1,17 +1,17 @@
-//! `coffer export` against scratch data dirs. Nothing here touches the
+//! `orre export` against scratch data dirs. Nothing here touches the
 //! real data dir.
 
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::export::{self, Options};
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::split::{self, SplitLine};
-use coffer_core::{note, tag};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::export::{self, Options};
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::split::{self, SplitLine};
+use orre_core::{note, tag};
 use tempfile::TempDir;
 
 use super::*;
@@ -46,12 +46,12 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("coffer.db");
+        let db = dir.path().join("orre.db");
         Scratch { dir, db }
     }
 
     fn run(&self, args: &[&str]) -> Result<String, String> {
-        let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
         let mut out = Vec::new();
         let result = super::run(cli.command.expect("a subcommand"), &self.db, &mut out);
@@ -162,7 +162,7 @@ struct Ids {
 #[test]
 fn parses_export() {
     let cli = Cli::try_parse_from([
-        "coffer",
+        "orre",
         "export",
         "--format",
         "csv",
@@ -197,7 +197,7 @@ fn parses_export() {
     assert_eq!(args.tag, ["Trip"]);
 
     let fails = |args: &[&str]| {
-        Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied())).is_err()
+        Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied())).is_err()
     };
     assert!(fails(&["export"]), "--format is required");
     assert!(fails(&["export", "--format", "xlsx"]));
@@ -212,7 +212,7 @@ fn parses_export() {
 fn needs_an_existing_database() {
     let scratch = Scratch::new();
     let error = scratch.err(&["export", "--format", "csv"]);
-    assert!(error.contains("there is no Coffer database"), "{error}");
+    assert!(error.contains("there is no Orre database"), "{error}");
     assert!(!scratch.db.exists());
 }
 

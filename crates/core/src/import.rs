@@ -1295,7 +1295,7 @@ pub enum BatchStatus {
     Undone,
 }
 
-/// One import, for the account's import history and `coffer undo-import`.
+/// One import, for the account's import history and `orre undo-import`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BatchInfo {
     pub id: BatchId,

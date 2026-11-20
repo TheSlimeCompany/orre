@@ -5,7 +5,7 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
+use orre_core::access_log::Outcome;
 use serde_json::json;
 use support::reports::{amounts, assert_redacted, gbp};
 use support::*;

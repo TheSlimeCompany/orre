@@ -371,7 +371,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Fixture {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let account = account::create(
             &mut db,
             &NewAccount::new("Current", AccountKind::Current, Currency::GBP),
@@ -667,7 +667,7 @@ fn a_stored_alias_that_no_longer_validates_is_named_by_id() {
 #[test]
 fn opening_an_older_database_names_existing_rows() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     {
         let db = crate::db::open_at_version(&path, SCHEMA_VERSION - 1).unwrap();
         let conn = db.conn();

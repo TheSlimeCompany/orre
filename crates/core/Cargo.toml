@@ -1,6 +1,6 @@
 [package]
-name = "coffer-core"
-description = "Coffer's domain types, SQLite schema and migrations, rules, matching and reporting"
+name = "orre-core"
+description = "Orre's domain types, SQLite schema and migrations, rules, matching and reporting"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

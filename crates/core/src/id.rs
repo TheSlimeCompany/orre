@@ -21,7 +21,7 @@ macro_rules! row_id {
         pub struct $name(i64);
 
         impl $name {
-            /// Wraps a stored ID, e.g. one the user typed (`coffer
+            /// Wraps a stored ID, e.g. one the user typed (`orre
             /// undo-import 12`). Whether the row exists is the database's
             /// question.
             pub const fn new(id: i64) -> Self {

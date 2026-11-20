@@ -1,4 +1,4 @@
-//! Coffer's own controls: stock `gpui-component` elements wrapped, or built
+//! Orre's own controls: stock `gpui-component` elements wrapped, or built
 //! from `div`, with every visible value taken from [`crate::theme::tokens`].
 //!
 //! [`crate::theme`] holds the values (tokens, the stock theme map, the focus
@@ -44,7 +44,7 @@ use crate::theme::tokens::{opacity, size};
 
 /// An interaction state drawn without the input that causes it.
 ///
-/// For the showcase's state matrices (`coffer --showcase`), which put every
+/// For the showcase's state matrices (`orre --showcase`), which put every
 /// state of a control side by side to compare with the Paper Components
 /// artboard. Product UI never sets one: there the pointer and keyboard decide.
 /// A previewed control still reacts to real input.

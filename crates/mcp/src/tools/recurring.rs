@@ -1,7 +1,7 @@
 //! `recurring_payments` and schedules (ROADMAP M2.6, M2.10).
 //!
 //! Block D. `recurring_payments` returns, in one call, the recurring series
-//! Coffer has detected but the user hasn't confirmed or dismissed
+//! Orre has detected but the user hasn't confirmed or dismissed
 //! ([`recurring::find_with_reader`]), and the user's confirmed schedules with
 //! their recent occurrences ([`schedule::overview_with_reader`]).
 //!
@@ -12,8 +12,8 @@
 //! `pseudonymous`, and null at every level when the name holds account
 //! details (a standing order's merchant can be its bank text).
 
-use coffer_core::recurring::{self, RecurringSeries};
-use coffer_core::schedule::{self, Occurrence, OccurrenceState, ScheduleStatus, ScheduleView};
+use orre_core::recurring::{self, RecurringSeries};
+use orre_core::schedule::{self, Occurrence, OccurrenceState, ScheduleStatus, ScheduleView};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -27,7 +27,7 @@ pub fn register(registry: &mut Registry) {
 
 pub const RECURRING_PAYMENTS: ToolSpec = ToolSpec {
     name: "recurring_payments",
-    description: "Recurring payments and income: series Coffer detected in the transactions \
+    description: "Recurring payments and income: series Orre detected in the transactions \
                   that the user hasn't confirmed yet (`detected`), and the schedules the user \
                   confirmed (`schedules`), each with its recent occurrences and whether they \
                   were paid, paid late, missed or skipped. Amounts are integer minor units; \
@@ -296,7 +296,7 @@ fn summary(call: &Call<'_>, view: &ScheduleView) -> ScheduleSummary {
     let schedule = &view.schedule;
     let amount = schedule.amount;
     let direction = recurring::Direction::of(amount.minor()).unwrap_or(recurring::Direction::Out);
-    let tolerance = coffer_core::money::Money::new(
+    let tolerance = orre_core::money::Money::new(
         schedule.tolerance.amount_minor.saturating_abs(),
         amount.currency(),
     );
@@ -358,10 +358,10 @@ fn occurrence_out(call: &Call<'_>, occurrence: &Occurrence) -> ScheduleOccurrenc
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
-    use coffer_core::id::{AccountId, ScheduleId};
-    use coffer_core::money::{Currency, Money};
-    use coffer_core::recurring::Cadence as CoreCadence;
-    use coffer_core::schedule::{Schedule, Tolerance};
+    use orre_core::id::{AccountId, ScheduleId};
+    use orre_core::money::{Currency, Money};
+    use orre_core::recurring::Cadence as CoreCadence;
+    use orre_core::schedule::{Schedule, Tolerance};
 
     use super::*;
 

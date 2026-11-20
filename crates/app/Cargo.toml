@@ -1,23 +1,23 @@
 [package]
-name = "coffer-app"
-description = "Coffer: the GPUI dashboard and the `coffer` binary (GUI, MCP server and CLI commands)"
+name = "orre-app"
+description = "Orre: the GPUI dashboard and the `orre` binary (GUI, MCP server and CLI commands)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-default-run = "coffer"
+default-run = "orre"
 
 [[bin]]
-name = "coffer"
+name = "orre"
 path = "src/main.rs"
 
 [dependencies]
-coffer-core.workspace = true
-coffer-import.workspace = true
-coffer-mcp.workspace = true
+orre-core.workspace = true
+orre-import.workspace = true
+orre-mcp.workspace = true
 gpui-kit.workspace = true
 anyhow.workspace = true
-# `coffer export --from/--to` dates.
+# `orre export --from/--to` dates.
 chrono.workspace = true
 clap.workspace = true
 # Suggestion payloads in the Inbox's sample data (`inbox::fixture`), which

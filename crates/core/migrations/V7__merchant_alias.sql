@@ -2,7 +2,7 @@
 -- names", and "Decision record: rules", point 5).
 --
 -- A transaction's `merchant_display` is derived: core cleans the bank's text
--- (`coffer_core::merchant::clean`: card numbers, "CONTACTLESS", processor
+-- (`orre_core::merchant::clean`: card numbers, "CONTACTLESS", processor
 -- prefixes, trailing dates and references), then the first merchant alias
 -- that matches the cleaned text gives the name. Rule actions (M1.24) and the
 -- user can set a name instead; such a name is never recomputed. The bank's

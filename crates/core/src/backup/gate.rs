@@ -2,7 +2,7 @@
 //! half of the restore lock ([`super::restore_lock_path`];
 //! `docs/ARCHITECTURE.md` → "Decision record: M2: MCP server", F.1).
 //!
-//! Every Coffer process except [`super::restore`] opens the database per
+//! Every Orre process except [`super::restore`] opens the database per
 //! call and keeps no connection between calls: the MCP server for each tool
 //! call, the app's views for each read and change. Each opens it here.
 //! [`open`] checks the restore lock ([`super::restoring`]), opens the
@@ -83,7 +83,7 @@ mod tests {
     use crate::db::Database;
 
     fn db_path(dir: &TempDir) -> PathBuf {
-        dir.path().join("data").join("coffer.db")
+        dir.path().join("data").join("orre.db")
     }
 
     /// Holds the restore lock for `db_path` as a running restore in another

@@ -6,7 +6,7 @@
 //! swap the file.
 //!
 //! Everything it reads and every decision is core's
-//! ([`coffer_core::inbox`]): approving and rejecting go through
+//! ([`orre_core::inbox`]): approving and rejecting go through
 //! `approve`/`approve_all`/`reject_all`, which check each suggestion again
 //! against today's data, and the previews are `inbox::preview`, computed
 //! when read (decision record "Inbox impact preview", point 6). Pending ones
@@ -16,15 +16,15 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use coffer_core::backup::gate;
-use coffer_core::db::Database;
-use coffer_core::inbox::preview::{self, Covered, Preview, Subject};
-use coffer_core::inbox::{
+use orre_core::backup::gate;
+use orre_core::db::Database;
+use orre_core::inbox::preview::{self, Covered, Preview, Subject};
+use orre_core::inbox::{
     self, ApproveOptions, Approved, Counts, Filter, Suggestion, SuggestionId, SuggestionStatus,
 };
-use coffer_core::mcp_client::{self, ClientStatus};
-use coffer_core::reporting::palette::{Palette, category_palette};
-use coffer_core::schedule;
+use orre_core::mcp_client::{self, ClientStatus};
+use orre_core::reporting::palette::{Palette, category_palette};
+use orre_core::schedule;
 
 use crate::accounts::store::StoreError;
 
@@ -56,7 +56,7 @@ impl Entry {
                     // The Inbox applies a rule to history too.
                     || matches!(
                         &preview.impact.detail,
-                        coffer_core::inbox::Detail::Rule(rule) if rule.history_blocked.is_some()
+                        orre_core::inbox::Detail::Rule(rule) if rule.history_blocked.is_some()
                     )
             }
             None => true,
@@ -70,7 +70,7 @@ impl Entry {
 pub struct InboxData {
     pub counts: Counts,
     /// The sources the panel lists: every client the user enabled, every
-    /// source that filed a suggestion, and Coffer itself, by name.
+    /// source that filed a suggestion, and Orre itself, by name.
     pub sources: Vec<String>,
     pub status: Option<SuggestionStatus>,
     /// The suggestions with `status`, oldest first.
@@ -143,9 +143,9 @@ pub fn load(db: &Database, status: SuggestionStatus) -> Result<InboxData, StoreE
             sources.push(source.clone());
         }
     }
-    sources.retain(|source| source != inbox::COFFER_SOURCE);
+    sources.retain(|source| source != inbox::ORRE_SOURCE);
     sources.sort();
-    sources.push(inbox::COFFER_SOURCE.to_owned());
+    sources.push(inbox::ORRE_SOURCE.to_owned());
 
     let suggestions = inbox::list(
         db,

@@ -5,15 +5,15 @@
 //! available with their keys.
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `coffer mcp`
+//! release build and nothing outside the tests can reach it, `orre mcp`
 //! included. A path that reads or drives the view's actions would get round
-//! "approval happens only in Coffer's own UI" (`AGENTS.md` → Invariants).
+//! "approval happens only in Orre's own UI" (`AGENTS.md` → Invariants).
 //!
 //! Every string comes from the code the view draws with
 //! ([`super::view`]'s `…Text` types, [`super::inspector`]'s, [`super::text`]),
 //! so untrusted text (patterns, names, bank text, rationales) is described
 //! exactly as it's shown: through [`super::text::plain`], which is
-//! [`coffer_core::envelope::shown`]. Styling (colours, fonts, markers,
+//! [`orre_core::envelope::shown`]. Styling (colours, fonts, markers,
 //! icons) is left out; mixed runs are joined into one string.
 //!
 //! The panel's cursor is described as last drawn: the panel notes which
@@ -26,7 +26,7 @@
 //! selection's keys), the inspector's "If you approve" and definition
 //! sections, and the lane headings.
 
-use coffer_core::inbox::SuggestionStatus;
+use orre_core::inbox::SuggestionStatus;
 
 pub use crate::ui::describe::Action;
 
@@ -94,7 +94,7 @@ pub struct PanelSection {
 /// A row of the panel.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PanelRowDescription {
-    /// Its label, with its suffix: "Coffer from your edits".
+    /// Its label, with its suffix: "Orre from your edits".
     pub label: String,
     pub count: String,
     /// The `danger` dot: a balance check fails.
@@ -143,7 +143,7 @@ pub struct FooterDescription {
     pub actions: Vec<Action>,
     /// Which ones "Approve all" leaves out.
     pub note: Option<String>,
-    /// "claude-code · 2h ago", "Coffer · from your edits".
+    /// "claude-code · 2h ago", "Orre · from your edits".
     pub source: String,
     /// Why core refused the last decision on the group.
     pub refused: Option<String>,

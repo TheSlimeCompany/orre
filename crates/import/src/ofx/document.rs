@@ -2,8 +2,8 @@
 
 use std::fmt;
 
-use coffer_core::money::Currency;
-use coffer_core::statement::{SourceFormat, SourceLocation};
+use orre_core::money::Currency;
+use orre_core::statement::{SourceFormat, SourceLocation};
 
 use super::markup::Element;
 use crate::ImportError;

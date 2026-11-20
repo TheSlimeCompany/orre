@@ -1,4 +1,4 @@
-# Coffer — Architecture: Money and the data model
+# Orre — Architecture: Money and the data model
 
 Money as integer minor units, and the SQLite schema.
 
@@ -8,7 +8,7 @@ that list.
 
 ## Money
 
-`coffer_core::money` (M1.5). Decided 2026-11-10:
+`orre_core::money` (M1.5). Decided 2026-11-10:
 
 - **Currencies come from a fixed table.** `Currency` can only be built from a code in a
   hand-written ISO 4217 table, which gives its minor units (`GBP` 2, `JPY` 0, `KWD` 3,
@@ -126,7 +126,7 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   not a foreign key, it outlives its rule))` and `change_item(id, batch_id, transaction_id,
   field [category|merchant|user_note|tags|exclusion|split|share|reimbursable|links (V17)],
   old_value, new_value)` — undo for changes to existing transactions (V8). Values are
-  JSON, one shape per field (`coffer_core::change::Value`); one item per batch,
+  JSON, one shape per field (`orre_core::change::Value`); one item per batch,
   transaction and field; items and a batch's kind and date are read-only, and an undone
   batch stays undone. Deleting a transaction deletes its items. A `links` item holds the
   `transaction_link` rows whose inflow is the item's transaction, in any status, so each
@@ -226,7 +226,7 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
 - `suggestion(id, kind [categorization|rule|transfer_pair|merchant_alias|refund_link],
   payload_json, rationale, source_client, created_at, status [pending|approved|rejected],
   decided_at?, decision_reason?, change_batch_id?, applied_json?)` — `source_client =
-  coffer` for suggestions the app files itself. `payload_json` is the validated canonical
+  orre` for suggestions the app files itself. `payload_json` is the validated canonical
   form; one pending suggestion per `(kind, payload_json)` (partial unique index
   `suggestion_pending_once`). V13 adds the decision columns and triggers: the proposal
   fields are read-only, a suggestion is filed pending, a decided one stays decided and has
@@ -237,7 +237,7 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   before V19, reads as `standard`
 - `mcp_client(name, enabled, access_level [aggregate|pseudonymous|standard],
   status [requested|known|ignored], created_at, last_seen_at?)` (V11) — keyed by the name
-  `coffer mcp --client` was given (1–64 of `A–Z a–z 0–9 . _ -`, never `coffer`); an
+  `orre mcp --client` was given (1–64 of `A–Z a–z 0–9 . _ -`, never `orre`); an
   enabled client is `known`. An unknown name creates a `requested` row that isn't
   enabled. Revoking sets `enabled = 0` and the level back to `aggregate`
 - `mcp_access_log(id, at, client, tool, access_level?, outcome [ok|refused_off|
@@ -252,6 +252,37 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   is set only on a row standing for calls past the pending file's cap (decision record
   "M2: MCP server", F.8). Rows older than 12 months are deleted when a server starts
 - `setting(key, value)` (V11) — `mcp.enabled` (the kill switch; on unless set off) and
-  `mcp.pseudonym_key` (32 random bytes, created by `coffer ai-access enable`, never
+  `mcp.pseudonym_key` (32 random bytes, created by `orre ai-access enable`, never
   exposed); `import.account_key` (32 random bytes, created by the first import commit
   whose file states an account number, never exposed; R.13)
+
+### Decision record: the rename to Orre, and the schema history reset (2026-11-20)
+
+**Context.** The app was called Coffer until it went to market. "Coffer" is a common word,
+and a quick screen of the trademark registers and app stores found finance products using
+it and most of the alternatives. "Orre" had no software trademark anywhere and no finance
+app using it (the user's choice, 2026-11-20). A solicitor's clearance search is still to
+be done before launch.
+
+**Decision.**
+
+1. The name is **Orre** in the app's text and the docs, and `orre` everywhere else: the
+   binary, the crates (`orre-core`, `orre-import`, `orre-mcp`, `orre-app`), the
+   environment variables (`ORRE_DATA_DIR`, `ORRE_LOG`, `ORRE_BLESS_GOLDEN`), the data
+   directory (`ProjectDirs` application `Orre`: `~/.local/share/orre` on Linux) and the
+   database file (`orre.db`).
+2. Nothing moves the old data directory. No one's data was kept: the only database was
+   the developer's own, and it was not needed (user, 2026-11-20).
+3. The shipped migrations were edited in place rather than followed by new ones. V1's
+   `source_client` for the app's own suggestions and V11's reserved client name are now
+   `orre`, and the comments and the `-- orre: foreign_keys=off` directive follow the
+   rename. Nothing had shipped to anyone, so "never edit a migration that has shipped"
+   (`AGENTS.md` → Invariants) still holds from here on. This is not a precedent for
+   editing migrations later.
+
+**Consequences.** Refinery checks each applied migration's checksum, so a Coffer database
+or backup no longer opens: the app reports a migration history it doesn't recognise, and
+restore refuses the file. Start from an empty data directory. Decision records written
+before this one say Orre where they said Coffer; git history has the original wording.
+The Paper file is still named "Coffer" and `design/tokens.json` records that name until the
+next token export; the mark and app icon (a strongbox) are unchanged.

@@ -1,8 +1,8 @@
-//! Where Coffer keeps its data.
+//! Where Orre keeps its data.
 //!
-//! The data directory is the platform data dir (`~/.local/share/coffer` on
-//! Linux, `~/Library/Application Support/Coffer` on macOS), unless
-//! `COFFER_DATA_DIR` names another one. The database, its backups and the
+//! The data directory is the platform data dir (`~/.local/share/orre` on
+//! Linux, `~/Library/Application Support/Orre` on macOS), unless
+//! `ORRE_DATA_DIR` names another one. The database, its backups and the
 //! user's saved presets live there.
 
 use std::ffi::OsString;
@@ -12,10 +12,10 @@ use directories::ProjectDirs;
 
 /// Environment variable that overrides the data directory, e.g. to keep a
 /// development database away from the real one.
-pub const DATA_DIR_ENV: &str = "COFFER_DATA_DIR";
+pub const DATA_DIR_ENV: &str = "ORRE_DATA_DIR";
 
 /// File name of the database inside the data directory.
-pub const DATABASE_FILE: &str = "coffer.db";
+pub const DATABASE_FILE: &str = "orre.db";
 
 /// Directory, next to the database, of the CSV presets the user saved
 /// from the import screen (M3.5): `<data dir>/presets/<region>/<bank>.toml`.
@@ -32,10 +32,10 @@ pub fn presets_dir(database: &Path) -> PathBuf {
 
 /// The platform has no home directory to put a data directory in.
 #[derive(Debug, thiserror::Error)]
-#[error("couldn't find a data directory for Coffer; set {DATA_DIR_ENV} to choose one")]
+#[error("couldn't find a data directory for Orre; set {DATA_DIR_ENV} to choose one")]
 pub struct NoDataDir;
 
-/// The data directory: `COFFER_DATA_DIR` when set and not empty, otherwise
+/// The data directory: `ORRE_DATA_DIR` when set and not empty, otherwise
 /// the platform data dir. Doesn't create it ([`crate::db::Database::open`]
 /// does).
 pub fn data_dir() -> Result<PathBuf, NoDataDir> {
@@ -50,7 +50,7 @@ pub fn database_path() -> Result<PathBuf, NoDataDir> {
 fn resolve_data_dir(env_override: Option<OsString>) -> Result<PathBuf, NoDataDir> {
     match env_override {
         Some(dir) if !dir.is_empty() => Ok(PathBuf::from(dir)),
-        _ => ProjectDirs::from("", "", "Coffer")
+        _ => ProjectDirs::from("", "", "Orre")
             .map(|dirs| dirs.data_dir().to_path_buf())
             .ok_or(NoDataDir),
     }
@@ -78,7 +78,7 @@ mod tests {
     #[test]
     fn linux_default_is_xdg_data_home() {
         let dir = resolve_data_dir(None).unwrap();
-        assert!(dir.ends_with("coffer"), "{}", dir.display());
+        assert!(dir.ends_with("orre"), "{}", dir.display());
     }
 
     #[cfg(target_os = "macos")]
@@ -86,7 +86,7 @@ mod tests {
     fn macos_default_is_application_support() {
         let dir = resolve_data_dir(None).unwrap();
         assert!(
-            dir.ends_with("Library/Application Support/Coffer"),
+            dir.ends_with("Library/Application Support/Orre"),
             "{}",
             dir.display()
         );

@@ -5,15 +5,15 @@
 //! footer (M3.9). Pure, so it's tested without a window.
 
 use chrono::{Datelike as _, NaiveDate};
-use coffer_core::account::AccountKind;
-use coffer_core::id::{AccountId, TagId};
-use coffer_core::money::Money;
-use coffer_core::reporting::register::{
+use gpui_kit::SharedString;
+use orre_core::account::AccountKind;
+use orre_core::id::{AccountId, TagId};
+use orre_core::money::Money;
+use orre_core::reporting::register::{
     Colour, DatePreset, Register, RegisterCategory, RegisterRow, RowCategory,
 };
-use coffer_core::split::draft::{DraftStatus, SplitDraft};
-use coffer_core::tag::{TagName, TagNameError};
-use gpui_kit::SharedString;
+use orre_core::split::draft::{DraftStatus, SplitDraft};
+use orre_core::tag::{TagName, TagNameError};
 
 use crate::format::{self, Sign};
 use crate::theme::tokens::color;
@@ -41,10 +41,10 @@ pub fn marker(colour: Colour) -> Marker {
 /// (`DESIGN.md` → "Split row in the table").
 fn split_marker(
     register: &Register,
-    parts: &[coffer_core::reporting::register::SplitPart],
+    parts: &[orre_core::reporting::register::SplitPart],
 ) -> Marker {
     let mut lines: Vec<(
-        &coffer_core::reporting::register::SplitPart,
+        &orre_core::reporting::register::SplitPart,
         &RegisterCategory,
     )> = parts
         .iter()
@@ -492,7 +492,7 @@ pub fn split_footer(draft: &SplitDraft) -> SplitFooter {
         ),
         DraftStatus::Overflow => (
             SplitTone::Unbalanced,
-            Some("The lines add up to more than Coffer can hold.".to_owned()),
+            Some("The lines add up to more than Orre can hold.".to_owned()),
         ),
     };
     SplitFooter {
@@ -504,9 +504,9 @@ pub fn split_footer(draft: &SplitDraft) -> SplitFooter {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::category::CategoryKey;
-    use coffer_core::money::Currency;
-    use coffer_core::split::SplitLine;
+    use orre_core::category::CategoryKey;
+    use orre_core::money::Currency;
+    use orre_core::split::SplitLine;
 
     use super::*;
     use crate::transactions::fixture;

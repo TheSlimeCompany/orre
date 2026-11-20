@@ -10,13 +10,13 @@
 //! row as a click does ([`crate::ui::panel_cursor`]). The keys don't change
 //! what's open or filtered; the cursor starts on the open section.
 
-use coffer_core::change::ChangeKind;
-use coffer_core::merchant::AliasKind;
-use coffer_core::rule::ActionKind;
 use gpui_kit::{
     App, Entity, InteractiveElement as _, IntoElement, ParentElement as _, RenderOnce,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::change::ChangeKind;
+use orre_core::merchant::AliasKind;
+use orre_core::rule::ActionKind;
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
@@ -29,7 +29,7 @@ use super::text;
 use super::{CategoryFilter, Rules, Section};
 
 /// The panel's key context, where its keyboard cursor moves.
-pub const CONTEXT: &str = "CofferRulesPanel";
+pub const CONTEXT: &str = "OrreRulesPanel";
 
 /// The panel's keys: ↑↓ move the cursor, Enter and Space act on its row.
 pub const KEYS: PanelKeys = PanelKeys::new(CONTEXT);

@@ -6,7 +6,7 @@
 -- apart, that the exact dedupe can't match: overlapping CSV and OFX exports,
 -- a manual row entered ahead of the bank's export) is recorded here as a
 -- `pending` candidate for the user to merge or dismiss. Core finds them
--- (`coffer_core::duplicate`); the rules for a match live there.
+-- (`orre_core::duplicate`); the rules for a match live there.
 --
 -- - A pair is stored once, lower transaction ID first, so `(a, b)` and
 --   `(b, a)` can't both exist. A pair recorded in any status is never raised

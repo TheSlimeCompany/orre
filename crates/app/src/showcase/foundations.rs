@@ -13,7 +13,7 @@ use crate::ui::text::{CasedText as _, TextRoleExt as _};
 
 pub(super) fn board() -> gpui_kit::Div {
     artboard(
-        "Coffer · Design tokens",
+        "Orre · Design tokens",
         "Foundations",
         "Colour and type. Every colour, size, weight and gap on this board is a token.",
         [

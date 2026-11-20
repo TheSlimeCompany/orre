@@ -2,7 +2,7 @@
 //!
 //! - **One table section per account** with balances, failing accounts
 //!   first, divided by hairlines: the account name and its lock, then
-//!   DATE (72) · BALANCE · COFFER · DIFFERENCE (96 each); rows newest
+//!   DATE (72) · BALANCE · ORRE · DIFFERENCE (96 each); rows newest
 //!   first, the oldest the starting point rather than a check.
 //! - **Under a failed row**, the window: the last balance that matched,
 //!   the transactions since, and the possible duplicate that explains the
@@ -17,15 +17,15 @@
 //! in Transactions and for editing balances (user, 2026-11-14).
 
 use chrono::NaiveDate;
-use coffer_core::checks::{AccountReview, CheckRow};
-use coffer_core::money::Money;
-use coffer_core::reconciliation::Outcome;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _,
     Rgba, SharedString, StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window,
     div,
 };
+use orre_core::checks::{AccountReview, CheckRow};
+use orre_core::money::Money;
+use orre_core::reconciliation::Outcome;
 
 use crate::theme::tokens::{color, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant};
@@ -66,7 +66,7 @@ fn after_status() -> gpui_kit::Pixels {
     spacing::S2 + size::ICON_LG + spacing::S3
 }
 
-/// What Coffer counts on a check's day.
+/// What Orre counts on a check's day.
 fn counted(row: &CheckRow) -> Option<Money> {
     match row.check.outcome {
         Outcome::Passed { .. } => Some(row.check.stated),
@@ -75,7 +75,7 @@ fn counted(row: &CheckRow) -> Option<Money> {
     }
 }
 
-/// Coffer less the balance, for a failed check: negative when Coffer is
+/// Orre less the balance, for a failed check: negative when Orre is
 /// short.
 fn difference(row: &CheckRow) -> Option<Money> {
     let minor = i64::try_from(row.check.difference_minor()?).ok()?;
@@ -139,7 +139,7 @@ fn group_header(account: &AccountReview, today: NaiveDate, window: &Window) -> i
         .child(
             lane(size::COLUMN_AMOUNT)
                 .justify_end()
-                .child(lane_label("Coffer")),
+                .child(lane_label("Orre")),
         )
         .child(
             lane(size::COLUMN_AMOUNT)
@@ -168,12 +168,12 @@ pub(super) fn source_text(row: &CheckRow) -> String {
     }
 }
 
-/// The COFFER lane: what Coffer counts on the day, or "—".
-pub(super) fn coffer_text(row: &CheckRow) -> String {
+/// The ORRE lane: what Orre counts on the day, or "—".
+pub(super) fn orre_text(row: &CheckRow) -> String {
     counted(row).map_or_else(|| "—".to_owned(), text::balance)
 }
 
-/// The DIFFERENCE lane: Coffer less the balance for a failed check, £0.00
+/// The DIFFERENCE lane: Orre less the balance for a failed check, £0.00
 /// for a passed one, "—" otherwise.
 pub(super) fn difference_text(row: &CheckRow) -> String {
     let check = &row.check;
@@ -189,7 +189,7 @@ pub(super) struct CheckRowText {
     pub source: String,
     pub date: String,
     pub balance: String,
-    pub coffer: String,
+    pub orre: String,
     pub difference: String,
 }
 
@@ -198,7 +198,7 @@ pub(super) fn check_row_text(row: &CheckRow, today: NaiveDate) -> CheckRowText {
         source: source_text(row),
         date: text::date(row.check.date, today),
         balance: text::balance(row.check.stated),
-        coffer: coffer_text(row),
+        orre: orre_text(row),
         difference: difference_text(row),
     }
 }
@@ -221,7 +221,7 @@ fn check_row(
         source,
         date,
         balance: stated,
-        coffer,
+        orre,
         difference: gap,
     } = check_row_text(row, today);
     let lifted = |tone: Rgba| {
@@ -231,7 +231,7 @@ fn check_row(
             tone
         }
     };
-    let coffer_tone = match counted(row) {
+    let orre_tone = match counted(row) {
         Some(value) if value.is_negative() => color::DANGER,
         Some(_) => lifted(color::TEXT),
         None => color::TEXT_MUTED,
@@ -298,16 +298,16 @@ fn check_row(
                 .child(date),
         )
         .child(amount(stated, lifted(color::TEXT), false))
-        .child(amount(coffer, coffer_tone, false))
+        .child(amount(orre, orre_tone, false))
         .child(amount(gap, gap_tone, gap_strong))
         .into_any_element()
 }
 
 /// A stable key for a balance in an element ID.
-fn balance_key(balance: coffer_core::reconciliation::BalanceRef) -> String {
+fn balance_key(balance: orre_core::reconciliation::BalanceRef) -> String {
     match balance {
-        coffer_core::reconciliation::BalanceRef::Opening => "opening".to_owned(),
-        coffer_core::reconciliation::BalanceRef::Snapshot(id) => id.to_string(),
+        orre_core::reconciliation::BalanceRef::Opening => "opening".to_owned(),
+        orre_core::reconciliation::BalanceRef::Snapshot(id) => id.to_string(),
     }
 }
 
@@ -328,13 +328,13 @@ pub(super) fn window_words<'a>(
     account: &AccountReview,
     row: &CheckRow,
     today: NaiveDate,
-) -> Option<(Vec<Part>, Option<&'a coffer_core::checks::Pair>)> {
+) -> Option<(Vec<Part>, Option<&'a orre_core::checks::Pair>)> {
     let since = row.since()?;
     let mut parts = vec![
         Part::text("The gap opened after "),
         Part::mono(text::date(since, today)),
         Part::text(if from_start(account, since) {
-            ", where Coffer starts counting: "
+            ", where Orre starts counting: "
         } else {
             ", the last balance that matched: "
         }),
@@ -507,7 +507,7 @@ pub(super) fn empty(checks: &Checks) -> Option<(&'static str, SharedString)> {
         (
             "No balances to check",
             SharedString::from(format!(
-                "Add a balance to an account, or import a file that has balances, and Coffer \
+                "Add a balance to an account, or import a file that has balances, and Orre \
                  checks each one against the transactions.{}",
                 not_checked(checks)
                     .map(|words| format!(" {words}"))
@@ -648,10 +648,10 @@ pub(super) fn this_check_text(row: &CheckRow, today: NaiveDate) -> ThisCheck {
             rows,
             caption: Caption::Fixed(match check.outcome {
                 Outcome::Valuation => {
-                    "A valuation sets the balance: Coffer counts the balances after it from here."
+                    "A valuation sets the balance: Orre counts the balances after it from here."
                 }
                 _ => {
-                    "Coffer starts counting from here: every later balance is checked against \
+                    "Orre starts counting from here: every later balance is checked against \
                      it plus the transactions since."
                 }
             }),
@@ -659,7 +659,7 @@ pub(super) fn this_check_text(row: &CheckRow, today: NaiveDate) -> ThisCheck {
     }
     if let Some(counted) = counted(row) {
         rows.push((
-            "Coffer",
+            "Orre",
             vec![
                 Part::mono(text::balance(counted)).color(if counted.is_negative() {
                     color::DANGER
@@ -691,7 +691,7 @@ pub(super) fn this_check_text(row: &CheckRow, today: NaiveDate) -> ThisCheck {
         ));
     }
     let mut words = vec![Part::text(
-        "Coffer starts from the last balance that matched and adds every transaction since.",
+        "Orre starts from the last balance that matched and adds every transaction since.",
     )];
     match difference(row) {
         Some(gap) => {
@@ -743,7 +743,7 @@ pub(super) fn explained_by<'a>(
     checks: &'a Checks,
     row: &CheckRow,
     today: NaiveDate,
-) -> Option<(String, Vec<Part>, &'a coffer_core::checks::Pair)> {
+) -> Option<(String, Vec<Part>, &'a orre_core::checks::Pair)> {
     let pair = row
         .explained_by
         .and_then(|id| checks.data().review.pair(id))?;
@@ -957,7 +957,7 @@ fn lock_section(
 }
 
 /// The inspector's header for a balance: the account, the figure, and
-/// what the balance is ("Check on 9 Nov failed · Coffer is short").
+/// what the balance is ("Check on 9 Nov failed · Orre is short").
 pub(super) fn header_text(
     account: &AccountReview,
     row: &CheckRow,
@@ -972,7 +972,7 @@ pub(super) fn header_text(
             (
                 gap.map(text::signed),
                 format!(
-                    "Check on {} failed · Coffer is {}",
+                    "Check on {} failed · Orre is {}",
                     text::date(check.date, today),
                     if short { "short" } else { "over" }
                 ),
@@ -995,7 +995,7 @@ pub(super) fn header_text(
 }
 
 /// The inspector with nothing selected.
-pub(super) const NOTHING_SELECTED: &str = "Select a balance to see how Coffer counted it, and \
+pub(super) const NOTHING_SELECTED: &str = "Select a balance to see how Orre counted it, and \
                                            lock the account once its checks pass.";
 
 /// The inspector.

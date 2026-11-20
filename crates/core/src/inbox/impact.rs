@@ -515,7 +515,7 @@ impl fmt::Display for Impact {
                     t.amount, t.from_account, t.to_account
                 )?;
                 if t.suggested {
-                    f.write_str(" (Coffer suggested this pair too)")?;
+                    f.write_str(" (Orre suggested this pair too)")?;
                 }
             }
             Detail::MerchantAlias(a) => {

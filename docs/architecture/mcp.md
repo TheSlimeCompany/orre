@@ -1,4 +1,4 @@
-# Coffer — Architecture: MCP
+# Orre — Architecture: MCP
 
 The MCP server: tools by access level, the gate, the access log, untrusted text, and safe report rendering.
 
@@ -8,7 +8,7 @@ that list.
 
 ## MCP surface
 
-`coffer mcp --client <name>` (`crates/mcp`, rmcp over stdio). Setup for Claude Code,
+`orre mcp --client <name>` (`crates/mcp`, rmcp over stdio). Setup for Claude Code,
 Claude Desktop and Codex: [`mcp-setup.md`](../mcp-setup.md). Decisions: "Decision record:
 M2: MCP server (2026-11-13)"; "Decision record: merchant names are untrusted, and what
 `pseudonymous` protects (2026-11-19)".
@@ -70,7 +70,7 @@ are listed per currency, never added across currencies. Every tool takes an opti
 Payloads are validated against the database when filed and again when approved; an
 identical pending suggestion returns the existing ID (`already_pending`). Caps: 200
 pending suggestions and 500 saved reports per client; only the user deletes reports
-(`coffer inbox delete-report`), never a tool. The source is always the calling client,
+(`orre inbox delete-report`), never a tool. The source is always the calling client,
 never an argument.
 
 **Prompts**: `monthly_review(month)` — patterns, anomalies, subscription creep, budget
@@ -91,7 +91,7 @@ AI's inputs to it are the untrusted `purpose` (stored without invisible characte
 the arguments, redacted by the tool's schema: numbers, booleans, dates and schema enum
 values are kept, any other string becomes `{"length":N,"type":"string"}`, undeclared keys
 are only counted (`"_undeclared": N`). `result_hash` is SHA-256 of the result's canonical
-JSON (compact, keys sorted). `coffer ai-access log` shows the log. A call refused because
+JSON (compact, keys sorted). `orre ai-access log` shows the log. A call refused because
 the database can't be opened (a restore holds its lock: `refused_restoring`; migrations
 pending or the lock unreadable: `refused_unavailable`) can't be written there: it waits
 in `<database>-access-pending` and goes into the log, at its own time, the next time the
@@ -99,7 +99,7 @@ database is opened to write (decision record "M2: MCP server", F.8). The one exc
 returning no data: getting a prompt.
 
 **Restores.** The server opens the database for each call and keeps no connection
-between calls. `coffer restore` holds the file lock on `<database>-restoring` while it
+between calls. `orre restore` holds the file lock on `<database>-restoring` while it
 swaps the files; the server checks it before and after opening and refuses the call while
 it's held, so the next call reads the restored file; the refused calls go into the
 restored database's log, and so do the rows the replaced database logged after the
@@ -109,7 +109,7 @@ blocks nothing (decision record "M2: MCP server", F.1).
 Transaction descriptions are untrusted input (prompt-injection surface); inbox-only
 writes are the containment. In addition:
 
-- **Text envelope** (`coffer_core::envelope`, M2.13). `description_untrusted` is
+- **Text envelope** (`orre_core::envelope`, M2.13). `description_untrusted` is
   sanitised in four steps: control, zero-width, bidi, tag and BOM characters are
   stripped and fullwidth letters folded to ASCII; the whole field is withheld, as
   `[withheld: N characters that read like instructions]`, when it matches a documented
@@ -126,9 +126,9 @@ writes are the containment. In addition:
   plain text, so a report can't trigger a network request. `list_reports` marks them
   `ai_authored`, since stored AI text is untrusted when read back, and strips control,
   zero-width and bidi characters from the period, title and body (decision record,
-  2026-11-10); the stored text is unchanged. `coffer inbox` shows them the same way.
+  2026-11-10); the stored text is unchanged. `orre inbox` shows them the same way.
 - **Client setup.** [`mcp-setup.md`](../mcp-setup.md) recommends a client profile with
-  Coffer as the only data source and no web or fetch tools.
+  Orre as the only data source and no web or fetch tools.
 
 ## Decision records
 
@@ -140,7 +140,7 @@ The open questions from the D6.11 designs (`DESIGN.md` → "Safe report renderin
 decided by the user on the designer's recommendation:
 
 1. **Emphasis renders as weight 500.** `*emphasis*` in a saved review is 500 in
-   `text-strong`. Coffer doesn't bundle an italic face for reviews alone.
+   `text-strong`. Orre doesn't bundle an italic face for reviews alone.
 2. **The withheld count lives on the access log.** `mcp_access_log` gains
    `withheld_count` (a new migration): how many descriptions that call withheld. The
    Reviews inspector sums it over a review's calls. The app's "Withheld from AI" filter
@@ -182,8 +182,8 @@ as built). Everything else follows an earlier decision record or invariant.
    below `standard`, since bank text names the merchant a token hides.
 5. **Block D's schedule schema (user):** `start_date` instead of `next_date`, the new
    `recurring_dismissal` table, and the correction to the lock claim (D7 below).
-6. **Wave 1's defaults are accepted (user):** CLI names `coffer ai-access`, `coffer
-   budgets`, `coffer schedules`, `coffer inbox`; pseudonym tokens are HMAC-SHA256; the
+6. **Wave 1's defaults are accepted (user):** CLI names `orre ai-access`, `orre
+   budgets`, `orre schedules`, `orre inbox`; pseudonym tokens are HMAC-SHA256; the
    tool levels as built (the table in "MCP surface"); `Amount.home` stays `null` through
    M2.
 
@@ -192,7 +192,7 @@ as built). Everything else follows an earlier decision record or invariant.
 1. The kill switch is on unless set off; MCP stays off until a client is enabled
    (user).
 2. The pseudonym key is 32 bytes from SQLite's `randomblob` (no RNG crate), created by
-   `coffer ai-access enable`, never by the server; without one a `pseudonymous` call is
+   `orre ai-access enable`, never by the server; without one a `pseudonymous` call is
    refused with a message saying to enable the client again (user).
 3. Tokens are `M-` plus 12 hex digits (48 bits: about 1.8 × 10⁻⁷ chance of any collision
    at 10,000 merchants), of the trimmed, lower-cased display name (user).
@@ -211,7 +211,7 @@ as built). Everything else follows an earlier decision record or invariant.
    (`NETFLIX[.]COM`), which settles "made inert" against "withheld"; fullwidth letters
    are folded, full NFKC and homoglyphs are out of scope; `Call::merchant` withholds a
    display name that reads like instructions at `standard` too (user).
-10. `coffer ai-access log` shows the redacted arguments (cut at 120 characters) and the
+10. `orre ai-access log` shows the redacted arguments (cut at 120 characters) and the
     cleaned purpose (cut at 60), never the result hash (user).
 11. Retention: failing to delete old log rows is a warning, and the server starts anyway
     (user).
@@ -232,7 +232,7 @@ as built). Everything else follows an earlier decision record or invariant.
    rule").
 4. Budgets: a month's budget overrides the standing one; a budget counts spending only in
    its own currency and lists the rest beside it; rollover follows the group (reported,
-   applied from M4.9); budgets only on spending categories; `coffer budgets set` defaults
+   applied from M4.9); budgets only on spending categories; `orre budgets set` defaults
    to the one currency all accounts share and otherwise needs `--currency` (user).
 5. Row limits: 50 by default, at most 200, with `truncated` (user).
 6. Account-details check (`reporting::rows::has_account_identifier`): a merchant holding a
@@ -332,9 +332,9 @@ as built). Everything else follows an earlier decision record or invariant.
 7. Settling is narrow: a pending categorisation is settled by an approved rule only when
    every item names a transaction the rule's batch gave that category; split-line items
    and partial overlaps stay pending (user).
-8. Coffer's own rule suggestions: after 3 or more unsplit rows with one `merchant_display`
+8. Orre's own rule suggestions: after 3 or more unsplit rows with one `merchant_display`
    get the same category from the user (counted from the current state, so undoing an
-   edit lowers the count), Coffer files `merchant is <cleaned merchant>` →
+   edit lowers the count), Orre files `merchant is <cleaned merchant>` →
    `set_category`, only when every counted row's merchant folds to one text, with a fixed
    rationale and no merchant text. It files nothing when an identical suggestion is
    pending or was ever decided (a rejection is permanent), a stored rule has exactly this
@@ -345,7 +345,7 @@ as built). Everything else follows an earlier decision record or invariant.
 **F. Integration.**
 
 1. **Restores and running servers.** The server opens the database per call and keeps no
-   connection between calls, so an idle server never blocks `coffer restore` (which
+   connection between calls, so an idle server never blocks `orre restore` (which
    refuses a database another connection holds). From the checked backup until the
    restored database is open, `restore` holds the operating system's exclusive file lock
    (`File::try_lock`, std, no dependency) on `<database>-restoring`
@@ -354,7 +354,7 @@ as built). Everything else follows an earlier decision record or invariant.
    restores, and is never deleted, so no process can lock a file that has left the
    directory while another locks a new one under the same name. The server checks with a
    momentary shared lock before and after opening and refuses while the lock is held, with
-   "Coffer is restoring a backup"; those refusals are logged afterwards, through the
+   "Orre is restoring a backup"; those refusals are logged afterwards, through the
    pending file (F.8). A second restore can't take the lock and is refused (after
    retrying for a second, past the server's momentary checks). A check made before the
    restore holds the lock sees no restore, which is sound because `restore` changes
@@ -363,9 +363,9 @@ as built). Everything else follows an earlier decision record or invariant.
    can't do safely on Windows). **A crashed or killed restore** loses its lock with its
    process, so it blocks nothing: the database is complete at every step (untouched before
    the atomic rename, the synced backup after it, a migration all or nothing), and
-   `open_existing` refuses one left at an older schema with its usual "run a `coffer`
+   `open_existing` refuses one left at an older schema with its usual "run a `orre`
    command" message. The restore writes a marker (start time, backup) into the file while
-   it holds the lock and empties it at the end, so `coffer restore` finds a stopped one,
+   it holds the lock and empties it at the end, so `orre restore` finds a stopped one,
    warns, and goes ahead, backing the current database up first as always. A lock file
    the server can't open or lock is refused with a message naming the file. File locks are
    `flock`/`LockFileEx`; on a network file system they may be missing (restore refuses,
@@ -376,37 +376,37 @@ as built). Everything else follows an earlier decision record or invariant.
    isn't logged, since it returns no data (user).
 3. **Saved reports are capped at 500 per client**; the 501st is refused with a clear
    error, counted and inserted in one transaction (user). The error tells the client
-   that the user can make room with `coffer inbox delete-report`, and names nothing of
-   the user's. `coffer inbox reports` notes any client at the cap with the command that
+   that the user can make room with `orre inbox delete-report`, and names nothing of
+   the user's. `orre inbox reports` notes any client at the cap with the command that
    clears it (user).
-4. **`coffer inbox approve 1 2 3` is all or nothing** (`inbox::approve_all`, one
+4. **`orre inbox approve 1 2 3` is all or nothing** (`inbox::approve_all`, one
    transaction). A repeated ID is refused before anything is tried; a suggestion that an
    earlier approval in the same list settled is skipped, not an error, and the CLI says
    which rule settled it (user). `reject` still decides each ID on its own.
-5. **`coffer inbox reports` and `coffer inbox report <id>`** show saved reports: the list
+5. **`orre inbox reports` and `orre inbox report <id>`** show saved reports: the list
    has no bodies; a report is printed as plain text, each body line prefixed `  | ` so it
-   can't pass for Coffer's own output, labelled as written by the client and unverified.
+   can't pass for Orre's own output, labelled as written by the client and unverified.
    The CLI strips exactly what `envelope::strip_invisible` strips (user).
-   **`coffer inbox delete-report <id>... [--yes]`** and
-   **`coffer inbox delete-report --client <name> [--before <YYYY-MM-DD>] [--yes]`**
+   **`orre inbox delete-report <id>... [--yes]`** and
+   **`orre inbox delete-report --client <name> [--before <YYYY-MM-DD>] [--yes]`**
    delete saved reports (`inbox::delete_reports`): the user's only way to free a
    client's allowance, so the cap is never a dead end. Without `--yes` they list what
    would go (ID, period, client, date, title, stripped and labelled as above) and change
-   nothing, as `coffer restore` and `coffer schedules delete` do; nothing is asked on
+   nothing, as `orre restore` and `orre schedules delete` do; nothing is asked on
    stdin. IDs are all or nothing in one transaction: an unknown or repeated ID deletes
    none. `--before` is the start of that day in UTC, as `created_at` is stored; a client
    with no matching reports deletes nothing and isn't an error. No backup is taken first
    (deleting reports changes no money data); a report stays in backups taken before it
    was deleted until they're deleted: automatic ones rotate out (the monthly ones after 12
-   months), and manual ones stay until the user deletes them in Settings or with `coffer
+   months), and manual ones stay until the user deletes them in Settings or with `orre
    backup --delete` ("Decision record: backup retention and presets", 2026-11-19). Nothing else refers to a report by ID: no foreign
    key, suggestion payload, `applied_json` or change batch names one, and the access log
    keeps only a hash of `save_report`'s result; `report.id` is `AUTOINCREMENT`, so a
    deleted ID is never reused. No MCP tool or server code path deletes a report: the
    tool × level matrix checks that no call changes or removes an existing suggestion or
    report, and that the server's source never calls core's deletion (user).
-6. **`coffer categorize <transaction-id>... <category-key>`** sets categories as the user
-   through `inbox::own::recategorize`, so Coffer's own rule suggestions fire from the CLI
+6. **`orre categorize <transaction-id>... <category-key>`** sets categories as the user
+   through `inbox::own::recategorize`, so Orre's own rule suggestions fire from the CLI
    until the GUI's inline edit (M3). It refuses a repeated ID, an unknown category or
    a row that takes no category of its own (split, a confirmed transfer leg, a linked
    refund's money in; decision record "what a transaction can take"), and prints the change batch and any rule suggestion it filed (user).
@@ -419,7 +419,7 @@ as built). Everything else follows an earlier decision record or invariant.
    recorded in a pending file next to the database, `<database>-access-pending`
    (`access_log::pending`), and moved into `mcp_access_log` with its own time the next
    time the database is opened to write: any server's next call or listing (whichever
-   gets there, after its restore-lock check), `coffer ai-access`, and `restore` once the
+   gets there, after its restore-lock check), `orre ai-access`, and `restore` once the
    restored database is open. Neither existing outcome fitted: `error` means a tool failed, and the
    `refused_*` ones are the gate's (user).
    - A line is the log row's entry and nothing more: client, tool, the call's time,
@@ -456,12 +456,12 @@ as built). Everything else follows an earlier decision record or invariant.
    database may be at an older schema: before V11 it has no log, before V14 its rows have
    no `pending_id` or `summarised_calls`. Rows at or before the backup's newest time are
    the backup's own. A `pending_id` already present isn't copied twice. A failed carry
-   doesn't fail the restore, which is done by then: `coffer restore` says the rows are
+   doesn't fail the restore, which is done by then: `orre restore` says the rows are
    in the pre-restore backup (user).
 
 ### Decision record: approval needs the user's terminal (2026-11-18)
 
-Review finding R.1: `coffer inbox approve` took no confirmation and no terminal check.
+Review finding R.1: `orre inbox approve` took no confirmation and no terminal check.
 Claude Code and Codex have a shell by default, so a prompt-injected client could file a
 suggestion over MCP and then approve it itself through the CLI, getting around "MCP writes
 go to the inbox only".
@@ -487,12 +487,12 @@ go to the inbox only".
    stages a copy of the backup in the data directory.
 5. **A speed bump, not a boundary.** A process with a shell can fake a terminal (`script`)
    or open the SQLite file directly. Containment depends on the client having no shell, or
-   a sandbox that denies it the data directory and the `coffer` binary, as "Use a profile
-   with Coffer as the only data source" in `docs/mcp-setup.md` sets up. The terminal check
+   a sandbox that denies it the data directory and the `orre` binary, as "Use a profile
+   with Orre as the only data source" in `docs/mcp-setup.md` sets up. The terminal check
    is defence in depth. "MCP writes go to the inbox only" (`AGENTS.md`) is about what the
-   MCP server does; it holds for a client that reaches Coffer only over MCP, and the
+   MCP server does; it holds for a client that reaches Orre only over MCP, and the
    invariant now says so.
-6. **Automating the CLI.** A scheduled `coffer import` from a script is refused too, with
+6. **Automating the CLI.** A scheduled `orre import` from a script is refused too, with
    no flag to allow it: a script's import is indistinguishable from an agent's, and a
    crafted file is a way to write transactions. A script can preview one
    (`--dry-run`); committing it is the user's, in a terminal or the app.
@@ -513,7 +513,7 @@ reports. A `standard` client's review, with merchant names and bank text, reache
    V19 has no level (NULL) and is read as `standard`, the strictest reading.
 3. **Filtered in the query** (`reporting::catalog::reports_visible_to`), so `limit` and
    `truncated` count only the reports the client may see.
-4. **The user's view is unchanged.** The app and `coffer inbox reports` show every report
+4. **The user's view is unchanged.** The app and `orre inbox reports` show every report
    whatever its client or level. MCP still writes only `suggestion` and `report`.
 5. **Consequence.** A report from before V19 is invisible below `standard` until the user
    deletes it or raises the client. Rejected: filtering by level alone, which still lets

@@ -1,23 +1,23 @@
-//! `gpui-component`'s theme, mapped onto Coffer's tokens.
+//! `gpui-component`'s theme, mapped onto Orre's tokens.
 //!
 //! Stock components read their colours, radii, fonts and motion from the
 //! global [`Theme`]. [`install`] replaces every one of those values with a
 //! token from [`super::tokens`], so no stock colour can reach the screen: a
 //! test fills the palette with a sentinel, applies the map, and fails if any
-//! field is left unmapped or holds a value that isn't a Coffer token. A field
+//! field is left unmapped or holds a value that isn't an Orre token. A field
 //! added by a `gpui-component` upgrade fails the same test until it's mapped
 //! here.
 //!
 //! The theme can't express everything `docs/DESIGN.md` specifies. Several
-//! components need a Coffer build or per-instance styling on top; the list,
+//! components need an Orre build or per-instance styling on top; the list,
 //! with the reason for each, is in `DESIGN.md` → "Implementing in GPUI" →
 //! "Stock components".
 //!
 //! The map is by meaning, not by name. `gpui-component` follows shadcn's
-//! roles, so its `primary` is Coffer's neutral primary button (`text` fill,
+//! roles, so its `primary` is Orre's neutral primary button (`text` fill,
 //! `on-light` label), not an accent. `molten` appears only where a stock role
 //! means selection, focus or a drop target; `moldavite` only where it means
-//! green as a literal hue. Coffer has no success or info colour: success and
+//! green as a literal hue. Orre has no success or info colour: success and
 //! info map to the neutral primary.
 
 use gpui_kit::component::{Theme, ThemeColor, ThemeMode};
@@ -40,8 +40,8 @@ const SCRIM: Rgba = Rgba {
 ///
 /// `gpui-component` sizes its controls in rems (medium: `h_8`, `text_sm`).
 /// Setting the rem to half of [`size::CONTROL`] makes those controls exactly
-/// 28px. Their `text_sm` (0.875rem) then lands at 12.25px against Coffer's
-/// 12px `--text-sm`. Coffer's own components take sizes from
+/// 28px. Their `text_sm` (0.875rem) then lands at 12.25px against Orre's
+/// 12px `--text-sm`. Orre's own components take sizes from
 /// [`super::tokens`], so they don't depend on this value.
 pub fn rem() -> Pixels {
     size::CONTROL / STOCK_CONTROL_REMS
@@ -53,7 +53,7 @@ pub fn rem() -> Pixels {
 /// Call once at startup, after `gpui_kit::init` and before
 /// [`super::fonts::install`] (which sets the font families). Switching mode
 /// with [`Theme::change`] or `Theme::sync_system_appearance` afterwards would
-/// reload the stock theme; Coffer has one theme and never does.
+/// reload the stock theme; Orre has one theme and never does.
 pub fn install(cx: &mut App) {
     // `Theme::update` loads the new mode's stock palette when the mode
     // changes, so switch first and map in a second update.
@@ -71,7 +71,7 @@ fn apply(theme: &mut Theme) {
     // notifications and other floating surfaces.
     theme.radius = radius::MD;
     theme.radius_lg = radius::LG;
-    // Coffer is flat: only floating surfaces get a shadow, and those use
+    // Orre is flat: only floating surfaces get a shadow, and those use
     // `tokens::shadow`. This drops the stock `shadow_xs` on buttons.
     theme.shadow = false;
     // Stock focus without the stock ring. The ring is a 3px band of `ring` at
@@ -81,7 +81,7 @@ fn apply(theme: &mut Theme) {
     // outside its edge: thinner than the 1.5px spec ring and with less or no
     // gap, but solid `molten`, and it takes no room, so nothing clips it.
     // Filled buttons draw that line inside the fill, in their label colour at
-    // 60%; Coffer's buttons (`crate::ui::button`) turn it off and draw
+    // 60%; Orre's buttons (`crate::ui::button`) turn it off and draw
     // `super::focus`'s ring. `DESIGN.md` → "Focus ring" has the comparison.
     theme.focus_ring = false;
 
@@ -141,7 +141,7 @@ fn paint(colors: &mut ThemeColor) {
     colors.link_active = token(color::TEXT_STRONG);
 
     // Neutral primary: `text` fill, white on hover, `text-strong` pressed.
-    // Success and info share it; Coffer has no colour for either.
+    // Success and info share it; Orre has no colour for either.
     for (fill, hover, pressed, label) in [
         (
             &mut colors.primary,
@@ -207,7 +207,7 @@ fn paint(colors: &mut ThemeColor) {
         *label = token(color::TEXT_SECONDARY);
     }
 
-    // Default button: Coffer's outline button. `input` is its border.
+    // Default button: Orre's outline button. `input` is its border.
     colors.button = none;
     colors.button_hover = token(color::HOVER);
     colors.button_active = token(color::CONTROL_ACTIVE);
@@ -234,7 +234,7 @@ fn paint(colors: &mut ThemeColor) {
         *label = token(color::ON_DANGER);
     }
 
-    // Warning. Coffer has no warning button, so there are no hover or pressed
+    // Warning. Orre has no warning button, so there are no hover or pressed
     // designs; the states keep the base colour.
     for (fill, hover, pressed, label) in [
         (
@@ -301,7 +301,7 @@ fn paint(colors: &mut ThemeColor) {
 
     // Toggle: off track `control-active`, off knob `text-muted`; the on track
     // is `primary` (`text`). The stock switch has one knob colour, so the on
-    // knob (`chrome`) needs Coffer's own toggle.
+    // knob (`chrome`) needs Orre's own toggle.
     colors.switch = token(color::CONTROL_ACTIVE);
     colors.switch_thumb = token(color::TEXT_MUTED);
     colors.slider_bar = token(color::TEXT);
@@ -315,7 +315,7 @@ fn paint(colors: &mut ThemeColor) {
     colors.scrollbar_thumb = token(color::BORDER_STRONG);
     colors.scrollbar_thumb_hover = token(color::TOOLTIP_BORDER);
 
-    // Charts: the categorical palette, hairline gridlines. Coffer never
+    // Charts: the categorical palette, hairline gridlines. Orre never
     // colours a sign, so candlestick up/down are both neutral.
     colors.chart_1 = token(color::CHART_1);
     colors.chart_2 = token(color::CHART_2);
@@ -404,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn every_stock_colour_is_a_coffer_token() {
+    fn every_stock_colour_is_a_orre_token() {
         let mut colors = sentinel_palette();
         paint(&mut colors);
 

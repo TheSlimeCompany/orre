@@ -1,23 +1,23 @@
-//! `coffer categorize` against scratch data dirs with synthetic rows.
+//! `orre categorize` against scratch data dirs with synthetic rows.
 //! Nothing here touches the real data dir.
 
 use std::path::PathBuf;
 
 use clap::Parser;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::change;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::inbox::own::RULE_SUGGESTION_THRESHOLD;
-use coffer_core::inbox::{
-    self, ApproveOptions, COFFER_SOURCE, Filter, NewSuggestion, SuggestionKind, SuggestionStatus,
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::change;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::inbox::own::RULE_SUGGESTION_THRESHOLD;
+use orre_core::inbox::{
+    self, ApproveOptions, Filter, NewSuggestion, ORRE_SOURCE, SuggestionKind, SuggestionStatus,
 };
-use coffer_core::link::{self, LinkKind, LinkTarget, NewLink};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::mcp_client::ClientName;
-use coffer_core::money::{Currency, Money};
-use coffer_core::split::{self, SplitLine};
+use orre_core::link::{self, LinkKind, LinkTarget, NewLink};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::mcp_client::ClientName;
+use orre_core::money::{Currency, Money};
+use orre_core::split::{self, SplitLine};
 use tempfile::TempDir;
 
 use super::*;
@@ -31,7 +31,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let account = account::create(
             &mut db,
@@ -50,7 +50,7 @@ impl Scratch {
     }
 
     fn run(&self, args: &[&str]) -> Result<String, String> {
-        let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
         let mut out = Vec::new();
         let result = super::run(cli.command.expect("a subcommand"), &self.path, &mut out);
@@ -93,8 +93,8 @@ impl Scratch {
         change::list(&self.db()).unwrap().len()
     }
 
-    /// Coffer's own `rule` suggestions, whatever their status.
-    fn coffer_rules(&self) -> Vec<inbox::Suggestion> {
+    /// Orre's own `rule` suggestions, whatever their status.
+    fn orre_rules(&self) -> Vec<inbox::Suggestion> {
         inbox::list(
             &self.db(),
             &Filter {
@@ -104,30 +104,30 @@ impl Scratch {
         )
         .unwrap()
         .into_iter()
-        .filter(|s| s.source_client == COFFER_SOURCE)
+        .filter(|s| s.source_client == ORRE_SOURCE)
         .collect()
     }
 }
 
 #[test]
 fn parses_categorize() {
-    let cli = Cli::try_parse_from(["coffer", "categorize", "12", "13", "food.groceries"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "categorize", "12", "13", "food.groceries"]).unwrap();
     let Some(Command::Categorize(args)) = cli.command else {
         panic!("not categorize");
     };
     assert_eq!(args.transactions, [12, 13]);
     assert_eq!(args.category, "food.groceries");
-    let cli = Cli::try_parse_from(["coffer", "categorize", "7", "food.groceries"]).unwrap();
+    let cli = Cli::try_parse_from(["orre", "categorize", "7", "food.groceries"]).unwrap();
     let Some(Command::Categorize(args)) = cli.command else {
         panic!("not categorize");
     };
     assert_eq!(args.transactions, [7]);
 
     for bad in [
-        &["coffer", "categorize"][..],
-        &["coffer", "categorize", "12"],
-        &["coffer", "categorize", "food.groceries"],
-        &["coffer", "categorize", "twelve", "food.groceries"],
+        &["orre", "categorize"][..],
+        &["orre", "categorize", "12"],
+        &["orre", "categorize", "food.groceries"],
+        &["orre", "categorize", "twelve", "food.groceries"],
     ] {
         assert!(Cli::try_parse_from(bad).is_err(), "{bad:?}");
     }
@@ -244,10 +244,10 @@ fn refuses_unknown_ids_and_keys_and_writes_nothing() {
 
     // Without a database, it creates none.
     let empty = tempfile::tempdir().unwrap();
-    let path = empty.path().join("coffer.db");
-    let cli = Cli::try_parse_from(["coffer", "categorize", "1", "food.groceries"]).unwrap();
+    let path = empty.path().join("orre.db");
+    let cli = Cli::try_parse_from(["orre", "categorize", "1", "food.groceries"]).unwrap();
     let error = super::run(cli.command.unwrap(), &path, &mut Vec::new()).unwrap_err();
-    assert!(error.to_string().contains("there is no Coffer database"));
+    assert!(error.to_string().contains("there is no Orre database"));
     assert!(!path.exists());
 }
 
@@ -349,7 +349,7 @@ fn refuses_a_transfer_leg_or_a_linked_refund_and_writes_nothing() {
 }
 
 #[test]
-fn the_third_identical_edit_files_coffers_rule_suggestion() {
+fn the_third_identical_edit_files_orres_rule_suggestion() {
     assert_eq!(RULE_SUGGESTION_THRESHOLD, 3);
     let scratch = Scratch::new();
     let rows: Vec<TransactionId> = (1..=3)
@@ -358,20 +358,20 @@ fn the_third_identical_edit_files_coffers_rule_suggestion() {
 
     for row in &rows[..2] {
         let out = scratch.ok(&["categorize", &row.to_string(), "food.eating_out"]);
-        assert!(!out.contains("Coffer suggested"), "{out}");
-        assert!(scratch.coffer_rules().is_empty());
+        assert!(!out.contains("Orre suggested"), "{out}");
+        assert!(scratch.orre_rules().is_empty());
     }
 
     let out = scratch.ok(&["categorize", &rows[2].to_string(), "food.eating_out"]);
-    let filed = scratch.coffer_rules();
+    let filed = scratch.orre_rules();
     assert_eq!(filed.len(), 1);
     let suggestion = &filed[0];
     assert_eq!(suggestion.status, SuggestionStatus::Pending);
     assert_eq!(suggestion.kind, SuggestionKind::Rule);
     assert!(
         out.ends_with(&format!(
-            "Coffer suggested a rule for this merchant (suggestion {id}): \
-             `coffer inbox show {id}` shows it.\n",
+            "Orre suggested a rule for this merchant (suggestion {id}): \
+             `orre inbox show {id}` shows it.\n",
             id = suggestion.id
         )),
         "{out}"
@@ -383,12 +383,12 @@ fn the_third_identical_edit_files_coffers_rule_suggestion() {
     assert_eq!(rule.pattern().as_str(), "Bean There");
     assert_eq!(
         rule.actions(),
-        [coffer_core::rule::RuleAction::SetCategory(
+        [orre_core::rule::RuleAction::SetCategory(
             CategoryKey::new("food.eating_out").unwrap()
         )]
     );
 
-    // It shows in the inbox, from Coffer.
+    // It shows in the inbox, from Orre.
     let list = scratch.ok(&["inbox"]);
-    assert!(list.contains("Coffer"), "{list}");
+    assert!(list.contains("Orre"), "{list}");
 }

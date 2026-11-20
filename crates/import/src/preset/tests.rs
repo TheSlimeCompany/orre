@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use coffer_core::money::{Currency, DecimalMark};
-use coffer_core::statement::{RowProblem, SubAccountKind, SubAccountRef};
+use orre_core::money::{Currency, DecimalMark};
+use orre_core::statement::{RowProblem, SubAccountKind, SubAccountRef};
 
 use super::*;
 use crate::csv::{DateFormat, Delimiter, TimeFormat};
@@ -687,7 +687,7 @@ fn bundled_presets_load_and_read_their_fixtures() {
 }
 
 /// A bundled preset maps only to default categories, which every database
-/// starts with (`coffer_core::category::DEFAULT_CATEGORIES`). Presets the
+/// starts with (`orre_core::category::DEFAULT_CATEGORIES`). Presets the
 /// user saves may name their own categories too, so loading doesn't check
 /// this; the import resolves keys against the database instead.
 #[test]
@@ -696,14 +696,14 @@ fn bundled_presets_map_to_default_categories() {
     for preset in presets.iter() {
         for (source, key) in preset.category_map() {
             assert!(
-                coffer_core::category::default_category(key.as_str()).is_some(),
+                orre_core::category::default_category(key.as_str()).is_some(),
                 "{}: {source:?} maps to {key}, which isn't a default category",
                 preset.id()
             );
         }
         if let Some(key) = preset.sub_account_category() {
             assert!(
-                coffer_core::category::default_category(key.as_str()).is_some(),
+                orre_core::category::default_category(key.as_str()).is_some(),
                 "{}: sub-account transfers get {key}, which isn't a default category",
                 preset.id()
             );

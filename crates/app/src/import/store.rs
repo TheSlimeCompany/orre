@@ -7,24 +7,24 @@
 //! checks the restore lock. The dialog calls these on a background thread:
 //! reading a file, previewing and rehearsing the import, the commit (with
 //! its backup) and undo. Business rules are core's
-//! ([`coffer_core::import`]) and the import crate's; nothing here logs a
+//! ([`orre_core::import`]) and the import crate's; nothing here logs a
 //! row's text.
 
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
-use coffer_core::account::{self, Account, AccountEdit};
-use coffer_core::backup::gate;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, BatchId};
-use coffer_core::import::{
+use orre_core::account::{self, Account, AccountEdit};
+use orre_core::backup::gate;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, BatchId};
+use orre_core::import::{
     self, BatchStatus, CommitSummary, Committed, Confirmations, ImportPreview,
 };
-use coffer_core::paths;
-use coffer_core::schedule;
-use coffer_core::statement::{SourceFormat, Statement};
-use coffer_import::SourceFile;
-use coffer_import::preset::{Preset, Presets, load_user_presets, save_user_preset};
+use orre_core::paths;
+use orre_core::schedule;
+use orre_core::statement::{SourceFormat, Statement};
+use orre_import::SourceFile;
+use orre_import::preset::{Preset, Presets, load_user_presets, save_user_preset};
 
 pub use crate::accounts::store::StoreError;
 
@@ -234,9 +234,9 @@ fn local_date(stamp: &str) -> NaiveDate {
 mod tests {
     use std::collections::BTreeMap;
 
-    use coffer_core::account::{AccountKind, NewAccount};
-    use coffer_core::money::Currency;
-    use coffer_import::preset::PresetParts;
+    use orre_core::account::{AccountKind, NewAccount};
+    use orre_core::money::Currency;
+    use orre_import::preset::PresetParts;
     use tempfile::TempDir;
 
     use super::*;
@@ -244,7 +244,7 @@ mod tests {
 
     fn store() -> (TempDir, ImportStore, AccountId) {
         let dir = tempfile::tempdir().unwrap();
-        let database = dir.path().join("coffer.db");
+        let database = dir.path().join("orre.db");
         let mut db = Database::open(&database).unwrap();
         let mut new = NewAccount::new("Current account", AccountKind::Current, Currency::GBP);
         new.preset = Some("uk-monzo".to_owned());

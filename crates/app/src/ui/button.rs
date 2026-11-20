@@ -1,4 +1,4 @@
-//! Coffer's buttons (`docs/DESIGN.md` → "Components" → **Buttons**).
+//! Orre's buttons (`docs/DESIGN.md` → "Components" → **Buttons**).
 //!
 //! [`Button`] (a text label), [`IconButton`] and [`Chip`] wrap the stock
 //! `gpui-component` button, which keeps its behaviour: pointer and
@@ -8,9 +8,9 @@
 //! - Height, padding, radius, border, fill and label colour are set on the
 //!   stock button per instance, and the content is one child styled with a
 //!   [`TextRole`]. The stock label's text size is fixed by the stock `Size`,
-//!   so it can't take Coffer's type scale, and the stock content row puts its
+//!   so it can't take Orre's type scale, and the stock content row puts its
 //!   own 0.5rem gap between children, so an icon and its label go in as one
-//!   child with Coffer's gap.
+//!   child with Orre's gap.
 //! - Hover and pressed fills go through `ButtonVariant::Custom`. The stock
 //!   hover and pressed styles also set the border to the variant's own border
 //!   colour; only `Custom` lets that colour be a token (`border-strong`,
@@ -28,7 +28,7 @@
 //!   and pressed, ignores clicks, leaves the Tab order and keeps the default
 //!   cursor.
 //! - Focus: the stock focus style is off. The button tracks a [`FocusHandle`]
-//!   and draws Coffer's ring with
+//!   and draws Orre's ring with
 //!   [`focus_visible_ring`](crate::theme::focus::FocusRingExt::focus_visible_ring),
 //!   so it shows on keyboard focus only. The stock button puts extra children
 //!   inside its content box, which clips, not its outer box, so the ring is
@@ -36,7 +36,7 @@
 //! - [`PreviewState`] draws hover, pressed or the focus ring without the
 //!   input, for the showcase's state matrix.
 //!
-//! Sizes are the tokens' pixels, not rems, like every Coffer component
+//! Sizes are the tokens' pixels, not rems, like every Orre component
 //! (`DESIGN.md` → "Rem base").
 
 use gpui_kit::component::button::{
@@ -60,8 +60,8 @@ use crate::ui::{PreviewState, faded};
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
-/// The `group` name on a Coffer button, for content that follows its hover.
-const GROUP: &str = "coffer-button";
+/// The `group` name on an Orre button, for content that follows its hover.
+const GROUP: &str = "orre-button";
 
 /// Which row of the `DESIGN.md` button table a [`Button`] is.
 ///
@@ -412,14 +412,14 @@ impl Disabled {
     }
 }
 
-/// A button with a text label: Coffer's command control.
+/// A button with a text label: Orre's command control.
 ///
 /// Stateless; the caller owns what a click does. The label is also the
 /// button's accessible name. Without [`track_focus`](Self::track_focus) the
 /// button keeps its own focus handle, keyed by its id.
 ///
 /// ```
-/// use coffer_app::ui::button::{Button, ButtonVariant};
+/// use orre_app::ui::button::{Button, ButtonVariant};
 ///
 /// let share = Button::new("share", "Share")
 ///     .with_variant(ButtonVariant::Primary)
@@ -854,7 +854,7 @@ impl RenderOnce for Chip {
     }
 }
 
-/// What every Coffer button has, whatever it shows.
+/// What every Orre button has, whatever it shows.
 struct Control {
     id: ElementId,
     disabled: bool,
@@ -1534,7 +1534,7 @@ mod tests {
         }
     }
 
-    /// Opens a real window on the Coffer theme, with `Root` (which binds Tab)
+    /// Opens a real window on the Orre theme, with `Root` (which binds Tab)
     /// and the view's region focused, so Tab moves to the first button.
     fn open(
         cx: &mut TestAppContext,

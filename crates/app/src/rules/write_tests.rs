@@ -7,11 +7,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use coffer_core::change as core_change;
-use coffer_core::id::{RuleId, TransactionId};
-use coffer_core::reporting::register::Register;
-use coffer_core::rule::{self as core_rule, MatchKind};
 use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use orre_core::change as core_change;
+use orre_core::id::{RuleId, TransactionId};
+use orre_core::reporting::register::Register;
+use orre_core::rule::{self as core_rule, MatchKind};
 
 use super::describe::{BarDescription, CanvasDescription};
 use super::tests::{Scratch, describe, item, open, redraw};
@@ -226,7 +226,7 @@ fn an_apply_tells_the_shell_but_moving_and_editing_a_rule_do_not(cx: &mut TestAp
             rules.edit(true, |form| form.text = "PRET".into(), cx);
         })
     });
-    let stored = coffer_core::rule::get(&scratch.db(), pret).unwrap();
+    let stored = orre_core::rule::get(&scratch.db(), pret).unwrap();
     assert_eq!(stored.definition().pattern().as_str(), "PRET");
     assert!(events.borrow().is_empty(), "{:?}", events.borrow());
 
@@ -284,7 +284,7 @@ fn moving_a_rule_keeps_what_was_typed_for_the_selected_one(cx: &mut TestAppConte
         })
     });
 
-    let stored = coffer_core::rule::get(&scratch.db(), pret).unwrap();
+    let stored = orre_core::rule::get(&scratch.db(), pret).unwrap();
     assert_eq!(stored.definition().pattern().as_str(), "PRET");
     assert_eq!(
         cx.update(|_, cx| rules.read(cx).data().position(uber)),
@@ -318,7 +318,7 @@ fn a_read_that_lands_keeps_what_was_typed_since_it_was_asked_for(cx: &mut TestAp
 
     let text = cx.update(|_, cx| rules.read(cx).form().map(|form| form.text.clone()));
     assert_eq!(text.as_deref(), Some("PRET"), "the read didn't refill it");
-    let stored = coffer_core::rule::get(&scratch.db(), pret).unwrap();
+    let stored = orre_core::rule::get(&scratch.db(), pret).unwrap();
     assert_eq!(
         (
             stored.definition().pattern().kind(),

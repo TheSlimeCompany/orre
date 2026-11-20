@@ -5,7 +5,7 @@
 //! Everything here only reads. The arguments are already redacted by the
 //! server (free text is stored as its type and length); [`arguments`] lays
 //! them out and cleans the keys, which are client-controlled text, as
-//! `coffer ai-access log` does. Nothing here returns the result hash.
+//! `orre ai-access log` does. Nothing here returns the result hash.
 
 use std::collections::BTreeMap;
 
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn pages_filter_by_client_and_time() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         for n in 0..5 {
             append(
                 &mut db,
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn activity_counts_reads_writes_and_refusals() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         append(
             &mut db,
             &call("claude-code", "search_transactions", Outcome::Ok, 37),
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn written_counts_suggestions_and_reports() {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         db.conn()
             .execute_batch(
                 "INSERT INTO suggestion (kind, payload_json, source_client) \

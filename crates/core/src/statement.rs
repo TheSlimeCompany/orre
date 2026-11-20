@@ -1,6 +1,6 @@
 //! A bank file's contents, normalized: what an importer hands to core.
 //!
-//! Importers (`coffer-import`) read a file in its own format and produce a
+//! Importers (`orre-import`) read a file in its own format and produce a
 //! [`Statement`]: the file's rows in order, each either a normalized
 //! [`StatementLine`] or a [`RowProblem`] saying why it couldn't be read, plus
 //! any balances the file states. Deduplication, reconciliation and the commit
@@ -175,9 +175,9 @@ pub enum RowProblem {
     #[error("the external ID is the same as {first}'s")]
     DuplicateExternalId { first: SourceLocation },
 
-    /// The row is something Coffer doesn't import as a transaction, such
+    /// The row is something Orre doesn't import as a transaction, such
     /// as an OFX correction to an earlier transaction.
-    #[error("Coffer can't import this row: {reason}")]
+    #[error("Orre can't import this row: {reason}")]
     Unsupported { reason: &'static str },
 
     /// The preset recognises the row as a transfer to or from a sub-account
@@ -698,7 +698,7 @@ mod tests {
                 reason: "it corrects an earlier transaction"
             }
             .to_string(),
-            "Coffer can't import this row: it corrects an earlier transaction"
+            "Orre can't import this row: it corrects an earlier transaction"
         );
         assert_eq!(SourceLocation::Line(14).to_string(), "line 14");
         assert_eq!(SourceLocation::Entry(3).to_string(), "entry 3");

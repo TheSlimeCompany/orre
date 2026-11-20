@@ -8,7 +8,7 @@
 //! end. The inspector shows the selected call: rows, client and level,
 //! kind, the redacted arguments, and the purpose.
 //!
-//! What it shows is what `coffer ai-access log` shows, and no more
+//! What it shows is what `orre ai-access log` shows, and no more
 //! (decided with the user): never the result hash; the purpose and
 //! argument keys cleaned of invisible characters, the row's purpose cut as
 //! the CLI cuts it, the inspector's whole. A refused call is neutral
@@ -21,14 +21,14 @@
 //! outline compact buttons; an empty period says so; the inspector of a
 //! refused call has "—" as its figure.
 
-use coffer_core::access_log::activity::{ArgumentValue, arguments};
-use coffer_core::access_log::{LoggedCall, Outcome};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
+use orre_core::access_log::activity::{ArgumentValue, arguments};
+use orre_core::access_log::{LoggedCall, Outcome};
 
 use crate::cli::ai_access::{PURPOSE_CHARS, one_line};
 use crate::theme::tokens::typography::TextRole;
@@ -535,11 +535,11 @@ impl SettingsView {
             .border_t(size::HAIRLINE)
             .border_color(color::HAIRLINE)
             .child(caption(if self.log_more {
-                "Coffer's server writes one line per call, including refused ones; a client \
+                "Orre's server writes one line per call, including refused ones; a client \
                  can't edit or skip it. Purposes are the client's own words, shown as text and \
                  never acted on. Earlier days load as you scroll."
             } else {
-                "Coffer's server writes one line per call, including refused ones; a client \
+                "Orre's server writes one line per call, including refused ones; a client \
                  can't edit or skip it. Purposes are the client's own words, shown as text and \
                  never acted on."
             }));
@@ -669,7 +669,7 @@ impl SettingsView {
                     .into_any_element(),
             })
             .child(caption(
-                "Written by the client and stored as plain text. Coffer never acts on it, so \
+                "Written by the client and stored as plain text. Orre never acts on it, so \
                  treat it as the client's claim, not a fact.",
             ));
 

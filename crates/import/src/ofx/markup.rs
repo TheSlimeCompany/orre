@@ -18,11 +18,11 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use coffer_core::statement::{SourceFormat, SourceLocation};
+use orre_core::statement::{SourceFormat, SourceLocation};
 
 use crate::ImportError;
 
-/// Aggregates in the parts of OFX that Coffer reads, and their usual
+/// Aggregates in the parts of OFX that Orre reads, and their usual
 /// neighbours. Any of these opens an aggregate even when the file never
 /// closes it, which then fails the file instead of swallowing siblings.
 const AGGREGATES: &[&str] = &[

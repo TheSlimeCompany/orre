@@ -226,7 +226,7 @@ pub fn save_copy(db_path: &Path, from: &Path, to: &Path) -> Result<(), Error> {
             return Err(Error::Io {
                 action: "save a copy over",
                 path: to.to_path_buf(),
-                source: std::io::Error::other("it is Coffer's database"),
+                source: std::io::Error::other("it is Orre's database"),
             });
         }
     }
@@ -237,7 +237,7 @@ pub fn save_copy(db_path: &Path, from: &Path, to: &Path) -> Result<(), Error> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let partial = to.with_file_name(format!(".{name}.coffer-copy.tmp"));
+    let partial = to.with_file_name(format!(".{name}.orre-copy.tmp"));
     let _ = std::fs::remove_file(&partial);
     super::create_private_file(&partial)?;
     let copied = super::copy_into(from, &partial)
@@ -256,8 +256,8 @@ pub fn save_copy(db_path: &Path, from: &Path, to: &Path) -> Result<(), Error> {
 }
 
 /// What the restore checks found, check by check: the file is intact
-/// (SQLite's integrity check), then this version of Coffer can read it
-/// (Coffer's migration history, a schema no newer than this build's).
+/// (SQLite's integrity check), then this version of Orre can read it
+/// (Orre's migration history, a schema no newer than this build's).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Assessment {
     /// Both passed: it can be restored.
@@ -265,9 +265,9 @@ pub enum Assessment {
     /// The file isn't a SQLite database, or fails the integrity check. The
     /// second check didn't run.
     Damaged { problem: String },
-    /// Intact, but not a Coffer database.
-    NotCoffer,
-    /// Intact, but from a newer Coffer.
+    /// Intact, but not an Orre database.
+    NotOrre,
+    /// Intact, but from a newer Orre.
     TooNew {
         found: SchemaVersion,
         supported: SchemaVersion,
@@ -297,7 +297,7 @@ pub fn assess(db_path: &Path, backup: &Path) -> Result<Assessment, Error> {
                 if count == 1 { "problem" } else { "problems" }
             ),
         }),
-        Err(Error::NotCoffer { .. }) => Ok(Assessment::NotCoffer),
+        Err(Error::NotOrre { .. }) => Ok(Assessment::NotOrre),
         Err(Error::Incompatible {
             source: db::Error::SchemaTooNew { found, supported },
             ..
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn reads_what_a_backup_holds_without_writing_beside_it() {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         db.conn()
             .execute(
                 "INSERT INTO account (name, kind, currency) VALUES ('Monzo', 'current', 'GBP')",
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn names_the_import_and_the_update() {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         db.conn()
             .execute_batch(
                 "INSERT INTO account (id, name, kind, currency) VALUES (1, 'Monzo', 'current', 'GBP'); \
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn counts_what_restoring_would_undo() {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         db.conn()
             .execute_batch(
                 "INSERT INTO account (id, name, kind, currency) VALUES (1, 'Monzo', 'current', 'GBP'); \
@@ -459,7 +459,7 @@ mod tests {
     #[test]
     fn saves_a_private_copy_but_never_over_the_database() {
         let dir = TempDir::new().unwrap();
-        let db_path = dir.path().join("coffer.db");
+        let db_path = dir.path().join("orre.db");
         let db = Database::open(&db_path).unwrap();
         let taken = backup::create(&db, Reason::Manual).unwrap();
         let copy = dir.path().join("elsewhere.db");
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn sorts_check_failures_into_the_checks() {
         let dir = TempDir::new().unwrap();
-        let db_path = dir.path().join("coffer.db");
+        let db_path = dir.path().join("orre.db");
         let db = Database::open(&db_path).unwrap();
         let good = backup::create(&db, Reason::Manual).unwrap();
         drop(db);
@@ -501,7 +501,7 @@ mod tests {
             .unwrap()
             .execute_batch("CREATE TABLE t (x INTEGER)")
             .unwrap();
-        assert_eq!(assess(&db_path, &empty).unwrap(), Assessment::NotCoffer);
+        assert_eq!(assess(&db_path, &empty).unwrap(), Assessment::NotOrre);
 
         assert!(assess(&db_path, &dir.path().join("missing.db")).is_err());
     }

@@ -11,7 +11,7 @@
 --   clears the claim;
 -- - a `settlement` to a share label (a person): it reduces what they owe.
 --
--- Links are `suggested` (Coffer's deterministic guesses, `coffer_core::link`),
+-- Links are `suggested` (Orre's deterministic guesses, `orre_core::link`),
 -- `confirmed` (the user's) or `rejected` (a pair that is never suggested
 -- again; unlinking rejects too). Only confirmed links count, in
 -- `ledger_line` and in every cap below.

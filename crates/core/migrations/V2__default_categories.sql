@@ -5,8 +5,8 @@
 --
 -- Seeded here, not from Rust at every open, so it happens exactly once and in
 -- the same transaction as the rest of the schema: a default the user later
--- deletes never comes back, and `Database::open_existing` (`coffer mcp`)
--- never writes. A later Coffer that adds defaults does so in a new
+-- deletes never comes back, and `Database::open_existing` (`orre mcp`)
+-- never writes. A later Orre that adds defaults does so in a new
 -- migration, inserting each key only where it is free, so a category the
 -- user already made with that key is kept as it is.
 --
@@ -15,7 +15,7 @@
 
 -- What a category's amounts count as. `spending` and `income` are the two
 -- sides of every report; `transfer` is money moving between the user's own
--- accounts (or to one Coffer doesn't see), which counts as neither.
+-- accounts (or to one Orre doesn't see), which counts as neither.
 ALTER TABLE category ADD COLUMN kind TEXT NOT NULL DEFAULT 'spending'
     CHECK (kind IN ('spending', 'income', 'transfer'));
 

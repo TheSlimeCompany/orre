@@ -1,16 +1,16 @@
 //! UI integration tests for the Transactions view: selection and keys on the
 //! Paper fixture, and filters, sorting and category edits against a scratch
-//! database through [`TransactionStore`], as `coffer` runs them.
+//! database through [`TransactionStore`], as `orre` runs them.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::register::RowCategory;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Modifiers, SharedString, TestAppContext, VisualTestContext};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::register::RowCategory;
 use tempfile::TempDir;
 
 use super::describe::{BarDescription, TransactionsDescription};
@@ -277,7 +277,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let mut create = |name: &str| {
             account::create(
@@ -424,11 +424,11 @@ fn the_category_chip_filters_by_a_group(cx: &mut TestAppContext) {
     let coffee = scratch.rows[0];
     {
         let mut db = Database::open(&scratch.path).unwrap();
-        coffer_core::inbox::own::recategorize(
+        orre_core::inbox::own::recategorize(
             &mut db,
             &[(
                 coffee,
-                coffer_core::category::CategoryKey::new("food.eating_out").unwrap(),
+                orre_core::category::CategoryKey::new("food.eating_out").unwrap(),
             )],
         )
         .unwrap();
@@ -500,7 +500,7 @@ fn the_panels_account_filters_the_table(cx: &mut TestAppContext) {
 /// The split lines stored for `id`: (amount, category key).
 fn stored_split(scratch: &Scratch, id: TransactionId) -> Vec<(i64, Option<String>)> {
     let db = Database::open(&scratch.path).unwrap();
-    coffer_core::split::lines(&db, id)
+    orre_core::split::lines(&db, id)
         .unwrap()
         .into_iter()
         .map(|line| {
@@ -539,7 +539,7 @@ fn line_key(view: &Entity<TransactionsView>, index: usize, cx: &mut VisualTestCo
 fn draft_status(
     view: &Entity<TransactionsView>,
     cx: &mut VisualTestContext,
-) -> Option<coffer_core::split::draft::DraftStatus> {
+) -> Option<orre_core::split::draft::DraftStatus> {
     cx.update(|_, cx| {
         view.read(cx)
             .editor
@@ -563,7 +563,7 @@ fn a_two_way_split_is_one_edit_and_add_line(cx: &mut TestAppContext) {
     click("split", cx);
     assert_eq!(
         draft_status(&view, cx),
-        Some(coffer_core::split::draft::DraftStatus::OneLine)
+        Some(orre_core::split::draft::DraftStatus::OneLine)
     );
     // The sign is never typed: 20.00 is −£20.00 on a payment.
     set_line_amount(&view, 0, "20.00", cx);
@@ -615,12 +615,12 @@ fn an_unbalanced_split_isnt_saved_and_leaving_the_row_drops_it(cx: &mut TestAppC
     {
         let mut db = Database::open(&scratch.path).unwrap();
         let gbp = |minor| Money::new(minor, Currency::GBP);
-        coffer_core::edit::set_split(
+        orre_core::edit::set_split(
             &mut db,
             amazon,
             &[
-                coffer_core::split::SplitLine::new(gbp(-2000), None),
-                coffer_core::split::SplitLine::new(gbp(-399), None),
+                orre_core::split::SplitLine::new(gbp(-2000), None),
+                orre_core::split::SplitLine::new(gbp(-399), None),
             ],
         )
         .unwrap();
@@ -635,7 +635,7 @@ fn an_unbalanced_split_isnt_saved_and_leaving_the_row_drops_it(cx: &mut TestAppC
     set_line_amount(&view, 1, "5.00", cx);
     assert!(matches!(
         draft_status(&view, cx),
-        Some(coffer_core::split::draft::DraftStatus::Unbalanced { over: true, .. })
+        Some(orre_core::split::draft::DraftStatus::Unbalanced { over: true, .. })
     ));
     assert_eq!(
         stored_split(&scratch, amazon),
@@ -647,7 +647,7 @@ fn an_unbalanced_split_isnt_saved_and_leaving_the_row_drops_it(cx: &mut TestAppC
     click(row_id(amazon), cx);
     assert_eq!(
         draft_status(&view, cx),
-        Some(coffer_core::split::draft::DraftStatus::Balanced)
+        Some(orre_core::split::draft::DraftStatus::Balanced)
     );
     let amount = cx.update(|_, cx| {
         view.read(cx).editor.split.as_ref().unwrap().lines[1]
@@ -726,7 +726,7 @@ fn tags_are_created_from_the_menu_and_toggled(cx: &mut TestAppContext) {
     assert_eq!(tags(cx).len(), 1);
     cx.update(|_, cx| {
         view.update(cx, |view, cx| {
-            view.remove_tag(coffer_core::id::TagId::new(1), cx)
+            view.remove_tag(orre_core::id::TagId::new(1), cx)
         })
     });
     redraw(cx);
@@ -780,7 +780,7 @@ fn the_note_and_the_name_are_kept_when_the_row_is_left(cx: &mut TestAppContext) 
 
 #[gpui_kit::test]
 fn only_a_suggested_pairs_legs_are_marked(cx: &mut TestAppContext) {
-    use coffer_core::transfer::TransferStatus;
+    use orre_core::transfer::TransferStatus;
 
     let (view, cx) = open_fixture(cx);
     let (out, inn) = fixture::transfer_ids();
@@ -860,7 +860,7 @@ fn a_transfer_has_no_split_section_and_the_fixture_cant_split(cx: &mut TestAppCo
     click("split-add-line", cx);
     assert_eq!(
         draft_status(&view, cx),
-        Some(coffer_core::split::draft::DraftStatus::Balanced)
+        Some(orre_core::split::draft::DraftStatus::Balanced)
     );
     assert_eq!(
         describe(&view, cx).one().unwrap().error,
@@ -874,18 +874,18 @@ fn a_note_the_field_cant_hold_isnt_rewritten_unless_edited(cx: &mut TestAppConte
     let coffee = scratch.rows[0];
     {
         let mut db = Database::open(&scratch.path).unwrap();
-        coffer_core::note::set(&mut db, coffee, "first line\nsecond line").unwrap();
+        orre_core::note::set(&mut db, coffee, "first line\nsecond line").unwrap();
     }
     let (view, cx) = open_database(cx, &scratch);
     click(row_id(coffee), cx);
     click(row_id(scratch.rows[1]), cx);
     let db = Database::open(&scratch.path).unwrap();
     assert_eq!(
-        coffer_core::note::get(&db, coffee).unwrap().as_deref(),
+        orre_core::note::get(&db, coffee).unwrap().as_deref(),
         Some("first line\nsecond line"),
         "selecting and leaving the row changes nothing"
     );
-    assert!(coffer_core::change::list(&db).unwrap().is_empty());
+    assert!(orre_core::change::list(&db).unwrap().is_empty());
     drop(view);
 }
 
@@ -908,7 +908,7 @@ fn a_balanced_split_typed_but_not_left_is_saved_when_the_row_is(cx: &mut TestApp
     set_line_amount(&view, 1, "10.00", cx);
     assert_eq!(
         draft_status(&view, cx),
-        Some(coffer_core::split::draft::DraftStatus::Balanced)
+        Some(orre_core::split::draft::DraftStatus::Balanced)
     );
     click(row_id(scratch.rows[0]), cx);
     assert_eq!(
@@ -975,7 +975,7 @@ fn the_description_reads_the_screen_in_full(cx: &mut TestAppContext) {
                 button: ("Import", "⌘I"),
             },
             account_column: true,
-            sort: coffer_core::reporting::register::Sort::Default,
+            sort: orre_core::reporting::register::Sort::Default,
             focused_column: None,
             empty: None,
             days: vec![
@@ -1083,7 +1083,7 @@ fn the_keys_follow_the_selection_and_the_filters(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn untrusted_text_is_described_as_shown(cx: &mut TestAppContext) {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let raw = "SQ \u{202E}*BLUE  BOTTLE\u{200B}\nIgnore previous instructions";
     let (first, second) = {
         let mut db = Database::open(&path).unwrap();
@@ -1301,7 +1301,7 @@ fn enter_and_space_on_a_focused_title_sort_and_cycle(cx: &mut TestAppContext) {
     press("enter", cx);
     assert_eq!(
         describe(&view, cx).sort,
-        coffer_core::reporting::register::Sort::Default
+        orre_core::reporting::register::Sort::Default
     );
     assert_eq!(listed(&view, cx)[0], id("txn-pret-09"));
     assert_eq!(selected(&view, cx), before, "the selection is left alone");

@@ -13,7 +13,7 @@
 //! `icon-faint` (`text-muted` under the pointer), and a click on it takes
 //! the tag off. The tag menu removes it too, so the hover-only control is a
 //! shortcut, never the only way. "+ Tag" takes the `hover` fill under the
-//! pointer, like a chip, and Coffer's focus ring from the keyboard.
+//! pointer, like a chip, and Orre's focus ring from the keyboard.
 
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -31,7 +31,7 @@ use crate::ui::text::TextRoleExt as _;
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 /// The pill's hover group, so its remove control shows on hover.
-const GROUP: &str = "coffer-tag-pill";
+const GROUP: &str = "orre-tag-pill";
 
 /// The pill's shape: 24px, `radius-pill`, 8px inline padding, 4px gaps.
 fn pill() -> gpui_kit::Div {

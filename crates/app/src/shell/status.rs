@@ -8,8 +8,8 @@
 //! The sample data keeps Paper's artboard (`1CU-0`).
 
 use chrono::{DateTime, Utc};
-use coffer_core::clock;
-use coffer_core::import::{BatchInfo, BatchStatus};
+use orre_core::clock;
+use orre_core::import::{BatchInfo, BatchStatus};
 
 use crate::accounts::data::AccountsData;
 use crate::format;
@@ -36,8 +36,8 @@ pub struct Status {
 pub enum Ai {
     /// The kill switch is off: "AI access off".
     Off,
-    /// "N agents connected": the clients enabled now. Coffer can't see a
-    /// live connection (each client starts `coffer mcp` itself), so
+    /// "N agents connected": the clients enabled now. Orre can't see a
+    /// live connection (each client starts `orre mcp` itself), so
     /// enabled is what it counts.
     Connected(usize),
     /// On, with no client enabled: nothing to show.

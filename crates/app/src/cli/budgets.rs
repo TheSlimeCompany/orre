@@ -1,4 +1,4 @@
-//! `coffer budgets`: list, set and remove budgets ([`coffer_core::budget`]).
+//! `orre budgets`: list, set and remove budgets ([`orre_core::budget`]).
 //!
 //! A budget is standing (every month) unless `--month` names the one month
 //! it is for, where it overrides the standing one. The group defaults to
@@ -13,12 +13,12 @@ use std::path::Path;
 use anyhow::{Context, bail};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args, Subcommand};
-use coffer_core::account;
-use coffer_core::budget::{self, BudgetGroup, NewBudget, Saved};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::money::{Currency, DecimalMark, Money};
-use coffer_core::reporting::Period;
+use orre_core::account;
+use orre_core::budget::{self, BudgetGroup, NewBudget, Saved};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::money::{Currency, DecimalMark, Money};
+use orre_core::reporting::Period;
 
 use super::write_table;
 
@@ -84,7 +84,7 @@ fn parse_category(key: &str) -> Result<CategoryKey, String> {
 fn parse_month(text: &str) -> Result<Period, String> {
     text.trim()
         .parse()
-        .map_err(|error: coffer_core::reporting::Error| error.to_string())
+        .map_err(|error: orre_core::reporting::Error| error.to_string())
 }
 
 fn group_parser() -> impl TypedValueParser<Value = BudgetGroup> {
@@ -98,7 +98,7 @@ fn parse_currency(code: &str) -> Result<Currency, String> {
         .map_err(|_| format!("{code:?} isn't an ISO 4217 currency code (e.g. GBP, EUR, USD)"))
 }
 
-/// `coffer budgets …` on the existing database at `database`.
+/// `orre budgets …` on the existing database at `database`.
 pub fn run(database: &Path, args: BudgetsArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let mut db = super::open_existing(database)?;
     match args.command {
@@ -108,13 +108,13 @@ pub fn run(database: &Path, args: BudgetsArgs, out: &mut dyn Write) -> anyhow::R
     }
 }
 
-/// `coffer budgets`, `coffer budgets list`.
+/// `orre budgets`, `orre budgets list`.
 pub fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     let budgets = budget::list(db)?;
     if budgets.is_empty() {
         writeln!(
             out,
-            "No budgets yet. Set one with `coffer budgets set <category> <amount>`."
+            "No budgets yet. Set one with `orre budgets set <category> <amount>`."
         )?;
         return Ok(());
     }
@@ -141,7 +141,7 @@ pub fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `coffer budgets set`.
+/// `orre budgets set`.
 pub fn set(db: &mut Database, args: &SetBudgetArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let currency = match args.currency {
         Some(currency) => currency,
@@ -180,7 +180,7 @@ pub fn set(db: &mut Database, args: &SetBudgetArgs, out: &mut dyn Write) -> anyh
     Ok(())
 }
 
-/// `coffer budgets remove`.
+/// `orre budgets remove`.
 pub fn remove(
     db: &mut Database,
     args: &RemoveBudgetArgs,
@@ -188,7 +188,7 @@ pub fn remove(
 ) -> anyhow::Result<()> {
     if !budget::remove(db, &args.category, args.month)? {
         bail!(
-            "{} has no {} budget; `coffer budgets list` shows the budgets",
+            "{} has no {} budget; `orre budgets list` shows the budgets",
             args.category,
             month_label(args.month)
         );

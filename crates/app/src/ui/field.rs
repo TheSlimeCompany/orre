@@ -303,7 +303,7 @@ impl RenderOnce for SelectField {
     }
 }
 
-/// The stock text input styled as a Coffer field: `field` fill, radius 6,
+/// The stock text input styled as an Orre field: `field` fill, radius 6,
 /// 28px, 8px inline padding, body type; placeholder in `text-muted`.
 ///
 /// Chain more styles on the result: a `hairline` border and a leading icon

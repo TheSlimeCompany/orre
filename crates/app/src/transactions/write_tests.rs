@@ -7,11 +7,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
 use gpui_kit::{TestAppContext, VisualTestContext};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
 use tempfile::TempDir;
 
 use crate::accounts::store::StoreError;
@@ -53,7 +53,7 @@ fn database_view<'a>(
     dir: &TempDir,
 ) -> (Entity<TransactionsView>, &'a mut VisualTestContext) {
     setup(cx);
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let payment = {
         let mut db = Database::open(&path).unwrap();
         let current = account::create(
@@ -292,11 +292,11 @@ fn a_query_says_the_store_error_as_a_sentence(cx: &mut TestAppContext) {
 fn a_restore_refuses_writes_and_queries_before_core_is_called(cx: &mut TestAppContext) {
     let dir = TempDir::new().unwrap();
     let (view, cx) = database_view(cx, &dir);
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let called = Rc::new(RefCell::new(false));
 
     // A restore holds an exclusive lock on `<database>-restoring`.
-    let lock = std::fs::File::create(coffer_core::backup::restore_lock_path(&path)).unwrap();
+    let lock = std::fs::File::create(orre_core::backup::restore_lock_path(&path)).unwrap();
     lock.lock().unwrap();
     let restoring = "A backup is being restored; try again when it's done.";
     let flag = called.clone();

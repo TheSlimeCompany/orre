@@ -23,7 +23,7 @@
 //! here: [`purpose`] logs it separately.
 //!
 //! A digits-only string isn't kept: a sort code or an account number is
-//! one, and Coffer's IDs are integers. A category key is kept only when the
+//! one, and Orre's IDs are integers. A category key is kept only when the
 //! schema lists it in an `enum`.
 //!
 //! Where the schema says nothing (no schema, an unknown `$ref`, a map), the
@@ -45,7 +45,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use coffer_core::envelope::strip_invisible;
+use orre_core::envelope::strip_invisible;
 use rmcp::model::JsonObject;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};

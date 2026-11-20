@@ -1,32 +1,32 @@
-//! The `coffer` command line (M1.18): argument parsing and the headless
+//! The `orre` command line (M1.18): argument parsing and the headless
 //! commands.
 //!
-//! `coffer` with no subcommand opens the GUI (`src/main.rs`); every
+//! `orre` with no subcommand opens the GUI (`src/main.rs`); every
 //! subcommand here runs without a window, so none of this touches GPUI.
 //! Each command takes the database (or its path) and a writer for its
 //! output, so the tests run them against a scratch directory and read what
 //! they print.
 //!
-//! - `coffer import <file>`: detect the file's importer, preview the import
+//! - `orre import <file>`: detect the file's importer, preview the import
 //!   into an account, and commit it ([`import`]).
-//! - `coffer accounts [list]`, `coffer accounts add`: the accounts an import
+//! - `orre accounts [list]`, `orre accounts add`: the accounts an import
 //!   goes into; `accounts close` and `reopen` (M3.17) ([`accounts`]).
-//! - `coffer undo-import <batch>`: remove an import again ([`undo`]).
-//! - `coffer backup [--list]`, `coffer restore <file>`: local backups
+//! - `orre undo-import <batch>`: remove an import again ([`undo`]).
+//! - `orre backup [--list]`, `orre restore <file>`: local backups
 //!   ([`backup`]).
-//! - `coffer export --format csv|json`: the ledger as a file ([`export`]).
-//! - `coffer ai-access list|enable|level|revoke|ignore|off|on|log`: which AI
+//! - `orre export --format csv|json`: the ledger as a file ([`export`]).
+//! - `orre ai-access list|enable|level|revoke|ignore|off|on|log`: which AI
 //!   clients may use the MCP server, at which level ([`ai_access`]).
-//! - `coffer budgets [list|set|remove]`: monthly budgets per category
+//! - `orre budgets [list|set|remove]`: monthly budgets per category
 //!   ([`budgets`]).
-//! - `coffer mcp --client <name>`: the MCP server over stdio ([`mcp`]). It
+//! - `orre mcp --client <name>`: the MCP server over stdio ([`mcp`]). It
 //!   ignores the output writer: stdout carries MCP messages only.
-//! - `coffer schedules detect|list|show|confirm|…`: recurring payments and
+//! - `orre schedules detect|list|show|confirm|…`: recurring payments and
 //!   schedules ([`schedules`]).
-//! - `coffer inbox [list|show|approve|reject|reports|report|delete-report]`:
+//! - `orre inbox [list|show|approve|reject|reports|report|delete-report]`:
 //!   review AI clients' suggestions and decide them, and read and delete
 //!   their saved reports ([`inbox`]).
-//! - `coffer categorize <ID>... <CATEGORY>`: set transactions' category as
+//! - `orre categorize <ID>... <CATEGORY>`: set transactions' category as
 //!   the user, as one change batch ([`categorize`]).
 //!
 //! Commands that act as the user refuse to run without an interactive
@@ -73,8 +73,8 @@ use std::path::Path;
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
-use coffer_core::db::Database;
-use coffer_import::preset::Presets;
+use orre_core::db::Database;
+use orre_import::preset::Presets;
 
 pub use accounts::{
     AccountsArgs, AccountsCommand, AddAccountArgs, CloseAccountArgs, ReopenAccountArgs,
@@ -93,11 +93,11 @@ pub use schedules::{SchedulesArgs, SchedulesCommand};
 pub use terminal::Terminal;
 pub use undo::UndoImportArgs;
 
-/// Coffer: a local-first personal finance dashboard.
+/// Orre: a local-first personal finance dashboard.
 ///
 /// With no command, opens the app.
 #[derive(Debug, Parser)]
-#[command(name = "coffer", version, args_conflicts_with_subcommands = true)]
+#[command(name = "orre", version, args_conflicts_with_subcommands = true)]
 pub struct Cli {
     /// Open the component showcase (a development tool) instead of the app.
     #[arg(long)]
@@ -141,7 +141,7 @@ pub enum Command {
     /// Lists the pending ones when given no command.
     Inbox(InboxArgs),
     /// Set the category of transactions, as your own choice, recorded as
-    /// one change batch: `coffer categorize 12 13 food.groceries`.
+    /// one change batch: `orre categorize 12 13 food.groceries`.
     Categorize(CategorizeArgs),
 }
 
@@ -150,9 +150,9 @@ pub enum Command {
 /// with a warning in the log; its name and path are the user's, not
 /// transaction data.
 fn presets(database: &Path) -> anyhow::Result<Presets> {
-    let dir = coffer_core::paths::presets_dir(database);
+    let dir = orre_core::paths::presets_dir(database);
     let (presets, errors) =
-        coffer_import::preset::load_user_presets(&dir).context("the bundled presets don't load")?;
+        orre_import::preset::load_user_presets(&dir).context("the bundled presets don't load")?;
     for error in errors {
         tracing::warn!(%error, "a saved preset can't be used");
     }
@@ -166,7 +166,7 @@ pub fn run(command: Command, database: &Path, out: &mut dyn Write) -> anyhow::Re
 }
 
 /// Runs `command` against the database at `database` (the data dir's
-/// `coffer.db` in the binary), writing its output to `out`.
+/// `orre.db` in the binary), writing its output to `out`.
 ///
 /// A command that acts as the user is refused unless `terminal` is
 /// interactive ([`terminal::require_terminal_for`]); the binary passes
@@ -259,8 +259,8 @@ fn open_or_create(path: &Path) -> anyhow::Result<Database> {
 fn open_existing(path: &Path) -> anyhow::Result<Database> {
     if !path.try_exists().unwrap_or(true) {
         bail!(
-            "there is no Coffer database at {} yet; add an account with \
-             `coffer accounts add` to create it (or set COFFER_DATA_DIR to use another data directory)",
+            "there is no Orre database at {} yet; add an account with \
+             `orre accounts add` to create it (or set ORRE_DATA_DIR to use another data directory)",
             path.display()
         );
     }

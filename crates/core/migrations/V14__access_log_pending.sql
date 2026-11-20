@@ -2,7 +2,7 @@
 -- (`docs/ARCHITECTURE.md` → "Decision record: M2: MCP server (2026-11-13)",
 -- F.8). The server can't write the access log then, so it records each
 -- refused call in a pending file next to the database
--- (`coffer_core::access_log::pending`) and moves them into the log, with
+-- (`orre_core::access_log::pending`) and moves them into the log, with
 -- their own times, once the database opens again. This migration lets the
 -- log hold them:
 --

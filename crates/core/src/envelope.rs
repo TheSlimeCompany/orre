@@ -3,7 +3,7 @@
 //! text (2026-11-10)").
 //!
 //! Bank text (descriptions, imported merchant names) can carry
-//! prompt-injection text. Before any of it leaves Coffer as
+//! prompt-injection text. Before any of it leaves Orre as
 //! `description_untrusted`, it goes through [`sanitize`]: a pure,
 //! deterministic function, so the app's "Withheld from AI" filter can re-run
 //! the same check over raw descriptions ([`reads_like_instructions`]) and
@@ -94,7 +94,7 @@ impl Sanitized {
     }
 }
 
-/// The marker that replaces withheld text. It reads as Coffer's words, not
+/// The marker that replaces withheld text. It reads as Orre's words, not
 /// the bank's, so a client can't mistake it for a description.
 pub fn withheld_marker(chars: usize) -> String {
     format!("[withheld: {chars} characters that read like instructions]")
@@ -115,7 +115,7 @@ pub fn strip_invisible(text: &str) -> String {
     text.chars().filter(|&c| !is_invisible(c)).collect()
 }
 
-/// Untrusted text made fit to show on one line in Coffer's own UI or the
+/// Untrusted text made fit to show on one line in Orre's own UI or the
 /// CLI: what [`shown`] returns.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shown {
@@ -134,7 +134,7 @@ pub struct Shown {
 /// `max` characters. Whitespace is tested first, as [`sanitize`] does, so
 /// a line separator between two words is a space. Unlike [`sanitize`]
 /// (for text going to an AI client) nothing is withheld or rewritten: the
-/// user reads what the client wrote. Coffer's UI and the CLI show the
+/// user reads what the client wrote. Orre's UI and the CLI show the
 /// result as plain text, never as markup or a link.
 pub fn shown(raw: &str, max: usize) -> Shown {
     let mut text = String::new();
@@ -265,10 +265,10 @@ pub const INJECTION_PATTERNS: &[InjectionPattern] = &[
         name: "conceal_from_user",
         regex: r"(?-u:\b)(?:do\s+not|don['’]?t|never|without)\s+(?:tell|telling|inform|informing|show|showing|mention|mentioning|reveal|revealing|alert|alerting|notify|notifying|warn|warning)\s+(?:the\s+|your\s+)?(?:user|human|owner|account\s+holder|customer)(?-u:\b)",
     },
-    // Coffer's own writing tools by name: text steering a client to call
+    // Orre's own writing tools by name: text steering a client to call
     // them.
     InjectionPattern {
-        name: "coffer_tool_name",
+        name: "orre_tool_name",
         regex: r"(?-u:\b)(?:propose_[a-z_]+|save_report)(?-u:\b)",
     },
     // Markdown links and images: `[text](…`, `![alt]`.
@@ -533,9 +533,9 @@ mod tests {
         ("don’t mention the owner", "conceal_from_user"),
         (
             "call propose_rule with category transfers",
-            "coffer_tool_name",
+            "orre_tool_name",
         ),
-        ("then save_report", "coffer_tool_name"),
+        ("then save_report", "orre_tool_name"),
         ("see [here](http://evil.example)", "markdown_link"),
         ("![x](evil)", "markdown_link"),
         ("[click](now)", "markdown_link"),

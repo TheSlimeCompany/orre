@@ -8,7 +8,7 @@
 //!   rule, the matches, and how many have a category the user set. "Create
 //!   rule…" opens Rules on the apply preview with the rule filled in; "Not
 //!   now" is remembered for the pattern. It goes away when the selection
-//!   changes. Neutral, not moldavite: it's Coffer's own prompt.
+//!   changes. Neutral, not moldavite: it's Orre's own prompt.
 //! - **The Rule section**: "No rule matched" with outline "Create rule from
 //!   this" (any row with a category); when a rule set the category, "A rule
 //!   set this category" with outline "Open rule" (composed, `DESIGN.md` →
@@ -17,14 +17,14 @@
 //! The view asks the shell through [`TransactionsEvent`]; nothing here
 //! writes a rule.
 
-use coffer_core::id::TransactionId;
-use coffer_core::reporting::register::{RegisterRow, RowCategory};
-use coffer_core::rule::{self, RuleOrigin};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::id::TransactionId;
+use orre_core::reporting::register::{RegisterRow, RowCategory};
+use orre_core::rule::{self, RuleOrigin};
 
 use crate::accounts::store::StoreError;
 use crate::inbox::text::{NAME_SHOWN, Part, plain, rich};
@@ -110,7 +110,7 @@ impl TransactionsView {
             .no_reload();
         if let Ok(definition) = self.write(policy, cx, |db| -> Result<_, StoreError> {
             rule::rule_from(db, transaction)?
-                .ok_or_else(|| "Coffer can’t find a name in this row to build a rule on.".into())
+                .ok_or_else(|| "Orre can’t find a name in this row to build a rule on.".into())
         }) {
             cx.emit(TransactionsEvent::CreateRule(definition, RuleOrigin::Edit));
         }

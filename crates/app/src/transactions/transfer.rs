@@ -3,7 +3,7 @@
 //!
 //! Composed from existing specs, not drawn (user, 2026-11-15;
 //! `ARCHITECTURE.md` → "Decision record: transfer-pair confirmation
-//! (built)"): a suggested pair is a card like Coffer's refund suggestion
+//! (built)"): a suggested pair is a card like Orre's refund suggestion
 //! (D6.5, `APQ-0`) with the other side as a `field` strip and the Inbox
 //! transfer pair's wording (D6.6, `EWZ-0`); a confirmed pair is one row like
 //! a link row, its ✕ unpairing. Every decision shows the undo bar.
@@ -12,16 +12,16 @@
 //! the register; the write ([`inbox::decide_transfer`]) checks again and
 //! also settles an agent's pending suggestion for the same pair.
 
-use coffer_core::id::TransferGroupId;
-use coffer_core::inbox::{self, TransferDecided};
-use coffer_core::reporting::pairing::{self, Pair};
-use coffer_core::reporting::register::RegisterRow;
-use coffer_core::transfer::{self, Action, Blocked, Decision, TransferStatus};
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, IntoElement, ParentElement as _, SharedString, Styled as _, div,
 };
+use orre_core::id::TransferGroupId;
+use orre_core::inbox::{self, TransferDecided};
+use orre_core::reporting::pairing::{self, Pair};
+use orre_core::reporting::register::RegisterRow;
+use orre_core::transfer::{self, Action, Blocked, Decision, TransferStatus};
 
 use crate::format;
 use crate::inbox::text::unsigned;
@@ -61,7 +61,7 @@ pub fn blocked_text(blocked: Blocked) -> &'static str {
     }
 }
 
-/// Why Coffer suggested the pair: "Same amount out and in, 2 days apart".
+/// Why Orre suggested the pair: "Same amount out and in, 2 days apart".
 pub fn why(row: &RegisterRow, partner: &RegisterRow) -> String {
     let days = (row.date - partner.date).num_days().unsigned_abs();
     match days {
@@ -294,7 +294,7 @@ fn partner_strip(view: &TransactionsView, row: &RegisterRow, partner: &RegisterR
         .into_any_element()
 }
 
-/// A suggested pair: Coffer's suggestion card (D6.5, `APQ-0`), neutral,
+/// A suggested pair: Orre's suggestion card (D6.5, `APQ-0`), neutral,
 /// with "Confirm transfer" and "Not a transfer".
 fn suggestion_card(
     view: &TransactionsView,

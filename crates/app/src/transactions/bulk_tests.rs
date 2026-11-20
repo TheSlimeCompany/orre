@@ -1,22 +1,22 @@
 //! UI tests for the bulk-action bar's Mark as transfer and Create rule
 //! ([`super::bulk`]), against a scratch database through
-//! [`TransactionStore`], as `coffer` runs them.
+//! [`TransactionStore`], as `orre` runs them.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::inbox::own;
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::rule::{self, RuleOrigin};
-use coffer_core::transfer::{self, TransferStatus};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::inbox::own;
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::rule::{self, RuleOrigin};
+use orre_core::transfer::{self, TransferStatus};
 use tempfile::TempDir;
 
 use super::bulk::{DIFFERENT_RULES, NO_RULE};
@@ -66,7 +66,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let current = account(&mut db, "Current account", AccountKind::Current);
         let savings = account(&mut db, "Savings", AccountKind::Savings);

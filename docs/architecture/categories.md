@@ -1,4 +1,4 @@
-# Coffer — Architecture: Categories
+# Orre — Architecture: Categories
 
 The category tree, the categories editor, and which rows take a category.
 
@@ -8,7 +8,7 @@ that list.
 
 ## Categories
 
-`coffer_core::category` (M1.14; decisions in "Decision record: categories"). Every new
+`orre_core::category` (M1.14; decisions in "Decision record: categories"). Every new
 database starts with this two-level set (`V2__default_categories.sql`,
 `DEFAULT_CATEGORIES`). Groups are in display order; a transaction can be filed under a
 group itself (`transfer`, `other`) as well as under a subcategory.
@@ -32,7 +32,7 @@ group itself (`transfer`, `other`) as well as under a subcategory.
 | `transfer` Transfers (transfer) | `savings` Savings · `investments` Investments · `credit_card` Credit card payments |
 
 A subcategory's key is `<group>.<key>` (`food.groceries`); groups not marked are
-`spending`. `transfer` is for money between the user's own accounts, or to one Coffer
+`spending`. `transfer` is for money between the user's own accounts, or to one Orre
 doesn't see: like a confirmed transfer pair, it is neither income nor spending.
 
 - `CategoryKind` is the stored kind; a test keeps its keys equal to the schema's CHECK.
@@ -57,8 +57,8 @@ M1.14, the default category set. The set itself is under "Categories" above.
 1. **The defaults are seeded by a migration** (`V2__default_categories.sql`), not by Rust
    at every open. A migration runs once, in the same transaction as the schema, and is
    checksummed like any other, so a default the user deleted never comes back and
-   `coffer mcp`, which never writes the schema, needs nothing extra.
-   `coffer_core::category::DEFAULT_CATEGORIES` is the same list in Rust (a test keeps
+   `orre mcp`, which never writes the schema, needs nothing extra.
+   `orre_core::category::DEFAULT_CATEGORIES` is the same list in Rust (a test keeps
    them equal) for code that has no database, such as the bundled presets' tests.
 2. **A category has a kind: `spending`, `income` or `transfer`** (`category.kind`).
    Reports need to know which side a category is on, and so does the "moves income into
@@ -77,7 +77,7 @@ M1.14, the default category set. The set itself is under "Categories" above.
    from its label when it's created (lowercase ASCII letters and digits, other runs as
    `_`, a numeric suffix if taken, a fallback when nothing is left), and the key doesn't
    follow later renames. It can be a new group or go under any group, taking the group's
-   kind. A later Coffer that adds defaults inserts each key only where it's free, so a
+   kind. A later Orre that adds defaults inserts each key only where it's free, so a
    user's category with the same key is kept as it is.
    *Changed 2026-11-19 (R.11):* new user keys have a `u_` part, and a deleted category's
    key stays taken. See "Decision record: category keys are never reused".
@@ -91,7 +91,7 @@ M1.14, the default category set. The set itself is under "Categories" above.
    a reimbursement nets against its expense (`transaction_link`); money in under a
    spending category lowers that category's spending and isn't income.
 7. **Bundled presets map only to default keys**, checked by a test in
-   `coffer_import::preset`. Loading a preset doesn't check keys against the defaults,
+   `orre_import::preset`. Loading a preset doesn't check keys against the defaults,
    since a preset the user saves (M3) may name their own categories; the import maps a
    key that isn't in the database to nothing and leaves the row for rules or the user.
 
@@ -152,7 +152,7 @@ were asked.
    Transactions register each read the facts, and a test runs the same rows through
    both. A suggested pair or a suggested refund doesn't count.
 2. **Core refuses (user).** `inbox::own::recategorize` (the table, the inspector, the
-   bulk-action bar and `coffer categorize`) refuses such a row with
+   bulk-action bar and `orre categorize`) refuses such a row with
    `RecategorizeError::NoOwnCategory`, naming the transaction ID and why, never its
    text, and writes nothing. It refuses even when the row already has that category.
    The rejected option was core only reporting the rule, which would have left the CLI

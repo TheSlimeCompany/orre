@@ -6,7 +6,7 @@
 //! each does anything now.
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `coffer mcp`
+//! release build and nothing outside the tests can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -320,7 +320,7 @@ fn toolbar(rules: &Rules) -> ToolbarDescription {
     }
 }
 
-fn rule_row(rules: &Rules, summary: &coffer_core::rule::RuleSummary) -> RuleRowDescription {
+fn rule_row(rules: &Rules, summary: &orre_core::rule::RuleSummary) -> RuleRowDescription {
     let data = rules.data();
     let RuleRowText {
         number,
@@ -349,7 +349,7 @@ fn rule_row(rules: &Rules, summary: &coffer_core::rule::RuleSummary) -> RuleRowD
 fn preview(rules: &Rules, apply: &super::Apply) -> PreviewDescription {
     let data = rules.data();
     let today = rules.today();
-    let row = |row: &coffer_core::rule::PreviewRow| {
+    let row = |row: &orre_core::rule::PreviewRow| {
         let text = PreviewRowText::of(data, row, today, apply.include);
         PreviewRowDescription {
             merchant: text.merchant,
@@ -546,7 +546,7 @@ fn change_inspector(rules: &Rules) -> InspectorDescription {
         return InspectorDescription::Nothing(inspector::NO_CHANGE);
     };
     let mut item = item(header);
-    if entry.batch.status != coffer_core::change::BatchStatus::Undone {
+    if entry.batch.status != orre_core::change::BatchStatus::Undone {
         item.actions
             .push(Action::button(inspector::UNDO_CHANGE, true));
     }

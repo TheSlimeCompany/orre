@@ -6,26 +6,26 @@
 //!
 //! - **Joint account**: ASOS.com −£19.99 on 19 Sep, refunded on 25 Sep
 //!   (linked); −£42.00 on 14 Oct; −£68.00 on 28 Oct; and a +£34.00 refund
-//!   on 8 Nov, which Coffer suggests for the 28 Oct purchase.
+//!   on 8 Nov, which Orre suggests for the 28 Oct purchase.
 //! - **Current account**: shared costs with Sam (Pizza Pilgrims −£60.00 on
 //!   5 Oct, half his, settled by SAM K +£30.00 on 12 Oct; Dishoom
 //!   Shoreditch −£48.00 on 30 Oct and Odeon Luxe Leicester Square −£31.80
 //!   on 7 Nov, half each) and with Priya (Honest Burgers −£41.86 on 8 Nov,
 //!   £20.93 hers); claims (Trainline −£38.60 on 2 Nov, Premier Inn Leeds
 //!   City Centre −£112.00 on 3 Nov, Uber −£14.30 on 8 Nov) and ACME LTD
-//!   EXPENSES +£150.60 on 9 Nov, which Coffer matches to the first two.
+//!   EXPENSES +£150.60 on 9 Nov, which Orre matches to the first two.
 //!
 //! Owed to you reads £225.73: 3 expense claims and 2 people.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::db::Database;
-use coffer_core::edit;
-use coffer_core::id::{AccountId, TransactionId};
-use coffer_core::link::{self, LinkKind, LinkTarget, NewLink, ShareLabel, Sharing};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::db::Database;
+use orre_core::edit;
+use orre_core::id::{AccountId, TransactionId};
+use orre_core::link::{self, LinkKind, LinkTarget, NewLink, ShareLabel, Sharing};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
 
 fn date(month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, month, day).expect("a fixture date")
@@ -249,9 +249,9 @@ pub fn crowd(db: &mut Database, account: AccountId, count: u32) -> Vec<Transacti
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::link::owed;
-    use coffer_core::reporting::linking::{self, Counts};
-    use coffer_core::reporting::register::Register;
+    use orre_core::link::owed;
+    use orre_core::reporting::linking::{self, Counts};
+    use orre_core::reporting::register::Register;
     use tempfile::TempDir;
 
     use super::*;
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn the_fixture_reads_as_the_artboards() {
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let seeded = seed(&mut db, Variant::Suggested);
         let queue = owed::queue(&db).unwrap();
         assert_eq!(queue.totals, [gbp(22_573)]);
@@ -284,7 +284,7 @@ mod tests {
         );
 
         let dir = TempDir::new().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         let seeded = seed(&mut db, Variant::PartlyRepaid);
         let register = Register::load(&db.reader().unwrap(), date(11, 14)).unwrap();
         let trainline = register.row(seeded.trainline).unwrap();

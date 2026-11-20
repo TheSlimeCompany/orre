@@ -16,13 +16,13 @@
 //!   error is said under the selection's Category select, as Categorise's
 //!   is.
 
-use coffer_core::id::TransactionId;
-use coffer_core::inbox::{self, TransferMarked};
-use coffer_core::link::LinkStatus;
-use coffer_core::reporting::register::{RegisterRow, RowCategory};
-use coffer_core::rule::{self, RuleDefinition, RuleOrigin};
-use coffer_core::transfer::{self, MarkSide, Marked};
 use gpui_kit::Context;
+use orre_core::id::TransactionId;
+use orre_core::inbox::{self, TransferMarked};
+use orre_core::link::LinkStatus;
+use orre_core::reporting::register::{RegisterRow, RowCategory};
+use orre_core::rule::{self, RuleDefinition, RuleOrigin};
+use orre_core::transfer::{self, MarkSide, Marked};
 
 use crate::accounts::store::StoreError;
 
@@ -31,7 +31,7 @@ use super::{TransactionsEvent, TransactionsView, UndoAction};
 
 /// When some selected row gives no rule.
 pub const NO_RULE: &str =
-    "Coffer can’t find a name and a category in each of these rows to build a rule on.";
+    "Orre can’t find a name and a category in each of these rows to build a rule on.";
 /// When the selected rows give different rules.
 pub const DIFFERENT_RULES: &str =
     "These rows don’t share a name and a category to build a rule on.";
@@ -166,8 +166,8 @@ impl TransactionsView {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::category::CategoryKey;
-    use coffer_core::rule::{AmountBounds, MatchField, MatchKind, Pattern, RuleAction};
+    use orre_core::category::CategoryKey;
+    use orre_core::rule::{AmountBounds, MatchField, MatchKind, Pattern, RuleAction};
 
     use super::*;
 

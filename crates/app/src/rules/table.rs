@@ -24,10 +24,6 @@
 //!
 //! Bank text, names and patterns are plain text ([`text::plain`]).
 
-use coffer_core::category::CategoryKey;
-use coffer_core::change::{BatchStatus, HistoryEntry};
-use coffer_core::merchant::AliasSummary;
-use coffer_core::rule::{PreviewAfter, PreviewRow, RuleSummary};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -36,6 +32,10 @@ use gpui_kit::{
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
     div,
 };
+use orre_core::category::CategoryKey;
+use orre_core::change::{BatchStatus, HistoryEntry};
+use orre_core::merchant::AliasSummary;
+use orre_core::rule::{PreviewAfter, PreviewRow, RuleSummary};
 
 use crate::format::{self, Sign};
 use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
@@ -421,7 +421,7 @@ fn empty(glyph: Glyph, title: &'static str, caption: &'static str) -> AnyElement
 /// What's dragged when a rule row moves.
 #[derive(Clone)]
 struct DraggedRule {
-    id: coffer_core::id::RuleId,
+    id: orre_core::id::RuleId,
     label: SharedString,
 }
 
@@ -465,7 +465,7 @@ pub fn empty_text(rules: &Rules) -> Option<(Glyph, &'static str, &'static str)> 
             Some((
                 Glyph::ArrowLarge,
                 "No rules yet",
-                "Set a category on a transaction and Coffer offers to turn it into a rule once the \
+                "Set a category on a transaction and Orre offers to turn it into a rule once the \
              merchant comes back. Or start one with New rule.",
             ))
         }
@@ -509,7 +509,7 @@ pub const NEVER_REACHED: &str = "Never reached";
 impl RuleRowText {
     pub fn of(data: &RulesData, summary: &RuleSummary, pattern: gpui_kit::Rgba) -> Self {
         let rule = summary.rule.definition();
-        let currency = data.currency(rule.account_id().map(coffer_core::id::AccountId::new));
+        let currency = data.currency(rule.account_id().map(orre_core::id::AccountId::new));
         let (then, suffixes) = text::then(rule, data);
         let never_reached = summary.never_reached();
         Self {
@@ -517,7 +517,7 @@ impl RuleRowText {
             when: text::when_parts(rule, currency, pattern, color::TEXT_MUTED),
             account: rule
                 .account_id()
-                .and_then(|id| data.account(coffer_core::id::AccountId::new(id)))
+                .and_then(|id| data.account(orre_core::id::AccountId::new(id)))
                 .map(|account| text::plain(&account.name, text::NAME_SHOWN)),
             then,
             then_suffix: suffixes.iter().map(|word| format!(" + {word}")).collect(),
@@ -568,7 +568,7 @@ fn rule_row(
     entity: &Entity<Rules>,
     data: &RulesData,
     summary: &RuleSummary,
-    selected: Option<coffer_core::id::RuleId>,
+    selected: Option<orre_core::id::RuleId>,
     ring: bool,
     window: &Window,
 ) -> AnyElement {
@@ -885,7 +885,7 @@ fn preview_row(
         .into_any_element()
 }
 
-fn row_plain(id: coffer_core::id::TransactionId) -> gpui_kit::Stateful<gpui_kit::Div> {
+fn row_plain(id: orre_core::id::TransactionId) -> gpui_kit::Stateful<gpui_kit::Div> {
     div()
         .id(SharedString::from(format!("preview-{id}")))
         .flex()
@@ -1231,7 +1231,7 @@ fn names_body(entity: &Entity<Rules>, rules: &Rules, window: &Window) -> AnyElem
             )
         }))
         .child(note(
-            "Coffer first cleans the bank’s text (card numbers, “CONTACTLESS”, payment-processor \
+            "Orre first cleans the bank’s text (card numbers, “CONTACTLESS”, payment-processor \
              prefixes), then applies these names. A name you type on a single transaction wins \
              over both. Renaming changes only what you see: rules still match the bank’s text, \
              and the bank’s text is never changed.",
@@ -1406,7 +1406,7 @@ fn count_lane(width: gpui_kit::Pixels, count: usize, tone: gpui_kit::Rgba) -> gp
 
 /// A category's TRANSACTIONS: the transactions and split lines filed
 /// under it.
-pub fn filed(usage: &coffer_core::category::CategoryUsage) -> usize {
+pub fn filed(usage: &orre_core::category::CategoryUsage) -> usize {
     usage.transactions + usage.split_lines
 }
 

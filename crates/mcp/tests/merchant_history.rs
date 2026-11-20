@@ -3,7 +3,7 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
+use orre_core::access_log::Outcome;
 use serde_json::{Value, json};
 use support::reports::*;
 use support::*;
@@ -101,8 +101,8 @@ async fn output_has_no_personal_data() {
 #[tokio::test]
 async fn a_merchant_with_an_inert_domain_can_be_passed_back() {
     use chrono::NaiveDate;
-    use coffer_core::manual::{self, ManualTransaction};
-    use coffer_core::money::{Currency, Money};
+    use orre_core::manual::{self, ManualTransaction};
+    use orre_core::money::{Currency, Money};
 
     let fixture = Fixture::new();
     manual::create(

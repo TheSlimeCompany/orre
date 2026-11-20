@@ -17,7 +17,7 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
+use orre_core::access_log::Outcome;
 use serde_json::{Value, json};
 use support::inbox::*;
 use support::*;
@@ -143,7 +143,7 @@ fn error_text(result: &rmcp::model::CallToolResult) -> String {
 async fn each_tool_is_registered_at_its_level_and_above() {
     let fixture = Fixture::new();
     let ids = seed(&fixture);
-    // Enabling the client is the user's step (`coffer ai-access enable`),
+    // Enabling the client is the user's step (`orre ai-access enable`),
     // and it creates the pseudonym key in `setting`: snapshot after it, so
     // only the server's own writes are compared.
     fixture.set_client(CLIENT, AccessLevel::Aggregate);
@@ -709,8 +709,8 @@ fn assert_only_shapes(redacted: &Value, tool: &str) {
 
 #[tokio::test]
 async fn save_report_beyond_the_per_client_cap_is_refused_until_the_user_deletes_one() {
-    use coffer_core::inbox::{self, MAX_REPORTS_PER_SOURCE, NewReport};
-    use coffer_core::mcp_client::ClientName;
+    use orre_core::inbox::{self, MAX_REPORTS_PER_SOURCE, NewReport};
+    use orre_core::mcp_client::ClientName;
 
     let fixture = Fixture::new();
     let ids = seed(&fixture);
@@ -733,7 +733,7 @@ async fn save_report_beyond_the_per_client_cap_is_refused_until_the_user_deletes
     let text = error_text(&result);
     assert!(text.contains("saved 500 reports"), "{text}");
     // It says how the user makes room, and nothing else of the user's.
-    assert!(text.contains("`coffer inbox delete-report`"), "{text}");
+    assert!(text.contains("`orre inbox delete-report`"), "{text}");
     assert!(!text.contains(MARKER), "{text}");
     assert_no_pii(&serde_json::to_value(&result).unwrap());
     assert_eq!(inbox_counts(&fixture), (0, MAX_REPORTS_PER_SOURCE));
@@ -742,7 +742,7 @@ async fn save_report_beyond_the_per_client_cap_is_refused_until_the_user_deletes
     assert_eq!(call.tool, "save_report");
     assert_eq!(call.outcome, Outcome::Error);
 
-    // The user deletes the oldest, as `coffer inbox delete-report` does;
+    // The user deletes the oldest, as `orre inbox delete-report` does;
     // the same connection can save again, up to the cap.
     let oldest = reports(&fixture)[0].0;
     {

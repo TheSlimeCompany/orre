@@ -2,9 +2,9 @@
 -- detected series the user said aren't recurring (M2.6). `docs/ARCHITECTURE.md`
 -- → "Decision record: budgets and the forecast (2026-11-10)", point 2.
 --
--- Core detects recurring series in the ledger (`coffer_core::recurring`);
+-- Core detects recurring series in the ledger (`orre_core::recurring`);
 -- a series becomes a schedule only when the user confirms it
--- (`coffer_core::schedule`). A schedule never adds a transaction: imports
+-- (`orre_core::schedule`). A schedule never adds a transaction: imports
 -- fulfil its occurrences.
 --
 -- - A schedule's occurrences are not stored. Occurrence k (from 0) is its

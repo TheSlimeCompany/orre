@@ -5,7 +5,7 @@
 //! a dialog, and the panel's keys with whether each does anything now.
 //!
 //! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `coffer mcp`
+//! release build and nothing outside the tests can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -41,9 +41,9 @@ use super::inspector::{
 use super::new_account::NewAccountDialog;
 use super::valuations::{self, RowText, Words};
 use super::{Accounts, panel};
-use coffer_core::account::AccountKind;
-use coffer_core::reconciliation::Status;
-use coffer_core::reporting::account_tree::AccountNode;
+use orre_core::account::AccountKind;
+use orre_core::reconciliation::Status;
+use orre_core::reporting::account_tree::AccountNode;
 
 /// What accounts management shows ([`Accounts::describe`]).
 #[derive(Clone, Debug, PartialEq, Eq)]

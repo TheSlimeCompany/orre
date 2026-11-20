@@ -1,6 +1,6 @@
 # Roadmap
 
-Coffer is a local-first personal finance dashboard: import bank statements,
+Orre is a local-first personal finance dashboard: import bank statements,
 see where your money goes, and talk to your data through any MCP-capable AI client
 (Claude Code, Claude Desktop, Codex). Design decisions live in
 [`ARCHITECTURE.md`](ARCHITECTURE.md); this file tracks what gets built, in what order.
@@ -30,14 +30,14 @@ beyond the inbox, AI in import) are deliberately not on this roadmap.
 ## Design track — runs alongside M1–M2 ✅
 
 Prove the visual system in Paper and in GPUI before the GUI milestones depend on it.
-Specs live in [`DESIGN.md`](DESIGN.md). Coffer's Paper file ("Coffer", created in D1.1) is
+Specs live in [`DESIGN.md`](DESIGN.md). Orre's Paper file ("Orre", created in D1.1) is
 separate from "Festive comet", which is a reference file only; D1–D6 are designed in
-Coffer's file. D1 and D2 are independent and can run in parallel. D2 needs M1.1 (the
+Orre's file. D1 and D2 are independent and can run in parallel. D2 needs M1.1 (the
 Cargo workspace) so the theme lands in `crates/app`. D3 and D4 need D1; D5 needs D2 and D3.
 
-**D1 — Coffer Paper file: tokens and components**
+**D1 — Orre Paper file: tokens and components**
 
-- ✅ D1.1 Create the Coffer file in Paper (via the Paper MCP); record its URL in `DESIGN.md` →
+- ✅ D1.1 Create the Orre file in Paper (via the Paper MCP); record its URL in `DESIGN.md` →
   "Source of truth"
 - ✅ D1.2 Create every token in `DESIGN.md`: the reference set plus the "Proposed" colour,
   font-weight and opacity tokens, with weights at 400/500/600/700. Also names the
@@ -72,7 +72,7 @@ Cargo workspace) so the theme lands in `crates/app`. D3 and D4 need D1; D5 needs
   non-token field), plus radius, rem base, shadows and motion. The component list (custom:
   toggle, segmented control, view tabs, badge, tooltip, progress bar, agent card and the
   other compositions) is in `DESIGN.md` → "Implementing in GPUI"
-- ✅ D2.5 Showcase window (`coffer --showcase`): colour swatches, type scale, buttons in every
+- ✅ D2.5 Showcase window (`orre --showcase`): colour swatches, type scale, buttons in every
   state, list row (default/hover/selected/focus), transaction rows with mono amounts,
   agent card. Built (`crates/app/src/showcase.rs`, components in `crates/app/src/ui/`), plus a
   stock components
@@ -92,7 +92,7 @@ Cargo workspace) so the theme lands in `crates/app`. D3 and D4 need D1; D5 needs
 
 - ✅ D3.1 1440×900, realistic data: long merchant names, pot transfers, a foreign-currency
   payment, a refund, uncategorised and AI-suggested rows, a multi-selection. Two artboards
-  in the Coffer file: Transactions (`18E-0`, an AI-suggested row selected, its inspector
+  in the Orre file: Transactions (`18E-0`, an AI-suggested row selected, its inspector
   with approve/reject) and Transactions · multi-select (`1NP-0`, three rows, bulk-action
   bar, selection summary). Composed from Components clones, all token-bound; one new token,
   `--container-search-field` (re-exported, hash `86e4aeb1`; `size::SEARCH_FIELD`). Fixed a
@@ -122,20 +122,20 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
 - ✅ D5.1 Build the D3 screen in GPUI with fixture data; compare it against the Paper screenshot
   at 1x and 2x. `crates/app/src/transactions.rs` (title bar, left panel, toolbar, virtualised
   day-grouped table, inspector for one or several transactions, bulk-action bar, status
-  bar), now the window `coffer` opens; `crates/app/examples/snapshot.rs` renders it headlessly.
+  bar), now the window `orre` opens; `crates/app/examples/snapshot.rs` renders it headlessly.
   Colour exact once Paper's Display P3 export is colour-managed, layout exact at 2x,
   baselines within half a pixel. Letter spacing now applied (`ui::tracked`). Four GPUI
   pitfalls found and fixed. Findings in `DESIGN.md` → "Implementing in GPUI" → "Fidelity
   findings (D5)"
 - ✅ D5.2 Decision: GPUI can deliver the design → continue; otherwise reconsider the UI toolkit
   before M3. **Decided (user, 2026-11-09): continue with GPUI.** Colour and layout match
-  Paper, and the gaps found were in Coffer's code, not GPUI. Still to check on a real display
+  Paper, and the gaps found were in Orre's code, not GPUI. Still to check on a real display
   (hover, scrolling, drag and resize, macOS, long lists) as the app grows
 
 **D6 — Remaining screens**
 
 - ✅ D6.1 Import, Inbox, Trends, Budgets, Net worth, Reviews, accounts panel. Six
-  1440×900 artboards in the Coffer file, built from the Transactions and Overview shells:
+  1440×900 artboards in the Orre file, built from the Transactions and Overview shells:
   Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`),
   Net worth (`7LH-0`), Reviews (`7YM-0`); plus two states boards: Import · steps (`6J4-0`:
   File and Review, and the reconciled / mismatch / locked-period results) and Accounts
@@ -151,7 +151,7 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
   - Budgets is a table with inline bars so the budgets' ends line up;
   - the Net worth area runs to a £0 baseline;
   - an account with transactions can be closed (hidden, history kept), not deleted.
-- ✅ D6.2 Coffer logo / wordmark. The strongbox: lid, seam, body and a hasp, filled
+- ✅ D6.2 Orre logo / wordmark. The strongbox: lid, seam, body and a hasp, filled
   `molten`, on a 16-unit grid so the 16px title-bar size is pixel-aligned. Logo artboard
   (`8MT-0`): construction, title-bar and display lockups, mono variant, app icon (molten
   tile, chrome mark); the three directions explored stay on Logo · concepts (`8JS-0`).
@@ -206,7 +206,7 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
   reimbursements and shared costs". Decided while drawing (review):
   - every transaction gets a Links section, and every outflow a Share section ("Just
     me" / "Shared" / "Claim back"), so links and shares are always in the same place;
-  - Coffer's own link suggestions are neutral cards in the inspector and strips on Owed
+  - Orre's own link suggestions are neutral cards in the inspector and strips on Owed
     to you, not Inbox items; the AI's `refund_link` suggestions stay in the Inbox (D6.6);
   - the table keeps the bank's amounts and says how a row counts in the category cell
     ("Shopping · refund", "· shared", "· to claim");
@@ -225,7 +225,7 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
   in the agent card; designed with the D6.1 Inbox (M3.14, M2.14). Two 1440×900 artboards
   from the Inbox with the D6.4 CHECKS panel, Inbox · rule impact (`ABK-0`) and Inbox ·
   merchant name impact (`DL8-0`), plus a states board, Inbox · D6.6 states (`EWZ-0`: the
-  refund link, transfer pair and categorisation inspectors, Coffer's own suggestion card,
+  refund link, transfer pair and categorisation inspectors, Orre's own suggestion card,
   a wide rule, the undo bar). All token-bound, no new tokens. Spec in `DESIGN.md` →
   "Inbox impact preview". Decided while drawing (review):
   - the selected suggestion opens in place and lists the transactions it would change on
@@ -236,7 +236,7 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
     matches;
   - a wide rule (more than 5 merchants) gets a warning, a by-merchant summary, and is left
     out of Approve all;
-  - Coffer's own `rule` suggestions use the same card, neutral, outside the moldavite
+  - Orre's own `rule` suggestions use the same card, neutral, outside the moldavite
     badge.
 
   Its six questions were decided on 2026-11-10 (`ARCHITECTURE.md` → "Decision record:
@@ -329,7 +329,7 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
   - valuation accounts hold valuations only;
   - `account.closed_on` for every kind, plus a £0 valuation when closing one;
   - only an account without transactions can be deleted;
-  - a cash count is a checked `manual` balance, and Coffer never posts the difference.
+  - a cash count is a checked `manual` balance, and Orre never posts the difference.
 - ✅ D6.10 Upcoming payments and balance forecast; budget rollover, groups and pace line,
   designed with the D6.1 Budgets screen (M4.8, M4.9). Two 1440×900 artboards from the
   D6.1 Budgets screen: Budgets · groups, rollover and pace (`CXU-0`) and Budgets ·
@@ -390,21 +390,21 @@ is decided in `ARCHITECTURE.md`. The choices marked "review" in this track and i
 Import real statements into a local database from the command line.
 
 - ✅ M1.1 Convert to a Cargo workspace: `crates/core`, `crates/import`, `crates/mcp`, `crates/app`.
-  Packages `coffer-core`, `coffer-import`, `coffer-mcp` (stubs for now) and `coffer-app`
-  (lib `coffer_app` plus the `coffer` binary); `assets/` and `design/` stay at the root.
+  Packages `orre-core`, `orre-import`, `orre-mcp` (stubs for now) and `orre-app`
+  (lib `orre_app` plus the `orre` binary); `assets/` and `design/` stay at the root.
   Versions, edition and licence come from the root `[workspace.package]` and
   `[workspace.dependencies]`; each crate declares the dependencies of its role
 - ✅ M1.2 Add `LICENSE-MIT`, `LICENSE-APACHE`; set `license = "MIT OR Apache-2.0"`
 - ✅ M1.3 SQLite setup: platform data dir, WAL mode, 0600 permissions, versioned migrations.
-  `coffer_core::db::Database::open` creates the data dir (0700) and `coffer.db` (0600,
+  `orre_core::db::Database::open` creates the data dir (0700) and `orre.db` (0600,
   as are its `-wal`/`-shm`), sets WAL, `synchronous = FULL`, foreign keys,
   `trusted_schema = OFF`, a busy timeout and `BEGIN IMMEDIATE`, then applies the
   embedded `crates/core/migrations/` in one transaction. An existing file is checked
   before anything changes it (a SQLite database, not a newer schema, unedited migration
   history); a refused file is left byte- and mode-for-mode as it was. A newer schema or
   an edited, unknown or skipped migration is refused. `Database::open_existing` (for
-  `coffer mcp`) never creates or migrates: a missing database, a pending migration, a
-  newer schema or a changed history is refused. `COFFER_DATA_DIR` overrides the data dir
+  `orre mcp`) never creates or migrates: a missing database, a pending migration, a
+  newer schema or a changed history is refused. `ORRE_DATA_DIR` overrides the data dir
 - ✅ M1.4 Schema: accounts, import batches, transactions, balance snapshots, categories,
   rules, transfer groups, budgets, FX rates, suggestions, reports.
   `crates/core/migrations/V1__initial_schema.sql`: `STRICT` tables, checked dates and
@@ -423,7 +423,7 @@ Import real statements into a local database from the command line.
   items (splits, tags, links, duplicates, change batches, schedules, MCP clients) come
   with those items
 - ✅ M1.5 Money type: integer minor units + ISO 4217 currency (no floats anywhere).
-  `coffer_core::money`: `Currency` only builds from a known ISO 4217 code and carries its
+  `orre_core::money`: `Currency` only builds from a known ISO 4217 code and carries its
   minor units (hand-written table, frozen by tests, withdrawn codes since 2014 kept);
   `Money { minor: i64, currency }` with checked arithmetic (mixing currencies or
   overflowing is an error); `Money::parse_decimal` reads bank text exactly (`.`/`,`
@@ -431,10 +431,10 @@ Import real statements into a local database from the command line.
   would have to round; `to_decimal_string` is the plain export form. `Currency` is
   `serde` and SQLite `TEXT`. Locale display formatting stays in the app; FX is M4.6
 - ✅ M1.6 `Importer` trait (detect → parse → normalize).
-  `coffer_import`: `Detect` (name, format, `Detection` from `No` to `Source`), `Importer`
+  `orre_import`: `Detect` (name, format, `Detection` from `No` to `Source`), `Importer`
   (`parse` into its own `Parsed` type, `normalize` into a `Statement`), `AnyImporter` for
   `&dyn` lists with `import`, and `detect` to rank candidates (the caller chooses).
-  `coffer_core::statement`: `Statement` (format, preset, currency, rows in file order,
+  `orre_core::statement`: `Statement` (format, preset, currency, rows in file order,
   stated balances), `StatementLine`, flagged rows as `RowProblem` at a `SourceLocation`
   (never dropped, no transaction text), `normalize_description`. Exercised with a toy
   importer in tests; CSV and OFX are M1.7 and M1.10 (`ARCHITECTURE.md` → "The
@@ -443,7 +443,7 @@ Import real statements into a local database from the command line.
   (`DD/MM` vs `MM/DD`), separate time column, decimal style (`1,234.56` vs `1.234,56`),
   signed amount or debit/credit columns, merchant vs raw description, source ID,
   source category/type, original (local) amount + currency, optional balance column.
-  `coffer_import::csv`: `CsvImporter` over a validated `CsvMapping` (the shape M1.8's
+  `orre_import::csv`: `CsvImporter` over a validated `CsvMapping` (the shape M1.8's
   TOML will deserialize into). BOM or stated encoding, else UTF-8 only (never guessed);
   delimiter stated or detected (ties refused); `skip_rows` and optional header, columns by
   name or position; `strftime` dates that must round-trip, with `DateFormat::candidates`
@@ -453,13 +453,13 @@ Import real statements into a local database from the command line.
   `fixtures/csv/` (`ARCHITECTURE.md` → "The CSV importer")
 - ✅ M1.8 TOML preset format + loader (`presets/<region>/<bank>.toml`), including
   source-category → category mapping.
-  `coffer_import::preset`: `Preset::from_toml` reads a `CsvMapping` plus ID, name, region,
+  `orre_import::preset`: `Preset::from_toml` reads a `CsvMapping` plus ID, name, region,
   `ignore` and `[category_map]`; unknown keys are refused and field values are checked
   where written (errors point at the line); TOML column positions count from 1.
   `crates/import/build.rs` compiles every `presets/**/*.toml` in (`Presets::bundled`);
   `Presets::from_files` checks `<region>/<bank>.toml` placement, region, an ID of
   `<region>-<bank>[-…]` and unique IDs. `Preset::category_for` maps exact source
-  categories to `coffer_core::category::CategoryKey`; `Preset::unread_columns` lists header
+  categories to `orre_core::category::CategoryKey`; `Preset::unread_columns` lists header
   columns neither read nor ignored. A test requires every bundled preset to import its
   fixture in `fixtures/presets/`. Contributor reference: `presets/README.md`
   (`ARCHITECTURE.md` → "Presets"). `[sub_account_transfer]` came with M1.17
@@ -473,19 +473,19 @@ Import real statements into a local database from the command line.
   nothing new (`ARCHITECTURE.md` → "Presets"; "Decision record: sub-accounts", points
   8–9)
 - ✅ M1.10 OFX/QFX importer (SGML 1.x and XML 2.x), `FITID` IDs, `LEDGERBAL` balances.
-  `coffer_import::ofx`: `OfxImporter` over Coffer's own tolerant SGML/XML reader (`ofx-kit`
+  `orre_import::ofx`: `OfxImporter` over Orre's own tolerant SGML/XML reader (`ofx-kit`
   dropped: it fails whole files on one bad row and guesses encodings). Bank and credit
   card statements; several statements in one file are refused unless one is chosen
   (`OfxImporter::for_statement`); repeated `FITID`s and `CORRECTACTION` rows are flagged.
   Synthetic fixtures in `fixtures/ofx/` (`ARCHITECTURE.md` → "The OFX importer")
 - ✅ M1.11 Deduplication: source ID when present (OFX `FITID`, CSV ID column);
   fingerprint with occurrence index otherwise.
-  `coffer_core::import`: a source ID is matched by ID only (a conflicting date or amount
+  `orre_core::import`: a source ID is matched by ID only (a conflicting date or amount
   is flagged); otherwise a readable `v1|date|amount|currency|occurrence|description`
   fingerprint (`import::fingerprint`)
 - ✅ M1.12 Balance reconciliation where the file has balances; failed imports flagged, not
   committed silently. Manual balance anchor for accounts whose exports have none.
-  `coffer_core::balance::check`; running balances checked row by row, file balances
+  `orre_core::balance::check`; running balances checked row by row, file balances
   stored, mismatches need explicit confirmation; `account::add_balance` is the manual
   anchor
 - ✅ M1.13 Import batches with undo. `import::preview` → `commit` (one DB transaction,
@@ -494,7 +494,7 @@ Import real statements into a local database from the command line.
   reconciliation and the commit")
 - ✅ M1.14 Default two-level category set with stable keys. 15 groups, 50 subcategories,
   each `spending`, `income` or `transfer`, seeded once by `V2__default_categories.sql`;
-  `coffer_core::category::{DEFAULT_CATEGORIES, CategoryTree}`; bundled presets may map
+  `orre_core::category::{DEFAULT_CATEGORIES, CategoryTree}`; bundled presets may map
   only to default keys (tested) (`ARCHITECTURE.md` → "Categories")
 - ✅ M1.15 Rules engine (contains / regex / amount range / account), priority ordering.
   Validated types, store (`create`, `create_at`, `list`, `move_to`, `delete`) and
@@ -503,22 +503,22 @@ Import real statements into a local database from the command line.
   overrides (`ARCHITECTURE.md` → "Decision record: rules engine, transfer detection and
   the CLI")
 - ✅ M1.16 Transfer-pair detection (opposite amounts, own accounts, N-day window).
-  `coffer_core::transfer`: 3-day window, closest pairs first, `suggested`
+  `orre_core::transfer`: 3-day window, closest pairs first, `suggested`
   `transfer_group` rows, run by `import::commit`; confirm/reject come with the inbox and
   Transactions screen
 - ✅ M1.17 Sub-accounts (Monzo Pots, Starling Spaces, Revolut Vaults): preset-driven detection,
   auto-created pot accounts, mirrored pot-side entries auto-paired as transfers.
   `[sub_account_transfer]` in presets (Monzo's pots in `presets/uk/monzo.toml` and its
-  fixture); `coffer_core::sub_account` plans the pots in the preview and mirrors the
+  fixture); `orre_core::sub_account` plans the pots in the preview and mirrors the
   rows in `import::commit`, before rules and transfer detection, as `confirmed`
   transfer groups; pots are found by key (`account.sub_account_key`,
   `V4__sub_account_key.sql`) and stay when their import is undone. Starling Spaces and
   Revolut Vaults need their presets (`ARCHITECTURE.md` → "Decision record:
   sub-accounts")
-- ✅ M1.18 CLI: `coffer import <file> [--account] [--preset] [--dry-run]`,
-  `coffer accounts`, `coffer undo-import <batch>`. clap, in `coffer_app::cli`; also
+- ✅ M1.18 CLI: `orre import <file> [--account] [--preset] [--dry-run]`,
+  `orre accounts`, `orre undo-import <batch>`. clap, in `orre_app::cli`; also
   `--statement N` for multi-statement OFX, `--yes` to accept flags, a mismatch or an
-  undo, and `coffer accounts add`
+  undo, and `orre accounts add`
 - ✅ M1.19 Redacted fixtures + tests for every importer path. Synthetic fixtures for
   newest-first, headerless, tab-separated and US-dated CSVs and a follow-on OFX
   statement, test-only mappings in `fixtures/csv/mappings/`, and end-to-end tests in
@@ -528,30 +528,30 @@ Import real statements into a local database from the command line.
   and locked balances")
 - ✅ M1.20 Split transactions: `transaction_split` lines that sum exactly to the parent
   (checked in core); reports and budgets read the `ledger_line` view, so a split purchase
-  counts in each of its categories. `coffer_core::split`, `V5__transaction_split.sql`;
+  counts in each of its categories. `orre_core::split`, `V5__transaction_split.sql`;
   a split parent has no category, amount or currency change while split, transfers
   aren't split, and undo and manual deletes remove the lines (`ARCHITECTURE.md` → "Decision record: splits, tags and notes, manual rows, merchant
   names")
 - ✅ M1.21 Tags (several per transaction, private tags never leave the app) and a
-  user-editable note beside the read-only imported one. `coffer_core::tag` and
-  `coffer_core::note`, `V6__tags.sql`; names unique ignoring case, shared with rules'
+  user-editable note beside the read-only imported one. `orre_core::tag` and
+  `orre_core::note`, `V6__tags.sql`; names unique ignoring case, shared with rules'
   `add_tag`; undo and manual deletes remove the links (`ARCHITECTURE.md` → "Decision record: splits, tags and notes, manual rows, merchant
   names")
 - ✅ M1.22 Manual transactions and cash accounts (`origin = manual`). Imported source fields
   stay read-only: fix a bad row by undoing its batch, or exclude it with a recorded reason.
-  `coffer_core::manual` (any account that holds transactions; locks and `closed_on`
-  respected) and `coffer_core::exclusion`; no migration (`ARCHITECTURE.md` → "Decision record: splits, tags and notes, manual rows, merchant
+  `orre_core::manual` (any account that holds transactions; locks and `closed_on`
+  respected) and `orre_core::exclusion`; no migration (`ARCHITECTURE.md` → "Decision record: splits, tags and notes, manual rows, merchant
   names")
 - ✅ M1.23 Merchant clean-up: deterministic cleaning of bank text (card references,
   "CONTACTLESS", processor prefixes) into `merchant_display`, plus a merchant alias table.
-  Raw fields are never changed. `coffer_core::merchant`, `V7__merchant_alias.sql` (with
+  Raw fields are never changed. `orre_core::merchant`, `V7__merchant_alias.sql` (with
   `merchant_display_source`); runs in `import::commit` before rules, aliases apply at
   once to derived names, and rules match the cleaned merchant (`ARCHITECTURE.md` → "Decision record: splits, tags and notes, manual rows, merchant
   names")
 - ✅ M1.24 Rule actions beyond setting a category: set merchant, add tag, set note, exclude,
   split template, my share. Each transaction records the rule that categorised it. Applying
   a rule to past transactions shows a preview and commits as an undoable change batch.
-  `coffer_core::change` (V8, `V8__change_batch.sql`): a `Recorder` that writes and records
+  `orre_core::change` (V8, `V8__change_batch.sql`): a `Recorder` that writes and records
   field changes, `dry_run` previews, `undo` restoring only fields that still hold the
   batch's value. `rule::apply_to_batch` applies every action at import, field by field
   (tags included); shares and split lines from basis points exactly (half away from zero;
@@ -562,30 +562,30 @@ Import real statements into a local database from the command line.
   (`refund`/`reimbursement`/`settlement`). A refund nets against the purchase's category
   instead of counting as income; a reimbursable purchase stays outstanding until linked;
   `my_share_minor` on transactions and split lines feeds an owed-to-me balance.
-  `coffer_core::link`, `V9__transaction_link.sql` (which redefines `ledger_line` with link
+  `orre_core::link`, `V9__transaction_link.sql` (which redefines `ledger_line` with link
   rows, `in_reports` and `personal_minor`); deterministic suggestions at import (90-day
   refunds, 60-day reimbursement sets); undo and manual deletes clear links
 - ✅ M1.26 Possible-duplicates queue: same account and amount within ±N days but different
   text (typically overlapping CSV and OFX exports). Merging excludes the duplicate, never
-  deletes it, and can be undone. `coffer_core::duplicate`, `V10__duplicate_candidate.sql`;
+  deletes it, and can be undone. `orre_core::duplicate`, `V10__duplicate_candidate.sql`;
   detected in the import commit and by `scan`; merges are `duplicate_merge` change
   batches that keep the best-sourced row and carry user-set values over
 - ✅ M1.27 Dated balance assertions: every balance snapshot is checked against the computed
   balance, and a failure names the window between the last passing assertion and the
   failing one. Per-account lock date (`reconciled_through`): anything that would change
   transactions before it is flagged and needs an explicit unlock.
-  `coffer_core::reconciliation` (`account_checks`, `lock`, `unlock`); entered balances,
+  `orre_core::reconciliation` (`account_checks`, `lock`, `unlock`); entered balances,
   imports, manual edits, merges, rule applies and undos inside the lock are refused; a
   rule's exclusion counts whatever its reason (user decision, 2026-11-12)
 - ✅ M1.28 Local backups: rotating `VACUUM INTO` snapshots (0600) before every import commit
-  and migration; `coffer backup`, `coffer restore <file>` (integrity and schema-version
-  checks before swapping). `coffer_core::backup`: `<data dir>/backups`, the last 10
+  and migration; `orre backup`, `orre restore <file>` (integrity and schema-version
+  checks before swapping). `orre_core::backup`: `<data dir>/backups`, the last 10
   automatic backups plus one per earlier month, manual ones kept; `import::commit` and
-  `Database::open` back up first; `coffer backup [--list]`, `coffer restore <file>
+  `Database::open` back up first; `orre backup [--list]`, `orre restore <file>
   [--yes]`; running MCP servers refuse calls while a restore swaps the files (M2)
   (`ARCHITECTURE.md` → "Decision record: local backups")
-- ✅ M1.29 `coffer export --format csv|json`: documented schema, filters by date, account,
-  category and tag; split lines keep their parent ID. `coffer_core::export` (schema
+- ✅ M1.29 `orre export --format csv|json`: documented schema, filters by date, account,
+  category and tag; split lines keep their parent ID. `orre_core::export` (schema
   version 1, columns in its module docs) reading `ledger_line`; `--output` files 0600,
   `--force` to replace; notes and private tags only with `--include-notes` /
   `--include-private-tags` (user decision, 2026-11-12), share labels never
@@ -605,24 +605,24 @@ exists from before every import.
 Analyse real data from Claude Code or Codex before any GUI exists. Everything below is
 built and tested on synthetic data, and was checked on 2026-11-13 with Claude Code against
 a real Monzo export: totals, pseudonymous and standard access, suggestions approved from
-`coffer inbox`, the access log, and recurring detection. Decisions: `ARCHITECTURE.md` → "Decision record: M2: MCP
+`orre inbox`, the access log, and recurring detection. Decisions: `ARCHITECTURE.md` → "Decision record: M2: MCP
 server (2026-11-13)"; setup: [`mcp-setup.md`](mcp-setup.md).
 
-- ✅ M2.1 `coffer mcp` stdio server (`rmcp`), read-only DB connection for queries.
+- ✅ M2.1 `orre mcp` stdio server (`rmcp`), read-only DB connection for queries.
   `crates/mcp`: one wrapper per call (gate → call → log), the tool registry by level,
   `V11__mcp.sql`; the database is opened per call (never created or migrated), so a
   restore is never blocked and calls are refused while it swaps the files
 - ✅ M2.2 Read tools: `list_accounts`, `monthly_summary`, `spending_by_category`,
   `search_transactions`, `merchant_history`, `recurring_payments`, `budget_status`,
   `net_worth_history`, `uncategorized_transactions`, `list_categories`,
-  `list_rules`, `list_reports`. Queries in `coffer_core::reporting` (a `Ledger` over
+  `list_rules`, `list_reports`. Queries in `orre_core::reporting` (a `Ledger` over
   `ledger_line`, per-currency `Totals`, `Limit` 50/200 with `truncated`), budgets in
-  `coffer_core::budget` with `coffer budgets list|set|remove`; account names only from
+  `orre_core::budget` with `orre budgets list|set|remove`; account names only from
   `pseudonymous` up, text search only at `standard` (user decisions, 2026-11-13)
 - ✅ M2.3 Inbox-only writes: `propose_categorizations`, `propose_rule`,
-  `propose_transfer_pair`, `save_report`. `coffer_core::inbox`: typed, validated payloads,
+  `propose_transfer_pair`, `save_report`. `orre_core::inbox`: typed, validated payloads,
   one pending copy per payload, 200 pending suggestions and 500 reports per client
-  (the user frees room with `coffer inbox delete-report`), `V13__inbox.sql` (decision columns and triggers); approve and reject with an impact
+  (the user frees room with `orre inbox delete-report`), `V13__inbox.sql` (decision columns and triggers); approve and reject with an impact
   preview
 - ✅ M2.4 `monthly_review` prompt: its steps name only the tools at the client's level and
   end with `save_report` (`crates/mcp/src/prompts.rs`)
@@ -631,32 +631,32 @@ server (2026-11-13)"; setup: [`mcp-setup.md`](mcp-setup.md).
   whose bank text is only a person's name hidden below `standard` (names at `standard`
   accepted, user decision 2026-11-13), account details withheld from merchants and
   descriptions at every level
-- ✅ M2.6 Recurring-payment / subscription detection in core. `coffer_core::recurring`:
+- ✅ M2.6 Recurring-payment / subscription detection in core. `orre_core::recurring`:
   deterministic chains per cadence (weekly to yearly), fixed and variable amounts, noise
   rejection, "Not recurring" dismissals (`recurring_dismissal`, V12)
-- ✅ M2.7 CLI inbox until the GUI exists: `coffer inbox [approve|reject]`. Also `list`,
+- ✅ M2.7 CLI inbox until the GUI exists: `orre inbox [approve|reject]`. Also `list`,
   `show` (with the impact preview) and the saved reports (`reports`, `report`,
   `delete-report` by ID or by client, all or nothing, `--yes` to delete); approving
   several IDs is all or nothing; AI-written text is shown stripped and labelled unverified
 - ✅ M2.8 Setup docs for Claude Code, Claude Desktop, and Codex
   ([`mcp-setup.md`](mcp-setup.md): configuration, levels, the kill switch, the log, a
-  profile with Coffer as the only data source)
+  profile with Orre as the only data source)
 - ✅ M2.9 MCP tool tests against fixture databases. One test file per tool, plus
   `crates/mcp/tests/matrix.rs` (every tool × level: registration, `refused_level`, no
   PII, one log row per call, inbox-only writes; a new tool fails it until listed) and
   `crates/mcp/tests/m2_exit.rs`
 - ✅ M2.10 Schedules: confirm a detected recurring series (M2.6) as a schedule with an
   expected date, amount and tolerance; imports fulfil occurrences; missed or late payments
-  are flagged. `coffer_core::schedule`, `V12__schedule.sql` (`start_date`, matches and
+  are flagged. `orre_core::schedule`, `V12__schedule.sql` (`start_date`, matches and
   skips; user decision 2026-11-13); matched in the import commit, cleared by undo;
-  `coffer schedules detect|list|show|confirm|skip|unskip|match|unmatch|pause|resume|end|
+  `orre schedules detect|list|show|confirm|skip|unskip|match|unmatch|pause|resume|end|
   delete|dismiss|undismiss`; lock dates apply to occurrence dates
 - ✅ M2.11 MCP access control: MCP is off until a client is enabled (CLI, and the app's
   Settings since M3.15). Each
   client has an access level: `aggregate` (totals only), `pseudonymous` (stable keyed-hash
   merchant tokens) or `standard`. Tools above a client's level are never registered. This
   guards against over-sharing; it is not a security boundary against local processes.
-  `coffer ai-access list|enable|level|revoke|ignore|off|on|log`; the kill switch and level
+  `orre ai-access list|enable|level|revoke|ignore|off|on|log`; the kill switch and level
   read on every call, `tools/list_changed` on a change; unknown names recorded as
   `requested`
 - ✅ M2.12 AI access log: every tool call records the client, tool, redacted arguments,
@@ -669,12 +669,12 @@ server (2026-11-13)"; setup: [`mcp-setup.md`](mcp-setup.md).
   length-capped, labelled `description_untrusted`, with control, zero-width and bidi
   characters stripped and URLs made inert. Text matching injection patterns is withheld,
   and the app shows how much was withheld. Setup docs (M2.8) recommend a client profile
-  without web or fetch tools. `coffer_core::envelope` (`sanitize`, `strip_invisible`,
+  without web or fetch tools. `orre_core::envelope` (`sanitize`, `strip_invisible`,
   `reads_like_instructions`, pseudonyms); descriptions hidden below `standard`
 - ✅ M2.14 MCP over the new model: reads use ledger lines (splits), tags and refund links;
   new suggestion kinds `merchant_alias` and `refund_link`. The app files `rule`
-  suggestions itself after repeated identical manual recategorisations (source `coffer`).
-  `coffer_core::inbox::own`, fired by `coffer categorize <id>... <category>` until the
+  suggestions itself after repeated identical manual recategorisations (source `orre`).
+  `orre_core::inbox::own`, fired by `orre categorize <id>... <category>` until the
   GUI's inline edit (M3)
 
 **Exit criteria:** ask "where did my money go last month?" in Claude Code and get
@@ -687,7 +687,7 @@ Every tool call appears in the access log.
 
 - ✅ M3.1 App shell: sidebar navigation, window state, built on the D2 theme. Every screen in
   M3–M4 follows its Paper design from the design track; no stock component styling.
-  `crates/app/src/shell.rs` (`ShellView`), the window `coffer` opens. Navigation follows
+  `crates/app/src/shell.rs` (`ShellView`), the window `orre` opens. Navigation follows
   Paper, not the sidebar this item first named: the eight view tabs in the title bar
   (`gpui-base` tabs: role, selected state) and the Settings button (`Glyph::Settings`,
   active icon-button look; clicked again, it goes back to the previous view (user)),
@@ -711,7 +711,7 @@ Every tool call appears in the access log.
   Kind, Currency, optional opening Balance with its date) and Add balance (drawn for M3.2
   on `8D8-0`, `I7C-0`, approved by the user). Core: `account::update`, `usage`,
   `create_with_balance`, `entered_balances`, `reporting::account_tree`; V15 adds
-  `account.preset_id` (user); `coffer accounts add --preset` and a PRESET column. Coffer's
+  `account.preset_id` (user); `orre accounts add --preset` and a PRESET column. Orre's
   dialog and select are built on the unstyled `gpui-base` roots (`ui::dialog`,
   `ui::menu`). Undrawn states composed from existing specs (user; `DESIGN.md` →
   "Accounts panel" → "Built in M3.2"). "Close account…" moved to M3.17 (user). Snapshots
@@ -742,7 +742,7 @@ Every tool call appears in the access log.
   preview of the first 10 rows with flagged rows and their notes) → Review (New, Already
   imported, Flagged, AFTER IMPORT, the reconciliation and locked-period blocks) → the
   commit on a background thread, then the notification with Undo; the accounts panel
-  and Transactions read the database again. `import::session` chooses as `coffer
+  and Transactions read the database again. `import::session` chooses as `orre
   import` does (OFX; a preset by its header; the account's preset; else suggested
   columns, never a guessed date order) and `import::store` (`ImportStore`) opens the
   database per call. Import crate: `csv::MappingDraft` (suggest, build), `FileLayout`,
@@ -765,7 +765,7 @@ Every tool call appears in the access log.
   (INBOX Pending/Approved/Rejected, KIND, SOURCE as filters), the groups (one per kind and
   source, widest reach first) with Approve all (n) / Reject all, all or none
   (`inbox::approve_all`, new `inbox::reject_all`), row ✓/✕ on hover and selection, A / R /
-  ↑↓, the agent card and Coffer's neutral one, Approved and Rejected read-only; the tab's
+  ↑↓, the agent card and Orre's neutral one, Approved and Rejected read-only; the tab's
   badge counts agents' pending suggestions. `InboxStore` opens the database per call. A
   rule approved here is applied to history, never over a category you set. No undo yet,
   no CHECKS, Show in Transactions or Edit in Rules (user). Snapshots (`inbox-*`) checked
@@ -789,7 +789,7 @@ Every tool call appears in the access log.
   editor (built)"
 - ✅ M3.8 Transfer-pair confirmation. The Transactions inspector's Transfer section,
   composed from existing specs, not drawn (user, 2026-11-15): a suggested pair is a card
-  like Coffer's refund suggestion ("Is this a transfer?", why, the other side, "Confirm
+  like Orre's refund suggestion ("Is this a transfer?", why, the other side, "Confirm
   transfer" / "Not a transfer"); a confirmed pair is one row like a link row, its ✕
   unpairing; each decision has the undo bar. Core: `transfer::{confirm, reject, unpair,
   undo, pair_of, availability}` (`transfer/decision.rs`): status changes on the
@@ -834,7 +834,7 @@ Every tool call appears in the access log.
 - ✅ M3.11 Link refunds, reimbursements and settlements; outstanding-claims and owed-to-me
   lists. As D6.5 draws them: the Transactions inspector's Share (Just me / Shared /
   Claim back, Yours and Owed by) and Links sections (rows with ✕ and the undo bar,
-  Coffer's suggestion card), the link dialog, the linked refund's read-only category, the
+  Orre's suggestion card), the link dialog, the linked refund's read-only category, the
   table's "· refund", "· shared", "Repays …" cells, and Owed to you as a third CHECKS
   row in the Inbox (expense claims with the matched payment, people, a person's costs,
   payments and name). Every link, unlink, share and rename is one undoable change batch:
@@ -850,7 +850,7 @@ Every tool call appears in the access log.
   duplicates with the pair open side by side, why it was flagged, "If you merge", M / N /
   ←→ / ↑↓, the undo bar for merges and dismissals; Balance checks per account with the
   failing window, the pair that explains it, lock and unlock dialogs). Core's read model
-  is `coffer_core::checks` (the merge's own plan rolled back). The status bar counts
+  is `orre_core::checks` (the merge's own plan rolled back). The status bar counts
   failing checks and the flagged dot opens them. No migration. Snapshots (`review-*`)
   checked by eye against `8SE-0`, `98K-0`, `9MQ-0`; the window itself only
   build-verified. Decisions: `ARCHITECTURE.md` → "Decision record: review queues (built)"
@@ -871,7 +871,7 @@ Every tool call appears in the access log.
   `HFH-0` and `3WT-0`; the window itself only build-verified. Decisions:
   `ARCHITECTURE.md` → "Decision record: the Rules view (built)"
 - ✅ M3.14 Inbox impact preview: what approving each suggestion would change (e.g. "changes
-  143 past transactions; 12 have a category you set"). `coffer_core::inbox::preview`
+  143 past transactions; 12 have a category you set"). `orre_core::inbox::preview`
   (`describe`, `preview`, `covered_by`): the rows a rule, name or categorisation would
   change with now and after and the ones it leaves alone, spending by category, what
   decides a rule's matches today, what it settles, a wide rule summed by merchant, a
@@ -998,7 +998,7 @@ that changes a decision needs a new decision record in its topic file.
 
 **High**
 
-- ✅ R.1 Approval is reachable by the agents it contains. `coffer inbox approve <id>…` takes
+- ✅ R.1 Approval is reachable by the agents it contains. `orre inbox approve <id>…` takes
   no confirmation and has no terminal check (`crates/app/src/cli/inbox.rs`, `ApproveArgs`),
   and Claude Code and Codex have a shell by default, so an injected agent can file a
   suggestion and approve it. Require an interactive terminal for `inbox approve`,
@@ -1105,7 +1105,7 @@ that changes a decision needs a new decision record in its topic file.
   `account.preset_id` naming nothing: include them in backups or say so. Done (user):
   automatic backups keep the 10 most recent and one a month for 12 months; manual ones
   stay until deleted. Settings shows the total and has "Delete backup…" (composed, not
-  drawn in Paper); `coffer backup --delete <file> [--yes]` needs a terminal with `--yes`.
+  drawn in Paper); `orre backup --delete <file> [--yes]` needs a terminal with `--yes`.
   Presets aren't in backups and the restore dialog and CLI say so; an account whose preset
   isn't on this computer says "not on this computer"
 - ✅ R.13 A file imported into the wrong account isn't noticed. The OFX account ID is parsed
@@ -1185,7 +1185,7 @@ stays as it is.
 
 ## UI review — agent-readable views and keyboard paths ✅ (U.5 deferred)
 
-From reviewing Vercel's UI SDK against Coffer on 2026-11-17 (UI SDK itself is web-only
+From reviewing Vercel's UI SDK against Orre on 2026-11-17 (UI SDK itself is web-only
 and isn't used). Three ideas apply: views that state their contents and actions as data
 instead of pixels, behaviours kept apart from their looks, and a keyboard path for every
 drag. Not a milestone. Order: U.1 with U.4, then U.6. New UI is drawn in Paper first.
@@ -1207,12 +1207,12 @@ drag. Not a milestone. Order: U.1 with U.4, then U.6. New UI is drawn in Paper f
 - ✅ U.4 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`) and a
   line under `AGENTS.md` → Invariants, before U.1 lands: `describe()` and any path that
   runs a view's actions exist only in tests or a dev feature, never in the release binary
-  and never reachable from `coffer mcp`. A tool that could press Approve would get round
-  "MCP writes go to the inbox only" and approval in Coffer's own UI. L.7's in-GUI MCP
+  and never reachable from `orre mcp`. A tool that could press Approve would get round
+  "MCP writes go to the inbox only" and approval in Orre's own UI. L.7's in-GUI MCP
   falls under the same record
 - ⬜ U.5 Later, only if U.1–U.3 earn it: a dev-feature-only local socket so an agent can
   drive a dev build through `describe()` and its actions, against a scratch
-  `COFFER_DATA_DIR`, to check a UI change in the running app instead of reporting it as
+  `ORRE_DATA_DIR`, to check a UI change in the running app instead of reporting it as
   build-verified. Never against the real database. Deferred (2026-11-18): U.1–U.3 earned
   `describe()` for tests, not yet a driver. Before one is worth building: actions need to
   be named commands a driver can run (they're labels now), dialogs live in the shell's
@@ -1252,7 +1252,7 @@ done or closed by a note saying why not; every drag in the app has a keyboard pa
 What SurrealDB's live queries give, built on SQLite. Today a view reloads after the
 app's own changes and when it's shown (`ShellView::show`), so a change made by another
 process is seen only when the user moves around: an MCP client filing suggestions,
-`coffer import`, `undo-import` or `categorize` in a terminal. The Inbox badge and
+`orre import`, `undo-import` or `categorize` in a terminal. The Inbox badge and
 Transactions stay stale meanwhile. SQLite can't push a change to another process, so the
 app notices it itself. Not a milestone. Order: LU.1, LU.2, LU.4, then LU.3 and LU.5;
 LU.6 alongside.
@@ -1269,7 +1269,7 @@ LU.6 alongside.
     would write another table on every MCP insert, against "MCP writes go to the inbox
     only". It would also cost a write per imported row.
   - **The poll interval, and slowing it when the window isn't focused.**
-- ⬜ LU.2 A watcher in core (`coffer_core::watch`, no GPUI), with two steps:
+- ⬜ LU.2 A watcher in core (`orre_core::watch`, no GPUI), with two steps:
   - **Stamp:** the file metadata above. An unchanged stamp ends the check.
   - **Fingerprints:** on a changed stamp, one open through `backup::gate::open` runs a
     cheap indexed query per topic, e.g. the Inbox's newest suggestion id and pending
@@ -1308,8 +1308,8 @@ LU.6 alongside.
   (`ledger_bench` or a new example) and record it in LU.1's record. Fingerprints use
   existing indexes, or a new migration adds them.
 
-**Exit criteria:** with Coffer open, a suggestion filed by an MCP client and a
-`coffer import` run in a terminal both show within about two seconds, without clicking.
+**Exit criteria:** with Orre open, a suggestion filed by an MCP client and a
+`orre import` run in a terminal both show within about two seconds, without clicking.
 Nothing typed, selected or scrolled is lost. The idle cost is measured and recorded.
 Checked by tests, and in the real window by the user.
 
@@ -1362,7 +1362,7 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
   it), the same sign and a similar amount. Uses, each drawn in Paper first where it
   shows:
   - **A category suggestion for an uncategorised row,** from its nearest categorised
-    neighbours, filed as Coffer's own suggestion (source `coffer`), not an AI one. It's
+    neighbours, filed as Orre's own suggestion (source `orre`), not an AI one. It's
     made after an import commits, never inside it.
   - **"Similar" in the transaction inspector.**
   - **A read tool at `standard`** (later, with L.32), with its access-level test.
@@ -1377,7 +1377,7 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
 
 **Exit criteria:** `search_transactions` with a `query` returns the same rows as before
 and is measured faster at 100,000 transactions. An uncategorised row with categorised
-look-alikes gets Coffer's own category suggestion. Query text can't change a search's
+look-alikes gets Orre's own category suggestion. Query text can't change a search's
 meaning.
 
 ---

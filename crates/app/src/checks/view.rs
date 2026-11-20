@@ -30,7 +30,7 @@ use super::text::count;
 use super::{Checks, Outcome, Queue};
 
 /// The key context of the queues' canvas, where M, N, ←→ and ↑↓ work.
-pub const CONTEXT: &str = "CofferChecks";
+pub const CONTEXT: &str = "OrreChecks";
 
 /// The queues' keys, declared once (ROADMAP U.7): [`super::init`] binds
 /// them and the toolbar hints them. ↑↓ move through the open queue's rows;
@@ -47,7 +47,7 @@ pub const KEYS: ViewKeys = ViewKeys::new(
 );
 
 gpui_kit::actions!(
-    coffer_checks,
+    orre_checks,
     [
         /// M: merge the selected pair.
         MergeSelected,

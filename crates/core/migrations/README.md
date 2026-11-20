@@ -1,8 +1,8 @@
 # Migrations
 
-SQL migrations for Coffer's SQLite database, embedded into `coffer-core` at
-compile time by `refinery` and applied by `coffer_core::db::Database::open` (the
-app and the CLI). `Database::open_existing` (`coffer mcp`) never applies them: it
+SQL migrations for Orre's SQLite database, embedded into `orre-core` at
+compile time by `refinery` and applied by `orre_core::db::Database::open` (the
+app and the CLI). `Database::open_existing` (`orre mcp`) never applies them: it
 refuses a database with pending migrations.
 
 - Name files `V<n>__<snake_case_name>.sql`, with `<n>` one higher than the last
@@ -34,7 +34,7 @@ refuses a database with pending migrations.
   asks for it with this exact first line:
 
   ```sql
-  -- coffer: foreign_keys=off
+  -- orre: foreign_keys=off
   ```
 
   The marker, not the version number, is what counts, so renumbering a migration

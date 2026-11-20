@@ -143,7 +143,7 @@ pub struct Account {
     pub closed_on: Option<NaiveDate>,
     /// The ID of the CSV preset the account's next import uses
     /// (`account.preset_id`, V15), e.g. `uk-monzo`. Core doesn't check it
-    /// against the presets, which `coffer-import` holds.
+    /// against the presets, which `orre-import` holds.
     pub preset: Option<String>,
 }
 
@@ -330,7 +330,7 @@ pub enum Error {
     )]
     NotValued(&'static str),
 
-    #[error("a liability's value is what you owe, which Coffer stores below zero")]
+    #[error("a liability's value is what you owe, which Orre stores below zero")]
     LiabilityAboveZero,
 
     #[error("the account already has an entered balance on {0}; edit that one instead")]
@@ -704,7 +704,7 @@ pub(crate) fn date_key(date: NaiveDate) -> String {
 }
 
 /// Reads a `YYYY-MM-DD` column. The schema checks the form, so a failure
-/// means the file was changed outside Coffer.
+/// means the file was changed outside Orre.
 pub(crate) fn date(row: &Row<'_>, column: &str) -> rusqlite::Result<NaiveDate> {
     let text: String = row.get(column)?;
     NaiveDate::parse_from_str(&text, "%Y-%m-%d").map_err(|_| invalid(row, column))
@@ -730,7 +730,7 @@ mod tests {
 
     fn open() -> (Database, TempDir) {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         (db, dir)
     }
 

@@ -20,8 +20,8 @@ pub mod session;
 pub mod store;
 pub mod text;
 
-use coffer_core::id::BatchId;
 use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
+use orre_core::id::BatchId;
 
 use store::ImportStore;
 use text::Seg;

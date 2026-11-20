@@ -11,15 +11,15 @@
 mod common;
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, EnteredBalance, EnteredSource};
-use coffer_core::exclusion::{self, ExclusionReason};
-use coffer_core::id::TransactionId;
-use coffer_core::import::{
+use common::{Scratch, outcome_kinds, read_ofx};
+use orre_core::account::{self, EnteredBalance, EnteredSource};
+use orre_core::exclusion::{self, ExclusionReason};
+use orre_core::id::TransactionId;
+use orre_core::import::{
     self, CheckedBalance, Committed, Confirmations, Error, ReconciliationStatus, RowOutcome,
 };
-use coffer_core::money::{Currency, Money};
-use coffer_core::note;
-use common::{Scratch, outcome_kinds, read_ofx};
+use orre_core::money::{Currency, Money};
+use orre_core::note;
 
 const FIRST: &str = "corrections-first.ofx";
 const NEXT: &str = "corrections-next.ofx";
@@ -34,7 +34,7 @@ fn gbp(minor: i64) -> Money {
     Money::new(minor, Currency::GBP)
 }
 
-fn live(scratch: &Scratch, account: coffer_core::id::AccountId, id: &str) -> TransactionId {
+fn live(scratch: &Scratch, account: orre_core::id::AccountId, id: &str) -> TransactionId {
     TransactionId::new(scratch.by_external_id(account, id).unwrap().id)
 }
 

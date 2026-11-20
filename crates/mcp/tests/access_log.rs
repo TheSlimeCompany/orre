@@ -6,9 +6,9 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::envelope::is_invisible;
-use coffer_mcp::registry::{Call, Registry, Reply, ToolError, ToolSpec, Writes};
+use orre_core::access_log::Outcome;
+use orre_core::envelope::is_invisible;
+use orre_mcp::registry::{Call, Registry, Reply, ToolError, ToolSpec, Writes};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -92,7 +92,7 @@ fn echo(_call: &Call<'_>, args: EchoArgs) -> Result<Reply<Echo>, ToolError> {
 }
 
 fn registry() -> Registry {
-    let mut registry = coffer_mcp::tools::registry();
+    let mut registry = orre_mcp::tools::registry();
     registry.add(ECHO, echo);
     registry.add(STANDARD_ECHO, echo);
     registry
@@ -232,7 +232,7 @@ async fn the_result_hash_follows_the_result() {
     let hash = log[0].result_hash.clone().expect("an ok call has a hash");
     assert_eq!(hash.len(), 64);
     assert_eq!(
-        coffer_mcp::access::result_hash(&first).as_deref(),
+        orre_mcp::access::result_hash(&first).as_deref(),
         Some(&*hash),
         "the hash is of what the client received"
     );

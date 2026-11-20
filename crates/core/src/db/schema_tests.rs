@@ -62,7 +62,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         Self { db, _dir: dir }
     }
 
@@ -1483,7 +1483,7 @@ fn suggestions_and_reports() {
         .unwrap();
 }
 
-/// MCP clients (V11): names checked and `coffer` reserved; a new client
+/// MCP clients (V11): names checked and `orre` reserved; a new client
 /// is a request, not enabled, at `aggregate`; only an answered client is
 /// enabled.
 #[test]
@@ -1504,7 +1504,7 @@ fn mcp_clients_start_as_requests() {
         (false, "aggregate", "requested")
     );
 
-    for name in ["", "coffer", "Coffer", "claude code", "claude\u{202e}"] {
+    for name in ["", "orre", "Orre", "claude code", "claude\u{202e}"] {
         assert_refused(conn.execute("INSERT INTO mcp_client (name) VALUES (?1)", [name]));
     }
     assert_refused(conn.execute(
@@ -1592,7 +1592,7 @@ fn pending_access_log_rows_are_checked() {
 #[test]
 fn v14_keeps_access_log_rows_and_ids() {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     {
         let db = super::open_at_version(&path, 13).unwrap();
         let conn = db.conn();
@@ -1712,7 +1712,7 @@ fn tag_names_are_checked_and_unique_ignoring_case() {
 
     insert("Work", 0).unwrap();
     insert("Clinic", 1).unwrap();
-    // NOCASE folds ASCII: core folds the rest (`coffer_core::tag`).
+    // NOCASE folds ASCII: core folds the rest (`orre_core::tag`).
     assert_refused(insert("WORK", 0));
     assert_refused(insert("work", 1));
     for blank in ["", " ", "\t"] {

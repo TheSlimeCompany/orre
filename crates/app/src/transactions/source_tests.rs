@@ -2,21 +2,21 @@
 //! again" and the undo bar, the undo-import confirmation, and manual rows
 //! (the New-transaction dialog, the inspector's Date, Amount and Account,
 //! Delete transaction), against a scratch database through
-//! [`TransactionStore`], as `coffer` runs them.
+//! [`TransactionStore`], as `orre` runs them.
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::exclusion::{self, ExclusionReason};
-use coffer_core::id::{AccountId, BatchId, TransactionId};
-use coffer_core::import::{self, Committed};
-use coffer_core::manual::{self, ManualTransaction};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reconciliation;
-use coffer_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
-use coffer_core::transfer;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{SharedString, TestAppContext, VisualTestContext};
+use orre_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
+use orre_core::db::Database;
+use orre_core::exclusion::{self, ExclusionReason};
+use orre_core::id::{AccountId, BatchId, TransactionId};
+use orre_core::import::{self, Committed};
+use orre_core::manual::{self, ManualTransaction};
+use orre_core::money::{Currency, Money};
+use orre_core::reconciliation;
+use orre_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
+use orre_core::transfer;
 use tempfile::TempDir;
 
 use super::confirm::{DeleteTransactionDialog, UndoImportDialog};
@@ -78,7 +78,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let current = account::create(
             &mut db,
@@ -749,7 +749,7 @@ fn only_manual_rows_can_be_deleted(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn a_superseded_row_is_labelled_and_has_nothing_to_change(cx: &mut TestAppContext) {
     let dir = TempDir::new().unwrap();
-    let path = dir.path().join("coffer.db");
+    let path = dir.path().join("orre.db");
     let mut db = Database::open(&path).unwrap();
     let current = account::create(
         &mut db,

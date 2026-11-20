@@ -17,7 +17,7 @@ pub(super) struct Fixture {
 impl Fixture {
     pub(super) fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         Fixture { db, _dir: dir }
     }
 

@@ -317,7 +317,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Tag> {
     Ok(Tag {
         id: row.get("id")?,
         // The schema checks less than `TagName` does (ASCII whitespace
-        // only), so a failure means the file was changed outside Coffer.
+        // only), so a failure means the file was changed outside Orre.
         name: TagName::new(&name).map_err(|_| crate::account::invalid(row, "name"))?,
         private: row.get("private")?,
     })

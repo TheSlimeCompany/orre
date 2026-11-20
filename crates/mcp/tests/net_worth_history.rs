@@ -5,9 +5,9 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::account::AccountKind;
-use coffer_core::money::Currency;
+use orre_core::access_log::Outcome;
+use orre_core::account::AccountKind;
+use orre_core::money::Currency;
 use serde_json::{Value, json};
 use support::reports::{add_valuation, add_valuation_account, amounts, assert_redacted, gbp};
 use support::*;

@@ -7,7 +7,7 @@
 -- without its ID column, stores every overlapping row twice. Such a pair is
 -- two imported rows from different imports with the same date, amount and
 -- text, where at least one has a source ID and the IDs differ. Detection
--- (`coffer_core::duplicate`) records it with this reason.
+-- (`orre_core::duplicate`) records it with this reason.
 --
 -- The reason's CHECK has to accept the new key, and SQLite can't change a
 -- CHECK in place, so the table is rebuilt: the same columns, constraints,

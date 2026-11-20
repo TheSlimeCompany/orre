@@ -8,7 +8,7 @@
 //! instead: one line in `<database>-access-pending`, next to the database.
 //! The next time something opens the database to write, [`flush`] moves the
 //! lines into `mcp_access_log` with their own times. The server flushes on
-//! every call and listing that opens the database, `coffer ai-access`
+//! every call and listing that opens the database, `orre ai-access`
 //! before it shows anything, and `backup::restore` once the restored
 //! database is open.
 //!
@@ -21,7 +21,7 @@
 //! `info` or above.
 //!
 //! **Files.** `0600` when created. Every append is synced before
-//! [`record`] returns. Several `coffer mcp` processes (one per client) may
+//! [`record`] returns. Several `orre mcp` processes (one per client) may
 //! record and flush at once: each holds the operating system's exclusive
 //! lock on the pending file (`File::lock`, std) for its whole append or
 //! flush, so lines never interleave and a flush never empties a file under

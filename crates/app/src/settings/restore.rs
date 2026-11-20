@@ -4,7 +4,7 @@
 //!
 //! The M1.28 checks run first, on a copy, changing nothing
 //! (`backup::detail::assess`): the file is intact (SQLite's integrity
-//! check), and this version of Coffer can read it (migration history, a
+//! check), and this version of Orre can read it (migration history, a
 //! schema no newer). Each is a 24px row with a `check`, or a `danger` row
 //! with `alert` when it fails; then what restoring undoes, and that the
 //! current state is backed up first and AI clients are refused until it's
@@ -18,15 +18,15 @@
 //! restores; a damaged file fails the first row and doesn't show the
 //! second; a current database that can't be read, or a restore that was
 //! refused, is said in `danger` with what to do; an earlier restore that
-//! stopped part-way is mentioned, as `coffer restore` does. R.12 adds a
+//! stopped part-way is mentioned, as `orre restore` does. R.12 adds a
 //! caption that user presets aren't in backups ([`PRESETS_NOT_IN_BACKUPS`]).
 
-use coffer_core::backup::Current;
-use coffer_core::backup::detail::{Assessment, Since};
 use gpui_kit::{
     AnyElement, Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Task, Window, div,
 };
+use orre_core::backup::Current;
+use orre_core::backup::detail::{Assessment, Since};
 
 use crate::accounts::DialogClosed;
 use crate::theme::tokens::{color, size, spacing, typography};
@@ -346,7 +346,7 @@ impl Render for RestoreDialog {
                 checks.push(check_row(true, "The file is intact", intact()));
                 checks.push(check_row(
                     true,
-                    "This version of Coffer can read it",
+                    "This version of Orre can read it",
                     vec![plain("schema "), mono(check.schema_version.to_string())],
                 ));
                 if check.current == Current::Unreadable {
@@ -361,11 +361,11 @@ impl Render for RestoreDialog {
             Some(Assessment::Damaged { .. }) => {
                 checks.push(check_row(false, "The file is damaged", intact()));
             }
-            Some(Assessment::NotCoffer) => {
+            Some(Assessment::NotOrre) => {
                 checks.push(check_row(true, "The file is intact", intact()));
                 checks.push(check_row(
                     false,
-                    "It isn't a Coffer backup",
+                    "It isn't an Orre backup",
                     vec![plain("no migration history")],
                 ));
             }
@@ -373,7 +373,7 @@ impl Render for RestoreDialog {
                 checks.push(check_row(true, "The file is intact", intact()));
                 checks.push(check_row(
                     false,
-                    "It was made by a newer Coffer",
+                    "It was made by a newer Orre",
                     vec![
                         plain("schema "),
                         mono(found.to_string()),
@@ -386,7 +386,7 @@ impl Render for RestoreDialog {
                 checks.push(check_row(true, "The file is intact", intact()));
                 checks.push(check_row(
                     false,
-                    "It's from a different build of Coffer",
+                    "It's from a different build of Orre",
                     vec![plain("migration history")],
                 ));
             }
@@ -412,10 +412,10 @@ impl Render for RestoreDialog {
             }
             body.push(
                 caption(if self.stage == Stage::Restoring {
-                    "Restoring… Coffer backs up how things are now first. AI clients are \
+                    "Restoring… Orre backs up how things are now first. AI clients are \
                      refused until it's done."
                 } else {
-                    "Coffer backs up how things are now before it swaps the files, so you can \
+                    "Orre backs up how things are now before it swaps the files, so you can \
                      restore that backup to come back. AI clients are refused until it's done."
                 })
                 .into_any_element(),
@@ -436,7 +436,7 @@ impl Render for RestoreDialog {
             body.push(
                 caption(match assessment {
                     Assessment::TooNew { .. } => {
-                        "Update Coffer, then restore it. Nothing has changed."
+                        "Update Orre, then restore it. Nothing has changed."
                     }
                     _ => "It can't be restored. Nothing has changed.",
                 })
@@ -477,7 +477,7 @@ impl Render for RestoreDialog {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::backup::detail::ImportSince;
+    use orre_core::backup::detail::ImportSince;
 
     use super::*;
 

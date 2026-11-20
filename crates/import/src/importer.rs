@@ -2,7 +2,7 @@
 
 use std::cmp::Reverse;
 
-use coffer_core::statement::{BalanceCurrencyMismatch, SourceFormat, SourceLocation, Statement};
+use orre_core::statement::{BalanceCurrencyMismatch, SourceFormat, SourceLocation, Statement};
 
 use crate::SourceFile;
 
@@ -62,9 +62,9 @@ pub enum ImportError {
     #[error("the file holds {count} statements; choose which one to import")]
     MultipleStatements { count: usize },
 
-    /// The file is readable, but holds something Coffer doesn't import,
+    /// The file is readable, but holds something Orre doesn't import,
     /// such as an OFX investment statement.
-    #[error("Coffer can't import {what}")]
+    #[error("Orre can't import {what}")]
     Unsupported { what: &'static str },
 }
 
@@ -93,7 +93,7 @@ pub trait Detect {
 /// 2. [`parse`](Importer::parse) reads the whole file in its own format:
 ///    decoding, splitting into records, the format's structure.
 /// 3. [`normalize`](Importer::normalize) turns those records into
-///    [`StatementLine`](coffer_core::statement::StatementLine)s: dates, exact
+///    [`StatementLine`](orre_core::statement::StatementLine)s: dates, exact
 ///    amounts in minor units, which text goes where.
 ///
 /// Only a file that can't be read as a whole is an error. A record that
@@ -155,8 +155,8 @@ pub fn detect<'a>(importers: &[&'a dyn AnyImporter], file: &SourceFile) -> Vec<C
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
-    use coffer_core::money::{Currency, DecimalMark, Money};
-    use coffer_core::statement::{DatedBalance, Field, RowProblem, StatementLine};
+    use orre_core::money::{Currency, DecimalMark, Money};
+    use orre_core::statement::{DatedBalance, Field, RowProblem, StatementLine};
 
     use super::*;
 
@@ -375,7 +375,7 @@ mod tests {
                     SourceLocation::Line(4),
                     RowProblem::Amount {
                         field: Field::Amount,
-                        error: coffer_core::money::ParseAmountError::TooPrecise {
+                        error: orre_core::money::ParseAmountError::TooPrecise {
                             currency: Currency::GBP
                         },
                     }

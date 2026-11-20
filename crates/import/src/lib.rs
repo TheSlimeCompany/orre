@@ -1,8 +1,8 @@
-//! Coffer's statement importers: the [`Importer`] trait (detect → parse →
+//! Orre's statement importers: the [`Importer`] trait (detect → parse →
 //! normalize), CSV (generic and `presets/<region>/<bank>.toml`) and OFX/QFX.
 //!
 //! An importer turns a [`SourceFile`] into a
-//! [`Statement`](coffer_core::statement::Statement), the normalized form that
+//! [`Statement`](orre_core::statement::Statement), the normalized form that
 //! core deduplicates, reconciles and commits. Import is deterministic: no
 //! model or network calls. [`csv::CsvImporter`] reads delimited text through
 //! a [`csv::CsvMapping`]; [`preset::Presets`] loads the bank presets that

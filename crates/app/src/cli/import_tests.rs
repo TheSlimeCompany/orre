@@ -1,17 +1,17 @@
-//! `coffer import` and the bank's corrections (R.4): the preview lists them,
+//! `orre import` and the bank's corrections (R.4): the preview lists them,
 //! `--yes` accepts them like flagged rows and a mismatch, and the summary
 //! says what each stored row kept back. Runs against a scratch database and
 //! the synthetic `fixtures/ofx/corrections-*.ofx`.
 
 use std::path::{Path, PathBuf};
 
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::id::TransactionId;
-use coffer_core::import::Confirmations;
-use coffer_core::money::{Currency, Money};
-use coffer_core::split::{self, SplitLine};
-use coffer_import::preset::Presets;
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::id::TransactionId;
+use orre_core::import::Confirmations;
+use orre_core::money::{Currency, Money};
+use orre_core::split::{self, SplitLine};
+use orre_import::preset::Presets;
 use tempfile::TempDir;
 
 use super::*;
@@ -33,7 +33,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
         account::create(
             &mut db,
             &NewAccount::new("Current", AccountKind::Current, Currency::GBP),
@@ -254,7 +254,7 @@ fn a_file_for_another_account_is_warned_about() {
     assert!(!import("Current", 2, true).contains("Warning:"));
 }
 
-/// `coffer undo-import` says what happens to the rows a correction
+/// `orre undo-import` says what happens to the rows a correction
 /// replaced: undoing the correcting import brings them back, and undoing
 /// the earlier one takes them with it while the corrections stay.
 #[test]

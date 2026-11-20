@@ -1,10 +1,10 @@
-//! `coffer categorize <ID>... <CATEGORY>` (ROADMAP M2.14): set the category
+//! `orre categorize <ID>... <CATEGORY>` (ROADMAP M2.14): set the category
 //! of transactions as the user, until the app can.
 //!
 //! It goes through [`own::recategorize`], the one way the user's own
 //! recategorisations reach the database: all the rows in one DB
 //! transaction, recorded as one undoable change batch, with the category
-//! source `user`. That is also what lets Coffer notice repeated identical
+//! source `user`. That is also what lets Orre notice repeated identical
 //! edits and file its own `rule` suggestion ([`own`] documents when); the
 //! command says when it did.
 //!
@@ -19,14 +19,12 @@ use std::io::Write;
 
 use anyhow::{Context, bail};
 use clap::Args;
-use coffer_core::category::{CategoryKey, CategoryTree};
-use coffer_core::change::{self, CategorySource, CategoryValue, Value};
-use coffer_core::db::Database;
-use coffer_core::id::{ChangeBatchId, TransactionId};
-use coffer_core::inbox::own::{self, RecategorizeError};
-use coffer_core::inbox::{
-    self, COFFER_SOURCE, Filter, SuggestionId, SuggestionKind, SuggestionStatus,
-};
+use orre_core::category::{CategoryKey, CategoryTree};
+use orre_core::change::{self, CategorySource, CategoryValue, Value};
+use orre_core::db::Database;
+use orre_core::id::{ChangeBatchId, TransactionId};
+use orre_core::inbox::own::{self, RecategorizeError};
+use orre_core::inbox::{self, Filter, ORRE_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
 
 use super::import::plural;
 
@@ -41,7 +39,7 @@ pub struct CategorizeArgs {
     pub category: String,
 }
 
-/// `coffer categorize`.
+/// `orre categorize`.
 pub fn run(db: &mut Database, args: &CategorizeArgs, out: &mut dyn Write) -> anyhow::Result<()> {
     let key = CategoryKey::new(&args.category).map_err(|error| {
         anyhow::anyhow!(
@@ -63,7 +61,7 @@ pub fn run(db: &mut Database, args: &CategorizeArgs, out: &mut dyn Write) -> any
         items.push((id, key.clone()));
     }
 
-    let before = coffer_rule_suggestions(db)?;
+    let before = orre_rule_suggestions(db)?;
     let batch = match own::recategorize(db, &items) {
         Ok(batch) => batch,
         Err(RecategorizeError::Change(change::Error::TransactionNotFound(id))) => {
@@ -85,15 +83,15 @@ pub fn run(db: &mut Database, args: &CategorizeArgs, out: &mut dyn Write) -> any
         )?,
     }
 
-    let filed: Vec<SuggestionId> = coffer_rule_suggestions(db)?
+    let filed: Vec<SuggestionId> = orre_rule_suggestions(db)?
         .difference(&before)
         .copied()
         .collect();
     for id in filed {
         writeln!(
             out,
-            "Coffer suggested a rule for this merchant (suggestion {id}): \
-             `coffer inbox show {id}` shows it."
+            "Orre suggested a rule for this merchant (suggestion {id}): \
+             `orre inbox show {id}` shows it."
         )?;
     }
     Ok(())
@@ -154,8 +152,8 @@ fn describe(value: &CategoryValue, keys: &BTreeMap<i64, &CategoryKey>) -> String
     }
 }
 
-/// The pending `rule` suggestions Coffer filed itself.
-fn coffer_rule_suggestions(db: &Database) -> anyhow::Result<BTreeSet<SuggestionId>> {
+/// The pending `rule` suggestions Orre filed itself.
+fn orre_rule_suggestions(db: &Database) -> anyhow::Result<BTreeSet<SuggestionId>> {
     let pending = inbox::list(
         db,
         &Filter {
@@ -166,7 +164,7 @@ fn coffer_rule_suggestions(db: &Database) -> anyhow::Result<BTreeSet<SuggestionI
     .context("couldn't read the inbox")?;
     Ok(pending
         .into_iter()
-        .filter(|s| s.source_client == COFFER_SOURCE)
+        .filter(|s| s.source_client == ORRE_SOURCE)
         .map(|s| s.id)
         .collect())
 }

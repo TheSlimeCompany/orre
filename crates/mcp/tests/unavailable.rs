@@ -3,18 +3,18 @@
 //! log's pending file, with their own times, and the next call that opens
 //! the database moves them in, whichever server makes it. The restore lock
 //! cases are in `restore.rs`; the file's own guarantees (crash between
-//! insert and truncate, the cap) are tested in `coffer_core`.
+//! insert and truncate, the cap) are tested in `orre_core`.
 
 mod support;
 
 use std::fs::OpenOptions;
 use std::sync::Barrier;
 
-use coffer_core::access_log::{Outcome, pending};
-use coffer_core::backup;
-use coffer_core::db::{self, Database};
-use coffer_core::mcp_client::ClientName;
-use coffer_mcp::Server;
+use orre_core::access_log::{Outcome, pending};
+use orre_core::backup;
+use orre_core::db::{self, Database};
+use orre_core::mcp_client::ClientName;
+use orre_mcp::Server;
 use serde_json::json;
 use support::*;
 
@@ -26,7 +26,7 @@ async fn a_call_refused_with_migrations_pending_is_logged_after_migrating() {
     let client = fixture.connect("codex", AccessLevel::Aggregate).await;
     client.call_ok("list_categories", json!({})).await;
 
-    // As an older Coffer left it: the last migration not applied. Only its
+    // As an older Orre left it: the last migration not applied. Only its
     // history row is removed, so the server sees it as pending; applying it
     // again must work on its own result, so its effect is undone here too
     // (V23 creates `account_source_identity`). A later migration needs the
@@ -55,7 +55,7 @@ async fn a_call_refused_with_migrations_pending_is_logged_after_migrating() {
     let text = serde_json::to_string(&refused.content).unwrap();
     assert!(text.contains("couldn't open its database"), "{text}");
 
-    // Any `coffer` command migrates it.
+    // Any `orre` command migrates it.
     Database::open(fixture.path()).unwrap();
     client.call_ok("list_categories", json!({})).await;
 
@@ -86,7 +86,7 @@ async fn a_call_refused_with_migrations_pending_is_logged_after_migrating() {
     client.close().await;
 }
 
-/// Two servers (one per client, as two `coffer mcp` processes would be)
+/// Two servers (one per client, as two `orre mcp` processes would be)
 /// refused at the same time, on two threads, lose nothing; the first call
 /// that can open the database moves every refused call in, its own and the
 /// other's.

@@ -5,15 +5,15 @@
 //! Pure, so it's tested without a window.
 //!
 //! Core decides how a row counts and why a link was suggested
-//! (`coffer_core::reporting::linking`); this only words it. Merchant names
+//! (`orre_core::reporting::linking`); this only words it. Merchant names
 //! and people are untrusted or the user's own text: made [`plain`] before
 //! they're shown, never acted on.
 
 use chrono::NaiveDate;
-use coffer_core::link::LinkKind;
-use coffer_core::money::Money;
-use coffer_core::reporting::linking::{self, Counts, RefundWhy};
-use coffer_core::reporting::register::{LinkOther, LinkSide, Register, RegisterRow, RowLink};
+use orre_core::link::LinkKind;
+use orre_core::money::Money;
+use orre_core::reporting::linking::{self, Counts, RefundWhy};
+use orre_core::reporting::register::{LinkOther, LinkSide, Register, RegisterRow, RowLink};
 
 use crate::format::{self, Sign};
 use crate::inbox::text::{NAME_SHOWN, Part, plain, unsigned};
@@ -107,16 +107,16 @@ pub fn link_line(register: &Register, link: &RowLink) -> LinkLine {
 pub fn confirmed(row: &RegisterRow) -> impl Iterator<Item = &RowLink> {
     row.links
         .iter()
-        .filter(|link| link.status == coffer_core::link::LinkStatus::Confirmed)
+        .filter(|link| link.status == orre_core::link::LinkStatus::Confirmed)
 }
 
-/// Coffer's suggestions on `row`'s money in, for the suggestion card: all
+/// Orre's suggestions on `row`'s money in, for the suggestion card: all
 /// of one kind (a refund, or a payment's set of claims).
 pub fn suggestions(row: &RegisterRow) -> Vec<&RowLink> {
     row.links
         .iter()
         .filter(|link| {
-            link.status == coffer_core::link::LinkStatus::Suggested && link.side == LinkSide::Inflow
+            link.status == orre_core::link::LinkStatus::Suggested && link.side == LinkSide::Inflow
         })
         .collect()
 }
@@ -155,7 +155,7 @@ fn absolute(amount: Money) -> Money {
     Money::new(amount.minor().saturating_abs(), amount.currency())
 }
 
-/// Why Coffer suggests the refund (Paper `APT-0`): "Same merchant and
+/// Why Orre suggests the refund (Paper `APT-0`): "Same merchant and
 /// account, 11 days earlier, for more than this amount."
 pub fn refund_why(why: &RefundWhy) -> String {
     let same = match (why.same_merchant, why.same_account) {
@@ -292,8 +292,8 @@ pub fn linked_message(
 /// What the undo bar says after an unlink or a rejected suggestion.
 pub fn unlinked_message(kind: LinkKind, suggestion: bool) -> &'static str {
     match (kind, suggestion) {
-        (LinkKind::Refund, true) => "Coffer won't suggest that refund again",
-        (_, true) => "Coffer won't suggest that payment again",
+        (LinkKind::Refund, true) => "Orre won't suggest that refund again",
+        (_, true) => "Orre won't suggest that payment again",
         (LinkKind::Refund, false) => "Unlinked the refund",
         (LinkKind::Reimbursement, false) => "Unlinked the reimbursement",
         (LinkKind::Settlement, false) => "Unlinked the payment",
@@ -347,7 +347,7 @@ pub fn amount_hint(kind: LinkKind, amount: Money, from_left: Money) -> Option<&'
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::money::Currency;
+    use orre_core::money::Currency;
 
     use super::*;
 

@@ -4,14 +4,14 @@
 
 mod support;
 
-use coffer_core::access_log::Outcome;
-use coffer_core::category::CategoryKey;
-use coffer_core::id::RuleId;
-use coffer_core::rule::{
+use orre_core::access_log::Outcome;
+use orre_core::category::CategoryKey;
+use orre_core::id::RuleId;
+use orre_core::rule::{
     ActionText, AmountBounds, ExcludeReason, MatchField, MatchKind, Pattern, RuleAction,
     RuleDefinition, Share, SplitLine, SplitTemplate, TagList,
 };
-use coffer_core::tag::TagName;
+use orre_core::tag::TagName;
 use serde_json::{Value, json};
 use support::reports::*;
 use support::*;

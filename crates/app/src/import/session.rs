@@ -7,7 +7,7 @@
 //! accounts, the preview against the account, the commit) is
 //! [`super::store::ImportStore`]'s, on a background thread.
 //!
-//! Choosing follows `coffer import`, with the user in the loop instead of an
+//! Choosing follows `orre import`, with the user in the loop instead of an
 //! error: OFX by its format; a CSV preset by its own header row, one match
 //! only; then the account's preset (`account.preset_id`, V15); otherwise
 //! the columns are suggested from the header ([`MappingDraft::suggest`]) for
@@ -15,14 +15,14 @@
 //! Map step, and the preview shows what it reads.
 
 use chrono::NaiveDate;
-use coffer_core::account::{Account, AccountKind};
-use coffer_core::id::AccountId;
-use coffer_core::money::Currency;
-use coffer_core::statement::{RowProblem, SourceLocation, Statement, StatementLine};
-use coffer_import::csv::{Column, CsvFile, CsvImporter, FileLayout, MappingDraft, MappingError};
-use coffer_import::ofx::{OfxImporter, OfxStatementKind};
-use coffer_import::preset::{Preset, Presets};
-use coffer_import::{Detect as _, Detection, Importer as _, SourceFile};
+use orre_core::account::{Account, AccountKind};
+use orre_core::id::AccountId;
+use orre_core::money::Currency;
+use orre_core::statement::{RowProblem, SourceLocation, Statement, StatementLine};
+use orre_import::csv::{Column, CsvFile, CsvImporter, FileLayout, MappingDraft, MappingError};
+use orre_import::ofx::{OfxImporter, OfxStatementKind};
+use orre_import::preset::{Preset, Presets};
+use orre_import::{Detect as _, Detection, Importer as _, SourceFile};
 
 /// What the importer for a mapping that isn't a preset is called.
 const OWN_MAPPING: &str = "Your mapping";
@@ -113,7 +113,7 @@ pub struct FlaggedRow {
 }
 
 /// Whether an account can take an import: it holds transactions, isn't a
-/// pot (pot rows come with their parent's file) and is open. As `coffer
+/// pot (pot rows come with their parent's file) and is open. As `orre
 /// import`.
 pub fn can_import_into(account: &Account) -> bool {
     account.kind.holds_transactions()
@@ -125,7 +125,7 @@ impl Session {
     /// Starts importing `file`: decides how to read it and, when it's clear,
     /// the account. `accounts` are the database's; `selected` is the account
     /// selected in the accounts panel, preferred when it fits. Fails only
-    /// for a file that is neither OFX nor CSV Coffer can split.
+    /// for a file that is neither OFX nor CSV Orre can split.
     pub fn open(
         file: SourceFile,
         presets: &Presets,
@@ -150,7 +150,7 @@ impl Session {
                     suffix: statement.account_suffix().map(str::to_owned),
                 })
                 .collect();
-            // The first statement Coffer can import.
+            // The first statement Orre can import.
             let chosen = statements
                 .iter()
                 .position(|s| s.kind != OfxStatementKind::Investment)
@@ -190,7 +190,7 @@ impl Session {
                 let csv_named = matches!(file.extension().as_deref(), Some("csv" | "tsv" | "txt"));
                 if !readable && !csv_named {
                     return Err(format!(
-                        "Coffer imports CSV, OFX and QFX files, and {} isn't one it can read.",
+                        "Orre imports CSV, OFX and QFX files, and {} isn't one it can read.",
                         file.name()
                     ));
                 }
@@ -227,7 +227,7 @@ impl Session {
             }
         };
         // No preset recognised the file by its header: the account's own
-        // preset, if Coffer has it and it reads the file (a preset without
+        // preset, if Orre has it and it reads the file (a preset without
         // a header row is only ever chosen this way).
         if session.preset_id().is_none()
             && let Some(account) = session.account(accounts)
@@ -522,7 +522,7 @@ impl Session {
 /// Whether `preset` reads `file`: it splits, and every column the preset
 /// names is there (rows may still be flagged).
 fn reads(preset: &Preset, file: &SourceFile) -> bool {
-    use coffer_import::AnyImporter as _;
+    use orre_import::AnyImporter as _;
     preset.importer().import(file).is_ok()
 }
 
@@ -567,7 +567,7 @@ mod tests {
     use std::path::Path;
 
     use chrono::NaiveDate;
-    use coffer_import::csv::{AmountDraft, Column, DateFormat};
+    use orre_import::csv::{AmountDraft, Column, DateFormat};
 
     use super::*;
 
@@ -703,7 +703,7 @@ amount = { column = 3 }
         assert_eq!(
             session.csv().unwrap().draft.external_id,
             None,
-            "“Txn ID” isn't a name Coffer suggests"
+            "“Txn ID” isn't a name Orre suggests"
         );
     }
 
@@ -788,7 +788,7 @@ amount = { column = 3 }
         let error = Session::open(file, &presets(), &[], None).unwrap_err();
         assert_eq!(
             error,
-            "Coffer imports CSV, OFX and QFX files, and notes.pdf isn't one it can read."
+            "Orre imports CSV, OFX and QFX files, and notes.pdf isn't one it can read."
         );
     }
 

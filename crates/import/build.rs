@@ -1,5 +1,5 @@
 // Compiles the repository's `presets/` into the binary, so an installed
-// Coffer has them without the source tree. Writes `bundled_presets.rs` in
+// Orre has them without the source tree. Writes `bundled_presets.rs` in
 // OUT_DIR: a `&[(path under presets/, contents)]` of every `.toml` file at
 // any depth, sorted by path. Where each file sits is checked when the
 // presets load (`Presets::from_files`), not here, so a misplaced file fails
@@ -13,7 +13,7 @@ fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("set by Cargo"));
     let root = manifest.join("../../presets");
     // Cargo watches a directory recursively, so adding, editing or removing
-    // a preset rebuilds coffer-import.
+    // a preset rebuilds orre-import.
     println!("cargo::rerun-if-changed={}", root.display());
 
     let mut files = Vec::new();

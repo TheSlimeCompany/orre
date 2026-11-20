@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use chrono::{NaiveDate, NaiveTime};
-use coffer_core::money::{Currency, DecimalMark, Money};
-use coffer_core::statement::{
+use orre_core::money::{Currency, DecimalMark, Money};
+use orre_core::statement::{
     DatedBalance, Field, RowProblem, SourceAccountNumber, SourceFormat, SourceLocation, Statement,
     StatementLine,
 };
@@ -210,7 +210,7 @@ fn describe(pieces: [Option<&str>; 3]) -> String {
 fn parse_amount(
     text: &str,
     currency: Currency,
-) -> Result<Money, coffer_core::money::ParseAmountError> {
+) -> Result<Money, orre_core::money::ParseAmountError> {
     let mark = if text.contains(',') && !text.contains('.') {
         DecimalMark::Comma
     } else {

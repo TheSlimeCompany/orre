@@ -1,14 +1,14 @@
 [package]
-name = "coffer-mcp"
-description = "Coffer's MCP stdio server over the core API"
+name = "orre-mcp"
+description = "Orre's MCP stdio server over the core API"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-coffer-core.workspace = true
-coffer-import.workspace = true
+orre-core.workspace = true
+orre-import.workspace = true
 rmcp.workspace = true
 # `time`: the server checks a connected client's access on a timer.
 tokio = { workspace = true, features = ["time"] }

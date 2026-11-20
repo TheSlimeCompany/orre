@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <!-- Coffer app icon (docs/DESIGN.md → "Logo"; Paper "Logo" artboard).
+  <!-- Orre app icon (docs/DESIGN.md → "Logo"; Paper "Logo" artboard).
        Tile is --color-molten, radius 28; the mark is --color-chrome at 4.5x, centred. -->
   <rect width="128" height="128" rx="28" fill="#FF6B1A"/>
   <g transform="translate(28 28) scale(4.5)" fill="#0F0F10">

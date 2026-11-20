@@ -14,12 +14,12 @@
 //! A refusal from core is said under the form in caption type, `danger`.
 
 use chrono::NaiveDate;
-use coffer_core::id::AccountId;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Window, div,
 };
+use orre_core::id::AccountId;
 
 use crate::accounts::DialogClosed;
 use crate::format;

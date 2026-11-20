@@ -1,4 +1,4 @@
-# Coffer — Architecture: Transactions
+# Orre — Architecture: Transactions
 
 The Transactions view and what the user can do to a row: splits, tags, notes, merchant names, manual rows, exclusions, transfer pairs, removal.
 
@@ -53,7 +53,7 @@ the balance, or such a row's account, date or amount.
   `CategoryFacts`; "Decision record: what a transaction can take, decided in core").
   Suggested pairs and links don't count.
 - **Who asks:** `recategorize` (the table, the inspector, the bulk-action bar and
-  `coffer categorize`) refuses such a row (`RecategorizeError::NoOwnCategory`), even with
+  `orre categorize`) refuses such a row (`RecategorizeError::NoOwnCategory`), even with
   the same category. An approved categorisation skips it. Rules skip its category and
   apply their other actions (`rule::SkippedCategory`; "Decision record: two kinds of
   transfer, and marking a suggested pair", point 3). Duplicate merges, removing a split
@@ -120,9 +120,9 @@ description.
 
 ### Transfers
 
-- **Two mechanisms.** A confirmed pair is money between two accounts Coffer holds: both
+- **Two mechanisms.** A confirmed pair is money between two accounts Orre holds: both
   legs are out of income and spending and take no category. A category of kind
-  `transfer` is for one row whose other side Coffer doesn't hold; it counts as neither
+  `transfer` is for one row whose other side Orre doesn't hold; it counts as neither
   (`reporting::ledger::Side::of`). A suggested pair counts by its own categories until
   confirmed, and the table marks its legs with a `warning` ⇄ ("Decision record: two
   kinds of transfer, and marking a suggested pair").
@@ -194,7 +194,7 @@ answered on the designer's recommendation at the user's request:
      matched (D6.7 handles changing an existing rule).
    - **"Not now"** is remembered for that pattern, so the inline prompt doesn't return.
      The passive route stays: after repeated identical recategorisations, the app files
-     a `rule` suggestion to the Inbox (source `coffer`; see "Categorization").
+     a `rule` suggestion to the Inbox (source `orre`; see "Categorization").
 
 ### Decision record: splits, tags and notes, manual rows, merchant names (2026-11-12)
 
@@ -211,7 +211,7 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
    savings, credit card, pot and cash; never on `asset`/`liability` (accounts decision
    point 2). A manual row has no dedupe keys, so one entered ahead of the bank's export
    is matched later by near-duplicate review, not by the import.
-3. **Splits** (`coffer_core::split`). Two or more lines, numbered from 1, each non-zero
+3. **Splits** (`orre_core::split`). Two or more lines, numbered from 1, each non-zero
    with the parent's sign, summing exactly to the parent's amount in its currency; lines
    may be uncategorised. Setting a split replaces all lines (their IDs change) and clears
    the parent's category, `rule_id`, share and share label: each line carries its own.
@@ -226,7 +226,7 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
    `excluded_reason`, `transfer_status` and `my_amount_minor` (the share, or the whole
    amount) for each report to filter and sum by; the balance, the excluded filter and
    transfer views read the same rows.
-5. **Tags** (`coffer_core::tag`). Names are trimmed, keep their case, are at most 64
+5. **Tags** (`orre_core::tag`). Names are trimmed, keep their case, are at most 64
    characters with no control characters, and are unique ignoring case with the same
    folding as rule matching (`Straße` and `STRASSE` are one tag; SQL `NOCASE` backs it up
    for ASCII). `rule::TagList` uses the same `TagName`, so an `add_tag` value repeating a
@@ -234,10 +234,10 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
    removes its links. `transaction_tag` is a `WITHOUT ROWID` link table whose rows are
    only inserted or deleted. Private tags never leave the app: anything that does (MCP,
    exports) reads `tag::public_tags_of` / `without_private`.
-6. **User notes** (`coffer_core::note`). Trimmed, line breaks kept, at most 2,000
+6. **User notes** (`orre_core::note`). Trimmed, line breaks kept, at most 2,000
    characters (checked in Rust); blank clears. Any origin can carry one; the imported
    `note` stays read-only.
-7. **Manual rows** (`coffer_core::manual`). Create, read, edit (every field the entry
+7. **Manual rows** (`orre_core::manual`). Create, read, edit (every field the entry
    holds; other user fields stay) and delete `origin = manual` rows; imported and
    mirrored rows are refused. Locks guard balances only (rules decision point 8): a
    change to the account, date, time, amount, merchant or description, or a create or
@@ -251,7 +251,7 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
    `reconciled_through` (old or new date) is refused; its time within the day, merchant,
    description and category can be edited there. See `links-and-checks.md`, "Decision
    record: a lock guards balances only".
-8. **Exclusion** (`coffer_core::exclusion`) applies to any row, with the reason, note
+8. **Exclusion** (`orre_core::exclusion`) applies to any row, with the reason, note
    and date of "Transactions additions" point 1. Excluding again changes the reason and
    resets the date. Only a change into or out of `duplicate` is refused inside a lock,
    since only `duplicate` moves the balance among the reasons a user can choose;
@@ -311,9 +311,9 @@ and "Data table (Transactions)", or an earlier record.
    groups with no spending and the `other` group, is the "Other" marker. Amounts in
    different currencies are never added: the ranking uses the currency with the most
    spending lines. M4.1 stores the colours so charts and the table agree.
-3. **Category edits are core's `inbox::own::recategorize`**, as `coffer categorize`:
+3. **Category edits are core's `inbox::own::recategorize`**, as `orre categorize`:
    one DB transaction, one undoable `bulk_edit` change batch, category source `user`
-   (so repeated identical edits can still file Coffer's own `rule` suggestion). The
+   (so repeated identical edits can still file Orre's own `rule` suggestion). The
    table's in-place select (Enter, or a double-click on the category), the inspector's
    Category select and the bulk-action bar's Categorise all take that path; a split row,
    a confirmed transfer or a linked refund's money in isn't offered one, and since
@@ -458,7 +458,7 @@ from existing specs (review). **No migration.**
 
 M3.8. The Transactions inspector's Transfer section is composed from existing specs, not
 drawn (user, 2026-11-15): the Inbox transfer pair's preview (D6.6, `EWZ-0`), the Links
-section's rows and Coffer's refund card (D6.5) and the undo bar (D6.3). Marked
+section's rows and Orre's refund card (D6.5) and the undo bar (D6.3). Marked
 **(composed)**: decided while building. **No migration.**
 
 1. **A decision is a status change on the detected group** (`transfer::{confirm, reject,
@@ -584,11 +584,11 @@ From the architecture review (R.10): "transfer" had two sources of truth, and a
 suggested pair counted as income and spending with nothing in the table to say so.
 
 1. **The two mechanisms.** A *confirmed pair* is money between two of the user's
-   accounts where Coffer holds both sides. Both legs are out of income and spending
+   accounts where Orre holds both sides. Both legs are out of income and spending
    whatever their category, and take no category of their own ("what a transaction can
    take, decided in core", point 1, in `categories.md`). A category of kind `transfer` is
-   for a single row whose other side Coffer doesn't hold, such as an account that isn't
-   in Coffer. It counts as neither income nor spending (`reporting::ledger::Side::of`).
+   for a single row whose other side Orre doesn't hold, such as an account that isn't
+   in Orre. It counts as neither income nor spending (`reporting::ledger::Side::of`).
    A *suggested pair* is only a guess: it counts by its own category until it is
    confirmed, which is why the table marks it.
 2. **The marker (composed, user 2026-11-19).** A row that is a leg of a suggested pair

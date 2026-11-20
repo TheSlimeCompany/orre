@@ -16,7 +16,7 @@
 -- batch's account, repeated so the lookups don't join; deleting an account
 -- takes its hashes with it, the one `ON DELETE` here (chosen while building
 -- R.13: a hash means nothing without its account).
--- `coffer mcp` never reads this table.
+-- `orre mcp` never reads this table.
 
 CREATE TABLE account_source_identity (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

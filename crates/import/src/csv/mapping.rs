@@ -2,8 +2,8 @@
 
 use std::fmt;
 
-use coffer_core::money::{Currency, DecimalMark};
-use coffer_core::statement::SubAccountKind;
+use orre_core::money::{Currency, DecimalMark};
+use orre_core::statement::SubAccountKind;
 
 use super::dates::{DateFormat, TimeFormat};
 use super::encoding::TextEncoding;
@@ -117,11 +117,11 @@ pub struct OriginalAmountColumns {
 ///
 /// A row is such a transfer when its `match_column`, trimmed, is exactly
 /// `match_value` (case included). Its line then carries a
-/// [`SubAccountRef`](coffer_core::statement::SubAccountRef) with the
+/// [`SubAccountRef`](orre_core::statement::SubAccountRef) with the
 /// trimmed `key` and `name`; a matching row with a blank key is flagged
 /// ([`RowProblem::SubAccountKeyMissing`]). Other rows are read as usual.
 ///
-/// [`RowProblem::SubAccountKeyMissing`]: coffer_core::statement::RowProblem::SubAccountKeyMissing
+/// [`RowProblem::SubAccountKeyMissing`]: orre_core::statement::RowProblem::SubAccountKeyMissing
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubAccountTransfer {
     pub kind: SubAccountKind,
@@ -197,8 +197,8 @@ pub struct CsvMapping {
     /// off, a quote still open at the end of the file is flagged
     /// ([`RowProblem::UnclosedQuote`]).
     ///
-    /// [`RowProblem::MultiLineRow`]: coffer_core::statement::RowProblem::MultiLineRow
-    /// [`RowProblem::UnclosedQuote`]: coffer_core::statement::RowProblem::UnclosedQuote
+    /// [`RowProblem::MultiLineRow`]: orre_core::statement::RowProblem::MultiLineRow
+    /// [`RowProblem::UnclosedQuote`]: orre_core::statement::RowProblem::UnclosedQuote
     pub multiline_fields: bool,
     pub date: DateColumn,
     /// When filled in, overrides any time in the date format.

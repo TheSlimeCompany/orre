@@ -9,9 +9,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use coffer_core::category::CategoryKey;
-use coffer_core::money::{Currency, DecimalMark};
-use coffer_core::statement::SubAccountKind;
+use orre_core::category::CategoryKey;
+use orre_core::money::{Currency, DecimalMark};
+use orre_core::statement::SubAccountKind;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, Visitor};
 

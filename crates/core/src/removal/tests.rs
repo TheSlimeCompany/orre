@@ -72,7 +72,7 @@ struct Populated {
 
 fn populated() -> Populated {
     let dir = TempDir::new().unwrap();
-    let mut db = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let mut db = Database::open(&dir.path().join("orre.db")).unwrap();
     let current = account::create(
         &mut db,
         &NewAccount::new("Current", AccountKind::Current, Currency::GBP),
@@ -248,7 +248,7 @@ fn assert_removed(p: &Populated) {
 #[test]
 fn the_list_matches_every_foreign_key_to_a_transaction_in_the_schema() {
     let dir = TempDir::new().unwrap();
-    let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+    let db = Database::open(&dir.path().join("orre.db")).unwrap();
     let mut statement = db
         .conn()
         .prepare(

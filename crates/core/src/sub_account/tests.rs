@@ -33,7 +33,7 @@ struct Imported {
 impl Fixture {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let db = Database::open(&dir.path().join("coffer.db")).unwrap();
+        let db = Database::open(&dir.path().join("orre.db")).unwrap();
         Fixture { db, _dir: dir }
     }
 
@@ -376,7 +376,7 @@ fn a_renamed_pot_is_found_by_its_key() {
         )
         .unwrap();
     let rainy = fixture.pot_keyed(current, RAINY).unwrap();
-    // The user renames it in Coffer too.
+    // The user renames it in Orre too.
     fixture.sql(&format!(
         "UPDATE account SET name = 'Rainy Day (joint)' WHERE id = {}",
         rainy.id

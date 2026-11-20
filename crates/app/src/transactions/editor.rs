@@ -25,17 +25,17 @@
 //!   through core's `manual::update`; its Account select saves on a choice
 //!   (`transactions::manual_edit`).
 
-use coffer_core::edit;
-use coffer_core::id::{TagId, TransactionId};
-use coffer_core::money::Money;
-use coffer_core::reporting::register::{RegisterRow, RowCategory};
-use coffer_core::split::SplitLine;
-use coffer_core::split::draft::SplitDraft;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
     AppContext as _, Context, Entity, FocusHandle, Focusable as _, SharedString, Subscription,
     Window,
 };
+use orre_core::edit;
+use orre_core::id::{TagId, TransactionId};
+use orre_core::money::Money;
+use orre_core::reporting::register::{RegisterRow, RowCategory};
+use orre_core::split::SplitLine;
+use orre_core::split::draft::SplitDraft;
 
 use crate::format::{self, Sign};
 use crate::ui::menu::SelectState;
@@ -369,11 +369,8 @@ impl TransactionsView {
                     .share
                     .my_share
                     .map(|mine| {
-                        coffer_core::money::Money::new(
-                            mine.minor().saturating_abs(),
-                            mine.currency(),
-                        )
-                        .to_decimal_string()
+                        orre_core::money::Money::new(mine.minor().saturating_abs(), mine.currency())
+                            .to_decimal_string()
                     })
                     .unwrap_or_default();
                 yours.update(cx, |input, cx| {

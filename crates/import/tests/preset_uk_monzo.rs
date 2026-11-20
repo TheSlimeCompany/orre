@@ -5,13 +5,13 @@
 use std::path::Path;
 
 use chrono::{NaiveDate, NaiveTime};
-use coffer_core::category::CategoryKey;
-use coffer_core::money::{Currency, Money};
-use coffer_core::statement::{
+use orre_core::category::CategoryKey;
+use orre_core::money::{Currency, Money};
+use orre_core::statement::{
     RowProblem, SourceLocation, Statement, StatementLine, SubAccountKind, SubAccountRef,
 };
-use coffer_import::preset::{Preset, Presets};
-use coffer_import::{AnyImporter, Detection, Importer, SourceFile, detect};
+use orre_import::preset::{Preset, Presets};
+use orre_import::{AnyImporter, Detection, Importer, SourceFile, detect};
 
 const PRESET: &str = include_str!("../../../presets/uk/monzo.toml");
 
@@ -366,7 +366,7 @@ fn a_row_in_another_currency_is_flagged() {
 }
 
 #[test]
-fn categories_map_to_coffer_keys() {
+fn categories_map_to_orre_keys() {
     let preset = monzo();
     let statement = statement();
     let key = |key: &str| CategoryKey::new(key).unwrap();

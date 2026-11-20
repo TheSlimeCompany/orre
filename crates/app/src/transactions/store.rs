@@ -15,7 +15,7 @@
 //!
 //! Every change is core's: [`own::recategorize`] sets the categories as the
 //! user's, in one DB transaction recorded as one undoable change batch (the
-//! CLI's `coffer categorize` takes the same path), and [`change::undo`]
+//! CLI's `orre categorize` takes the same path), and [`change::undo`]
 //! reverts it. The inspector's split, tags, note and merchant name go
 //! through [`edit`] (M3.9), each one undoable change batch too, and so do
 //! its links and shares (M3.11: link, confirm, unlink or reject, share,
@@ -32,20 +32,20 @@
 //! suggestion for the same pair) and undoing that ([`transfer::undo`]):
 //! a status change, not a change batch.
 //!
-//! [`own::recategorize`]: coffer_core::inbox::own::recategorize
-//! [`change::undo`]: coffer_core::change::undo
-//! [`edit`]: coffer_core::edit
-//! [`exclusion`]: coffer_core::exclusion
-//! [`import::undo`]: coffer_core::import::undo
-//! [`import::undo_preview`]: coffer_core::import::undo_preview
-//! [`manual`]: coffer_core::manual
-//! [`inbox::decide_transfer`]: coffer_core::inbox::decide_transfer
-//! [`transfer::undo`]: coffer_core::transfer::undo
+//! [`own::recategorize`]: orre_core::inbox::own::recategorize
+//! [`change::undo`]: orre_core::change::undo
+//! [`edit`]: orre_core::edit
+//! [`exclusion`]: orre_core::exclusion
+//! [`import::undo`]: orre_core::import::undo
+//! [`import::undo_preview`]: orre_core::import::undo_preview
+//! [`manual`]: orre_core::manual
+//! [`inbox::decide_transfer`]: orre_core::inbox::decide_transfer
+//! [`transfer::undo`]: orre_core::transfer::undo
 
 use std::path::PathBuf;
 
-use coffer_core::backup::gate;
-use coffer_core::db::Database;
+use orre_core::backup::gate;
+use orre_core::db::Database;
 
 use crate::accounts::store::StoreError;
 
@@ -70,15 +70,15 @@ impl TransactionStore {
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
-    use coffer_core::account::{self, AccountKind, NewAccount};
-    use coffer_core::category::CategoryKey;
-    use coffer_core::change;
-    use coffer_core::edit;
-    use coffer_core::inbox::own;
-    use coffer_core::manual::{self, ManualTransaction};
-    use coffer_core::money::{Currency, Money};
-    use coffer_core::reporting::register::{Register, RowCategory};
-    use coffer_core::split::SplitLine;
+    use orre_core::account::{self, AccountKind, NewAccount};
+    use orre_core::category::CategoryKey;
+    use orre_core::change;
+    use orre_core::edit;
+    use orre_core::inbox::own;
+    use orre_core::manual::{self, ManualTransaction};
+    use orre_core::money::{Currency, Money};
+    use orre_core::reporting::register::{Register, RowCategory};
+    use orre_core::split::SplitLine;
     use tempfile::TempDir;
 
     use super::*;
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn categorises_reads_back_and_undoes() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let id = {
             let mut db = Database::open(&path).unwrap();
             let current = account::create(
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn splits_tags_notes_and_names_read_back_and_undo() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let id = {
             let mut db = Database::open(&path).unwrap();
             let current = account::create(
@@ -207,12 +207,12 @@ mod tests {
     #[test]
     fn opening_is_refused_while_a_restore_holds_the_lock() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let store = TransactionStore::new(path.clone());
         drop(store.open().unwrap());
 
         // A restore holds an exclusive lock on `<database>-restoring`.
-        let lock = std::fs::File::create(coffer_core::backup::restore_lock_path(&path)).unwrap();
+        let lock = std::fs::File::create(orre_core::backup::restore_lock_path(&path)).unwrap();
         lock.lock().unwrap();
         assert_eq!(
             store.open().unwrap_err().to_string(),

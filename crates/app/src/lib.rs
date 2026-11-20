@@ -1,5 +1,5 @@
-//! Coffer's GPUI dashboard: theme, UI components and screens, and the
-//! headless CLI commands ([`cli`]). The `coffer` binary (`src/main.rs`) is
+//! Orre's GPUI dashboard: theme, UI components and screens, and the
+//! headless CLI commands ([`cli`]). The `orre` binary (`src/main.rs`) is
 //! built from this crate.
 
 pub mod accounts;

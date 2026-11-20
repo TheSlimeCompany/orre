@@ -229,7 +229,7 @@ fn approving_skips_a_transfer_leg_and_a_linked_refunds_money_in() {
     let purchase = f.row(day(3), -6800, "Shop", None);
     let refund = f.row(day(4), 3400, "Shop", None);
     f.refund(refund, purchase, 3400, true);
-    // A pair and a refund Coffer only suggested take one.
+    // A pair and a refund Orre only suggested take one.
     let maybe_out = f.row(day(5), -700, "To savings", None);
     let maybe_in = f.row_on(f.savings, day(5), 700, "From current", None);
     f.transfer(maybe_out, maybe_in, false);

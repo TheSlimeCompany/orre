@@ -1,10 +1,10 @@
 //! The Inbox's left panel (`docs/DESIGN.md` → "Inbox"; Paper `564-0`,
 //! `ABK-0`): INBOX (Pending, Approved, Rejected, with counts), KIND (the
 //! pending suggestions by kind, widest reach first) and SOURCE (each agent,
-//! the connected dot on the ones that have filed, and "Coffer from your
+//! the connected dot on the ones that have filed, and "Orre from your
 //! edits"). KIND and SOURCE filter the list; a second click clears the
 //! filter. CHECKS (D6.4, M3.12; Paper `8SE-0`) sits between INBOX and
-//! KIND: Possible duplicates and Balance checks, Coffer's own checks, so
+//! KIND: Possible duplicates and Balance checks, Orre's own checks, so
 //! neutral, with a `danger` dot before the count while a check fails.
 //! Selecting one shows its queue ([`crate::checks`]) in the canvas; any
 //! other row goes back to the suggestions.
@@ -15,11 +15,11 @@
 //! what's open or filtered; the cursor starts on the open row: the open
 //! queue, else the open status.
 
-use coffer_core::inbox::{COFFER_SOURCE, SuggestionKind, SuggestionStatus};
 use gpui_kit::{
     App, Entity, InteractiveElement as _, IntoElement, ParentElement as _, RenderOnce,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
 };
+use orre_core::inbox::{ORRE_SOURCE, SuggestionKind, SuggestionStatus};
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
@@ -34,7 +34,7 @@ use super::text::{kind_glyph, kind_name, source_name};
 use super::{Inbox, KIND_ORDER};
 
 /// The panel's key context, where its keyboard cursor moves.
-pub const CONTEXT: &str = "CofferInboxPanel";
+pub const CONTEXT: &str = "OrreInboxPanel";
 
 /// The panel's keys: ↑↓ move the cursor, Enter and Space act on its row.
 pub const KEYS: PanelKeys = PanelKeys::new(CONTEXT);
@@ -96,7 +96,7 @@ impl InboxPanelRow {
             Self::Status(SuggestionStatus::Rejected) => Glyph::Reject,
             Self::Queue(Queue::Duplicates) => Glyph::Duplicate,
             Self::Queue(Queue::Balances) => Glyph::Balance,
-            // M3.11 (Paper `DKR-0`): Coffer's own list, outside the badge.
+            // M3.11 (Paper `DKR-0`): Orre's own list, outside the badge.
             Self::Queue(Queue::Owed) => Glyph::Owed,
             Self::Kind(kind) => kind_glyph(*kind),
             Self::Source(_) => return None,
@@ -139,8 +139,8 @@ impl InboxPanelRow {
                 let (label, suffix) = source_name(source);
                 RowText {
                     suffix,
-                    // Coffer's own suggestions are neutral.
-                    connected: pending > 0 && source != COFFER_SOURCE,
+                    // Orre's own suggestions are neutral.
+                    connected: pending > 0 && source != ORRE_SOURCE,
                     ..plain(
                         label,
                         pending,

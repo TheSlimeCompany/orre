@@ -8,7 +8,7 @@
 -- but keeps its transactions, its history and its place in reports; showing
 -- it again brings it back. Hiding a group hides its subcategories with it in
 -- the pickers, while each keeps its own flag, so showing the group again
--- restores them as they were (`coffer_core::category::CategoryTree::visible`).
+-- restores them as they were (`orre_core::category::CategoryTree::visible`).
 
 ALTER TABLE category ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0
     CHECK (hidden IN (0, 1));

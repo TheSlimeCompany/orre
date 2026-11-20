@@ -23,7 +23,7 @@ ALTER TABLE change_batch ADD COLUMN rule_id INTEGER
 -- "Not now" on the Transactions prompt, remembered per proposed pattern so the
 -- prompt doesn't come back for it. The prompt always proposes `contains`, so a
 -- pattern is its field and its text folded as rule matching folds it
--- (`coffer_core::rule`): what matches the same rows is turned down once. The
+-- (`orre_core::rule`): what matches the same rows is turned down once. The
 -- text is the user's bank text, like a rule's pattern: never logged.
 CREATE TABLE rule_prompt_dismissed (
     match_field  TEXT NOT NULL CHECK (match_field IN (

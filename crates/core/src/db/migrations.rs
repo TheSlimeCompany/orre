@@ -48,10 +48,10 @@ pub(super) fn current_version(conn: &Connection) -> rusqlite::Result<SchemaVersi
 /// rebuilds a table other tables reference (SQLite's 12-step procedure).
 /// `PRAGMA foreign_keys` can't change inside a transaction, so [`run`]
 /// turns them off around the whole run.
-pub(super) const FOREIGN_KEYS_OFF: &str = "-- coffer: foreign_keys=off";
+pub(super) const FOREIGN_KEYS_OFF: &str = "-- orre: foreign_keys=off";
 
 /// The temporary trigger that checks foreign keys before the run commits.
-const FOREIGN_KEY_CHECK_TRIGGER: &str = "coffer_migration_foreign_key_check";
+const FOREIGN_KEY_CHECK_TRIGGER: &str = "orre_migration_foreign_key_check";
 
 /// Whether `migration` asks for foreign keys off ([`FOREIGN_KEYS_OFF`]).
 fn needs_foreign_keys_off(migration: &Migration) -> bool {
@@ -63,7 +63,7 @@ fn needs_foreign_keys_off(migration: &Migration) -> bool {
 
 /// Applies every pending migration in one transaction.
 ///
-/// Refuses a database from a newer Coffer, and (through refinery) one whose
+/// Refuses a database from a newer Orre, and (through refinery) one whose
 /// applied migrations differ from `migrations`: an edited, missing or
 /// skipped migration.
 ///
@@ -148,7 +148,7 @@ fn apply(conn: &mut Connection, migrations: &[Migration]) -> Result<(), Error> {
 /// Checks, without writing, that the database may be used with
 /// `migrations`, and returns its schema version.
 ///
-/// Refuses a database from a newer Coffer ([`Error::SchemaTooNew`]) and one
+/// Refuses a database from a newer Orre ([`Error::SchemaTooNew`]) and one
 /// whose recorded history differs from `migrations`
 /// ([`Error::MigrationHistory`]): the same checks refinery makes when it
 /// runs, but without creating its history table, so it works on a database

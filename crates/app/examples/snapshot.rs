@@ -1,4 +1,4 @@
-//! Renders Coffer screens offscreen to PNG, for comparing them against the
+//! Renders Orre screens offscreen to PNG, for comparing them against the
 //! Paper artboards (`docs/ROADMAP.md` D5.1).
 //!
 //! ```sh
@@ -57,7 +57,7 @@
 //! - `inbox-rule`: the Inbox with the UBER *EATS rule open (Paper `ABK-0`);
 //! - `inbox-name`: the LIME*RIDE merchant name open (Paper `DL8-0`);
 //! - `inbox-categorisation`, `inbox-transfer`, `inbox-refund`,
-//!   `inbox-coffer`: the other kinds' inspectors (Paper `564-0`, `EWZ-0`);
+//!   `inbox-orre`: the other kinds' inspectors (Paper `564-0`, `EWZ-0`);
 //! - `inbox-wide`: a wide rule summed by merchant (Paper `EWZ-0`);
 //! - `inbox-approved`: after approving the DELIVEROO rule (`EWZ-0`'s bar,
 //!   without Undo);
@@ -100,7 +100,7 @@
 //!   `rules-category-new`: New category, "Coffee beans" under Food;
 //!   `rules-category-delete`: the dialog on the unused Coffee (composed,
 //!   not drawn);
-//! - `links-refund`: the ASOS.com refund with Coffer's suggestion (Paper
+//! - `links-refund`: the ASOS.com refund with Orre's suggestion (Paper
 //!   `9WS-0`); `links-shared`: Odeon shared with Sam (`BAT-0`);
 //!   `links-dialog`: the link dialog on the refund (`EUY-0`);
 //!   `links-linked`: the refund after "Link as refund", with the undo bar
@@ -132,26 +132,26 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use gpui_kit::{AnyView, App, AppContext as _, Entity, HeadlessAppContext, Window, size};
 
-use coffer_app::accounts::{Accounts, fixture as accounts_fixture};
-use coffer_app::checks::store::ChecksStore;
-use coffer_app::checks::{Checks, Queue, fixture as checks_fixture};
-use coffer_app::import::store::ImportStore;
-use coffer_app::import::{ImportNotice, fixture as import_fixture};
-use coffer_app::inbox::store::{Entry, InboxStore};
-use coffer_app::inbox::{Inbox, fixture as inbox_fixture};
-use coffer_app::rules::store::RulesStore;
-use coffer_app::rules::view::{Input, Menu as RulesMenu};
-use coffer_app::rules::{Rules, Section as RulesSection, fixture as rules_fixture};
-use coffer_app::settings::restore::{RestoreDialog, Stage};
-use coffer_app::settings::{
+use orre_app::accounts::{Accounts, fixture as accounts_fixture};
+use orre_app::checks::store::ChecksStore;
+use orre_app::checks::{Checks, Queue, fixture as checks_fixture};
+use orre_app::import::store::ImportStore;
+use orre_app::import::{ImportNotice, fixture as import_fixture};
+use orre_app::inbox::store::{Entry, InboxStore};
+use orre_app::inbox::{Inbox, fixture as inbox_fixture};
+use orre_app::rules::store::RulesStore;
+use orre_app::rules::view::{Input, Menu as RulesMenu};
+use orre_app::rules::{Rules, Section as RulesSection, fixture as rules_fixture};
+use orre_app::settings::restore::{RestoreDialog, Stage};
+use orre_app::settings::{
     Notice, NoticeMessage, RestoreTarget, Section, SettingsView, fixture as settings_fixture,
 };
-use coffer_app::shell::{ShellView, View};
-use coffer_app::showcase::Showcase;
-use coffer_app::transactions::{Menu, fixture};
-use coffer_core::db::Database;
-use coffer_core::inbox::{COFFER_SOURCE, Payload};
-use coffer_core::reporting::register::{Sort, SortColumn};
+use orre_app::shell::{ShellView, View};
+use orre_app::showcase::Showcase;
+use orre_app::transactions::{Menu, fixture};
+use orre_core::db::Database;
+use orre_core::inbox::{ORRE_SOURCE, Payload};
+use orre_core::reporting::register::{Sort, SortColumn};
 
 const WIDTH: f32 = 1440.;
 const HEIGHT: f32 = 900.;
@@ -172,9 +172,9 @@ fn main() -> Result<()> {
     );
     cx.update(|cx| {
         gpui_kit::init(cx);
-        coffer_app::theme::install(cx).expect("theme installs");
-        coffer_app::showcase::init(cx);
-        coffer_app::shell::init(cx);
+        orre_app::theme::install(cx).expect("theme installs");
+        orre_app::showcase::init(cx);
+        orre_app::shell::init(cx);
     });
 
     snapshot(&mut cx, &out, "transactions", |window, cx| {
@@ -310,7 +310,7 @@ fn main() -> Result<()> {
             let settings = shell.read(cx).settings().clone();
             settings.update(cx, |settings, cx| match dialog {
                 SettingsDialog::Enable => settings.request_enable(
-                    coffer_core::mcp_client::ClientName::new("my-agent").unwrap(),
+                    orre_core::mcp_client::ClientName::new("my-agent").unwrap(),
                     cx,
                 ),
                 SettingsDialog::Export => settings.request_export(cx),
@@ -324,15 +324,15 @@ fn main() -> Result<()> {
     ] {
         snapshot(&mut cx, &out, name, move |_, cx| {
             let settings = cx.new(SettingsView::fixture);
-            let supported = coffer_core::db::Database::supported_schema_version();
+            let supported = orre_core::db::Database::supported_schema_version();
             let (target, stage, since) = if fails {
                 (
                     RestoreTarget {
-                        path: PathBuf::from("coffer-laptop.db"),
+                        path: PathBuf::from("orre-laptop.db"),
                         taken_at: None,
                         local: None,
                     },
-                    Stage::Checked(coffer_core::backup::detail::Assessment::TooNew {
+                    Stage::Checked(orre_core::backup::detail::Assessment::TooNew {
                         found: supported + 2,
                         supported,
                     }),
@@ -346,13 +346,13 @@ fn main() -> Result<()> {
                         taken_at: Some(row.backup.taken_at),
                         local: Some(row.local),
                     },
-                    Stage::Checked(coffer_core::backup::detail::Assessment::Ready(
-                        coffer_core::backup::RestoreCheck {
+                    Stage::Checked(orre_core::backup::detail::Assessment::Ready(
+                        orre_core::backup::RestoreCheck {
                             path: row.backup.path.clone(),
                             named: Some((row.backup.reason, row.backup.taken_at)),
                             schema_version: supported,
                             supported_version: supported,
-                            current: coffer_core::backup::Current::At(supported),
+                            current: orre_core::backup::Current::At(supported),
                             interrupted: None,
                         },
                     )),
@@ -462,7 +462,7 @@ fn inbox_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
         (
             "inbox-categorisation",
             Some(|e| {
-                matches!(&e.subject, coffer_core::inbox::preview::Subject::Categorization(items)
+                matches!(&e.subject, orre_core::inbox::preview::Subject::Categorization(items)
                     if items.first().and_then(|i| i.transaction.as_ref()).is_some_and(|t| t.name() == "UBER *EATS"))
             }),
             false,
@@ -481,8 +481,8 @@ fn inbox_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
             false,
         ),
         (
-            "inbox-coffer",
-            Some(|e| e.suggestion.source_client == COFFER_SOURCE),
+            "inbox-orre",
+            Some(|e| e.suggestion.source_client == ORRE_SOURCE),
             false,
             false,
         ),
@@ -497,7 +497,7 @@ fn inbox_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
     ];
     for (name, pick, wide, approve) in shots {
         let dir = tempfile::TempDir::new()?;
-        let database = dir.path().join("coffer.db");
+        let database = dir.path().join("orre.db");
         {
             let mut db = Database::open(&database)?;
             if name != "inbox-empty" {
@@ -554,10 +554,10 @@ enum ImportShot {
 /// sample imported before, or balances and a lock date.
 fn import_database(dir: &Path, shot: ImportShot) -> Result<PathBuf> {
     use chrono::NaiveDate;
-    use coffer_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
-    use coffer_core::money::{Currency, Money};
+    use orre_core::account::{self, AccountKind, EnteredBalance, EnteredSource, NewAccount};
+    use orre_core::money::{Currency, Money};
 
-    let database = dir.join("coffer.db");
+    let database = dir.join("orre.db");
     let mut db = Database::open(&database)?;
     let mut current = NewAccount::new("Current account", AccountKind::Current, Currency::GBP);
     current.preset = Some("uk-monzo".to_owned());
@@ -587,15 +587,15 @@ fn import_database(dir: &Path, shot: ImportShot) -> Result<PathBuf> {
                 }))
                 .collect::<Vec<_>>()
                 .join("\n");
-            let presets = coffer_import::preset::Presets::bundled()?;
-            let statement = coffer_import::AnyImporter::import(
+            let presets = orre_import::preset::Presets::bundled()?;
+            let statement = orre_import::AnyImporter::import(
                 presets.get("uk-monzo").expect("bundled").importer(),
-                &coffer_import::SourceFile::from_bytes("monzo-early-november.csv", earlier),
+                &orre_import::SourceFile::from_bytes("monzo-early-november.csv", earlier),
             )?;
             let preview =
-                coffer_core::import::preview(&db, current, "monzo-early-november.csv", statement)?;
+                orre_core::import::preview(&db, current, "monzo-early-november.csv", statement)?;
             let confirm = preview.needs_confirmation();
-            coffer_core::import::commit(&mut db, &preview, confirm)?;
+            orre_core::import::commit(&mut db, &preview, confirm)?;
         }
         ImportShot::Mismatch => {
             let balance = |date, minor| EnteredBalance {
@@ -607,7 +607,7 @@ fn import_database(dir: &Path, shot: ImportShot) -> Result<PathBuf> {
             account::add_balance(&mut db, current, &balance(day(31), 50_000))?;
             account::add_balance(&mut db, current, &balance(day(4), 50_000))?;
             account::add_balance(&mut db, current, &balance(day(9), 128_410))?;
-            coffer_core::reconciliation::lock(&mut db, current, day(4))?;
+            orre_core::reconciliation::lock(&mut db, current, day(4))?;
         }
         _ => {}
     }
@@ -658,7 +658,7 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                     }
                     _ => dialog.open_file(import_fixture::file(), cx),
                 }
-                dialog.set_account(coffer_core::id::AccountId::new(1), cx);
+                dialog.set_account(orre_core::id::AccountId::new(1), cx);
                 match shot {
                     ImportShot::MapMenu => dialog.open_merchant_menu(window, cx),
                     ImportShot::SavePreset => {
@@ -677,11 +677,8 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 imports.update(cx, |imports, cx| {
                     imports.set_notice(
                         Some(ImportNotice::Imported {
-                            batch: coffer_core::id::BatchId::new(2),
-                            message: coffer_app::import::text::imported(
-                                9,
-                                import_fixture::FILE_NAME,
-                            ),
+                            batch: orre_core::id::BatchId::new(2),
+                            message: orre_app::import::text::imported(9, import_fixture::FILE_NAME),
                         }),
                         cx,
                     )
@@ -720,7 +717,7 @@ fn review_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
     ];
     for (name, shot) in shots {
         let dir = tempfile::TempDir::new()?;
-        let database = dir.path().join("coffer.db");
+        let database = dir.path().join("orre.db");
         let seeded = {
             let mut db = Database::open(&database)?;
             (shot != ReviewShot::Empty).then(|| {
@@ -804,10 +801,10 @@ enum LinksShot {
 /// The links snapshots: each on a fresh scratch database seeded with D6.5's
 /// fixture, Transactions and the review queues reading it.
 fn links_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
-    use coffer_app::accounts::store::AccountStore;
-    use coffer_app::transactions::link_fixture::{self, Variant};
-    use coffer_app::transactions::links::LinkFrom;
-    use coffer_app::transactions::{Source, store::TransactionStore};
+    use orre_app::accounts::store::AccountStore;
+    use orre_app::transactions::link_fixture::{self, Variant};
+    use orre_app::transactions::links::LinkFrom;
+    use orre_app::transactions::{Source, store::TransactionStore};
 
     let shots = [
         ("links-refund", LinksShot::Refund),
@@ -821,7 +818,7 @@ fn links_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
     ];
     for (name, shot) in shots {
         let dir = tempfile::TempDir::new()?;
-        let database = dir.path().join("coffer.db");
+        let database = dir.path().join("orre.db");
         let seeded = {
             let mut db = Database::open(&database)?;
             let variant = if shot == LinksShot::Claim {
@@ -931,7 +928,7 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
     ];
     for (name, shot) in shots {
         let dir = tempfile::TempDir::new()?;
-        let database = dir.path().join("coffer.db");
+        let database = dir.path().join("orre.db");
         let seeded = {
             let mut db = Database::open(&database)?;
             (shot != RulesShot::Empty).then(|| rules_fixture::seed(&mut db))
@@ -951,8 +948,8 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
             } else {
                 View::Rules
             };
-            let source = coffer_app::transactions::Source::Database(
-                coffer_app::transactions::store::TransactionStore::new(database.clone()),
+            let source = orre_app::transactions::Source::Database(
+                orre_app::transactions::store::TransactionStore::new(database.clone()),
             );
             let rules = cx.new(|_| Rules::from_store(RulesStore::new(database)));
             let shell = cx.new(|cx| {
@@ -967,7 +964,7 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                         rules.select_rule(ids.get(2).copied(), cx)
                     }
                     RulesShot::ReorderFiltered => {
-                        rules.toggle_action_filter(coffer_core::rule::ActionKind::AddTag, cx);
+                        rules.toggle_action_filter(orre_core::rule::ActionKind::AddTag, cx);
                         rules.select_rule(ids.get(11).copied(), cx)
                     }
                     RulesShot::PatternError => rules.select_rule(ids.get(9).copied(), cx),
@@ -995,18 +992,18 @@ fn rules_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 }),
                 RulesShot::Apply => {
                     let proposal = vinted.and_then(|vinted| {
-                        let db = coffer_app::transactions::store::TransactionStore::new(
+                        let db = orre_app::transactions::store::TransactionStore::new(
                             database_path.clone(),
                         )
                         .open()
                         .ok()?;
-                        coffer_core::rule::propose(&db, vinted).ok().flatten()
+                        orre_core::rule::propose(&db, vinted).ok().flatten()
                     });
                     if let Some(proposal) = proposal {
                         rules.update(cx, |rules, cx| {
                             rules.new_rule_from(
                                 &proposal.definition,
-                                coffer_core::rule::RuleOrigin::Edit,
+                                orre_core::rule::RuleOrigin::Edit,
                                 cx,
                             )
                         });
@@ -1046,22 +1043,22 @@ enum CategoryShot {
 /// The Categories snapshots (M3.7): each on a fresh scratch database seeded
 /// with `rules::fixture::seed` and `seed_categories`.
 fn rules_category_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
-    use coffer_app::rules::view::Input as RulesInput;
-    use coffer_app::rules::{CategorySelection, Section as RulesSection};
+    use orre_app::rules::view::Input as RulesInput;
+    use orre_app::rules::{CategorySelection, Section as RulesSection};
     for (name, shot) in [
         ("rules-categories", CategoryShot::List),
         ("rules-category-new", CategoryShot::New),
         ("rules-category-delete", CategoryShot::Delete),
     ] {
         let dir = tempfile::TempDir::new()?;
-        let database = dir.path().join("coffer.db");
+        let database = dir.path().join("orre.db");
         let (groceries, coffee) = {
             let mut db = Database::open(&database)?;
             rules_fixture::seed(&mut db);
             let seeded = rules_fixture::seed_categories(&mut db);
             let groceries = db
                 .categories()?
-                .get(&coffer_core::category::CategoryKey::new("food.groceries")?)
+                .get(&orre_core::category::CategoryKey::new("food.groceries")?)
                 .map(|category| category.id());
             (groceries, seeded.coffee)
         };
@@ -1071,8 +1068,8 @@ fn rules_category_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<(
             let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
             let inbox = cx.new(|_| Inbox::empty());
             let settings = cx.new(SettingsView::fixture);
-            let source = coffer_app::transactions::Source::Database(
-                coffer_app::transactions::store::TransactionStore::new(database.clone()),
+            let source = orre_app::transactions::Source::Database(
+                orre_app::transactions::store::TransactionStore::new(database.clone()),
             );
             let rules = cx.new(|_| Rules::from_store(RulesStore::new(database)));
             let shell = cx.new(|cx| {
@@ -1109,7 +1106,7 @@ fn rules_category_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<(
                         rules.edit_category(
                             false,
                             |form| {
-                                form.group = coffer_core::category::CategoryKey::new("food").ok();
+                                form.group = orre_core::category::CategoryKey::new("food").ok();
                             },
                             cx,
                         )
@@ -1127,8 +1124,8 @@ fn rules_category_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<(
 }
 
 /// `fixtures/csv/signed-amount.csv`: a layout no preset has.
-fn signed_amount_fixture() -> coffer_import::SourceFile {
-    coffer_import::SourceFile::from_bytes(
+fn signed_amount_fixture() -> orre_import::SourceFile {
+    orre_import::SourceFile::from_bytes(
         "example-bank-november.csv",
         include_bytes!("../../../fixtures/csv/signed-amount.csv").to_vec(),
     )
@@ -1162,15 +1159,15 @@ fn valued_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 data.tree.accounts.retain(|node| node.account.id != HOUSE);
                 data.tree
                     .net_worth
-                    .add(coffer_core::money::Money::new(
+                    .add(orre_core::money::Money::new(
                         -38_500_000,
-                        coffer_core::money::Currency::GBP,
+                        orre_core::money::Currency::GBP,
                     ))
                     .expect("the fixture's sums fit");
             }
             let mut fixture = Accounts::fixture(data);
             if step == ValuedStep::Closed {
-                fixture = fixture.with_closed(coffer_app::accounts::Closed {
+                fixture = fixture.with_closed(orre_app::accounts::Closed {
                     account: HOUSE,
                     message: "House closed".into(),
                 });
@@ -1241,7 +1238,7 @@ fn cash_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
             let shell = built.borrow().clone().expect("the shell was built");
             let dialog = shell.read(cx).dialog().expect("the dialog is open").clone();
             let dialog = dialog
-                .downcast::<coffer_app::accounts::add_balance::AddBalanceDialog>()
+                .downcast::<orre_app::accounts::add_balance::AddBalanceDialog>()
                 .expect("it is the count dialog");
             dialog.update(cx, |dialog, cx| dialog.type_amount(counted, window, cx));
         };
@@ -1267,8 +1264,8 @@ enum ExclusionShot {
 /// inspector), `transactions-new-transaction` (`529-0`) and
 /// `transactions-undo-import` (the undo-import confirmation, composed).
 fn exclusion_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
-    use coffer_app::transactions::confirm::{UndoImportDialog, undo_lines};
-    use coffer_core::exclusion::ExclusionReason;
+    use orre_app::transactions::confirm::{UndoImportDialog, undo_lines};
+    use orre_core::exclusion::ExclusionReason;
 
     for (name, shot) in [
         ("transactions-excluded", ExclusionShot::Excluded),
@@ -1341,15 +1338,15 @@ fn exclusion_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                 }
                 ExclusionShot::UndoImport => {
                     view.update(cx, |view, cx| view.select([odeon], cx));
-                    let preview = coffer_core::import::UndoPreview {
-                        batch: coffer_core::import::BatchInfo {
-                            id: coffer_core::id::BatchId::new(2),
+                    let preview = orre_core::import::UndoPreview {
+                        batch: orre_core::import::BatchInfo {
+                            id: orre_core::id::BatchId::new(2),
                             account: accounts_fixture::CURRENT,
                             source_file: "monzo-november.csv".to_owned(),
-                            format: coffer_core::statement::SourceFormat::Csv,
+                            format: orre_core::statement::SourceFormat::Csv,
                             preset_id: Some("uk-monzo".to_owned()),
                             imported_at: "2026-11-09T08:12:00.000Z".to_owned(),
-                            status: coffer_core::import::BatchStatus::Committed,
+                            status: orre_core::import::BatchStatus::Committed,
                             transactions: 296,
                         },
                         transactions: 296,
@@ -1382,7 +1379,7 @@ fn exclusion_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
 /// suggested, Savings' side selected) and `transactions-transfer-confirmed`
 /// (confirmed, Current account's side selected). Composed, not drawn.
 fn transfer_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
-    use coffer_core::transfer::TransferStatus;
+    use orre_core::transfer::TransferStatus;
 
     for (name, status) in [
         ("transactions-transfer", TransferStatus::Suggested),
@@ -1420,11 +1417,11 @@ fn transfer_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
 /// What a D6.9 snapshot shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ValuedStep {
-    Select(coffer_core::id::AccountId),
+    Select(orre_core::id::AccountId),
     NewAccount,
-    AddValue(coffer_core::id::AccountId),
-    Close(coffer_core::id::AccountId),
-    Delete(coffer_core::id::AccountId),
+    AddValue(orre_core::id::AccountId),
+    Close(orre_core::id::AccountId),
+    Delete(orre_core::id::AccountId),
     Closed,
 }
 

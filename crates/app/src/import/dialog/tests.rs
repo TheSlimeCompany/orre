@@ -1,14 +1,14 @@
 //! UI integration tests for the Import dialog: the shell and the dialog in
 //! a headless window, against a scratch database through
-//! [`ImportStore`], as `coffer` runs them. Only synthetic fixtures.
+//! [`ImportStore`], as `orre` runs them. Only synthetic fixtures.
 
 use std::path::Path;
 
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::import::{self as core_import, BatchStatus};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::import::{self as core_import, BatchStatus};
 use tempfile::TempDir;
 
 use super::*;
@@ -26,7 +26,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("coffer.db");
+        let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
         let mut new = NewAccount::new("Current account", AccountKind::Current, Currency::GBP);
         new.preset = Some("uk-monzo".to_owned());
@@ -197,7 +197,7 @@ fn a_new_layout_is_mapped_saved_as_a_preset_and_recognised_next_time(cx: &mut Te
             Some("uk-example-bank")
         );
     });
-    let saved = coffer_core::paths::presets_dir(&scratch.path).join("uk/example-bank.toml");
+    let saved = orre_core::paths::presets_dir(&scratch.path).join("uk/example-bank.toml");
     assert!(saved.is_file());
     let account = account::list(&Database::open(&scratch.path).unwrap())
         .unwrap()
@@ -240,7 +240,7 @@ fn a_file_that_isnt_a_statement_stays_on_file(cx: &mut TestAppContext) {
         assert_eq!(dialog.step(), Step::File);
         assert_eq!(
             dialog.problem().map(|p| p.to_string()).as_deref(),
-            Some("Coffer imports CSV, OFX and QFX files, and notes.pdf isn't one it can read.")
+            Some("Orre imports CSV, OFX and QFX files, and notes.pdf isn't one it can read.")
         );
     });
 }
@@ -252,10 +252,9 @@ fn the_banks_corrections_are_shown_and_accepted_by_import(cx: &mut TestAppContex
     let scratch = Scratch::new();
     {
         let mut db = Database::open(&scratch.path).unwrap();
-        let file = coffer_import::SourceFile::read(&fixture("ofx/corrections-first.ofx")).unwrap();
+        let file = orre_import::SourceFile::read(&fixture("ofx/corrections-first.ofx")).unwrap();
         let statement =
-            coffer_import::AnyImporter::import(&coffer_import::ofx::OfxImporter::new(), &file)
-                .unwrap();
+            orre_import::AnyImporter::import(&orre_import::ofx::OfxImporter::new(), &file).unwrap();
         let preview =
             core_import::preview(&db, scratch.account, "corrections-first.ofx", statement).unwrap();
         core_import::commit(&mut db, &preview, preview.needs_confirmation()).unwrap();
@@ -305,10 +304,10 @@ fn the_banks_corrections_are_shown_and_accepted_by_import(cx: &mut TestAppContex
     let db = Database::open(&scratch.path).unwrap();
     let superseded = (1..=3)
         .filter(|id| {
-            coffer_core::exclusion::get(&db, coffer_core::id::TransactionId::new(*id))
+            orre_core::exclusion::get(&db, orre_core::id::TransactionId::new(*id))
                 .unwrap()
                 .is_some_and(|exclusion| {
-                    exclusion.reason == coffer_core::exclusion::ExclusionReason::Superseded
+                    exclusion.reason == orre_core::exclusion::ExclusionReason::Superseded
                 })
         })
         .count();
@@ -346,9 +345,9 @@ fn a_file_for_another_account_number_is_warned_about_in_review(cx: &mut TestAppC
     // Current has had `multi-statement.ofx`'s first statement.
     {
         let mut db = Database::open(&scratch.path).unwrap();
-        let file = coffer_import::SourceFile::read(&fixture("ofx/multi-statement.ofx")).unwrap();
-        let statement = coffer_import::AnyImporter::import(
-            &coffer_import::ofx::OfxImporter::for_statement(0),
+        let file = orre_import::SourceFile::read(&fixture("ofx/multi-statement.ofx")).unwrap();
+        let statement = orre_import::AnyImporter::import(
+            &orre_import::ofx::OfxImporter::for_statement(0),
             &file,
         )
         .unwrap();
@@ -380,10 +379,10 @@ fn the_warning_names_the_account_the_file_belongs_to() {
             &NewAccount::new("Savings", AccountKind::Savings, Currency::GBP),
         )
         .unwrap();
-        let file = coffer_import::SourceFile::read(&fixture("ofx/multi-statement.ofx")).unwrap();
+        let file = orre_import::SourceFile::read(&fixture("ofx/multi-statement.ofx")).unwrap();
         for (account, index) in [(scratch.account, 0), (savings, 1)] {
-            let statement = coffer_import::AnyImporter::import(
-                &coffer_import::ofx::OfxImporter::for_statement(index),
+            let statement = orre_import::AnyImporter::import(
+                &orre_import::ofx::OfxImporter::for_statement(index),
                 &file,
             )
             .unwrap();
@@ -393,8 +392,8 @@ fn the_warning_names_the_account_the_file_belongs_to() {
         }
         // The savings statement into Current: the warning is the account's
         // name, as the dialog would show it.
-        let statement = coffer_import::AnyImporter::import(
-            &coffer_import::ofx::OfxImporter::for_statement(1),
+        let statement = orre_import::AnyImporter::import(
+            &orre_import::ofx::OfxImporter::for_statement(1),
             &file,
         )
         .unwrap();
@@ -410,8 +409,8 @@ fn the_warning_names_the_account_the_file_belongs_to() {
             &NewAccount::new("Spare", AccountKind::Current, Currency::GBP),
         )
         .unwrap();
-        let statement = coffer_import::AnyImporter::import(
-            &coffer_import::ofx::OfxImporter::for_statement(1),
+        let statement = orre_import::AnyImporter::import(
+            &orre_import::ofx::OfxImporter::for_statement(1),
             &file,
         )
         .unwrap();

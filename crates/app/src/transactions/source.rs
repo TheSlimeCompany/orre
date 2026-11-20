@@ -26,12 +26,12 @@
 //! "Include again" is the undo of excluding and runs at once. The user's
 //! details are their own text, shown plain and never acted on.
 
-use coffer_core::exclusion::ExclusionReason;
-use coffer_core::reporting::register::{RegisterRow, RowSource};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, Styled as _, div,
 };
+use orre_core::exclusion::ExclusionReason;
+use orre_core::reporting::register::{RegisterRow, RowSource};
 
 use crate::format;
 use crate::theme::tokens::{color, radius, size, spacing, typography};
@@ -246,8 +246,8 @@ pub(super) fn source_section(
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
-    use coffer_core::id::BatchId;
-    use coffer_core::manual::Origin;
+    use orre_core::id::BatchId;
+    use orre_core::manual::Origin;
 
     use super::*;
 

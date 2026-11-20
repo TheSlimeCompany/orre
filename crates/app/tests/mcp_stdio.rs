@@ -1,6 +1,6 @@
-//! `coffer mcp --client <name>` as an MCP client starts it: the real binary,
+//! `orre mcp --client <name>` as an MCP client starts it: the real binary,
 //! JSON-RPC lines over its stdin and stdout, against a scratch data dir
-//! (`COFFER_DATA_DIR`). Checks that stdout carries MCP messages only, and
+//! (`ORRE_DATA_DIR`). Checks that stdout carries MCP messages only, and
 //! that without a database the server fails on stderr and creates nothing,
 //! and that a call over stdio is logged.
 //!
@@ -9,20 +9,20 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
-use coffer_core::access_log::{self, Outcome};
-use coffer_core::db::Database;
-use coffer_core::mcp_client::{self, ClientName};
-use coffer_core::paths::{DATA_DIR_ENV, DATABASE_FILE};
+use orre_core::access_log::{self, Outcome};
+use orre_core::db::Database;
+use orre_core::mcp_client::{self, ClientName};
+use orre_core::paths::{DATA_DIR_ENV, DATABASE_FILE};
 use serde_json::{Value, json};
 
-fn coffer() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_coffer"))
+fn orre() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_orre"))
 }
 
 #[test]
 fn without_a_database_it_fails_on_stderr() {
     let dir = tempfile::tempdir().unwrap();
-    let output = coffer()
+    let output = orre()
         .args(["mcp", "--client", "claude-code"])
         .env(DATA_DIR_ENV, dir.path())
         .stdin(Stdio::null())
@@ -32,15 +32,15 @@ fn without_a_database_it_fails_on_stderr() {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty(), "stdout is for MCP messages only");
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("there is no Coffer database"), "{stderr}");
+    assert!(stderr.contains("there is no Orre database"), "{stderr}");
     assert!(!dir.path().join(DATABASE_FILE).exists());
 }
 
 #[test]
 fn a_bad_client_name_is_refused() {
     let dir = tempfile::tempdir().unwrap();
-    let output = coffer()
-        .args(["mcp", "--client", "coffer"])
+    let output = orre()
+        .args(["mcp", "--client", "orre"])
         .env(DATA_DIR_ENV, dir.path())
         .stdin(Stdio::null())
         .output()
@@ -55,7 +55,7 @@ fn serves_tools_over_stdio() {
     let mut db = Database::open(&dir.path().join(DATABASE_FILE)).unwrap();
     // MCP access is off until the user enables the client, which the real
     // binary refuses to do without a terminal (R.1): a test's stdin isn't one.
-    let refused = coffer()
+    let refused = orre()
         .args(["ai-access", "enable", "claude-code"])
         .env(DATA_DIR_ENV, dir.path())
         .stdin(Stdio::null())
@@ -68,7 +68,7 @@ fn serves_tools_over_stdio() {
     mcp_client::enable(&mut db, &ClientName::new("claude-code").unwrap()).unwrap();
     drop(db);
 
-    let mut child = coffer()
+    let mut child = orre()
         .args(["mcp", "--client", "claude-code"])
         .env(DATA_DIR_ENV, dir.path())
         .stdin(Stdio::piped())
@@ -98,7 +98,7 @@ fn serves_tools_over_stdio() {
     }));
     let initialized = receive();
     assert_eq!(initialized["id"], 1, "{initialized}");
-    assert_eq!(initialized["result"]["serverInfo"]["name"], "coffer");
+    assert_eq!(initialized["result"]["serverInfo"]["name"], "orre");
 
     send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
     send(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }));

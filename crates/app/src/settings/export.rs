@@ -9,7 +9,7 @@
 //! are described (`docs/EXPORT.md`); "Saved where you choose. Nothing is
 //! uploaded." with Cancel / "Export…", which opens the system's save
 //! dialog and writes there (`export::to_file`: `0600`, never over the
-//! database). The same export as `coffer export`; the notes toggle sets
+//! database). The same export as `orre export`; the notes toggle sets
 //! both its `--include-notes` and `--include-private-tags`.
 //!
 //! Composed for M3.16 (not drawn): the dates start at the ledger's first
@@ -22,16 +22,16 @@
 use std::path::PathBuf;
 
 use chrono::NaiveDate;
-use coffer_core::category::CategoryKey;
-use coffer_core::export::{Counts, Filter, Format, Options};
-use coffer_core::id::AccountId;
-use coffer_core::tag::TagName;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Subscription, Task, Window, div,
 };
+use orre_core::category::CategoryKey;
+use orre_core::export::{Counts, Filter, Format, Options};
+use orre_core::id::AccountId;
+use orre_core::tag::TagName;
 
 use crate::accounts::DialogClosed;
 use crate::format::{field_date, parse_date};
@@ -185,7 +185,7 @@ impl ExportDialog {
                 }
                 parse_date(&text, self.today).map(Some).ok_or_else(|| {
                     SharedString::from(format!(
-                        "The {which} date isn't one Coffer can read. Type it as 1 Jan 2026."
+                        "The {which} date isn't one Orre can read. Type it as 1 Jan 2026."
                     ))
                 })
             };
@@ -290,10 +290,7 @@ impl ExportDialog {
             Format::Csv => "csv",
             Format::Json => "json",
         };
-        let name = format!(
-            "coffer-export-{}.{extension}",
-            self.today.format("%Y-%m-%d")
-        );
+        let name = format!("orre-export-{}.{extension}", self.today.format("%Y-%m-%d"));
         let dir = std::env::home_dir().unwrap_or_default();
         let target = cx.prompt_for_new_path(&dir, Some(&name));
         self._task = Some(cx.spawn(async move |this, cx| {

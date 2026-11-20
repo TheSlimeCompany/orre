@@ -19,15 +19,15 @@
 //! - **Exclude**: D6.3's reason select without Other (a rule carries no
 //!   note).
 
-use coffer_core::category::{Category, CategoryKey, CategoryKind, NewCategory, Placement};
-use coffer_core::id::AccountId;
-use coffer_core::merchant::{AliasDefinition, AliasError, AliasKind, DisplayName};
-use coffer_core::money::Currency;
-use coffer_core::rule::{
+use orre_core::category::{Category, CategoryKey, CategoryKind, NewCategory, Placement};
+use orre_core::id::AccountId;
+use orre_core::merchant::{AliasDefinition, AliasError, AliasKind, DisplayName};
+use orre_core::money::Currency;
+use orre_core::rule::{
     ActionKind, ActionText, AmountBounds, ExcludeReason, MatchField, MatchKind, Pattern,
     PatternError, RuleAction, RuleDefinition, RuleError, Share, SplitLine, SplitTemplate, TagList,
 };
-use coffer_core::tag::TagName;
+use orre_core::tag::TagName;
 
 use crate::format;
 

@@ -1,4 +1,4 @@
-//! `coffer schedules` against scratch data dirs and synthetic rows imported
+//! `orre schedules` against scratch data dirs and synthetic rows imported
 //! through core. Nothing here touches the real data dir.
 //!
 //! The seeded account has two monthly series, May to October 2026: a fixed
@@ -9,14 +9,14 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 use clap::Parser;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, ScheduleId};
-use coffer_core::import;
-use coffer_core::money::{Currency, Money};
-use coffer_core::recurring::{self, RecurringSeries, SeriesKey};
-use coffer_core::schedule::{self, OccurrenceState, ScheduleStatus, Tolerance};
-use coffer_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::id::{AccountId, ScheduleId};
+use orre_core::import;
+use orre_core::money::{Currency, Money};
+use orre_core::recurring::{self, RecurringSeries, SeriesKey};
+use orre_core::schedule::{self, OccurrenceState, ScheduleStatus, Tolerance};
+use orre_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
 use tempfile::TempDir;
 
 use super::*;
@@ -64,7 +64,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Scratch {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("coffer.db");
+        let db = dir.path().join("orre.db");
         Scratch { _dir: dir, db }
     }
 
@@ -84,7 +84,7 @@ impl Scratch {
     }
 
     fn run(&self, args: &[&str]) -> Result<String, String> {
-        let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
             .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
         let mut out = Vec::new();
         let result = super::run(cli.command.expect("a subcommand"), &self.db, &mut out);
@@ -143,7 +143,7 @@ impl Scratch {
 }
 
 fn parse(args: &[&str]) -> SchedulesCommand {
-    let cli = Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied()))
+    let cli = Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied()))
         .unwrap_or_else(|error| panic!("{args:?} doesn't parse: {error}"));
     match cli.command {
         Some(Command::Schedules(SchedulesArgs { command })) => command,
@@ -152,7 +152,7 @@ fn parse(args: &[&str]) -> SchedulesCommand {
 }
 
 fn parse_err(args: &[&str]) -> String {
-    match Cli::try_parse_from(std::iter::once("coffer").chain(args.iter().copied())) {
+    match Cli::try_parse_from(std::iter::once("orre").chain(args.iter().copied())) {
         Ok(cli) => panic!("{args:?} parsed: {:?}", cli.command),
         Err(error) => error.to_string(),
     }
@@ -300,7 +300,7 @@ fn parses_dismiss_and_undismiss() {
 fn needs_an_existing_database() {
     let scratch = Scratch::new();
     let error = scratch.err(&["schedules", "list"]);
-    assert!(error.contains("no Coffer database"), "{error}");
+    assert!(error.contains("no Orre database"), "{error}");
     assert!(!scratch.db.exists(), "the database was created");
 }
 
@@ -345,7 +345,7 @@ fn detect_lists_the_series_with_their_keys() {
         "{energy_line}"
     );
     assert!(!out.contains("Corner Deli"), "{out}");
-    assert!(out.contains("coffer schedules confirm <key>"), "{out}");
+    assert!(out.contains("orre schedules confirm <key>"), "{out}");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-# Coffer — Architecture: Accounts
+# Orre — Architecture: Accounts
 
 Accounts and their balances: pots and other sub-accounts, accounts the user keeps by hand, assets and liabilities, closing and deleting, cash counts.
 
@@ -8,12 +8,12 @@ that list.
 
 ## Accounts
 
-`coffer_core::account` (with `account::close` and `account::count`); pots are made by
-imports (`coffer_core::sub_account`); the accounts panel's figures are
+`orre_core::account` (with `account::close` and `account::count`); pots are made by
+imports (`orre_core::sub_account`); the accounts panel's figures are
 `reporting::account_tree`. The app's side is `crates/app/src/accounts/`, whose
 `AccountStore` opens the database for each read or write through `backup::gate`; reads
 run on a background thread and writes on the UI thread, a new account selected at once
-(`app.md`, "Accounts and Rules read in the background"). The CLI is `coffer accounts` (`list`, `add`, `close`, `reopen`). The records
+(`app.md`, "Accounts and Rules read in the background"). The CLI is `orre accounts` (`list`, `add`, `close`, `reopen`). The records
 below are the history; this section is the rule in force.
 
 ### Kinds
@@ -47,18 +47,18 @@ here; core checks first so the error says why.
   an account with transactions can't become an asset or liability; one with balances
   can't move in or out of the valuation kinds; one with pots stays current or savings.
 - **Preset** (`account.preset_id`): a preset's ID, not checked against the presets. The
-  app's import uses it when the preset exists, else detects one; `coffer import` doesn't
+  app's import uses it when the preset exists, else detects one; `orre import` doesn't
   read it. A preset this computer doesn't have shows as "`<id>` · not on this computer"
   ("Decision record: backup retention and presets", point 7).
 - **Pots** are found by `account.sub_account_key`, exactly, under one parent; an import
   creates a missing one and never renames one. Monzo's key is the pot's name
   ("Decision record: sub-accounts", points 1 and 8). Pots made by an import stay when it
-  is undone, and aren't a default `coffer import` target (points 6 and 7). A pot added by hand
+  is undone, and aren't a default `orre import` target (points 6 and 7). A pot added by hand
   has no key and isn't matched.
 
 ### Balances
 
-- **Every balance is an assertion** (`coffer_core::reconciliation`): the account's
+- **Every balance is an assertion** (`orre_core::reconciliation`): the account's
   first is its starting point, each later one is checked against the last that passed
   plus the transactions between. Rows excluded as `duplicate` or `superseded` leave the
   sum; other exclusions stay in it. A valuation sets the balance and is never checked.
@@ -74,10 +74,10 @@ here; core checks first so the error says why.
   balance isn't built. File balances (`ofx`, `csv`) belong to their batch and go when it
   is undone.
 - **Cash counts** (`account::count::expectation`, `count::record`; cash accounts only,
-  `NotCash`): a count is a `manual` entered balance. Coffer expects the last passing
+  `NotCash`): a count is a `manual` entered balance. Orre expects the last passing
   balance (or the starting point) plus the transactions after it, up to the count's day.
   When asked, `record` also writes a manual "Cash count difference" row in Other
-  (uncategorised if Other was deleted), in the same `IMMEDIATE` DB transaction; Coffer
+  (uncategorised if Other was deleted), in the same `IMMEDIATE` DB transaction; Orre
   never posts a difference on its own. The dialog refuses a negative count; core
   doesn't ("Decision record: cash counts (built)").
 
@@ -108,8 +108,8 @@ manual rows, exclusions, change batches, the pot mirror) are in that record and 
 - **Reopening** (`account::reopen`) clears `closed_on` on the account and on the pots
   closed the same day, and deletes the £0 valuation on the closing day. A pot whose
   parent is closed can't reopen alone (`ParentClosed`). The app offers it on the undo
-  bar after closing; later only `coffer accounts reopen`. There is no panel UI for
-  closed accounts; `coffer accounts list` has a CLOSED column.
+  bar after closing; later only `orre accounts reopen`. There is no panel UI for
+  closed accounts; `orre accounts list` has a CLOSED column.
 - **Deleting** (`account::delete`; `account::deletion` counts what goes) is for an
   account added by mistake: refused (`Undeletable(DeleteLock)`) while it has
   transactions, imports (an undone batch counts), pots, rules or schedules, or a lock.
@@ -167,11 +167,11 @@ decided by the user on the designer's recommendation:
 5. **A cash count is a checked balance.** A count is a `balance_snapshot` with source
    `manual`, checked like any other balance (the first is the starting point; Review
    queues, point 1). "Add and save" writes the snapshot and the difference transaction
-   in one DB transaction. Coffer never posts a difference on its own.
+   in one DB transaction. Orre never posts a difference on its own.
 
 ### Decision record: sub-accounts (2026-11-11)
 
-Decided while building M1.17 (`coffer_core::sub_account`, `V4__sub_account_key.sql`) and
+Decided while building M1.17 (`orre_core::sub_account`, `V4__sub_account_key.sql`) and
 wiring it into `import::commit`. The preset format is under "Presets".
 
 1. **Pots are found by key, never by name.** `account.sub_account_key` (V4) holds the
@@ -206,7 +206,7 @@ wiring it into `import::commit`. The preset format is under "Presets".
    same file mirrors nothing, because its rows are already imported. Files imported
    before M1.17 keep their pot rows without a pot side; undo and import them again to
    mirror them.
-7. **Pots aren't a default import target.** `coffer import` without `--account` no
+7. **Pots aren't a default import target.** `orre import` without `--account` no
    longer counts pots: their rows come with the parent's export, and once an import has
    created pots the parent must stay the only candidate. A pot still takes a file named
    with `--account`.
@@ -215,7 +215,7 @@ wiring it into `import::commit`. The preset format is under "Presets".
    real export, it doesn't: `Description` is empty on every pot transfer, and only
    `Name` says which pot it is. Rather than flag every pot transfer, the Monzo preset
    uses `key = Name`. The cost: renaming a pot in the Monzo app makes a new pot in
-   Coffer at the next import (its earlier rows stay on the old one), and two pots with
+   Orre at the next import (its earlier rows stay on the old one), and two pots with
    the same name are one. The core is unchanged: it still matches `sub_account_key`
    exactly and never renames a pot; the key is just a name for this bank. A preset whose
    export has a stable ID keeps using it. If Monzo adds pot IDs, the preset moves to
@@ -236,10 +236,10 @@ Everything else follows `DESIGN.md` → "Accounts panel" or an earlier record.
    (`uk-monzo`), the same text `import_batch.preset_id` records. Only current, savings and
    credit card accounts have one (a `CHECK`): cash, asset and liability accounts are kept
    by the user, and a pot's rows arrive with its parent's imports. Core doesn't check the
-   ID against the presets (they live in `coffer-import`, and user presets come in M3.5);
-   the app and `coffer accounts add --preset` offer only presets they have, and an
+   ID against the presets (they live in `orre-import`, and user presets come in M3.5);
+   the app and `orre accounts add --preset` offer only presets they have, and an
    import whose preset has gone falls back to detection. The import flow (M3.4) is what
-   reads it; `coffer import` doesn't yet. *Changed 2026-11-19 (R.12):* user presets aren't
+   reads it; `orre import` doesn't yet. *Changed 2026-11-19 (R.12):* user presets aren't
    in backups, so a restore or a move can leave the ID naming nothing; the inspector then
    reads "`<id>` · not on this computer" in the Preset row ("Decision record: backup
    retention and presets", point 7).
@@ -299,7 +299,7 @@ record: accounts you keep yourself" above and "Decision record: accounts managem
 2. **A liability's value is at or below zero, and core never flips a sign.** Core refuses
    a positive liability valuation (`LiabilityAboveZero`). The app's "Owed" field is
    unsigned and refuses a minus; the app negates it and its caption says what will be
-   stored ("Coffer stores it as −£212,640.00", `FS6-0`). An asset's Value is unsigned too.
+   stored ("Orre stores it as −£212,640.00", `FS6-0`). An asset's Value is unsigned too.
 3. **Closing (`account::close`)** sets `closed_on` and deletes nothing. Its open pots close
    with it on the same day. An asset or liability also gets a £0 valuation that day. The
    earliest day (`closing(..).earliest`): the day after the last valuation for a
@@ -314,7 +314,7 @@ record: accounts you keep yourself" above and "Decision record: accounts managem
    the £0 valuation closing wrote: the zero `valuation` on the closing day, which the date
    rule makes the one closing wrote. A pot whose parent is closed can't reopen alone
    (`ParentClosed`). **Where (user):** the undo bar after closing ("House closed", Undo
-   reopens it), and `coffer accounts reopen <id|name>` later; `coffer accounts close
+   reopens it), and `orre accounts reopen <id|name>` later; `orre accounts close
    <id|name> [--on YYYY-MM-DD]` too, and `accounts list` gains a CLOSED column. No panel
    UI for closed accounts.
 5. **Deleting (`account::delete`, user: built now)** is for an account added by mistake:
@@ -349,14 +349,14 @@ M3.10, the cash half. Follows `DESIGN.md` → "Accounts you keep yourself" (D6.9
 1. **A cash count is a `manual` entered balance on a cash account**, checked like any
    balance; the first is the starting point (review queues, point 1). Other kinds are
    refused (`account::count`).
-2. **What Coffer expects** is the last passing balance (or the starting point) plus the
+2. **What Orre expects** is the last passing balance (or the starting point) plus the
    transactions after it, up to and including the count's day; a failed count is not a
    base.
 3. **"Add −£5.00 and save"** writes the count and a manual "Cash count difference" row in
    Other on the count's day, in one DB transaction (`manual::create_in`), opened
    `IMMEDIATE` so the difference is worked out from what the database holds when it
    writes. If the user has deleted Other (M3.7), the row is left uncategorised rather than
-   refused. Coffer never posts a difference on its own: Enter and "Save count only" add
+   refused. Orre never posts a difference on its own: Enter and "Save count only" add
    nothing.
 4. **Guards** are add-balance's and manual-create's: no count or difference on or before
    the lock date or after closing; a negative count is refused (composed).

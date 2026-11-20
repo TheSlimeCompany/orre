@@ -18,19 +18,19 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use chrono::{NaiveDate, NaiveDateTime};
-use coffer_core::account;
-use coffer_core::backup::gate;
-use coffer_core::category::{self, CategoryKey, GroupOverview};
-use coffer_core::change::{self, HistoryEntry};
-use coffer_core::clock;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, ChangeBatchId, MerchantAliasId, RuleId};
-use coffer_core::merchant::{self, AliasSummary};
-use coffer_core::money::Currency;
-use coffer_core::reporting::palette::{Palette, category_palette};
-use coffer_core::rule::{self, RuleSummary};
-use coffer_core::schedule;
-use coffer_core::tag;
+use orre_core::account;
+use orre_core::backup::gate;
+use orre_core::category::{self, CategoryKey, GroupOverview};
+use orre_core::change::{self, HistoryEntry};
+use orre_core::clock;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, ChangeBatchId, MerchantAliasId, RuleId};
+use orre_core::merchant::{self, AliasSummary};
+use orre_core::money::Currency;
+use orre_core::reporting::palette::{Palette, category_palette};
+use orre_core::rule::{self, RuleSummary};
+use orre_core::schedule;
+use orre_core::tag;
 
 use crate::accounts::store::StoreError;
 

@@ -20,22 +20,22 @@
 use std::collections::BTreeSet;
 
 use chrono::NaiveDate;
-use coffer_core::account::{self, AccountKind, NewAccount};
-use coffer_core::category::CategoryKey;
-use coffer_core::change;
-use coffer_core::db::Database;
-use coffer_core::id::{AccountId, RuleId, TransactionId};
-use coffer_core::import::{self, Committed};
-use coffer_core::inbox::own::recategorize;
-use coffer_core::merchant::{self, AliasDefinition, AliasKind, DisplayName};
-use coffer_core::money::{Currency, Money};
-use coffer_core::reporting::register::Register;
-use coffer_core::rule::{
+use orre_core::account::{self, AccountKind, NewAccount};
+use orre_core::category::CategoryKey;
+use orre_core::change;
+use orre_core::db::Database;
+use orre_core::id::{AccountId, RuleId, TransactionId};
+use orre_core::import::{self, Committed};
+use orre_core::inbox::own::recategorize;
+use orre_core::merchant::{self, AliasDefinition, AliasKind, DisplayName};
+use orre_core::money::{Currency, Money};
+use orre_core::reporting::register::Register;
+use orre_core::rule::{
     self, ActionText, AmountBounds, MatchField, MatchKind, Pattern, RuleAction, RuleDefinition,
     RuleOrigin, Share, TagList,
 };
-use coffer_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
-use coffer_core::tag::TagName;
+use orre_core::statement::{SourceFormat, SourceLocation, Statement, StatementLine};
+use orre_core::tag::TagName;
 
 fn date(month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, month, day).expect("a fixture date")
@@ -377,7 +377,7 @@ pub struct SeededCategories {
 /// Coffee under Food and a Side projects group with Tools, Mortgage hidden
 /// and the Travel group hidden with its subcategories. Run after [`seed`].
 pub fn seed_categories(db: &mut Database) -> SeededCategories {
-    use coffer_core::category::{self, CategoryKind, NewCategory, Placement};
+    use orre_core::category::{self, CategoryKind, NewCategory, Placement};
     let mut add = |label: &str, placement: Placement| {
         category::add(
             db,

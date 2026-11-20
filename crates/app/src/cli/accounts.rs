@@ -1,4 +1,4 @@
-//! `coffer accounts`: list the accounts, add one to import into, and close
+//! `orre accounts`: list the accounts, add one to import into, and close
 //! or reopen one (M3.17).
 
 use std::io::Write;
@@ -7,10 +7,10 @@ use anyhow::{Context as _, bail, ensure};
 use chrono::NaiveDate;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args, Subcommand};
-use coffer_core::account::{self, Account, AccountKind, NewAccount};
-use coffer_core::db::Database;
-use coffer_core::money::Currency;
-use coffer_import::preset::Presets;
+use orre_core::account::{self, Account, AccountKind, NewAccount};
+use orre_core::db::Database;
+use orre_core::money::Currency;
+use orre_import::preset::Presets;
 
 use super::import::preset_lines;
 use super::write_table;
@@ -96,14 +96,14 @@ fn parse_currency(code: &str) -> Result<Currency, String> {
         .map_err(|_| format!("{code:?} isn't an ISO 4217 currency code (e.g. GBP, EUR, USD)"))
 }
 
-/// `coffer accounts`: every account, in the order they were added.
+/// `orre accounts`: every account, in the order they were added.
 pub fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     let accounts = account::list(db)?;
     if accounts.is_empty() {
         writeln!(
             out,
             "No accounts yet. Add one with \
-             `coffer accounts add --name <name> --kind <kind> --currency <code>`."
+             `orre accounts add --name <name> --kind <kind> --currency <code>`."
         )?;
         return Ok(());
     }
@@ -147,7 +147,7 @@ pub fn list(db: &Database, out: &mut dyn Write) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `coffer accounts add`.
+/// `orre accounts add`.
 pub fn add(
     db: &mut Database,
     presets: &Presets,
@@ -226,7 +226,7 @@ pub fn add(
     Ok(())
 }
 
-/// `coffer accounts close`.
+/// `orre accounts close`.
 pub fn close(
     db: &mut Database,
     args: &CloseAccountArgs,
@@ -236,7 +236,7 @@ pub fn close(
     let wanted = find(&accounts, &args.account)?.clone();
     let on = match args.on {
         Some(on) => on,
-        None => coffer_core::schedule::local_today().context("couldn't read today's date")?,
+        None => orre_core::schedule::local_today().context("couldn't read today's date")?,
     };
     let closed = account::close::close(db, wanted.id, on)?;
     writeln!(out, "Closed {} on {on}", describe(&wanted))?;
@@ -249,7 +249,7 @@ pub fn close(
     Ok(())
 }
 
-/// `coffer accounts reopen`.
+/// `orre accounts reopen`.
 pub fn reopen(
     db: &mut Database,
     args: &ReopenAccountArgs,

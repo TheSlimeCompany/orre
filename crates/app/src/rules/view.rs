@@ -15,10 +15,6 @@
 
 use std::collections::HashMap;
 
-use coffer_core::category::{CategoryKey, CategoryKind};
-use coffer_core::id::AccountId;
-use coffer_core::merchant::AliasKind;
-use coffer_core::rule::{ActionKind, ExcludeReason, MatchField, MatchKind};
 use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
@@ -26,6 +22,10 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, ParentElement as _, Render,
     SharedString, Styled as _, Subscription, Window, div,
 };
+use orre_core::category::{CategoryKey, CategoryKind};
+use orre_core::id::AccountId;
+use orre_core::merchant::AliasKind;
+use orre_core::rule::{ActionKind, ExcludeReason, MatchField, MatchKind};
 
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::icon::Glyph;
@@ -44,7 +44,7 @@ use super::text;
 use super::{MoveRuleDown, MoveRuleUp, Outcome, Rules};
 
 /// The key context of the Rules canvas, where ↑↓, ⌥↑⌥↓ and Escape work.
-pub const CONTEXT: &str = "CofferRules";
+pub const CONTEXT: &str = "OrreRules";
 
 /// ⌥↑ and ⌥↓ (Alt on Linux and Windows): move the selected rule one place
 /// (`DESIGN.md` → "Rules" → "Keyboard reorder"), hinted as one "⌥↑↓
@@ -588,7 +588,7 @@ impl RulesView {
                 .iter()
                 .any(|tag| tag.name.eq_ignore_ascii_case(typed));
             if !typed.is_empty() && !known {
-                let option = match coffer_core::tag::TagName::new(typed) {
+                let option = match orre_core::tag::TagName::new(typed) {
                     Ok(name) => MenuOption::new(NEW_TAG, format!("Create “{}”", name.as_str()))
                         .icon(Glyph::Plus),
                     Err(_) => MenuOption::new(NEW_TAG, "Create a tag")

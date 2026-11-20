@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use coffer_core::statement::SourceFormat;
+use orre_core::statement::SourceFormat;
 
 use crate::ImportError;
 
@@ -60,7 +60,7 @@ impl TextEncoding {
     /// The encoding a preset names: `auto`, or a WHATWG label such as
     /// `utf-8`, `utf-16le`, `windows-1252` (also `latin1`, `iso-8859-1`)
     /// or `iso-8859-15`, ignoring ASCII case. `None` for anything else,
-    /// including real encodings Coffer doesn't read.
+    /// including real encodings Orre doesn't read.
     pub fn from_label(label: &str) -> Option<TextEncoding> {
         if label.trim().eq_ignore_ascii_case("auto") {
             return Some(TextEncoding::Auto);

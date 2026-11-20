@@ -1,4 +1,4 @@
-# Coffer — Architecture: Links and review queues
+# Orre — Architecture: Links and review queues
 
 Change batches, refunds, reimbursements and shared costs, possible duplicates, balance checks and lock dates, export.
 
@@ -14,7 +14,7 @@ balance checks and export".
 
 ### Change batches
 
-`coffer_core::change` (V8). A change to user-facing fields on stored transactions is one
+`orre_core::change` (V8). A change to user-facing fields on stored transactions is one
 `change_batch` with a `change_item` per transaction and `Field` (category, merchant,
 user note, tags, exclusion, split, share, `reimbursable`, links), holding the value
 before and after. Imported source fields are never among them. The kinds
@@ -40,7 +40,7 @@ shares (`edit`). Transfer-pair decisions and merchant name aliases aren't batche
 
 ### Refunds, reimbursements and shared costs
 
-`coffer_core::link` (V9). A `transaction_link` ties money in to a purchase (`refund`,
+`orre_core::link` (V9). A `transaction_link` ties money in to a purchase (`refund`,
 `reimbursement` of a purchase claimed back) or to a person (`settlement`). One link per
 pair in any status; only `confirmed` counts. A `rejected` pair keeps its row and is
 never suggested again, and unlinking is rejecting ("M1 wave 4", point 10). Both sides
@@ -72,7 +72,7 @@ purchase can still take (`inflow_left`, `purchase_left`) and what the person owe
 
 ### Possible duplicates
 
-`coffer_core::duplicate` (V10, V20). `detect_for_batch` (at import) and `scan` raise a
+`orre_core::duplicate` (V10, V20). `detect_for_batch` (at import) and `scan` raise a
 `pending` `duplicate_candidate` for two rows on one account, same currency and non-zero
 amount, at most `DuplicateWindow::DEFAULT` apart (3 days, both ends), neither excluded,
 not from one import, at least one imported or mirrored. Its `CandidateReason`:
@@ -88,13 +88,13 @@ duplicate as `duplicate`, never deleting it, and moves what the user set on it t
 kept row where that row has nothing ("M1 wave 4", point 18). The default keeps a row in
 a transfer, then one with a source ID, then imported over manual, then the earlier
 import (`default_keep`). `dismiss` is final for that pair; `reopen` is its undo. The
-Inbox's CHECKS shows the queue through `coffer_core::checks` (`checks::merge_effect`:
+Inbox's CHECKS shows the queue through `orre_core::checks` (`checks::merge_effect`:
 the merge planned and rolled back, a locked one as if unlocked) ("review queues
 (built)", points 1–3).
 
 ### Balance checks and locks
 
-`coffer_core::reconciliation`. An account's balances (the opening balance, then
+`orre_core::reconciliation`. An account's balances (the opening balance, then
 snapshots) are ordered by date. The first is the starting point; each later one is
 checked against the last passing one plus the transactions between, with rows excluded
 as `duplicate` or `superseded` left out and a split row counted once. A `valuation`
@@ -130,11 +130,11 @@ reasons that keep the row in the balance (`bank_error`, `disputed`, `other`).
 
 ### Export
 
-`coffer_core::export`, `coffer export` and the app's export dialog: one row per
+`orre_core::export`, `orre export` and the app's export dialog: one row per
 `ledger_line` row, split lines and link parts with their own IDs, rows of a transaction
 summing to its amount. Filters AND together, a filter's values OR. Money is an exact
 decimal string beside its `*_minor` integer, with no floats; JSON is versioned
-(`coffer.export`, `schema_version` 1). Notes (`include_notes`) and private tags
+(`orre.export`, `schema_version` 1). Notes (`include_notes`) and private tags
 (`include_private_tags`) are opt-in columns that come last; share labels are never
 exported ("M1 wave 4", points 2 and 22). `Options::include_excluded` is on for the CLI
 and the dialog's toggle ("Settings, AI access and backups (built)", point 7). A file is
@@ -152,7 +152,7 @@ The open questions from the D6.4 designs (`DESIGN.md` → "Review queues"), deci
 user on the designer's recommendation:
 
 1. **The oldest balance is the starting point, not a check.** An account's first
-   `balance_snapshot` is where Coffer starts counting, and every later one is checked
+   `balance_snapshot` is where Orre starts counting, and every later one is checked
    against it plus the transactions between them. A `valuation` snapshot sets the
    balance and is never a check.
 2. **A period is locked only through a passing check.** `reconciled_through` can be set
@@ -175,7 +175,7 @@ shared costs"), decided by the user on the designer's recommendation:
 1. **A refund counts on its own date.** It's negative spending in the purchase's category
    (`ledger_line`), in the month the money came back. The purchase's month doesn't
    change, so a closed month stays as it was when a late refund arrives.
-2. **Link suggestions are deterministic and live in the inspector.** Coffer suggests:
+2. **Link suggestions are deterministic and live in the inspector.** Orre suggests:
    - a *refund* when money comes in on the same account under the same
      `merchant_display` as a purchase in the previous 90 days that has at least that
      much left to refund;
@@ -204,7 +204,7 @@ Points 2 and 3 were decided by the user on 2026-11-12.
 
 **Shared**
 
-1. **Change batches** (`coffer_core::change`, V8). A `Recorder` sets a field, reads the
+1. **Change batches** (`orre_core::change`, V8). A `Recorder` sets a field, reads the
    value back (a timestamp filled in, tags sorted, a derived name recomputed) and keeps
    old and new; `finish` writes the batch and one item per transaction and field, or
    nothing when nothing changed. It runs in the caller's DB transaction, so a preview
@@ -232,7 +232,7 @@ Points 2 and 3 were decided by the user on 2026-11-12.
    `bank_error` or `disputed` exclusion and its undo go through. See "Decision record: a
    lock guards balances only".
 
-**A — rule actions (M1.24, `coffer_core::rule`)**
+**A — rule actions (M1.24, `orre_core::rule`)**
 
 4. **Rules win field by field, tags included.** Category and split are one field (the
    first rule to set either takes it); merchant, tags, note, exclusion and share are one
@@ -261,7 +261,7 @@ Points 2 and 3 were decided by the user on 2026-11-12.
 9. Notes and shares have no "set by" column, so a note or share a rule set at import
    counts as user-set on a later Apply.
 
-**B — refunds, reimbursements and shared costs (M1.25, `coffer_core::link`, V9)**
+**B — refunds, reimbursements and shared costs (M1.25, `orre_core::link`, V9)**
 
 10. **One link per pair, in any status.** A rejected row stays, so the pair is never
     suggested again; unlinking is `reject` and its undo `confirm`. Only confirmed links
@@ -293,7 +293,7 @@ Points 2 and 3 were decided by the user on 2026-11-12.
 15. A linked row's amount and currency can't change (`manual::update` refuses), and
     linked money in can't be split or shared.
 
-**C — possible duplicates (M1.26, `coffer_core::duplicate`, V10)**
+**C — possible duplicates (M1.26, `orre_core::duplicate`, V10)**
 
 16. **A pair** is two rows on one account, same currency and non-zero amount, at most
     3 days apart (`DuplicateWindow::DEFAULT`, both ends included, at most 31), neither
@@ -320,7 +320,7 @@ Points 2 and 3 were decided by the user on 2026-11-12.
 
 **D — balance checks, lock dates and export (M1.27, M1.29)**
 
-20. **Every balance is checked** (`coffer_core::reconciliation`): the opening balance
+20. **Every balance is checked** (`orre_core::reconciliation`): the opening balance
     first on its day, then snapshots by ID, then by date. The first is the starting
     point; each later one is checked against the last passing one plus the transactions
     between (only `duplicate` exclusions leave the sum; a split row counts once). A
@@ -332,12 +332,12 @@ Points 2 and 3 were decided by the user on 2026-11-12.
     entirely. `account::add_balance` now refuses a date on or before the lock. Still to
     guard when they arrive: editing or deleting an entered balance, the opening balance
     or date, closing an account, deleting one.
-22. **Export** (`coffer_core::export`, `coffer export`) is one row per `ledger_line` row:
+22. **Export** (`orre_core::export`, `orre export`) is one row per `ledger_line` row:
     split lines carry the parent's `transaction_id` with their `split_id`/`line_no`, and
     link parts their `link_id`. Nothing is filtered by status. Filters AND together, a
     filter's values OR; dates inclusive; a group's category key includes its
     subcategories; tags match ignoring case. Money is an exact decimal string beside its
-    `*_minor` integer; JSON numbers are integers only; JSON is `{schema: "coffer.export",
+    `*_minor` integer; JSON numbers are integers only; JSON is `{schema: "orre.export",
     schema_version: 1, includes, rows}`, CSV has a header row and quotes only when
     needed. Opt-in columns come last, so the default header doesn't change. A file is
     created 0600, an existing one is refused without `--force` (which replaces it
@@ -360,7 +360,7 @@ queues" above and "Decision record: M1 wave 4" (C and D). No migration.
    Reviews tab stays for saved AI reports (M4.7). `crate::checks` (the state,
    `ChecksStore` opening the database per call, the two queues, the lock and unlock
    dialogs); the shell swaps the Inbox's canvas while a queue is open.
-2. **Core reads, core decides (`coffer_core::checks`).** A read model over
+2. **Core reads, core decides (`orre_core::checks`).** A read model over
    `duplicate` and `reconciliation`, with no writes of its own: each pending pair with
    both rows, why it was flagged and its default keep; each account's checks with the
    balance counted from, the transactions in the window and the pair that explains a
@@ -372,7 +372,7 @@ queues" above and "Decision record: M1 wave 4" (C and D). No migration.
    own plan (`duplicate::plan`, now `pub(crate)`) in a rolled-back transaction and
    reads, before and after, the pair's `ledger_line` spending and the account's balance
    checks: the row excluded, the values moved, the spending each category gains or
-   loses, Coffer's count on the next check's day, and every check whose result changes.
+   loses, Orre's count on the next check's day, and every check whose result changes.
    A pair "explains" a failing check when this merge makes it pass. A duplicate in a
    locked period is planned with the lock lifted inside the rolled-back transaction, so
    the inspector shows what an unlock would allow; `MergeEffect::locked` says so, and
@@ -385,7 +385,7 @@ queues" above and "Decision record: M1 wave 4" (C and D). No migration.
    `change::undo` of its batch, which puts the pair back to pending. Both reopen the pair.
 6. **Selection (user).** Opening Possible duplicates opens its first pair; opening
    Balance checks selects the first failing check. A passed check's inspector shows
-   "This check" without the explanation; a starting point says Coffer counts from it;
+   "This check" without the explanation; a starting point says Orre counts from it;
    with nothing selected, one caption. Every check's inspector ends with the account's
    lock (Unlock…, or Lock through … when a later date is lockable).
 7. **Left out until their items (user).** "Show in Transactions", "Show N transactions"
@@ -458,7 +458,7 @@ shared costs" above and "Decision record: M1 wave 4" (B).
    composed: a payment's reimbursement card in the inspector ("Does this repay your
    claims?"), the strip's one- and many-claim wording, the empty dialog list's
    captions, a person's empty inspector caption, the undo bar's "Unlinked the …" and
-   "Coffer won't suggest that … again", and the Links caption on money in.
+   "Orre won't suggest that … again", and the Links caption on money in.
 7. **Shared waits for a person.** Choosing Shared fills Yours with half the amount
    and saves nothing until a person is chosen; then Yours saves on blur or Enter.
    Just me and Claim back save at once. A split purchase is shared line by line in

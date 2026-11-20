@@ -5,7 +5,7 @@
 //! Adapted from D6.9's "Add a balance for Mortgage": Balance (the currency's
 //! symbol, mono, signed: a minus when overdrawn) with its date in a 96px
 //! field, Note, a caption, then Cancel and "Add balance" (neutral primary).
-//! It records a `manual` entered balance ([`coffer_core::account::add_balance`]):
+//! It records a `manual` entered balance ([`orre_core::account::add_balance`]):
 //! one per account and day, after the account's lock date, checked against
 //! the transactions like any other. A refusal is said in `danger` under the
 //! caption.
@@ -13,13 +13,13 @@
 //! On an asset or liability account it records a valuation (M3.17). For a
 //! liability it is D6.9's drawn "Add a balance for Mortgage" (Paper
 //! `FS0-0`): Owed, unsigned, stored below zero, the caption saying what
-//! Coffer will store as it's typed. For an asset it is composed from that
+//! Orre will store as it's typed. For an asset it is composed from that
 //! one (decided with the user, 2026-11-14): "Add a valuation for House",
 //! Value, unsigned, and "Add valuation". Neither takes a minus.
 //!
 //! On a cash account it is the Cash count dialog (D6.9, `EPF-0`; M3.10):
 //! "Count cash for Cash", Counted (the currency's symbol and the date),
-//! then, from the second count, Coffer's expectation and the Difference
+//! then, from the second count, Orre's expectation and the Difference
 //! (see [`Counting`]). The footer is Cancel, "Save count only" and, when
 //! the count is off, "Add −£5.00 and save", which also adds the "Cash count
 //! difference" transaction. Nothing is added unless that is chosen, and
@@ -28,17 +28,17 @@
 //! [`super::AccountsEvent::AddBalanceRequested`] as the other kinds.
 
 use chrono::NaiveDate;
-use coffer_core::account::count::Expectation;
-use coffer_core::account::{AccountKind, EnteredBalance, EnteredSource};
-use coffer_core::id::AccountId;
-use coffer_core::money::Currency;
-use coffer_core::money::Money;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable as _, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
 };
+use orre_core::account::count::Expectation;
+use orre_core::account::{AccountKind, EnteredBalance, EnteredSource};
+use orre_core::id::AccountId;
+use orre_core::money::Currency;
+use orre_core::money::Money;
 
 use crate::format::{
     Sign, currency_prefix, field_date, list_date, money, parse_amount, parse_date,
@@ -54,18 +54,18 @@ use super::new_account::{read_balance, sentence};
 use super::{Accounts, DialogClosed};
 
 /// The dialog's caption (Paper `I7I-0`).
-const CAPTION: &str = "Your balance at the end of that day, as your bank shows it. Type a minus if the account is overdrawn. Coffer checks it against the transactions since the last balance.";
+const CAPTION: &str = "Your balance at the end of that day, as your bank shows it. Type a minus if the account is overdrawn. Orre checks it against the transactions since the last balance.";
 
 /// The caption for an asset (composed from `FS6-0`).
-const ASSET_CAPTION: &str = "What it's worth on that day, from a survey, an estimate or a statement. Coffer holds it until the next one; it isn't checked against transactions.";
+const ASSET_CAPTION: &str = "What it's worth on that day, from a survey, an estimate or a statement. Orre holds it until the next one; it isn't checked against transactions.";
 
 /// The caption of a cash count after the first (composed from `EPF-0`).
 /// It doesn't name the difference's category: core files it in Other only
 /// while that category exists, under whatever the user calls it now.
-const COUNT_CAPTION: &str = "Coffer checks your count against the last one and what you've entered since. Adding the difference puts a \u{201c}Cash count difference\u{201d} entry on that day, so the check passes; saving the count only leaves it as a failed check to look into.";
+const COUNT_CAPTION: &str = "Orre checks your count against the last one and what you've entered since. Adding the difference puts a \u{201c}Cash count difference\u{201d} entry on that day, so the check passes; saving the count only leaves it as a failed check to look into.";
 
 /// The caption of the first cash count (composed from `EPF-0`).
-const FIRST_COUNT_CAPTION: &str = "This is your first count, so it's the starting point: Coffer counts forward from it and checks every later count against what you enter.";
+const FIRST_COUNT_CAPTION: &str = "This is your first count, so it's the starting point: Orre counts forward from it and checks every later count against what you enter.";
 
 /// A count's plain save, when it agrees or is the first.
 const SAVE: &str = "Save count";
@@ -85,7 +85,7 @@ pub struct Counting {
 }
 
 impl Counting {
-    /// "£23.00 from transactions since the 1 Nov count": what Coffer
+    /// "£23.00 from transactions since the 1 Nov count": what Orre
     /// expects. `None` for the first count.
     pub fn expected_text(&self, today: NaiveDate) -> Option<String> {
         let expected = self.expectation.expected?;
@@ -145,7 +145,7 @@ pub fn stored_value(kind: AccountKind, typed: Money) -> Result<Money, SharedStri
     if typed.is_negative() {
         return Err(match kind {
             AccountKind::Liability => {
-                "Type what you owe without a minus: Coffer stores it below zero.".into()
+                "Type what you owe without a minus: Orre stores it below zero.".into()
             }
             _ => "Type the value without a minus.".into(),
         });
@@ -159,7 +159,7 @@ pub fn stored_value(kind: AccountKind, typed: Money) -> Result<Money, SharedStri
     }
 }
 
-/// A liability's caption (Paper `FS6-0`), with what Coffer will store for
+/// A liability's caption (Paper `FS6-0`), with what Orre will store for
 /// `typed` when it reads.
 pub fn owed_caption(typed: Option<Money>) -> String {
     let stored = typed
@@ -170,7 +170,7 @@ pub fn owed_caption(typed: Option<Money>) -> String {
             |stored| format!("as {}", money(stored, Sign::Negative)),
         );
     format!(
-        "Type the amount the statement says you owe. Coffer stores it {stored} and holds it until the next balance. A valuation sets the balance, so it's never a failed check."
+        "Type the amount the statement says you owe. Orre stores it {stored} and holds it until the next balance. A valuation sets the balance, so it's never a failed check."
     )
 }
 
@@ -187,7 +187,7 @@ pub struct AddBalanceDialog {
     note: Entity<InputState>,
     error: Option<SharedString>,
     today: NaiveDate,
-    /// For a cash account: what Coffer expects of what's typed, when it
+    /// For a cash account: what Orre expects of what's typed, when it
     /// can be read.
     counting: Option<Counting>,
     /// Whether the account has no count yet: this one is the starting point.
@@ -271,7 +271,7 @@ impl AddBalanceDialog {
         self.kind == AccountKind::Cash
     }
 
-    /// What a cash count shows: Coffer's expectation and the difference.
+    /// What a cash count shows: Orre's expectation and the difference.
     pub fn counting(&self) -> Option<&Counting> {
         self.counting.as_ref()
     }
@@ -285,7 +285,7 @@ impl AddBalanceDialog {
         cx.notify();
     }
 
-    /// Reads what Coffer expects of the count in the fields, if they can
+    /// Reads what Orre expects of the count in the fields, if they can
     /// be read.
     fn refresh_counting(&mut self, cx: &mut Context<Self>) {
         self.counting = None;
@@ -425,7 +425,7 @@ impl AddBalanceDialog {
         cx.emit(DialogClosed);
     }
 
-    /// The Cash count dialog: Counted, Coffer's expectation, the
+    /// The Cash count dialog: Counted, Orre's expectation, the
     /// Difference and the footer.
     fn render_count(&mut self, cx: &mut Context<Self>) -> Dialog {
         let counting = self.counting;
@@ -454,7 +454,7 @@ impl AddBalanceDialog {
             ))
             .when_some(expected, |this, expected| {
                 this.child(FieldRow::new(
-                    "Coffer",
+                    "Orre",
                     div()
                         .flex_1()
                         .min_w_0()
@@ -569,7 +569,7 @@ impl AddBalanceDialog {
 
     /// What the dialog shows, as plain data (test-only, ROADMAP U.3): each
     /// field's label and what's in it (the amount's date a row labelled ""
-    /// after it), Coffer's expectation and the Difference on a count, and
+    /// after it), Orre's expectation and the Difference on a count, and
     /// a liability's caption (it names what will be stored) as a row
     /// labelled "". The fixed captions are left out.
     #[cfg(test)]
@@ -587,7 +587,7 @@ impl AddBalanceDialog {
                 (String::new(), value(&self.date)),
             ];
             let has_base = expected.is_some();
-            fields.extend(expected.map(|expected| ("Coffer".to_owned(), expected)));
+            fields.extend(expected.map(|expected| ("Orre".to_owned(), expected)));
             if has_base && !self.first_count {
                 fields.push(("Difference".to_owned(), self.difference_text(difference)));
             }
@@ -683,7 +683,7 @@ impl Render for AddBalanceDialog {
 
 #[cfg(test)]
 mod tests {
-    use coffer_core::money::Currency;
+    use orre_core::money::Currency;
 
     use super::*;
 
@@ -699,7 +699,7 @@ mod tests {
         assert!(stored_value(AccountKind::Asset, gbp(-1)).is_err());
         assert_eq!(
             owed_caption(Some(gbp(21_264_000))),
-            "Type the amount the statement says you owe. Coffer stores it as \u{2212}£212,640.00 and holds it until the next balance. A valuation sets the balance, so it's never a failed check."
+            "Type the amount the statement says you owe. Orre stores it as \u{2212}£212,640.00 and holds it until the next balance. A valuation sets the balance, so it's never a failed check."
         );
         assert!(owed_caption(None).contains("stores it below zero"));
         assert_eq!(Wording::of(AccountKind::Asset).button, "Add valuation");
