@@ -603,12 +603,63 @@ fn date_presets_cover_whole_periods() {
         Some((day("2026-01-01"), day("2026-12-31")))
     );
     assert_eq!(range(DatePreset::AllTime), None);
+    // TODAY is a Saturday.
+    assert_eq!(
+        range(DatePreset::ThisWeek),
+        Some((day("2026-11-09"), day("2026-11-15")))
+    );
+    assert_eq!(
+        range(DatePreset::LastWeek),
+        Some((day("2026-11-02"), day("2026-11-08")))
+    );
     // January's last month is the previous December.
     assert_eq!(
         DatePreset::LastMonth
             .range(day("2027-01-15"))
             .map(|range| (range.from(), range.to())),
         Some((day("2026-12-01"), day("2026-12-31")))
+    );
+}
+
+#[test]
+fn week_presets_run_monday_to_sunday() {
+    let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap();
+    let weeks = |today: &str| {
+        let today = day(today);
+        [DatePreset::ThisWeek, DatePreset::LastWeek]
+            .map(|preset| preset.range(today).map(|range| (range.from(), range.to())))
+    };
+    // A Monday is the first day of its own week.
+    assert_eq!(
+        weeks("2026-11-16"),
+        [
+            Some((day("2026-11-16"), day("2026-11-22"))),
+            Some((day("2026-11-09"), day("2026-11-15"))),
+        ]
+    );
+    // A Sunday is the last.
+    assert_eq!(
+        weeks("2026-11-22"),
+        [
+            Some((day("2026-11-16"), day("2026-11-22"))),
+            Some((day("2026-11-09"), day("2026-11-15"))),
+        ]
+    );
+    // Thursday 1 January 2026: the weeks cross the year boundary.
+    assert_eq!(
+        weeks("2026-01-01"),
+        [
+            Some((day("2025-12-29"), day("2026-01-04"))),
+            Some((day("2025-12-22"), day("2025-12-28"))),
+        ]
+    );
+    // Across a month boundary: Wednesday 1 July 2026.
+    assert_eq!(
+        weeks("2026-07-01"),
+        [
+            Some((day("2026-06-29"), day("2026-07-05"))),
+            Some((day("2026-06-22"), day("2026-06-28"))),
+        ]
     );
 }
 

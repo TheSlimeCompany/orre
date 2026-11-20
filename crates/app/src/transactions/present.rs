@@ -294,6 +294,8 @@ pub fn account_groups(accounts: &[(AccountId, String)]) -> Vec<MenuGroup> {
 /// What a date preset is called, in its menu and on the chip.
 pub fn date_label(preset: DatePreset) -> &'static str {
     match preset {
+        DatePreset::ThisWeek => "This week",
+        DatePreset::LastWeek => "Last week",
         DatePreset::ThisMonth => "This month",
         DatePreset::LastMonth => "Last month",
         DatePreset::LastThreeMonths => "Last 3 months",
@@ -305,6 +307,8 @@ pub fn date_label(preset: DatePreset) -> &'static str {
 /// A date preset's menu key.
 pub fn date_key(preset: DatePreset) -> &'static str {
     match preset {
+        DatePreset::ThisWeek => "this_week",
+        DatePreset::LastWeek => "last_week",
         DatePreset::ThisMonth => "this_month",
         DatePreset::LastMonth => "last_month",
         DatePreset::LastThreeMonths => "last_3_months",
@@ -602,7 +606,7 @@ mod tests {
         for preset in DatePreset::ALL {
             assert_eq!(date_preset(date_key(preset)), Some(preset));
         }
-        assert_eq!(date_groups()[0].options.len(), 5);
+        assert_eq!(date_groups()[0].options.len(), 7);
     }
 
     #[test]

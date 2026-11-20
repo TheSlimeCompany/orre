@@ -23,7 +23,9 @@
 //! lead with a category [`Marker`] in its icon slot; a long menu (the 67
 //! categories) has a filter field at the top, the toolbar's search field at
 //! the menu's width, which narrows the options as the user types
-//! ([`filter_groups`]) and says "No matches" when none is left; and
+//! ([`filter_groups`]) and says "No matches" when none is left (a menu with
+//! no options at all says what its owner gave to [`MenuList::empty_text`],
+//! and "No matches" if nothing); and
 //! [`MenuList`] is the same floating list opened from something other than
 //! a select field (a filter chip, a table cell, the bulk-action bar), with
 //! its own keys: ↑↓ move, Enter chooses, Escape and a click outside close.
@@ -322,6 +324,9 @@ pub struct MenuList {
     width: Pixels,
     max_height: Option<Pixels>,
     filter: Option<Entity<InputState>>,
+    /// Said when the menu has no options at all, not when the filter
+    /// left none.
+    empty_text: Option<SharedString>,
     own_keys: bool,
     on_choose: Option<Choose>,
     on_move: Option<Move>,
@@ -348,11 +353,20 @@ impl MenuList {
             width: size::COLUMN_CATEGORY + size::COLUMN_AMOUNT,
             max_height: None,
             filter: None,
+            empty_text: None,
             own_keys: false,
             on_choose: None,
             on_move: None,
             on_dismiss: None,
         }
+    }
+
+    /// What the list says when it has no options at all ("No accounts
+    /// yet."), instead of "No matches". With a filter field, "No matches"
+    /// still says the typed text left none.
+    pub fn empty_text(mut self, text: impl Into<SharedString>) -> Self {
+        self.empty_text = Some(text.into());
+        self
     }
 
     /// The list's width; the Kind menu's 276px unless set.
@@ -480,7 +494,16 @@ impl MenuList {
             .into_any_element()
     }
 
-    fn render_rows(&self) -> Vec<AnyElement> {
+    /// What the empty menu says: the owner's words when there are no
+    /// options at all, "No matches" when the filter left none.
+    fn empty_row_text(&self, filtered: bool) -> SharedString {
+        match (&self.empty_text, filtered) {
+            (Some(text), false) => text.clone(),
+            _ => SharedString::from("No matches"),
+        }
+    }
+
+    fn render_rows(&self, filtered: bool) -> Vec<AnyElement> {
         let mut rows: Vec<AnyElement> = Vec::new();
         for (index, group) in self.groups.iter().enumerate() {
             if let Some(label) = &group.label {
@@ -501,7 +524,7 @@ impl MenuList {
                     .px(spacing::S2)
                     .text_role(typography::BODY)
                     .text_color(color::TEXT_MUTED)
-                    .child("No matches")
+                    .child(self.empty_row_text(filtered))
                     .into_any_element(),
             );
         }
@@ -510,8 +533,12 @@ impl MenuList {
 }
 
 impl RenderOnce for MenuList {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let rows = self.render_rows();
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let filtered = self
+            .filter
+            .as_ref()
+            .is_some_and(|filter| !filter.read(cx).value().trim().is_empty());
+        let rows = self.render_rows(filtered);
         let on_move = self.on_move.clone();
         let on_close = self.on_dismiss.clone();
         let own_keys = self.own_keys;
@@ -719,6 +746,13 @@ impl Select {
         self
     }
 
+    /// What the menu says when it has no options at all
+    /// ([`MenuList::empty_text`]).
+    pub fn empty_text(mut self, text: impl Into<SharedString>) -> Self {
+        self.list = self.list.empty_text(text);
+        self
+    }
+
     /// Puts a filter field over the options ([`MenuList::filter`]).
     pub fn filter(mut self, filter: &Entity<InputState>) -> Self {
         self.list = self.list.filter(filter);
@@ -869,6 +903,21 @@ mod tests {
                 ],
             ),
         ]
+    }
+
+    #[gpui_kit::test]
+    fn an_empty_menu_says_what_its_owner_gave_and_a_filter_that_left_none_says_no_matches(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            let state = SelectState::new(cx);
+            let plain = MenuList::new("Account", Vec::new(), None, &state);
+            assert_eq!(plain.empty_row_text(false), "No matches");
+            assert_eq!(plain.empty_row_text(true), "No matches");
+            let worded = plain.empty_text("No accounts yet.");
+            assert_eq!(worded.empty_row_text(false), "No accounts yet.");
+            assert_eq!(worded.empty_row_text(true), "No matches");
+        });
     }
 
     #[gpui_kit::test]

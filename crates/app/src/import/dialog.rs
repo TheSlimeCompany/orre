@@ -80,6 +80,12 @@ const SPLIT: &str = "split";
 /// The regions a saved preset can be in (`presets/README.md`).
 const REGIONS: [(&str, &str); 3] = [("uk", "UK"), ("us", "US"), ("eu", "Euro area")];
 
+/// What Map says when no account can take an import (none yet, or only
+/// pots, closed accounts and accounts Orre values): the Account menu has
+/// no room for it.
+const NO_ACCOUNTS: &str =
+    "There are no accounts yet. Add one in the Accounts panel to import into.";
+
 /// The step on show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
@@ -197,6 +203,9 @@ pub struct ImportDialog {
     setup: Option<Setup>,
     /// What's wrong at the dialog's level: the setup or the file.
     problem: Option<SharedString>,
+    /// Said under the file zone and on Map, in a caption: several files were
+    /// dropped and only the first was taken.
+    dropped_note: Option<SharedString>,
     step: Step,
     session: Option<Session>,
     mapped: Option<Mapped>,
@@ -248,6 +257,7 @@ impl ImportDialog {
             store,
             setup: None,
             problem: None,
+            dropped_note: None,
             step: Step::File,
             session: None,
             mapped: None,
@@ -277,6 +287,16 @@ impl ImportDialog {
         dialog.busy = None;
         dialog.setup = Some(super::fixture::setup());
         dialog
+    }
+
+    /// Forgets the sample's accounts (snapshots: a database with none yet).
+    /// Call before opening a file, as a fresh database would be.
+    pub fn forget_accounts(&mut self, cx: &mut Context<Self>) {
+        if let Some(setup) = self.setup.as_mut() {
+            setup.accounts.clear();
+        }
+        self.refresh();
+        cx.notify();
     }
 
     /// Chooses the account to import into, as the Account select does.
@@ -318,7 +338,10 @@ impl ImportDialog {
                             this.open_path(path, cx);
                         }
                     }
-                    Err(error) => this.problem = Some(error),
+                    Err(error) => {
+                        this.problem = Some(error);
+                        this.dropped_note = None;
+                    }
                 }
                 cx.notify();
             });
@@ -364,16 +387,16 @@ impl ImportDialog {
             let Some(path) = paths.into_iter().next() else {
                 return;
             };
-            let _ = this.update(cx, |this, cx| this.open_path(path, cx));
+            let _ = this.update(cx, |this, cx| this.open_dropped(&[path], cx));
         }));
     }
 
     /// Reads the file at `path` on a background thread, then opens it.
     /// Ignored until the setup has loaded (it would cancel that read), and
-    /// while another file is being read.
-    pub fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    /// while another file is being read. Whether it started reading.
+    pub fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) -> bool {
         if self.setup.is_none() || self.busy.is_some() {
-            return;
+            return false;
         }
         let name = path
             .file_name()
@@ -397,6 +420,39 @@ impl ImportDialog {
             });
         }));
         cx.notify();
+        true
+    }
+
+    /// Reads the first of `paths`, dropped together, and says that only it
+    /// was taken when there are more. A drop [`Self::open_path`] ignores
+    /// leaves the note as it was.
+    pub fn open_dropped(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        let Some(first) = paths.first().cloned() else {
+            return;
+        };
+        if self.open_path(first, cx) {
+            self.dropped_note = None;
+            self.note_dropped(paths.len(), cx);
+        }
+    }
+
+    /// Says that only the first of `count` dropped files was taken, when
+    /// there were several. Call after opening the first.
+    pub fn note_dropped(&mut self, count: usize, cx: &mut Context<Self>) {
+        if count > 1 {
+            self.dropped_note = Some(
+                format!(
+                    "Only the first of {count} files was opened. Drop the others one at a time."
+                )
+                .into(),
+            );
+            cx.notify();
+        }
+    }
+
+    /// The caption saying only one of several dropped files was taken.
+    pub fn dropped_note(&self) -> Option<&SharedString> {
+        self.dropped_note.as_ref()
     }
 
     /// Opens `file` (read already): on to Map, or the reason it can't be
@@ -429,6 +485,7 @@ impl ImportDialog {
         let statement = match currency {
             Some(currency) => session.statement(&setup.presets, currency),
             // A mapping of your own is read in the account's currency.
+            None if !setup.accounts.iter().any(can_import_into) => Err(NO_ACCOUNTS.to_owned()),
             None => Err("Choose the account to import into.".to_owned()),
         };
         let sample = match (&statement, currency) {
@@ -452,6 +509,10 @@ impl ImportDialog {
     fn review_blocker(&self) -> Option<String> {
         let session = self.session.as_ref()?;
         let mapped = self.mapped.as_ref()?;
+        // Before the mapping: with nowhere to import, nothing else matters.
+        if !self.accounts().iter().any(can_import_into) {
+            return Some(NO_ACCOUNTS.to_owned());
+        }
         let statement = match &mapped.statement {
             Ok(statement) => statement,
             Err(problem) => return Some(problem.clone()),
@@ -472,6 +533,13 @@ impl ImportDialog {
             return Some("The file has no rows to import.".to_owned());
         }
         None
+    }
+
+    /// The Map step's footer: why Review is disabled, or what import does.
+    fn map_footer(&self) -> String {
+        self.review_blocker().unwrap_or_else(|| {
+            "Nothing is saved until you import. A backup is taken first.".to_owned()
+        })
     }
 
     /// "Review N rows": core's preview and the rehearsal, on a background
@@ -728,6 +796,9 @@ impl ImportDialog {
             chosen,
             &self.selects[index],
         )
+        .when(pick == Pick::Account, |select| {
+            select.empty_text("No accounts yet")
+        })
         .menu_width(size::PANEL - size::FIELD_LABEL - spacing::S2)
         .max_height(size::CONTROL * 9.)
         .on_toggle(move |open, window, cx| {
@@ -1038,9 +1109,7 @@ impl ImportDialog {
             .border_color(color::BORDER_STRONG)
             .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(color::HOVER))
             .on_drop(move |paths: &ExternalPaths, _, cx| {
-                if let Some(path) = paths.paths().first().cloned() {
-                    let _ = drop_target.update(cx, |this, cx| this.open_path(path, cx));
-                }
+                let _ = drop_target.update(cx, |this, cx| this.open_dropped(paths.paths(), cx));
             })
             .child(well)
             .child(
@@ -1073,6 +1142,9 @@ impl ImportDialog {
         let mut body: Vec<AnyElement> = vec![zone.into_any_element()];
         if let Some(problem) = &self.problem {
             body.push(error_caption(problem.clone()).into_any_element());
+        }
+        if let Some(note) = &self.dropped_note {
+            body.push(caption(note.clone()).into_any_element());
         }
         let recent = self
             .setup
@@ -2467,6 +2539,9 @@ impl Render for ImportDialog {
                 if let Some(problem) = &self.problem {
                     dialog = dialog.body(error_caption(problem.clone()));
                 }
+                if let Some(note) = &self.dropped_note {
+                    dialog = dialog.body(caption(note.clone()));
+                }
                 let is_csv = self.session.as_ref().is_some_and(|s| s.csv().is_some());
                 let review_label = match self.busy {
                     Some(Busy::Reviewing) => "Reviewing…".to_owned(),
@@ -2478,9 +2553,7 @@ impl Render for ImportDialog {
                     ),
                 };
                 dialog = dialog
-                    .footer_lead(caption(
-                        "Nothing is saved until you import. A backup is taken first.",
-                    ))
+                    .footer_lead(caption(self.map_footer()))
                     .when(is_csv, |dialog| {
                         dialog.action(
                             Button::new("import-save-as-preset", "Save as preset…")

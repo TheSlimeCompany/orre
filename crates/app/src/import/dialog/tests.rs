@@ -425,3 +425,115 @@ fn the_warning_names_the_account_the_file_belongs_to() {
         );
     }
 }
+
+#[gpui_kit::test]
+fn the_map_footer_says_why_review_is_disabled_until_it_isnt(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, cx) = open(cx, &scratch);
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import(Some(fixture("csv/signed-amount.csv")), window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).map_footer()),
+        "Choose the date format."
+    );
+    dialog.update(cx, |dialog, cx| {
+        dialog.choose(Pick::Format, &"%d/%m/%Y".into(), cx)
+    });
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).map_footer()),
+        "Nothing is saved until you import. A backup is taken first."
+    );
+}
+
+#[gpui_kit::test]
+fn several_files_dropped_on_the_window_say_only_the_first_was_taken(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, cx) = open(cx, &scratch);
+    let paths = [
+        fixture("csv/signed-amount.csv"),
+        fixture("csv/signed-amount.csv"),
+        fixture("csv/signed-amount.csv"),
+    ];
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import_dropped(&paths, window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    let note = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| dialog.read(cx).dropped_note().map(|note| note.to_string()))
+    };
+    assert_eq!(
+        note(cx).as_deref(),
+        Some("Only the first of 3 files was opened. Drop the others one at a time.")
+    );
+
+    // On the open dialog too; one file says nothing, and opening it clears
+    // the note.
+    dialog.update(cx, |dialog, cx| dialog.open_dropped(&paths[..2], cx));
+    assert_eq!(
+        note(cx).as_deref(),
+        Some("Only the first of 2 files was opened. Drop the others one at a time.")
+    );
+    // A drop while that file is still being read is ignored, and so is
+    // the note: it still holds.
+    dialog.update(cx, |dialog, cx| dialog.open_dropped(&paths[..1], cx));
+    assert_eq!(
+        note(cx).as_deref(),
+        Some("Only the first of 2 files was opened. Drop the others one at a time.")
+    );
+    redraw(cx);
+    assert_eq!(
+        cx.update(|_, cx| dialog.read(cx).step),
+        Step::Map,
+        "the first file was opened"
+    );
+    dialog.update(cx, |dialog, cx| dialog.open_dropped(&paths[..1], cx));
+    assert_eq!(note(cx), None);
+}
+
+#[gpui_kit::test]
+fn with_no_accounts_the_map_footer_says_to_add_one(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, cx) = open(cx, &scratch);
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import(Some(fixture("csv/signed-amount.csv")), window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    // A database with no account to import into: only ones that can't take
+    // an import (assets), then none at all.
+    let no_accounts = "There are no accounts yet. Add one in the Accounts panel to import into.";
+    for none_at_all in [false, true] {
+        dialog.update(cx, |dialog, _| {
+            if let Some(setup) = dialog.setup.as_mut() {
+                if none_at_all {
+                    setup.accounts.clear();
+                } else {
+                    assert!(!setup.accounts.is_empty());
+                    for account in &mut setup.accounts {
+                        account.kind = AccountKind::Asset;
+                    }
+                }
+            }
+            dialog.refresh();
+        });
+        // The footer says it before the date format still to choose.
+        assert_eq!(cx.update(|_, cx| dialog.read(cx).map_footer()), no_accounts);
+        if !none_at_all {
+            continue;
+        }
+        // With none at all, a mapping of your own has no currency to be
+        // read in, and the statement the preview reads says the same.
+        let statement = cx.update(|_, cx| {
+            dialog
+                .read(cx)
+                .mapped
+                .as_ref()
+                .and_then(|mapped| mapped.statement.as_ref().err().cloned())
+        });
+        assert_eq!(statement.as_deref(), Some(no_accounts));
+    }
+}

@@ -47,7 +47,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
-use chrono::{Datelike as _, Months, NaiveDate, NaiveTime};
+use chrono::{Datelike as _, Days, Months, NaiveDate, NaiveTime, Weekday};
 use rusqlite::Connection;
 
 use crate::account::{self, AccountKind};
@@ -392,6 +392,10 @@ impl RegisterRow {
 /// A preset date range for the Date filter.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DatePreset {
+    /// Monday to Sunday (ISO 8601) around today.
+    ThisWeek,
+    /// The Monday to Sunday before this week.
+    LastWeek,
     ThisMonth,
     LastMonth,
     /// This month and the two before it.
@@ -402,7 +406,10 @@ pub enum DatePreset {
 }
 
 impl DatePreset {
-    pub const ALL: [DatePreset; 5] = [
+    /// In menu order.
+    pub const ALL: [DatePreset; 7] = [
+        DatePreset::ThisWeek,
+        DatePreset::LastWeek,
         DatePreset::ThisMonth,
         DatePreset::LastMonth,
         DatePreset::LastThreeMonths,
@@ -411,11 +418,18 @@ impl DatePreset {
     ];
 
     /// The days it covers as of `today`; `None` for all time. Ranges run to
-    /// the end of the period, so a row dated later this month still shows.
+    /// the end of the period, so a row dated later this month (or this week)
+    /// still shows. Weeks start on Monday.
     pub fn range(self, today: NaiveDate) -> Option<DateRange> {
         let month_start = today.with_day(1)?;
         let month_end = month_start.checked_add_months(Months::new(1))?.pred_opt()?;
+        let week = today.week(Weekday::Mon);
         let (from, to) = match self {
+            DatePreset::ThisWeek => (week.first_day(), week.last_day()),
+            DatePreset::LastWeek => (
+                week.first_day().checked_sub_days(Days::new(7))?,
+                week.first_day().pred_opt()?,
+            ),
             DatePreset::ThisMonth => (month_start, month_end),
             DatePreset::LastMonth => (
                 month_start.checked_sub_months(Months::new(1))?,

@@ -28,6 +28,7 @@
 //! [`super::AccountsEvent::AddBalanceRequested`] as the other kinds.
 
 use chrono::NaiveDate;
+use gpui_kit::component::Disableable as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -39,11 +40,12 @@ use orre_core::account::{AccountKind, EnteredBalance, EnteredSource};
 use orre_core::id::AccountId;
 use orre_core::money::Currency;
 use orre_core::money::Money;
+use orre_core::reconciliation::BalanceSource;
 
 use crate::format::{
     Sign, currency_prefix, field_date, list_date, money, parse_amount, parse_date,
 };
-use crate::theme::tokens::{color, spacing, typography};
+use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::dialog::Dialog;
 use crate::ui::field::{FieldRow, amount_input, caption, date_input, error_caption, text_input};
@@ -174,6 +176,41 @@ pub fn owed_caption(typed: Option<Money>) -> String {
     )
 }
 
+/// `message` with each `2026-11-17` in it written as the date field shows
+/// it (`17 Nov 2026`): core's errors name their dates in ISO form. Only a
+/// date standing as a word is rewritten, not one inside a path, a file name
+/// or a timestamp (`/tmp/orre-2026-11-17/`, `2026-11-17T09:00`).
+fn field_dates(message: &str) -> String {
+    // Characters that make a date part of something larger.
+    let joins_before = |c: char| c.is_alphanumeric() || matches!(c, '/' | '\\' | '-' | '_' | '.');
+    let joins_after = |c: char| c.is_alphanumeric() || matches!(c, '/' | '\\' | '-' | '_' | ':');
+    let mut shown = String::with_capacity(message.len());
+    let mut before: Option<char> = None;
+    let mut rest = message;
+    while let Some(next) = rest.chars().next() {
+        let date = rest
+            .get(..10)
+            .filter(|text| {
+                text.bytes().enumerate().all(|(at, byte)| {
+                    matches!(at, 4 | 7) == (byte == b'-') && (byte == b'-' || byte.is_ascii_digit())
+                })
+            })
+            .filter(|_| !before.is_some_and(joins_before))
+            .filter(|_| !rest[10..].chars().next().is_some_and(joins_after))
+            .and_then(|text| NaiveDate::parse_from_str(text, "%Y-%m-%d").ok());
+        if let Some(date) = date {
+            shown.push_str(&field_date(date));
+            before = Some('7');
+            rest = &rest[10..];
+        } else {
+            shown.push(next);
+            before = Some(next);
+            rest = &rest[next.len_utf8()..];
+        }
+    }
+    shown
+}
+
 /// Add balance, for one account.
 pub struct AddBalanceDialog {
     accounts: Entity<Accounts>,
@@ -234,7 +271,9 @@ impl AddBalanceDialog {
                 InputEvent::PressEnter { .. } => this.submit(window, cx),
                 // A liability's caption says what will be stored, and a
                 // cash count says what it differs by.
+                // A refusal is about what was typed: it goes when that changes.
                 InputEvent::Change => {
+                    this.error = None;
                     this.refresh_counting(cx);
                     cx.notify();
                 }
@@ -285,6 +324,15 @@ impl AddBalanceDialog {
         cx.notify();
     }
 
+    /// Types `date` into the Date field (snapshots).
+    pub fn type_date(&mut self, date: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.date.update(cx, |input, cx| {
+            input.set_value(SharedString::from(date.to_owned()), window, cx)
+        });
+        self.refresh_counting(cx);
+        cx.notify();
+    }
+
     /// Reads what Orre expects of the count in the fields, if they can
     /// be read.
     fn refresh_counting(&mut self, cx: &mut Context<Self>) {
@@ -311,12 +359,71 @@ impl AddBalanceDialog {
         self.error.as_ref()
     }
 
+    /// "This account already has a balance on 17 Nov 2026. Choose another
+    /// day.", while the Date field holds a day with an entered balance:
+    /// core allows one per account and day, and refuses the second. Read
+    /// from the account's balances as core reads them: an opening balance
+    /// on the account row doesn't count, and a file's balance isn't listed.
+    /// `None` when the date can't be read or the day is free. Adding is
+    /// held back while it shows, so it's the only thing said.
+    pub fn day_taken(&self, cx: &gpui_kit::App) -> Option<SharedString> {
+        let date = parse_date(&self.date.read(cx).value(), self.today)?;
+        let accounts = self.accounts.read(cx);
+        let taken = accounts
+            .data()
+            .detail(self.account)?
+            .balances
+            .iter()
+            .any(|balance| balance.date == date && balance.source != BalanceSource::Opening);
+        taken.then(|| {
+            let noun = match self.kind {
+                AccountKind::Cash => "count",
+                AccountKind::Asset => "valuation",
+                _ => "balance",
+            };
+            format!(
+                "This account already has a {noun} on {}. Choose another day.",
+                field_date(date)
+            )
+            .into()
+        })
+    }
+
+    /// The Date field: in a 1px `danger` border while its day already has
+    /// a balance (`IRD-0`; no alert icon, the 96px field has no room).
+    fn date_field(&self, cx: &gpui_kit::App) -> gpui_kit::component::input::Input {
+        date_input(&self.date).when(self.day_taken(cx).is_some(), |this| {
+            this.border(size::HAIRLINE).border_color(color::DANGER)
+        })
+    }
+
+    /// The dialog's caption, then what's wrong in `danger` caption type
+    /// (the day taken, or a refusal), 8px under it as one group (`IRD-0`).
+    fn captions(
+        &self,
+        text: impl Into<SharedString>,
+        taken: Option<SharedString>,
+    ) -> gpui_kit::Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap(spacing::S2)
+            .child(caption(text))
+            .when_some(taken, |this, taken| this.child(error_caption(taken)))
+            .when_some(self.error.clone(), |this, error| {
+                this.child(error_caption(error))
+            })
+    }
+
     /// Records the balance from the fields, or says why it can't. A cash
     /// count is saved on its own: the difference is added only on request
     /// ([`Self::save_with_difference`]).
     pub fn submit(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if self.is_count() {
             self.save_count(false, cx);
+            return;
+        }
+        if self.day_taken(cx).is_some() {
             return;
         }
         let value =
@@ -367,7 +474,7 @@ impl AddBalanceDialog {
         match result {
             Ok(()) => cx.emit(DialogClosed),
             Err(error) => {
-                self.error = Some(sentence(&error));
+                self.error = Some(sentence(&field_dates(&error)));
                 cx.notify();
             }
         }
@@ -380,6 +487,9 @@ impl AddBalanceDialog {
 
     /// Stores the cash count in the fields, with its difference when asked.
     fn save_count(&mut self, add_difference: bool, cx: &mut Context<Self>) {
+        if self.day_taken(cx).is_some() {
+            return;
+        }
         let value =
             |input: &Entity<InputState>, cx: &Context<Self>| input.read(cx).value().to_string();
         let amount = value(&self.amount, cx);
@@ -415,7 +525,7 @@ impl AddBalanceDialog {
         match result {
             Ok(()) => cx.emit(DialogClosed),
             Err(error) => {
-                self.error = Some(sentence(&error));
+                self.error = Some(sentence(&field_dates(&error)));
                 cx.notify();
             }
         }
@@ -450,7 +560,7 @@ impl AddBalanceDialog {
                             .id("count-amount")
                             .flex_1(),
                     )
-                    .child(date_input(&self.date).id("count-date")),
+                    .child(self.date_field(cx).id("count-date")),
             ))
             .when_some(expected, |this, expected| {
                 this.child(FieldRow::new(
@@ -470,18 +580,19 @@ impl AddBalanceDialog {
                     self.difference_value(difference),
                 ))
             });
+        let taken = self.day_taken(cx);
         let cancel = cx.listener(|this, _, _, cx| this.cancel(cx));
         let on_cancel = cx.entity().downgrade();
         Dialog::new(self.title.clone(), &self.focus)
             .body(fields)
-            .body(caption(if first {
-                FIRST_COUNT_CAPTION
-            } else {
-                COUNT_CAPTION
-            }))
-            .when_some(self.error.clone(), |this, error| {
-                this.body(error_caption(error))
-            })
+            .body(self.captions(
+                if first {
+                    FIRST_COUNT_CAPTION
+                } else {
+                    COUNT_CAPTION
+                },
+                taken.clone(),
+            ))
             .action(
                 Button::new("count-cancel", "Cancel")
                     .with_variant(ButtonVariant::Secondary)
@@ -494,12 +605,14 @@ impl AddBalanceDialog {
                     Button::new("count-save-only", SAVE_ONLY)
                         .with_variant(ButtonVariant::Secondary)
                         .with_surface(color::FLOAT)
+                        .disabled(taken.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.save_count(false, cx))),
                 )
                 .action(
                     Button::new("count-add", label)
                         .with_variant(ButtonVariant::Primary)
                         .with_surface(color::FLOAT)
+                        .disabled(taken.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.save_with_difference(cx))),
                 )
             })
@@ -508,6 +621,7 @@ impl AddBalanceDialog {
                     Button::new("count-save", SAVE)
                         .with_variant(ButtonVariant::Primary)
                         .with_surface(color::FLOAT)
+                        .disabled(taken.is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.save_count(false, cx))),
                 )
             })
@@ -577,6 +691,8 @@ impl AddBalanceDialog {
         use crate::ui::describe::{Action, Dialog};
         let value = |input: &Entity<InputState>| input.read(cx).value().to_string();
         let cancel = Action::button("Cancel", true);
+        // Adding waits while the date has a balance (`IRD-0`).
+        let free = self.day_taken(cx).is_none();
         if self.is_count() {
             let expected = self
                 .counting
@@ -594,15 +710,18 @@ impl AddBalanceDialog {
             let actions = match difference {
                 Some(difference) => vec![
                     cancel,
-                    Action::button(SAVE_ONLY, true),
-                    Action::button(add_difference_label(difference), true),
+                    Action::button(SAVE_ONLY, free),
+                    Action::button(add_difference_label(difference), free),
                 ],
-                None => vec![cancel, Action::button(SAVE, true)],
+                None => vec![cancel, Action::button(SAVE, free)],
             };
             return Dialog {
                 title: self.title.to_string(),
                 fields,
-                error: self.error.as_ref().map(ToString::to_string),
+                error: self
+                    .day_taken(cx)
+                    .or_else(|| self.error.clone())
+                    .map(|error| error.to_string()),
                 actions,
             };
         }
@@ -618,8 +737,11 @@ impl AddBalanceDialog {
         Dialog {
             title: self.title.to_string(),
             fields,
-            error: self.error.as_ref().map(ToString::to_string),
-            actions: vec![cancel, Action::button(wording.button, true)],
+            error: self
+                .day_taken(cx)
+                .or_else(|| self.error.clone())
+                .map(|error| error.to_string()),
+            actions: vec![cancel, Action::button(wording.button, free)],
         }
     }
 }
@@ -647,21 +769,19 @@ impl Render for AddBalanceDialog {
                             .id("add-balance-amount")
                             .flex_1(),
                     )
-                    .child(date_input(&self.date).id("add-balance-date")),
+                    .child(self.date_field(cx).id("add-balance-date")),
             ))
             .child(FieldRow::new(
                 "Note",
                 text_input(&self.note).id("add-balance-note"),
             ));
+        let taken = self.day_taken(cx);
         let cancel = cx.listener(|this, _, _, cx| this.cancel(cx));
         let add = cx.listener(|this, _, window, cx| this.submit(window, cx));
         let on_cancel = cx.entity().downgrade();
         Dialog::new(self.title.clone(), &self.focus)
             .body(fields)
-            .body(caption(caption_text))
-            .when_some(self.error.clone(), |this, error| {
-                this.body(error_caption(error))
-            })
+            .body(self.captions(caption_text, taken.clone()))
             .action(
                 Button::new("add-balance-cancel", "Cancel")
                     .with_variant(ButtonVariant::Secondary)
@@ -672,6 +792,7 @@ impl Render for AddBalanceDialog {
                 Button::new("add-balance-add", wording.button)
                     .with_variant(ButtonVariant::Primary)
                     .with_surface(color::FLOAT)
+                    .disabled(taken.is_some())
                     .on_click(add),
             )
             .on_cancel(move |_, cx| {
@@ -704,6 +825,28 @@ mod tests {
         assert!(owed_caption(None).contains("stores it below zero"));
         assert_eq!(Wording::of(AccountKind::Asset).button, "Add valuation");
         assert_eq!(Wording::of(AccountKind::Cash).label, "Balance");
+    }
+
+    #[test]
+    fn core_dates_are_written_as_the_field_shows_them() {
+        assert_eq!(
+            field_dates("it has a balance on 2026-11-17; edit that one, closed 2026-01-05"),
+            "it has a balance on 17 Nov 2026; edit that one, closed 5 Jan 2026"
+        );
+        assert_eq!(
+            field_dates("no dates, just ünïcode"),
+            "no dates, just ünïcode"
+        );
+        // Part of a path, a file name or a timestamp: left as it is.
+        for kept in [
+            "couldn't open /tmp/orre-2026-11-17/orre.db",
+            "backup-2026-11-17.db",
+            "at 2026-11-17T09:00",
+            "2026-11-17_orre.db",
+        ] {
+            assert_eq!(field_dates(kept), kept);
+        }
+        assert_eq!(field_dates("2026-11-17."), "17 Nov 2026.");
     }
 
     #[test]

@@ -433,6 +433,127 @@ fn add_balance_records_an_entered_balance(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn add_balance_says_before_a_click_that_the_day_has_a_balance(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click("add-balance", cx);
+
+    // The account has an entered balance on 1 Nov.
+    retype_date("add-balance-date", "1 Nov 2026", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).error.as_deref(),
+        Some("This account already has a balance on 1 Nov 2026. Choose another day.")
+    );
+    let enabled = |shown: &AccountsDescription| -> Vec<bool> {
+        dialog(shown)
+            .actions
+            .iter()
+            .map(|action| action.enabled)
+            .collect()
+    };
+    assert_eq!(enabled(&shown), [true, false], "Add balance waits (IRD-0)");
+
+    // Nothing is added while it shows, and it stays up.
+    type_into("add-balance-amount", "5.00", cx);
+    click("add-balance-add", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert!(dialog(&shown).error.is_some());
+    assert_eq!(
+        account::entered_balances(&scratch.db(), scratch.current)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // A free day, and a date that can't be read yet, say nothing.
+    retype_date("add-balance-date", "2 Nov 2026", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).error, None);
+    assert_eq!(enabled(&shown), [true, true]);
+    retype_date("add-balance-date", "2 No", cx);
+    assert_eq!(dialog(&describe(&shell, &accounts, cx)).error, None);
+}
+
+#[gpui_kit::test]
+fn a_cash_count_says_before_a_click_that_the_day_is_counted(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let cash = cash_account(&scratch, true);
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(cash), cx);
+    click("add-balance", cx);
+    retype_date("count-date", "1 Nov 2026", cx);
+    type_into("count-amount", "18.00", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).error.as_deref(),
+        Some("This account already has a count on 1 Nov 2026. Choose another day.")
+    );
+    assert!(
+        dialog(&shown).actions[1..]
+            .iter()
+            .all(|action| !action.enabled),
+        "saving waits"
+    );
+    click("count-add", cx);
+    assert!(
+        describe(&shell, &accounts, cx).dialog.is_some(),
+        "still open"
+    );
+    assert_eq!(
+        account::entered_balances(&scratch.db(), cash)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(transaction_count(&scratch, cash), 1, "no difference added");
+}
+
+#[gpui_kit::test]
+fn add_balance_clears_a_refusal_when_a_field_changes(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click("add-balance", cx);
+    click("add-balance-add", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).error.as_deref(),
+        Some("Type the balance, as 1,284.10.")
+    );
+
+    type_into("add-balance-amount", "1", cx);
+    assert_eq!(dialog(&describe(&shell, &accounts, cx)).error, None);
+}
+
+#[gpui_kit::test]
+fn add_balance_words_a_refusal_with_the_fields_dates(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click("add-balance", cx);
+    // A balance added elsewhere since the dialog read the account.
+    let mut db = scratch.db();
+    let elsewhere = EnteredBalance {
+        date: NaiveDate::from_ymd_opt(2026, 11, 17).unwrap(),
+        balance: Money::new(1, Currency::GBP),
+        source: EnteredSource::Manual,
+        note: None,
+    };
+    account::add_balance(&mut db, scratch.current, &elsewhere).unwrap();
+
+    type_into("add-balance-amount", "5.00", cx);
+    retype_date("add-balance-date", "17 Nov 2026", cx);
+    click("add-balance-add", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).error.as_deref(),
+        Some("The account already has an entered balance on 17 Nov 2026; edit that one instead.")
+    );
+}
+
+#[gpui_kit::test]
 fn sample_data_cant_change(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let accounts = cx.new(|_| Accounts::fixture(fixture::accounts()));

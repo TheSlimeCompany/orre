@@ -44,6 +44,8 @@
 //! - `account-kind`: the same with the Kind menu open (Paper `FHZ-0`);
 //! - `new-account`: the New account dialog (Paper `8IR-0`);
 //! - `add-balance`: Add balance for Current account (Paper `I7C-0`);
+//! - `add-balance-day-taken`: the same on 1 Sep, which has a balance:
+//!   said before any click, Add balance disabled (Paper `IRD-0`, M3.P6);
 //! - D6.9's accounts you keep yourself (M3.17): `accounts-asset`, House
 //!   selected with its valuations (Paper `BSI-0`); `accounts-liability`,
 //!   Mortgage (the inspector on `EPF-0`); `new-account-asset` (`EPI-0`);
@@ -68,6 +70,8 @@
 //!   the dialog (composed);
 //! - `import-map-own`: a CSV no preset recognises, mapped by hand (composed
 //!   for M3.4, no Paper drawing);
+//! - `import-map-no-accounts`: the same on a database with no accounts yet:
+//!   the footer says to add one (M3.P1, composed);
 //! - `import-save-preset`: "Save as preset…" (composed for M3.5);
 //! - `import-review`: the Review step on a scratch database where part of
 //!   the file was imported before (`6J4-0`);
@@ -368,6 +372,7 @@ fn main() -> Result<()> {
         ("account-kind", AccountStep::KindMenu),
         ("new-account", AccountStep::NewAccount),
         ("add-balance", AccountStep::AddBalance),
+        ("add-balance-day-taken", AccountStep::DayTaken),
     ] {
         let built: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::default();
         let keep = built.clone();
@@ -381,7 +386,7 @@ fn main() -> Result<()> {
                 match step {
                     AccountStep::Select | AccountStep::KindMenu => {}
                     AccountStep::NewAccount => accounts.request_new_account(cx),
-                    AccountStep::AddBalance => {
+                    AccountStep::AddBalance | AccountStep::DayTaken => {
                         accounts.request_add_balance(accounts_fixture::CURRENT, cx)
                     }
                 }
@@ -391,10 +396,27 @@ fn main() -> Result<()> {
         };
         // Opened once the selection has settled, as a click would.
         let then = move |window: &mut Window, cx: &mut App| {
+            let shell = built.borrow().clone().expect("the shell was built");
+            if step == AccountStep::DayTaken {
+                let dialog = shell
+                    .read(cx)
+                    .dialog()
+                    .cloned()
+                    .and_then(|dialog| {
+                        dialog
+                            .downcast::<orre_app::accounts::add_balance::AddBalanceDialog>()
+                            .ok()
+                    })
+                    .expect("Add balance is open");
+                dialog.update(cx, |dialog, cx| {
+                    dialog.type_amount("1,290.00", window, cx);
+                    dialog.type_date("1 Sep 2026", window, cx);
+                });
+                return;
+            }
             if step != AccountStep::KindMenu {
                 return;
             }
-            let shell = built.borrow().clone().expect("the shell was built");
             let inspector = shell
                 .read(cx)
                 .transactions()
@@ -542,6 +564,7 @@ enum ImportShot {
     Map,
     MapMenu,
     MapOwn,
+    NoAccounts,
     SavePreset,
     Review,
     Mismatch,
@@ -621,6 +644,7 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
         ("import-map", ImportShot::Map),
         ("import-map-menu", ImportShot::MapMenu),
         ("import-map-own", ImportShot::MapOwn),
+        ("import-map-no-accounts", ImportShot::NoAccounts),
         ("import-save-preset", ImportShot::SavePreset),
         ("import-review", ImportShot::Review),
         ("import-review-mismatch", ImportShot::Mismatch),
@@ -653,6 +677,11 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
             dialog.update(cx, |dialog, cx| {
                 match shot {
                     ImportShot::File => return,
+                    ImportShot::NoAccounts => {
+                        dialog.forget_accounts(cx);
+                        dialog.open_file(signed_amount_fixture(), cx);
+                        return;
+                    }
                     ImportShot::MapOwn | ImportShot::SavePreset => {
                         dialog.open_file(signed_amount_fixture(), cx)
                     }
@@ -1432,6 +1461,7 @@ enum AccountStep {
     KindMenu,
     NewAccount,
     AddBalance,
+    DayTaken,
 }
 
 /// Opens `build`'s view in a 1440×900 window and writes it as

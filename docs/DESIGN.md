@@ -14,7 +14,7 @@ this file covers how the app looks and feels.
 | Tool | [Paper](https://paper.design), read and written via the Paper MCP server |
 | Orre file | **Orre** — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Orre design work happens here |
 | Orre page | `Page 1` (`p-1-0`) |
-| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide |
+| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide |
 | Orre tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1; content hash `6a126241` (see "Tokens") |
 | Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Orre's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
 | Reference page | `Editor — v1` (`p-1-0`) |
@@ -798,13 +798,15 @@ and flagged rows.
     first, then its subcategories; a filter field at the top (the toolbar's search
     field at the menu's width, placeholder "Find a category") narrows the options as
     you type, a group's label matching keeps the whole group, and "No matches" (a 28px
-    row in body `text-muted`) says when nothing is left; scrolls after 8 rows. In
+    row in body `text-muted`) says when nothing is left (a menu with no options at all
+    says what its owner gives instead, short enough for the one row, e.g. Import's
+    Account menu: "No accounts yet"; M3.P2); scrolls after 8 rows. In
     place, it opens 4px below the row, left-aligned with the category marker; from
     the bulk-action bar, 4px above it.
   - *Filter chip menus*: the same menu below the chip. Account: "All accounts", then
     the panel's accounts (each pot after its parent). Category: "All categories", then
-    the category menu. Date: This month, Last month, Last 3 months, This year, All
-    time (the default). A chip whose filter is set, and the Uncategorised chip while
+    the category menu. Date: This week, Last week, This month, Last month, Last 3
+    months, This year, All time (the default); weeks run Monday to Sunday. A chip whose filter is set, and the Uncategorised chip while
     on, take the Excluded chip's on look (`3TU-0`: `hover` fill, `text` label) and
     name the choice ("Joint account", "Last month").
   - *Sorting*: the chevron sits on the column's inner side so no title moves: before
@@ -1078,6 +1080,15 @@ replace it with their own lists.
   "Your balance at the end of that day, as your bank shows it. Type a minus if the
   account is overdrawn. Orre checks it against the transactions since the last
   balance."; Cancel / "Add balance" (neutral primary). No new tokens.
+  - *Day taken* (`IRD-0`, "Item · Add balance · day taken", under it on the states
+    board; M3.P6): while the date already has an entered balance (one per account and
+    day), it says so before any click. The Date field takes a 1px `danger` border (no
+    alert icon: the 96px field has no room), and the caption and a `danger` caption
+    ("This account already has a balance on 1 Sep 2026. Choose another day.";
+    "count" for cash, "valuation" for an asset) stack as one group 8px apart, not the
+    dialog's 16px. "Add balance" (and a count's Save buttons) is at `opacity-disabled`
+    until the date changes. A refusal after a click takes the same place under the
+    caption, and clears when a field is edited (M3.P7).
 - **Built in M3.2** (`crates/app/src/accounts/`): the panel from the database, the
   account inspector on Transactions, New account and Add balance. "Close account…" waits
   for M3.17 (user), so the inspector has no footer yet. The Preset select shows the
@@ -1193,6 +1204,11 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
   table explains it ("Row 8: “8,99” isn't an amount with a decimal point. It will be
   imported as flagged, not skipped.") and says pot transfers pair automatically. Footer:
   "Nothing is saved until you import. A backup is taken first." Back / "Review 312 rows".
+  While Review is disabled the footer's caption says why instead ("Choose the account to
+  import into.", "There are no accounts yet. Add one in the Accounts panel to import
+  into.", a currency mismatch, no rows, a mapping problem; M3.P1). Not drawn in Paper:
+  the longest, the no-accounts sentence, fits the footer's one line beside "Save as
+  preset…", Back and Review (snapshot `import-map-no-accounts`).
 - **Review**: figures (New 295, Already imported 16 in `text-muted`, Flagged 1 with a
   `danger` dot; mono 20/24), AFTER IMPORT rows (categorised by rules, from Monzo's
   categories, left uncategorised, pot transfers paired, possible duplicates with a
@@ -1247,6 +1263,11 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
     `danger` ("Orre imports CSV, OFX and QFX files, and notes.pdf isn't one it can
     read."); while reading, the drop zone's line reads "Reading monzo-november.csv…". A
     file dragged over the zone fills it with `hover`.
+  - *Several files dropped* (on the window or the zone): the first is opened and a
+    `text-muted` caption, under the drop zone on File and under the note on Map, says
+    "Only the first of 3 files was opened. Drop the others one at a time." A later
+    single file clears it; a drop ignored while a file is read leaves it (M3.P4; not
+    drawn in Paper: the existing caption).
   - *Save as preset…* (M3.5): a secondary button before Back on the Map step for a CSV.
     It opens the form in place of the columns, 440px wide: SAVE THE MAPPING AS A PRESET,
     Name (text field, starting as the account's bank or name), Region (UK, US, Euro area),
