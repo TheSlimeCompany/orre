@@ -935,11 +935,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn export_comes_from_the_apps_paper_file() {
+    fn export_comes_from_the_orre_file() {
         let source = &export()["source"];
-        // The Paper file keeps the app's old name until it's renamed and the
-        // tokens re-exported (`data-model.md` → "the rename to Orre").
-        assert_eq!(source["fileName"], "Coffer");
+        assert_eq!(source["fileName"], "Orre");
         assert_eq!(source["fileId"], "01M6YH440YAX6H5H322ZX4JYC9");
     }
 
