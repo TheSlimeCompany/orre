@@ -52,8 +52,8 @@ pub enum RefundBlocked {
     NothingLeft,
     /// The money out isn't spending (no category of kind `spending`, its
     /// own or a split line's): most likely a transfer out, so the card
-    /// doesn't offer a refund. Not a link rule: [`inbox::link_as_refund`]
-    /// (crate::inbox::link_as_refund) doesn't check it.
+    /// doesn't offer a refund. Not a link rule:
+    /// [`inbox::link_as_refund`](crate::inbox::link_as_refund) doesn't check it.
     PurchaseNotSpending(TransactionId),
 }
 

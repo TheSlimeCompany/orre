@@ -243,7 +243,7 @@ impl TransactionsView {
                     Offer::Keep => {}
                     Offer::Clear => self.undo = None,
                     Offer::ClearIf(action) => {
-                        if self.undo.as_ref().map(|undo| undo.action) == Some(action) {
+                        if self.undo.as_ref().map(|undo| &undo.action) == Some(&action) {
                             self.undo = None;
                         }
                     }

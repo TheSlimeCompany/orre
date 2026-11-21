@@ -1335,7 +1335,7 @@ fn target_of(target: &LinkTarget) -> Option<TransactionId> {
 
 /// Drops suggestions on `inflow` or `target` that no longer fit what
 /// confirmed links leave.
-fn prune_suggestions(
+pub(crate) fn prune_suggestions(
     conn: &Connection,
     inflow: TransactionId,
     target: Option<TransactionId>,

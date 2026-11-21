@@ -695,6 +695,54 @@ fn add_account_chooses_it_in_import_and_review_follows(cx: &mut TestAppContext) 
 }
 
 #[gpui_kit::test]
+fn an_added_account_that_cant_take_an_import_is_not_chosen(cx: &mut TestAppContext) {
+    let (_dir, path) = empty_database();
+    let (_, dialog, cx) = monzo_on_map(cx, &path);
+    dialog.update_in(cx, |dialog, window, cx| dialog.open_new_account(window, cx));
+    redraw(cx);
+    let inner = cx
+        .update(|_, cx| dialog.read(cx).new_account().cloned())
+        .unwrap();
+    // Kind changed to Asset in the dialog: it holds valuations, not rows.
+    inner.update_in(cx, |inner, window, cx| {
+        let asset = crate::accounts::new_account::NewAccountPrefill {
+            currency: None,
+            bank: None,
+            kind: AccountKind::Asset,
+            caption: "".into(),
+        };
+        inner.prefill(asset, window, cx);
+        inner.type_name("House", window, cx);
+        inner.submit(window, cx);
+    });
+    redraw(cx);
+
+    let created = account::list(&Database::open(&path).unwrap()).unwrap();
+    assert_eq!(created.len(), 1, "the account is still added");
+    cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert!(dialog.new_account().is_none());
+        assert_eq!(dialog.session().unwrap().account_id(), None);
+        assert!(dialog.review_blocker().is_some());
+    });
+}
+
+#[gpui_kit::test]
+fn new_account_waits_while_import_is_reviewing(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_, dialog, cx) = monzo_on_map(cx, &scratch.path);
+    dialog.update_in(cx, |dialog, window, cx| {
+        dialog.set_account(scratch.account, cx);
+        dialog.start_review(cx);
+        // Reading the accounts again would drop the review.
+        dialog.open_new_account(window, cx);
+        assert!(dialog.new_account().is_none());
+    });
+    redraw(cx);
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).step()), Step::Review);
+}
+
+#[gpui_kit::test]
 fn cancel_leaves_import_as_it_was(cx: &mut TestAppContext) {
     let (_dir, path) = empty_database();
     let (_, dialog, cx) = monzo_on_map(cx, &path);

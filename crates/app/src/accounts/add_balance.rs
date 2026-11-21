@@ -92,6 +92,9 @@ pub const SAVE_EDIT: &str = "Save";
 /// A count's plain save, when it agrees or is the first.
 const SAVE: &str = "Save count";
 
+/// A cash count can't be below zero, added or edited.
+const NEGATIVE_COUNT: &str = "Type what you counted without a minus.";
+
 /// A count's save that adds no difference.
 const SAVE_ONLY: &str = "Save count only";
 
@@ -573,6 +576,11 @@ impl AddBalanceDialog {
                 return;
             }
         };
+        if self.kind == AccountKind::Cash && balance.is_negative() {
+            self.error = Some(NEGATIVE_COUNT.into());
+            cx.notify();
+            return;
+        }
         let valued = !self.kind.holds_transactions();
         let balance = if valued {
             match stored_value(self.kind, balance) {
@@ -639,7 +647,7 @@ impl AddBalanceDialog {
             }
         };
         if balance.is_negative() {
-            self.error = Some("Type what you counted without a minus.".into());
+            self.error = Some(NEGATIVE_COUNT.into());
             cx.notify();
             return;
         }

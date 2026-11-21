@@ -207,12 +207,18 @@ pub fn filter_groups(groups: &[MenuGroup], query: &str) -> Vec<MenuGroup> {
         .collect()
 }
 
-/// Where `key`'s row is among a menu's rows (group labels included), for
-/// scrolling it into view.
+/// Where `key`'s row is among a menu's rows (group labels, and a footer's
+/// hairline and the empty row before it, included), for scrolling it into
+/// view. Counts as [`MenuList`] draws a select's menu, not a context menu.
 fn row_index(groups: &[MenuGroup], key: &SharedString) -> Option<usize> {
     let mut index = 0;
     for group in groups {
-        if group.label.is_some() {
+        if group.footer {
+            if index == 0 {
+                index += 1;
+            }
+            index += 1;
+        } else if group.label.is_some() {
             index += 1;
         }
         for option in &group.options {
@@ -1052,6 +1058,20 @@ mod tests {
             assert_eq!(worded.empty_row_text(false), "No accounts yet.");
             assert_eq!(worded.empty_row_text(true), "No matches");
         });
+    }
+
+    #[test]
+    fn a_footer_option_s_row_counts_the_hairline_above_it() {
+        let option = |key: &'static str| MenuOption::new(key, key);
+        let footer = MenuGroup::footer(vec![option("new")]);
+        let full = [
+            MenuGroup::new(None, vec![option("a"), option("b")]),
+            footer.clone(),
+        ];
+        // a, b, hairline, new.
+        assert_eq!(row_index(&full, &"new".into()), Some(3));
+        // The empty row, hairline, new.
+        assert_eq!(row_index(&[footer], &"new".into()), Some(2));
     }
 
     #[gpui_kit::test]

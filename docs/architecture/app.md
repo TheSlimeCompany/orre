@@ -484,6 +484,8 @@ punch list"). **No migration.**
    transactions. A cash account has no Import item, as its toolbar has none.
 3. **A category's Rename…, New subcategory…, Hide and Delete…** open Rules →
    Categories on that category, as Open in Rules does: the categories editor can't yet be
-   driven to start one of them from outside, and no new dialogs were drawn for it.
+   driven to start one of them from outside, and no new dialogs were drawn for it. The
+   user chose to keep them as shortcuts to Rules (2026-11-21), not to rename or drop
+   them.
    Delete… is unavailable ("In use") while the group holds transactions, which every
    group the panel lists does.

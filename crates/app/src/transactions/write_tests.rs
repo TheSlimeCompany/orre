@@ -413,7 +413,7 @@ fn the_undo_bar_follows_the_offer(cx: &mut TestAppContext) {
     let showing = Some("Excluded as a bank error".to_owned());
 
     // Single-row edits leave it as it is (the M3.3 rule).
-    set_bar(&view, cx, amazon);
+    set_bar(&view, cx, amazon.clone());
     write(&view, cx, Policy::edit(EditPlace::Details), save).unwrap();
     assert_eq!(undo_bar(&view, cx), showing);
 
@@ -436,28 +436,37 @@ fn the_undo_bar_follows_the_offer(cx: &mut TestAppContext) {
     write(&view, cx, policy, |_| Ok(2)).unwrap();
     assert_eq!(undo_bar(&view, cx).as_deref(), Some("Linked 2 payments"));
 
-    set_bar(&view, cx, amazon);
-    let policy = Policy::ledger().undo(move |_| Offer::ClearIf(pret));
+    set_bar(&view, cx, amazon.clone());
+    let policy = Policy::ledger().undo({
+        let pret = pret.clone();
+        move |_| Offer::ClearIf(pret)
+    });
     write(&view, cx, policy, save).unwrap();
     assert_eq!(undo_bar(&view, cx), showing, "it offers something else");
-    let policy = Policy::ledger().undo(move |_| Offer::ClearIf(amazon));
+    let policy = Policy::ledger().undo({
+        let amazon = amazon.clone();
+        move |_| Offer::ClearIf(amazon)
+    });
     write(&view, cx, policy, save).unwrap();
     assert_eq!(undo_bar(&view, cx), None);
 
     // A failure offers nothing new, unless it was the bar's own Undo.
-    set_bar(&view, cx, amazon);
-    let policy = Policy::link(EditPlace::Links).undo(move |_| Offer::Show(pret, "Linked".into()));
+    set_bar(&view, cx, amazon.clone());
+    let policy = Policy::link(EditPlace::Links).undo({
+        let pret = pret.clone();
+        move |_| Offer::Show(pret, "Linked".into())
+    });
     write(&view, cx, policy, refuse).unwrap_err();
     assert_eq!(undo_bar(&view, cx), showing);
     let policy = Policy::new(Said::Inspector(EditPlace::Exclusion))
         .sentence()
-        .retry(amazon);
+        .retry(amazon.clone());
     write(&view, cx, policy, refuse).unwrap_err();
     assert_eq!(
         undo_bar(&view, cx).as_deref(),
         Some("Couldn't undo: The store refused it.")
     );
-    let action = cx.update(|_, cx| view.read(cx).undo.as_ref().map(|undo| undo.action));
+    let action = cx.update(|_, cx| view.read(cx).undo.as_ref().map(|undo| undo.action.clone()));
     assert_eq!(action, Some(amazon), "Undo tries the same again");
 
     // A retry is only for failures.

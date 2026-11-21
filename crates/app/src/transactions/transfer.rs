@@ -164,7 +164,10 @@ impl TransactionsView {
         let policy = transfer_policy()
             .log("couldn't link a pair as a refund")
             .undo(move |decided: &RefundDecided| {
-                Offer::Show(UndoAction::RefundLinked(decided.linked), message.into())
+                Offer::Show(
+                    UndoAction::RefundLinked(decided.linked.clone()),
+                    message.into(),
+                )
             });
         self.write(policy, cx, |db| inbox::link_as_refund(db, group))
             .ok();
@@ -175,7 +178,7 @@ impl TransactionsView {
     pub(super) fn undo_refund_linked(&mut self, linked: RefundLinked, cx: &mut Context<Self>) {
         let policy = transfer_policy()
             .log("couldn't undo a refund link")
-            .retry(UndoAction::RefundLinked(linked))
+            .retry(UndoAction::RefundLinked(linked.clone()))
             .always();
         self.write(policy, cx, |db| inbox::undo_refund_linked(db, &linked))
             .ok();
