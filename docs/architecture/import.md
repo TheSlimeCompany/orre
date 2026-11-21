@@ -812,4 +812,6 @@ list"). **No migration.**
    the panel shows it), `NewAccountDialog` emits `AccountCreated(id)` before closing,
    and Import reads its accounts again and chooses it, keeping the file, the mapping and
    the step. A currency the user changed in New account is still caught by Review's
-   currency check.
+   currency check. A Kind changed to one that can't take an import (an asset, say) adds
+   the account but leaves Import's choice as it was. New account… does nothing while
+   Import is reading or importing, which reading the accounts again would cancel.

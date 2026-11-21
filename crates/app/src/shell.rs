@@ -1093,6 +1093,9 @@ impl ShellView {
                 self.show(View::Rules, window, cx);
                 self.rules.update(cx, |rules, cx| rules.new_category(cx));
             }
+            AccountsEvent::BalancesChanged => {
+                self.checks.update(cx, |checks, cx| checks.reload(cx));
+            }
         }
     }
 

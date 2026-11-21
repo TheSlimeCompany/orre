@@ -820,7 +820,7 @@ pub fn mark_transfer(
 
 /// A suggested pair linked as a refund: the pair rejected and a confirmed
 /// refund made. What [`undo_refund_linked`] needs to reverse it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RefundLinked {
     /// The pair's rejection.
     pub decision: transfer::Decision,
@@ -829,6 +829,100 @@ pub struct RefundLinked {
     pub inflow: TransactionId,
     pub purchase: TransactionId,
     pub amount: Money,
+    /// The link rows the refund changed or dropped, as they were: a
+    /// suggestion or decision for the same pair, and suggestions on either
+    /// side that no longer fit. Undo puts them back.
+    replaced: Vec<LinkRow>,
+}
+
+/// A `transaction_link` row, every column, as [`link_as_refund`] found it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LinkRow {
+    id: LinkId,
+    kind: String,
+    inflow: TransactionId,
+    target: Option<TransactionId>,
+    share_label: Option<String>,
+    amount_minor: i64,
+    status: String,
+    created_at: String,
+}
+
+const LINK_ROW_COLUMNS: &str =
+    "id, kind, inflow_id, target_id, share_label, amount_minor, status, created_at";
+
+impl LinkRow {
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            kind: row.get(1)?,
+            inflow: row.get(2)?,
+            target: row.get(3)?,
+            share_label: row.get(4)?,
+            amount_minor: row.get(5)?,
+            status: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    }
+
+    /// The rows a link from `inflow` to `purchase` can change or drop
+    /// ([`link::create_in`]: the pair's own row and the suggestions it
+    /// prunes on either side).
+    fn touching(
+        conn: &Connection,
+        inflow: TransactionId,
+        purchase: TransactionId,
+    ) -> rusqlite::Result<Vec<Self>> {
+        conn.prepare(&format!(
+            "SELECT {LINK_ROW_COLUMNS} FROM transaction_link \
+             WHERE inflow_id = ?1 OR target_id = ?2 ORDER BY id"
+        ))?
+        .query_map(params![inflow, purchase], Self::read)?
+        .collect()
+    }
+
+    fn load(conn: &Connection, id: LinkId) -> rusqlite::Result<Option<Self>> {
+        conn.query_row(
+            &format!("SELECT {LINK_ROW_COLUMNS} FROM transaction_link WHERE id = ?1"),
+            [id],
+            Self::read,
+        )
+        .optional()
+    }
+
+    /// Puts the row back under its own ID, unless it no longer fits: its
+    /// pair decided since (another row now holds it), or the schema's own
+    /// checks refuse it as things are now (a payment split or shared since,
+    /// a claim unmarked, a row gone). Such a row stays dropped, as linking
+    /// drops a suggestion that no longer fits; a failed insert undoes only
+    /// itself.
+    fn restore(&self, conn: &Connection) -> rusqlite::Result<()> {
+        let inserted = conn.execute(
+            &format!(
+                "INSERT INTO transaction_link ({LINK_ROW_COLUMNS}) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+            ),
+            params![
+                self.id,
+                self.kind,
+                self.inflow,
+                self.target,
+                self.share_label,
+                self.amount_minor,
+                self.status,
+                self.created_at
+            ],
+        );
+        match inserted {
+            Ok(_) => Ok(()),
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
 }
 
 /// A suggested pair the user linked as a refund in Transactions, with the
@@ -878,6 +972,7 @@ pub fn link_as_refund(
         .into());
     };
     let amount = Money::new(amount_a.max(amount_b), currency);
+    let before = LinkRow::touching(&tx, inflow, purchase)?;
     let link = link::create_in(
         &tx,
         &NewLink {
@@ -887,6 +982,12 @@ pub fn link_as_refund(
             amount,
         },
     )?;
+    let mut replaced = Vec::new();
+    for row in before {
+        if LinkRow::load(&tx, row.id)?.as_ref() != Some(&row) {
+            replaced.push(row);
+        }
+    }
     let settled = settle_transfer_pair(&tx, &decision)?;
     tx.commit()?;
     Ok(RefundDecided {
@@ -896,15 +997,17 @@ pub fn link_as_refund(
             inflow,
             purchase,
             amount,
+            replaced,
         },
         settled,
     })
 }
 
-/// Reverses [`link_as_refund`]: deletes the refund and sets the pair back to
-/// suggested, in one DB transaction. Refused ([`transfer::Error::Changed`])
-/// when the link or the pair has changed since. Settled Inbox suggestions
-/// stay as they are.
+/// Reverses [`link_as_refund`]: deletes the refund, puts back the link rows
+/// it changed or dropped (then drops suggestions that no longer fit, as
+/// linking does), and sets the pair back to suggested, in one DB
+/// transaction. Refused ([`transfer::Error::Changed`]) when the link or the
+/// pair has changed since. Settled Inbox suggestions stay as they are.
 pub fn undo_refund_linked(db: &mut Database, linked: &RefundLinked) -> Result<(), ApproveError> {
     let tx = db
         .conn_mut()
@@ -919,6 +1022,10 @@ pub fn undo_refund_linked(db: &mut Database, linked: &RefundLinked) -> Result<()
         return Err(changed());
     }
     tx.execute("DELETE FROM transaction_link WHERE id = ?1", [linked.link])?;
+    for row in &linked.replaced {
+        row.restore(&tx)?;
+    }
+    link::prune_suggestions(&tx, linked.inflow, Some(linked.purchase))?;
     transfer::undo_in(&tx, &linked.decision)?;
     tx.commit()?;
     Ok(())

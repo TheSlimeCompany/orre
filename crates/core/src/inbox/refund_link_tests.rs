@@ -150,3 +150,69 @@ fn a_refund_link_that_changed_since_is_not_undone() {
     );
     assert_eq!(status(&f, group), TransferStatus::Rejected);
 }
+
+#[test]
+fn undoing_a_refund_link_puts_back_the_links_it_replaced_or_dropped() {
+    let mut f = Fixture::new();
+    let purchase = f.row(day(2), -1240, "Odeon", None);
+    let other = f.row(day(1), -1240, "Cinema", None);
+    let refund = f.row_on(f.savings, day(4), 1240, "Cash", None);
+    let group = suggested_pair(&f, purchase, refund);
+    // A suggestion for the pair itself (the refund confirms it in place) and
+    // one to another purchase (the refund leaves no room for it, so it is
+    // dropped).
+    for (target, amount) in [(purchase, 600), (other, 1240)] {
+        f.conn()
+            .execute(
+                "INSERT INTO transaction_link (kind, inflow_id, target_id, amount_minor, status) \
+                 VALUES ('refund', ?1, ?2, ?3, 'suggested')",
+                params![refund, target, amount],
+            )
+            .unwrap();
+    }
+    let before = link::links_of(&f.db, refund).unwrap();
+    assert_eq!(before.len(), 2);
+
+    let linked = link_as_refund(&mut f.db, group).unwrap().linked;
+    let after = link::links_of(&f.db, refund).unwrap();
+    assert_eq!(after.len(), 1, "the suggestion to the other purchase went");
+    assert_eq!(after[0].status, LinkStatus::Confirmed);
+
+    undo_refund_linked(&mut f.db, &linked).unwrap();
+
+    assert_eq!(link::links_of(&f.db, refund).unwrap(), before);
+    assert_eq!(status(&f, group), TransferStatus::Suggested);
+}
+
+#[test]
+fn a_dropped_suggestion_that_no_longer_fits_stays_dropped_and_undo_still_works() {
+    let mut f = Fixture::new();
+    let purchase = f.row(day(2), -1240, "Odeon", None);
+    let refund = f.row_on(f.savings, day(4), 1240, "Cash", None);
+    let elsewhere = f.row(day(3), 1240, "Odeon refund", None);
+    let group = suggested_pair(&f, purchase, refund);
+    // Another payment suggested as the purchase's refund: the refund leaves
+    // the purchase no room for it, so it is dropped.
+    f.conn()
+        .execute(
+            "INSERT INTO transaction_link (kind, inflow_id, target_id, amount_minor, status) \
+             VALUES ('refund', ?1, ?2, 1240, 'suggested')",
+            params![elsewhere, purchase],
+        )
+        .unwrap();
+    let linked = link_as_refund(&mut f.db, group).unwrap().linked;
+    assert!(link::links_of(&f.db, elsewhere).unwrap().is_empty());
+    // Since then, that payment got a share of its own: a link can't name it.
+    f.conn()
+        .execute(
+            "UPDATE \"transaction\" SET my_share_minor = 600 WHERE id = ?1",
+            [elsewhere],
+        )
+        .unwrap();
+
+    undo_refund_linked(&mut f.db, &linked).unwrap();
+
+    assert!(link::links_of(&f.db, elsewhere).unwrap().is_empty());
+    assert!(link::links_of(&f.db, refund).unwrap().is_empty());
+    assert_eq!(status(&f, group), TransferStatus::Suggested);
+}

@@ -1689,6 +1689,50 @@ fn remove_balance_removes_it_and_undo_adds_it_back(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn undoing_a_removal_tells_the_shell_the_balances_changed(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_shell, accounts, cx) = open(cx, &scratch);
+    let changed = std::rc::Rc::new(std::cell::Cell::new(0));
+    let _subscription = cx.update(|_, cx| {
+        let changed = changed.clone();
+        cx.subscribe(&accounts, move |_, event: &AccountsEvent, _| {
+            if *event == AccountsEvent::BalancesChanged {
+                changed.set(changed.get() + 1);
+            }
+        })
+    });
+    click(&row(scratch.current), cx);
+    click(&entered_row(&scratch), cx);
+    click("remove-balance", cx);
+    assert_eq!(changed.get(), 0, "the dialog closing reads the checks");
+
+    click("undo-change", cx);
+    assert_eq!(changed.get(), 1, "Undo has no dialog, so it says so itself");
+}
+
+#[gpui_kit::test]
+fn an_edited_count_refuses_a_minus_as_a_new_one_does(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let cash = cash_account(&scratch, true);
+    let count = account::entered_balances(&scratch.db(), cash).unwrap()[0]
+        .id
+        .unwrap();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(cash), cx);
+    click(&inspector::balance_row_id(count), cx);
+    retype_date("add-balance-amount", "-5.00", cx);
+    click("add-balance-add", cx);
+
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).error.as_deref(),
+        Some("Type what you counted without a minus.")
+    );
+    let counts = account::entered_balances(&scratch.db(), cash).unwrap();
+    assert_eq!(counts[0].balance.minor(), 5_000, "the count is unchanged");
+}
+
+#[gpui_kit::test]
 fn undoing_a_removal_says_why_when_the_day_was_taken_since(cx: &mut TestAppContext) {
     let scratch = Scratch::new();
     let (shell, accounts, cx) = open(cx, &scratch);

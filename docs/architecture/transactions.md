@@ -652,13 +652,20 @@ migration.**
    (`link::create_in`, so every link rule applies). If the link is refused, nothing is
    written and the pair stays suggested.
 2. **Undo is one step** (`inbox::undo_refund_linked`): it deletes the link and sets the
-   pair back to suggested, refusing if either has changed since. Settled Inbox
-   suggestions stay decided, as with other transfer decisions. No change batch.
+   pair back to suggested, refusing if either has changed since. It also puts back,
+   under their own IDs, the link rows the refund replaced or dropped: a suggestion or
+   decision for the same pair, and suggestions on either side that no longer fitted.
+   A row that no longer fits stays dropped, as linking drops one, and the undo still
+   goes through. That covers a pair decided since (that decision stands), a payment
+   split or shared since, and anything else the schema's checks now refuse. A
+   suggestion that is over what a side has left is dropped again too. Settled Inbox suggestions stay decided, as with
+   other transfer decisions. No change batch.
 3. **What the card offers comes from the register** (`reporting::pairing::Pair::refund`,
    `RefundBlocked`): the pair can be rejected, it is one money in and one money out in
    one currency, neither side is a duplicate, the money in isn't split or shared, both
    have enough left to link, and **the money out is spending** (its category, or a split
-   line's, has kind `spending`). The last is the lead's narrowing, not a link rule:
+   line's, has kind `spending`). The last is the lead's narrowing, confirmed by the user
+   (2026-11-21), not a link rule:
    detection pairs every matching in and out, so without it a plain move to Savings would
    ask "Transfer or refund?" too. An uncategorised purchase gets the plain card, and
    "Not a transfer" then Links still works.

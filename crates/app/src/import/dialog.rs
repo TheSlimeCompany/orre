@@ -337,7 +337,9 @@ impl ImportDialog {
         else {
             return;
         };
-        if self.new_account.is_some() || self.store.is_none() {
+        // Not while reading or importing: adding the account reads the
+        // setup again, which would drop that task.
+        if self.new_account.is_some() || self.store.is_none() || self.busy.is_some() {
             return;
         }
         let bank = session
@@ -375,8 +377,9 @@ impl ImportDialog {
         cx.notify();
     }
 
-    /// Reads the accounts again, now one has been added, and chooses it,
-    /// keeping the file, the mapping and the step.
+    /// Reads the accounts again, now one has been added, and chooses it if
+    /// it can take an import (its kind may have been changed to one that
+    /// can't), keeping the file, the mapping and the step.
     fn choose_created(&mut self, account: AccountId, cx: &mut Context<Self>) {
         let Some(store) = self.store.clone() else {
             return;
@@ -391,8 +394,14 @@ impl ImportDialog {
                 this.busy = None;
                 match result {
                     Ok(setup) => {
+                        let importable = setup
+                            .accounts
+                            .iter()
+                            .any(|row| row.id == account && can_import_into(row));
                         this.setup = Some(setup);
-                        this.set_account(account, cx);
+                        if importable {
+                            this.set_account(account, cx);
+                        }
                     }
                     Err(error) => this.problem = Some(error),
                 }
@@ -1391,7 +1400,7 @@ impl ImportDialog {
         account_groups.push(MenuGroup::footer(vec![
             MenuOption::new(NEW_ACCOUNT, "New account…")
                 .icon(Glyph::Plus)
-                .disabled(self.accounts.is_none() || self.store.is_none()),
+                .disabled(self.accounts.is_none() || self.store.is_none() || self.busy.is_some()),
         ]));
         let account_select = self.select(
             Pick::Account,

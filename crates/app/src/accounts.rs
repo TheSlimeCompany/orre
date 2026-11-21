@@ -171,6 +171,9 @@ pub enum AccountsEvent {
     CategoryPicked(CategoryPick),
     /// The `+` on the Categories section: open Rules on a new category.
     NewCategoryRequested,
+    /// A balance changed outside a dialog (Undo after removing one): the
+    /// balance checks read again.
+    BalancesChanged,
 }
 
 /// A row under the panel's CATEGORIES.
@@ -827,6 +830,7 @@ impl Accounts {
             Ok(()) => {
                 self.removed = None;
                 self.removed_error = None;
+                cx.emit(AccountsEvent::BalancesChanged);
             }
             Err(error) => {
                 self.removed_error = Some(new_account::sentence(&add_balance::field_dates(&error)));

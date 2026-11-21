@@ -395,6 +395,8 @@ M3.P9, from the user's M3 exit check: a wrong opening balance couldn't be correc
    and Save. A locked one shows the lock and doesn't open. Remove asks nothing; the
    accounts undo bar ("Removed the balance on 17 Nov 2026", with Undo) is the way back,
    shared with the close account bar. Editing a cash count edits its balance only: a
-   "Cash count difference" row it added stays as it is.
+   "Cash count difference" row it added stays as it is, and a minus is refused, as when
+   adding one. Undo has no dialog closing behind it, so it tells the shell
+   (`AccountsEvent::BalancesChanged`), and the balance checks read again.
 5. **Not editable here:** the account row's own opening balance
    (`account.opening_balance_minor`, which nothing writes any more) and file balances.

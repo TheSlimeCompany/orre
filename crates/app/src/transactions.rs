@@ -482,7 +482,7 @@ enum BarText {
 }
 
 /// What the undo bar's Undo does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum UndoAction {
     /// Reverts a change batch.
     Batch(ChangeBatchId),
@@ -1572,7 +1572,10 @@ impl TransactionsView {
         let mut policy = Policy::new(Said::Inspector(editor::EditPlace::Exclusion))
             .sentence()
             .log("couldn't include a transaction again")
-            .undo(move |_| Offer::ClearIf(action))
+            .undo({
+                let action = action.clone();
+                move |_| Offer::ClearIf(action)
+            })
             .emit(TransactionsEvent::LedgerChanged);
         if from_bar {
             policy = policy.retry(action);
