@@ -39,8 +39,8 @@
 //! created rule or category is selected when the read lands, a form edited
 //! meanwhile isn't refilled, and the same save isn't made twice.
 
-#[cfg(test)]
-mod describe;
+#[cfg(any(test, feature = "dev-driver"))]
+pub(crate) mod describe;
 pub mod dialogs;
 pub mod fixture;
 pub mod form;

@@ -28,8 +28,8 @@ pub mod backups;
 pub mod clients;
 pub mod data;
 pub mod delete;
-#[cfg(test)]
-mod describe;
+#[cfg(any(test, feature = "dev-driver"))]
+pub(crate) mod describe;
 pub mod enable;
 pub mod export;
 pub mod fixture;

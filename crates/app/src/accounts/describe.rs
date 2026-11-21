@@ -4,8 +4,9 @@
 //! an asset's or liability's valuations canvas, the undo bar after closing,
 //! a dialog, and the panel's keys with whether each does anything now.
 //!
-//! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `orre mcp`
+//! Compiled for tests and the dev driver only (the `dev-driver` feature,
+//! debug builds): it isn't in a release build, and nothing but the tests and
+//! the driver can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -64,7 +65,7 @@ pub struct AccountsDescription {
     /// and, for one that can't be chosen, its reason.
     pub context_menu: Option<Vec<Vec<ContextItem>>>,
     /// The dialog open over the window, when it's one of accounts'
-    /// ([`AccountsDescription::with_dialog`]).
+    /// (`AccountsDescription::with_dialog`).
     pub dialog: Option<Dialog>,
     /// The panel's keys: ↑↓ through the accounts, Escape, Enter and ⌘N.
     pub keys: Vec<Action>,
@@ -298,7 +299,7 @@ impl Accounts {
     /// What accounts management shows now, as plain data (module docs),
     /// with `inspector`'s fields while it's shown (Transactions shows it
     /// while an account is selected and no transaction is). A dialog is
-    /// the shell's: add it with [`AccountsDescription::with_dialog`].
+    /// the shell's: add it with `AccountsDescription::with_dialog`.
     pub fn describe(&self, inspector: Option<&AccountInspector>, cx: &App) -> AccountsDescription {
         let data = self.data();
         let selected = self.selected();
@@ -396,7 +397,13 @@ impl Accounts {
 impl AccountsDescription {
     /// With `dialog`, the shell's open dialog, when it's one of accounts'.
     pub fn with_dialog(mut self, dialog: Option<&AnyView>, cx: &App) -> Self {
-        self.dialog = dialog.and_then(|dialog| {
+        self.dialog = Self::dialog_of(dialog, cx);
+        self
+    }
+
+    /// `dialog` described, when it's one of this view's.
+    pub fn dialog_of(dialog: Option<&AnyView>, cx: &App) -> Option<crate::ui::describe::Dialog> {
+        dialog.and_then(|dialog| {
             let dialog = dialog.clone();
             let dialog = match dialog.downcast::<NewAccountDialog>() {
                 Ok(new) => return Some(new.read(cx).describe(cx)),
@@ -414,7 +421,6 @@ impl AccountsDescription {
                 .downcast::<DeleteAccountDialog>()
                 .ok()
                 .map(|delete| delete.read(cx).describe())
-        });
-        self
+        })
     }
 }

@@ -3,8 +3,9 @@
 //! the inspector, the notification bar, a dialog, and the keys of the
 //! panel and the list.
 //!
-//! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `orre mcp`
+//! Compiled for tests and the dev driver only (the `dev-driver` feature,
+//! debug builds): it isn't in a release build, and nothing but the tests and
+//! the driver can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -53,7 +54,7 @@ pub struct SettingsDescription {
     pub inspector: Option<Inspector>,
     pub notice: Option<NoticeDescription>,
     /// The dialog open over the window, when it's one of Settings'
-    /// ([`SettingsDescription::with_dialog`]).
+    /// (`SettingsDescription::with_dialog`).
     pub dialog: Option<Dialog>,
     /// The panel's keys (↑↓ between the screens).
     pub panel_keys: Vec<Action>,
@@ -415,7 +416,7 @@ impl SettingsView {
     // The whole -------------------------------------------------------------------
 
     /// What Settings shows now, as plain data (module docs). A dialog is
-    /// the shell's: add it with [`SettingsDescription::with_dialog`].
+    /// the shell's: add it with `SettingsDescription::with_dialog`.
     pub fn describe(&self) -> SettingsDescription {
         let mut panel: Vec<PanelRow> = Screen::ALL
             .into_iter()
@@ -488,7 +489,13 @@ impl SettingsView {
 impl SettingsDescription {
     /// With `dialog`, the shell's open dialog, when it's one of Settings'.
     pub fn with_dialog(mut self, dialog: Option<&AnyView>, cx: &App) -> Self {
-        self.dialog = dialog.and_then(|dialog| {
+        self.dialog = Self::dialog_of(dialog, cx);
+        self
+    }
+
+    /// `dialog` described, when it's one of this view's.
+    pub fn dialog_of(dialog: Option<&AnyView>, cx: &App) -> Option<crate::ui::describe::Dialog> {
+        dialog.and_then(|dialog| {
             let dialog = dialog.clone();
             let dialog = match dialog.downcast::<EnableDialog>() {
                 Ok(enable) => return Some(enable.read(cx).describe()),
@@ -510,7 +517,6 @@ impl SettingsDescription {
                 .downcast::<ExportDialog>()
                 .ok()
                 .map(|export| export.read(cx).describe())
-        });
-        self
+        })
     }
 }

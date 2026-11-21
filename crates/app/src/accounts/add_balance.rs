@@ -846,7 +846,7 @@ impl AddBalanceDialog {
     /// after it), Orre's expectation and the Difference on a count, and
     /// a liability's caption (it names what will be stored) as a row
     /// labelled "". The fixed captions are left out.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub fn describe(&self, cx: &gpui_kit::App) -> crate::ui::describe::Dialog {
         use crate::ui::describe::{Action, Dialog};
         let value = |input: &Entity<InputState>| input.read(cx).value().to_string();

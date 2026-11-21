@@ -199,6 +199,14 @@ per call through its own store and changes data only through core.
   the window state (bounds, mode, open view) restored on launch
   (`shell::window_state`). Actions such as `shell::ImportStatement` (⌘I) and
   `shell::NewTransaction` (⌘N). Views without a screen yet show `ui::empty_state`.
+  `ShellView::from_database` builds the shell over a database as `orre` opens it (the
+  dev driver's tests use it too). `shell::describe` (tests and `dev-driver` only):
+  `ShellView::describe`, the open view's description, the dialog over it and focus.
+- `dev_driver` (U.5, `dev-driver` feature, debug builds only): the local socket an agent
+  drives a dev build through (`orre dev`). `command` parses a line, `act` does it in the
+  window with gpui-kit's test calls, `guard` refuses anything but a scratch
+  `ORRE_DATA_DIR`, `server` is the socket, `client` is `orre dev`'s side
+  (`docs/architecture/app.md` → "The dev driver").
 - `ui::`: Orre's components. `ui::dialog` (also wide) and `ui::menu` (with `MenuList`,
   the menu opened from a chip, a row or the bulk-action bar, with a filter field;
   `MenuList::context` and `at_pointer` for right-click menus, `MenuGroup::footer` for a
@@ -224,12 +232,13 @@ per call through its own store and changes data only through core.
   keys, `PanelCursor::keyed` keeps the cursor with the panel's element,
   `panel_cursor(...)` wires the element, and `Frame::mark` gives the cursor row
   `ListRow::current` and the inset ring.
-- `ui::describe` (U.1–U.3, tests only): what the views' test-only `describe()` share
-  (`Action`, `PanelRow`, `Header`, `Section`, `Inspector`, `Dialog`). Each view's own is
-  a `#[cfg(test)] mod describe` beside it (`inbox`, `transactions`, `checks`, `rules`,
-  `settings`, `accounts`), built from the text the view draws; the tests assert on it.
-  Never in a release build or reachable from `orre mcp` (`docs/architecture/app.md`,
-  2026-11-18).
+- `ui::describe` (U.1–U.3, tests and `dev-driver` only): what the views' `describe()`
+  share (`Action`, `PanelRow`, `Header`, `Section`, `Inspector`, `Dialog`). Each view's
+  own is a `mod describe` beside it under `#[cfg(any(test, feature = "dev-driver"))]`
+  (`inbox`, `transactions`, `checks`, `rules`, `settings`, `accounts`), built from the
+  text the view draws; the tests assert on it and the dev driver prints it. Never in a
+  release build or reachable from `orre mcp` (`docs/architecture/app.md`, 2026-11-18 and
+  2026-11-21).
 - `format`: writes and reads money and dates.
 - `showcase`: the component showcase, `orre --showcase`.
 
@@ -328,8 +337,9 @@ per call through its own store and changes data only through core.
 `remove`), `schedules` (`detect`, `list`, `show`, `confirm`, …), `inbox` (`list`,
 `show`, `approve`, `reject`, and saved reports: `reports`, `report`, `delete-report`, the
 user's way under the 500-report cap) and `categorize <transaction-id>...
-<category-key>`. `cli::terminal`: the commands that act as the user need an interactive
-stdin (R.1), checked by `cli::run_with`.
+<category-key>`, and in a `dev-driver` build `dev <command>` (the dev driver's client).
+`cli::terminal`: the commands that act as the user need an interactive stdin (R.1),
+checked by `cli::run_with`.
 
 ## Fixtures and end-to-end tests
 

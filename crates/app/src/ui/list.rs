@@ -63,7 +63,7 @@ impl Move {
     }
 
     /// What the move is called in a test-only `describe()`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub fn label(self) -> &'static str {
         match self {
             Self::By(step) if step < 0 => "Move up",

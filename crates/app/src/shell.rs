@@ -42,9 +42,12 @@
 //! ([`SettingsView`], M3.15, M3.16), whose dialogs it opens the same way,
 //! and whose kill switch the status bar shows.
 
+#[cfg(any(test, feature = "dev-driver"))]
+pub mod describe;
 mod status;
 pub mod window_state;
 
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -303,27 +306,6 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
             None
         }
     };
-    let (accounts, source) = match paths::database_path() {
-        Ok(database) => (
-            Accounts::unloaded(AccountStore::new(database.clone())),
-            transactions::Source::Database(TransactionStore::new(database)),
-        ),
-        // Without a data folder there's nothing to read: the panel says why,
-        // and the table shows the sample data.
-        Err(error) => (
-            Accounts::unavailable(format!("Orre has no data folder: {error}")),
-            transactions::Source::Fixture,
-        ),
-    };
-    let inbox = match paths::database_path() {
-        Ok(database) => Inbox::unloaded(InboxStore::new(database)),
-        Err(error) => Inbox::unavailable(format!("Orre has no data folder: {error}")),
-    };
-    let checks = match paths::database_path() {
-        Ok(database) => Checks::from_store(ChecksStore::new(database)),
-        Err(error) => Checks::unavailable(format!("Orre has no data folder: {error}")),
-    };
-    let settings_store = paths::database_path().map(SettingsStore::new);
     let saved = store.as_ref().and_then(WindowStore::load);
     let fallback = Bounds::centered(None, size(px(1440.), px(900.)), cx);
     let displays: Vec<_> = cx
@@ -344,28 +326,10 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
         ..title_bar::window_options()
     };
     let view = window_state::restored_view(saved.as_ref());
-    gpui_kit::open_window(options, cx, move |window, cx| {
+    let _opened = gpui_kit::open_window(options, cx, move |window, cx| {
         cx.new(|cx| {
-            let accounts = cx.new(|_| accounts);
-            let inbox = cx.new(|_| inbox);
-            let settings = cx.new(|cx| match settings_store {
-                Ok(store) => SettingsView::from_store(store, cx),
-                Err(error) => {
-                    SettingsView::unavailable(format!("Orre has no data folder: {error}"), cx)
-                }
-            });
-            let mut shell =
-                ShellView::with_all(view, accounts, source, inbox, settings, window, cx);
-            if let Ok(database) = paths::database_path() {
-                shell.import_into(ImportStore::new(database), cx);
-            }
-            let checks = cx.new(|_| checks);
-            shell.install_checks(checks, window, cx);
-            let rules = cx.new(|_| match paths::database_path() {
-                Ok(database) => Rules::unloaded(RulesStore::new(database)),
-                Err(error) => Rules::unavailable(format!("Orre has no data folder: {error}")),
-            });
-            shell.install_rules(rules, window, cx);
+            let database = paths::database_path().map_err(|error| error.to_string());
+            let mut shell = ShellView::from_database(view, database, window, cx);
             if let Some(store) = store {
                 shell.keep_window_state(store, window, cx);
             }
@@ -373,6 +337,10 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
             shell
         })
     })?;
+    // A dev build drives this window over a local socket (ROADMAP U.5),
+    // against a scratch data dir only.
+    #[cfg(feature = "dev-driver")]
+    crate::dev_driver::start(_opened.0, _opened.1, cx);
     Ok(())
 }
 
@@ -433,6 +401,51 @@ pub struct ShellView {
 }
 
 impl ShellView {
+    /// The shell showing `view` over the database at `database`, as `orre`
+    /// opens it; with `Err` (no data folder, and why), every view says so
+    /// and Transactions shows the sample data.
+    pub fn from_database(
+        view: View,
+        database: Result<PathBuf, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let no_folder = |error: &String| format!("Orre has no data folder: {error}");
+        let (accounts, source, inbox, checks, rules) = match &database {
+            Ok(database) => (
+                Accounts::unloaded(AccountStore::new(database.clone())),
+                transactions::Source::Database(TransactionStore::new(database.clone())),
+                Inbox::unloaded(InboxStore::new(database.clone())),
+                Checks::from_store(ChecksStore::new(database.clone())),
+                Rules::unloaded(RulesStore::new(database.clone())),
+            ),
+            // Without a data folder there's nothing to read: the panel says
+            // why, and the table shows the sample data.
+            Err(error) => (
+                Accounts::unavailable(no_folder(error)),
+                transactions::Source::Fixture,
+                Inbox::unavailable(no_folder(error)),
+                Checks::unavailable(no_folder(error)),
+                Rules::unavailable(no_folder(error)),
+            ),
+        };
+        let accounts = cx.new(|_| accounts);
+        let inbox = cx.new(|_| inbox);
+        let settings = cx.new(|cx| match &database {
+            Ok(database) => SettingsView::from_store(SettingsStore::new(database.clone()), cx),
+            Err(error) => SettingsView::unavailable(no_folder(error), cx),
+        });
+        let mut shell = ShellView::with_all(view, accounts, source, inbox, settings, window, cx);
+        if let Ok(database) = &database {
+            shell.import_into(ImportStore::new(database.clone()), cx);
+        }
+        let checks = cx.new(|_| checks);
+        shell.install_checks(checks, window, cx);
+        let rules = cx.new(|_| rules);
+        shell.install_rules(rules, window, cx);
+        shell
+    }
+
     /// The shell showing `view` with the sample accounts, keeping no window
     /// state (tests, snapshots).
     pub fn new(view: View, window: &mut Window, cx: &mut Context<Self>) -> Self {

@@ -254,7 +254,7 @@ impl RenderOnce for InboxPanel {
             .collect();
         let home = Some(home(state, checks_state));
         let frame = cursor.read(cx).frame(&rows, home.as_ref(), window);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "dev-driver"))]
         state.record_panel_cursor(rows.iter().find(|row| frame.on(row)).cloned());
 
         // Every row: its look, the cursor's, and what a click does.

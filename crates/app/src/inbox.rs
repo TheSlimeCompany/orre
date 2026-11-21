@@ -27,8 +27,8 @@
 //! Rationales, patterns, names and bank text are untrusted text: shown as
 //! plain text, stripped ([`text::plain`]), never acted on.
 
-#[cfg(test)]
-mod describe;
+#[cfg(any(test, feature = "dev-driver"))]
+pub(crate) mod describe;
 pub mod fixture;
 mod inspector;
 pub mod panel;
@@ -112,7 +112,7 @@ pub struct Inbox {
     loading: Option<Task<()>>,
     /// The panel row the keyboard cursor was last drawn on, for
     /// `describe()` (test-only).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     panel_cursor: std::cell::RefCell<Option<panel::InboxPanelRow>>,
 }
 
@@ -162,7 +162,7 @@ impl Inbox {
             load_error: None,
             loaded: true,
             loading: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "dev-driver"))]
             panel_cursor: Default::default(),
         }
     }

@@ -93,6 +93,11 @@ fn needs_terminal(command: &Command, database: &Path) -> anyhow::Result<Option<&
         Command::Categorize(_) => Some("categorize"),
         Command::Backup(args) => (args.delete.is_some() && args.yes).then_some("backup --delete"),
         Command::Export(_) | Command::Mcp(_) => None,
+        // The dev driver exists only in dev builds and drives only a
+        // scratch data dir (decision record "the dev driver"): checking the
+        // app is what it's for, so no terminal is asked for.
+        #[cfg(feature = "dev-driver")]
+        Command::Dev(_) => None,
         Command::Accounts(AccountsArgs { command }) => match command {
             None | Some(AccountsCommand::List) => None,
             Some(AccountsCommand::Add(_)) => Some("accounts add"),

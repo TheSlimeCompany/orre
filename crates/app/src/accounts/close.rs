@@ -215,7 +215,7 @@ impl CloseAccountDialog {
     /// What the dialog shows, as plain data (test-only, ROADMAP U.3): its
     /// body, which names the day and what leaves net worth, is a field
     /// labelled "" before the day's.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub fn describe(&self, cx: &gpui_kit::App) -> crate::ui::describe::Dialog {
         use crate::ui::describe::{Action, Dialog};
         let (title, body, label) = self.text(cx);
