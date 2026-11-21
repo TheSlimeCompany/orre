@@ -22,6 +22,16 @@ pre-push:
       # Cargo.lock must match Cargo.toml; --locked fails rather than rewrites.
       run: cargo metadata --locked --format-version 1 > /dev/null
 
+    - name: shipped-migrations
+      # Migrations already on origin/main are never edited, only added to.
+      script: "shipped-migrations.sh"
+      runner: bash
+
+    - name: dependency-direction
+      # core and import never reach GPUI, MCP, async or network crates.
+      script: "dependency-direction.sh"
+      runner: bash
+
     - name: fmt
       run: cargo fmt --all -- --check
 

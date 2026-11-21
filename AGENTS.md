@@ -53,7 +53,8 @@ lefthook run pre-push --force < /dev/null         # everything the pre-push hook
 
 Git hooks are managed by lefthook (`lefthook.yml`, installed on devenv shell entry).
 Only `pre-push` is used: data guard (no statements/databases outside `fixtures/`),
-`--locked` lockfile check, fmt, clippy `-D warnings`, tests, and docs with
+`--locked` lockfile check, no edits to migrations already on `origin/main`, the
+dependency direction (`cargo tree`), fmt, clippy `-D warnings`, tests, and docs with
 `RUSTDOCFLAGS=-D warnings`. There is no CI yet, so this hook is the gate; don't bypass
 it with `--no-verify`.
 
@@ -98,6 +99,11 @@ One binary, `orre`: no subcommand opens the GUI; `mcp` runs the MCP server
 
 Changing any of these needs an explicit decision recorded in the topic's file under
 `docs/architecture/` and listed in `docs/ARCHITECTURE.md`.
+
+Where a rule can be checked mechanically, it is: `crates/core/tests/invariants.rs` (no
+floats where money lives, no transaction content in `info`/`warn`/`error` logs,
+`describe` modules test-only) and the pre-push jobs above. When review catches a breach
+of a rule that isn't checked yet, prefer adding a check there over adding prose here.
 
 - **Money is integer minor units + ISO 4217 currency.** Never `f32`/`f64` for amounts.
   Exchange-rate conversion happens only at reporting time.
@@ -180,3 +186,45 @@ Changing any of these needs an explicit decision recorded in the topic's file un
   decision record goes at the end of that file and into the list in
   `docs/ARCHITECTURE.md` → "Contents".
 - Don't commit, push, or tag unless the user asks.
+
+## Agent skills
+
+### Issue tracker
+
+Local markdown: specs and tickets live under `.scratch/<feature>/`; `docs/ROADMAP.md` items
+and briefs also count as specs. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the root; decisions are the decision records in
+`docs/architecture/<topic>.md`, not `docs/adr/`. See `docs/agents/domain.md`.
+
+### Review and merge
+
+- Review a branch with `/review-two-axis` against its fixed point: **spec** is the
+  roadmap item, brief or `.scratch/` spec; **standards** are this file's invariants and
+  conventions, plus `docs/DESIGN.md` for UI.
+- A branch's handoff (the merge commit body, or the summary when there's no merge) uses
+  the `pr` skill's template: summary, evidence it works, and **merge danger**.
+  One-way doors here: migrations, the import commit and dedupe path, undo and restore,
+  and anything that changes what MCP returns at an access level. Those get a hostile
+  review; two-way doors with a small blast radius get a skim.
+- Keep the one-way door small and separate: a branch's migration lands in its own commit
+  with the `core` code that reads and writes it, before the commits that build on it,
+  and unfinished UI stays unreachable until its last commit. The hostile review then
+  covers that commit, not the whole branch.
+- After a review, run `/retro`: each finding that a test, lint or hook could have caught
+  becomes one (see "Invariants"). For a finding that recurs, first search `docs/` (and
+  this file) for where the rejected pattern is taught or shown, and fix the doc too:
+  agents follow the docs.
+
+### Sessions and context
+
+- Size the process to the diff: a small change is done directly; a feature gets
+  `/grill-with-docs` first, then a spec in `.scratch/` or the roadmap; a milestone-sized
+  one is split into specs before any code.
+- Prompt with the problem (why), not a solution (what), and let the agent propose.
+- Once a grilling session's outcome is written down as a spec, compact or start a fresh
+  session before implementing; the spec carries the context.
+- Give each new task a fresh subagent with pointers (spec, ticket, files); don't reuse
+  one whose context is already long.
