@@ -107,14 +107,35 @@ transactions"; `crates/core/examples/ledger_bench.rs` measures it).
 ### `describe()` stays out of release builds
 
 A view's `describe()` (its rows, selection, dialog and actions as plain data) and
-anything that runs a view's actions from outside the window are `#[cfg(test)]`
-(`ui::describe` and each view's `describe` module). A later driver (U.5) would sit
-behind an off-by-default Cargo feature never enabled in a release build, work only
-against a scratch `ORRE_DATA_DIR` and listen only on a local socket. No MCP tool,
-resource or prompt reaches them, in any build. `describe()` is built from the same
-functions the view renders with and the same sanitising (`envelope::shown`), so it
-shows what a person sees ("views that describe themselves stay out of the release
-binary", points 1 to 5).
+anything that runs a view's actions from outside the window are compiled only for tests
+and the `dev-driver` feature (`ui::describe`, each view's `describe` module,
+`shell::describe` and `dev_driver`). That feature is off by default, enabled by no other
+feature, and a compile error in a release build. Its driver works only against a scratch
+`ORRE_DATA_DIR` and listens only on a local socket. No MCP tool, resource or prompt
+reaches them, in any build. `describe()` is built from the same functions the view
+renders with and the same sanitising (`envelope::shown`), so it shows what a person sees
+("views that describe themselves stay out of the release binary", points 1 to 5, and
+"the dev driver").
+
+### The dev driver
+
+A debug build with `--features dev-driver`, opened with `ORRE_DATA_DIR` set to a
+scratch dir, listens on `$ORRE_DATA_DIR/dev-driver.sock`. `orre dev <command>` (built
+with the same feature) sends one line and prints the reply:
+
+```sh
+ORRE_DATA_DIR=/tmp/orre-dev cargo run --features dev-driver          # the app
+ORRE_DATA_DIR=/tmp/orre-dev cargo run --features dev-driver -- dev describe
+#   … dev show inbox | press down a | type tesco | click search | run Approve
+```
+
+`describe` prints `ShellView::describe` (`shell::describe`): the open view's
+description, the dialog over it (its own `describe()`, or else its labelled controls)
+and what has focus. `run <label>` clicks the one visible, enabled control with that
+accessible label, inside the dialog when one is open. Where a label repeats, the error
+lists the controls' ids for `click <id>`. Keys go through `press`, as the descriptions
+list them. A test per view checks that every button its `describe()` lists can be
+clicked this way (`dev_driver::tests`).
 
 ## Decision records
 
@@ -489,3 +510,42 @@ punch list"). **No migration.**
    them.
    Delete… is unavailable ("In use") while the group holds transactions, which every
    group the panel lists does.
+
+### Decision record: the dev driver (2026-11-21)
+
+ROADMAP U.5, deferred on 2026-11-18 and built on 2026-11-21 at the user's request (the
+user chose the scope: every view and dialog, with an `orre dev` subcommand as the
+client). It follows the record "views that describe themselves stay out of the release
+binary", points 1 to 5. The rest was composed during the build, for the user to confirm.
+
+1. **It drives the real window through gpui-kit's test calls.** The feature turns on
+   `gpui-kit/test-support`. Its observation is built on public GPUI APIs and works on a
+   real window, as a spike showed before the build. A click is a pointer move, press and
+   release at the control's centre, so it goes through hit-testing as a person's would.
+   No second way to run a view's actions was added.
+2. **An action is named by its accessible label, not by a new id.** The deferral
+   asked for named commands. The 104 button actions in the descriptions already carry
+   the label the window gives the control, so `run <label>` looks it up there, and
+   `dev_driver::tests` checks that every enabled button each view describes resolves.
+   Where a label repeats, each control has an id of its own for `click <id>`.
+   Rejected: an element id on every `describe::Action`, which would have touched every
+   call site and every test's expected values, and could drift from what's drawn.
+3. **Dialogs are described at the shell** (`ShellView::describe`). A dialog with a
+   `describe()` uses it. The others (Import, New transaction, Exclude, Link, the
+   undo-import and delete confirmations) list their controls' role and label, never a
+   field's value, which can hold raw bank text. Focus is the innermost observed control
+   whose focus scope holds it. Hover isn't described.
+4. **Guarded at three points.** In `Cargo.toml`, the feature is off by default and no
+   other feature names it. In `src/dev_driver.rs`, a `compile_error!` stops a release
+   build. In `dev_driver::guard`, the driver refuses to start when `ORRE_DATA_DIR` is
+   unset or is the platform data dir (also through symlinks and `..`), and the window
+   opens without it. `crates/core/tests/invariants.rs`
+   (`the_dev_driver_stays_out_of_release_and_mcp`, `describe_modules_are_test_only`)
+   checks the first two points and the gates.
+5. **The socket is the user's alone** (mode 0600, in the scratch dir). A stale one is
+   replaced and a live one refused. One command per connection, answered from the UI
+   thread, which polls every 50 ms (dev builds only).
+6. **`orre dev` needs no terminal.** "Approval needs the user's terminal" (2026-11-18)
+   keeps an AI client from acting as the user on the real database. The driver can
+   press Approve, but only in a dev build on a scratch dir, and checking the app is what
+   it's for.

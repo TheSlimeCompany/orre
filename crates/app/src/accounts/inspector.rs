@@ -423,7 +423,7 @@ impl AccountInspector {
 
     /// What the Name and Bank fields hold now (test-only, for
     /// `describe()`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub(super) fn field_values(&self, cx: &App) -> (String, String) {
         (
             self.name.read(cx).value().to_string(),
@@ -432,7 +432,7 @@ impl AccountInspector {
     }
 
     /// Why the last change wasn't saved (test-only, for `describe()`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub(super) fn error(&self) -> Option<&SharedString> {
         self.error.as_ref()
     }

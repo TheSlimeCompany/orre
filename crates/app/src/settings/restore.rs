@@ -235,7 +235,7 @@ impl RestoreDialog {
     /// What the dialog shows, as plain data (test-only, ROADMAP U.3): its
     /// title, the error, and Cancel and Restore (off while it restores,
     /// Restore until the checks pass).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub fn describe(&self) -> crate::ui::describe::Dialog {
         use crate::ui::describe::{Action, Dialog};
         let restoring = self.stage == Stage::Restoring;

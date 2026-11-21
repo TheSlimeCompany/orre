@@ -24,8 +24,8 @@
 //! bank text are untrusted and shown plain ([`text`]).
 
 pub mod balances;
-#[cfg(test)]
-mod describe;
+#[cfg(any(test, feature = "dev-driver"))]
+pub(crate) mod describe;
 pub mod duplicates;
 pub mod fixture;
 pub mod lock;

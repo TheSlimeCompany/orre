@@ -36,8 +36,8 @@ pub mod close;
 pub mod context_menu;
 pub mod data;
 pub mod delete;
-#[cfg(test)]
-mod describe;
+#[cfg(any(test, feature = "dev-driver"))]
+pub(crate) mod describe;
 pub mod fixture;
 pub mod inspector;
 pub mod new_account;
@@ -231,7 +231,7 @@ pub struct Accounts {
     context_menu: Option<context_menu::ContextMenu>,
     /// Whether the panel last drew its focus ring, for `describe()`
     /// (test-only).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     panel_ring: std::cell::Cell<bool>,
 }
 
@@ -253,7 +253,7 @@ impl Accounts {
             removed: None,
             removed_error: None,
             context_menu: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "dev-driver"))]
             panel_ring: Default::default(),
         };
         accounts.read_now();
@@ -275,7 +275,7 @@ impl Accounts {
             removed: None,
             removed_error: None,
             context_menu: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "dev-driver"))]
             panel_ring: Default::default(),
         }
     }
@@ -295,7 +295,7 @@ impl Accounts {
             removed: None,
             removed_error: None,
             context_menu: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "dev-driver"))]
             panel_ring: Default::default(),
         }
     }
@@ -314,7 +314,7 @@ impl Accounts {
             removed: None,
             removed_error: None,
             context_menu: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "dev-driver"))]
             panel_ring: Default::default(),
         }
     }

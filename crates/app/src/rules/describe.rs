@@ -5,8 +5,9 @@
 //! bar, the dialog open over the window, and the canvas's keys with whether
 //! each does anything now.
 //!
-//! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `orre mcp`
+//! Compiled for tests and the dev driver only (the `dev-driver` feature,
+//! debug builds): it isn't in a release build, and nothing but the tests and
+//! the driver can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -30,8 +31,11 @@
 //! lines and a name's "Bank text it catches", and the panel's own keys
 //! (`panel::KEYS`).
 
+#[cfg(test)]
+use gpui_kit::VisualTestContext;
+#[cfg(test)]
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{App, Entity, SharedString, VisualTestContext};
+use gpui_kit::{App, Entity, SharedString};
 
 pub use crate::ui::describe::Action;
 
@@ -48,6 +52,7 @@ use super::text::{Part, ThenLead};
 use super::view::{self, KEYS};
 use super::{CategorySelection, NameSelection, Outcome, Rules, Section};
 use crate::shell::ShellView;
+#[cfg(test)]
 use crate::theme::focus::RING_SELECTOR;
 use crate::theme::tokens::color;
 
@@ -672,7 +677,7 @@ fn actions(rules: &Rules) -> Vec<Action> {
 
 impl Rules {
     /// What the Rules view shows now, as plain data (module docs). The
-    /// panel's cursor and any dialog are [`describe_window`]'s.
+    /// panel's cursor and any dialog are `describe_window`'s (tests).
     pub fn describe(&self) -> RulesDescription {
         let canvas = canvas(self);
         RulesDescription {
@@ -700,6 +705,7 @@ impl Rules {
 /// [`Rules::describe`] as `shell`'s window shows it now: with the panel's
 /// keyboard cursor (the panel row drawing the focus ring) and the dialog
 /// open over the window, the shell's or the Rules view's own.
+#[cfg(test)]
 pub fn describe_window(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> RulesDescription {
     let (mut described, open) = cx.update(|_, cx| {
         let shell = shell.read(cx);
@@ -712,7 +718,7 @@ pub fn describe_window(shell: &Entity<ShellView>, cx: &mut VisualTestContext) ->
     described
 }
 
-fn dialog(shell: &ShellView, cx: &App) -> Option<DialogDescription> {
+pub(crate) fn dialog(shell: &ShellView, cx: &App) -> Option<DialogDescription> {
     if let Some(open) = shell.dialog() {
         let open = open.clone();
         let open = match open.downcast::<DeleteRuleDialog>() {
@@ -734,6 +740,7 @@ fn dialog(shell: &ShellView, cx: &App) -> Option<DialogDescription> {
 
 /// The panel row drawing the focus ring: the keyboard cursor, drawn while
 /// the panel has keyboard focus.
+#[cfg(test)]
 fn cursor(open: Section, cx: &mut VisualTestContext) -> Option<&'static str> {
     let ring = cx.debug_bounds(RING_SELECTOR)?;
     PanelRow::all(open)

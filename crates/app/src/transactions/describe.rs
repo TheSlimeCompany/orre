@@ -4,8 +4,9 @@
 //! inspector, the bar over the table's foot (failure, undo or bulk actions)
 //! and the keys with what they do.
 //!
-//! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `orre mcp`
+//! Compiled for tests and the dev driver only (the `dev-driver` feature,
+//! debug builds): it isn't in a release build, and nothing but the tests and
+//! the driver can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!

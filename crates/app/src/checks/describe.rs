@@ -3,8 +3,9 @@
 //! selection, the inspector, the undo bar or refusal, a lock dialog, and
 //! the actions available with their keys.
 //!
-//! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `orre mcp`
+//! Compiled for tests and the dev driver only (the `dev-driver` feature,
+//! debug builds): it isn't in a release build, and nothing but the tests and
+//! the driver can reach it, `orre mcp`
 //! included (`docs/architecture/app.md` → "Decision record: views that
 //! describe themselves stay out of the release binary").
 //!
@@ -56,7 +57,7 @@ pub struct ChecksDescription {
     /// The undo bar after a change: its message, and Undo when it has one.
     pub undo_bar: Option<(String, Vec<Action>)>,
     /// The lock or unlock dialog, when one is open over the window
-    /// ([`ChecksDescription::with_dialog`]).
+    /// (`ChecksDescription::with_dialog`).
     pub dialog: Option<Dialog>,
     /// The canvas's keys ([`KEYS`]: its own, then ↑↓), and whether each
     /// does anything now.
@@ -609,7 +610,7 @@ fn actions(checks: &Checks) -> Vec<Action> {
 impl Checks {
     /// What the review queues show now, as plain data (module docs). A
     /// dialog is the shell's: add it with
-    /// [`ChecksDescription::with_dialog`].
+    /// `ChecksDescription::with_dialog`.
     pub fn describe(&self) -> ChecksDescription {
         let today = self.today();
         let queue = self.queue().unwrap_or(Queue::Duplicates);
@@ -694,7 +695,13 @@ impl ChecksDescription {
     /// With `dialog`, the shell's open dialog, when it's the lock or the
     /// unlock dialog.
     pub fn with_dialog(mut self, dialog: Option<&AnyView>, cx: &App) -> Self {
-        self.dialog = dialog.and_then(|dialog| {
+        self.dialog = Self::dialog_of(dialog, cx);
+        self
+    }
+
+    /// `dialog` described, when it's one of this view's.
+    pub fn dialog_of(dialog: Option<&AnyView>, cx: &App) -> Option<crate::ui::describe::Dialog> {
+        dialog.and_then(|dialog| {
             if let Ok(lock) = dialog.clone().downcast::<LockDialog>() {
                 return Some(lock.read(cx).describe());
             }
@@ -703,7 +710,6 @@ impl ChecksDescription {
                 .downcast::<UnlockDialog>()
                 .ok()
                 .map(|unlock| unlock.read(cx).describe())
-        });
-        self
+        })
     }
 }

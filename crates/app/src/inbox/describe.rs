@@ -4,8 +4,9 @@
 //! under its row, the inspector, the confirmation bar, and the actions
 //! available with their keys.
 //!
-//! Compiled for tests only (`#[cfg(test)]` on the module): it isn't in a
-//! release build and nothing outside the tests can reach it, `orre mcp`
+//! Compiled for tests and the dev driver only (the `dev-driver` feature,
+//! debug builds): it isn't in a release build, and nothing but the tests and
+//! the driver can reach it, `orre mcp`
 //! included. A path that reads or drives the view's actions would get round
 //! "approval happens only in Orre's own UI" (`AGENTS.md` → Invariants).
 //!

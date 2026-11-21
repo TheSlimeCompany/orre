@@ -484,7 +484,7 @@ impl ExportDialog {
     /// What the dialog shows, as plain data (test-only, ROADMAP U.3): the
     /// format and the two toggles as fields, the problem as its error, and
     /// Cancel and Export… (off until there's something to export).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub fn describe(&self) -> crate::ui::describe::Dialog {
         use crate::ui::describe::{Action, Dialog};
         let on = |on: bool| if on { "On" } else { "Off" }.to_owned();
