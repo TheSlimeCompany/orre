@@ -66,9 +66,9 @@ use crate::db::Database;
 use crate::id::{
     ChangeBatchId, LinkId, MerchantAliasId, RuleId, SplitId, TransactionId, TransferGroupId,
 };
-use crate::link::{self, LinkTarget, NewLink};
+use crate::link::{self, LinkKind, LinkStatus, LinkTarget, NewLink};
 use crate::merchant;
-use crate::money::Money;
+use crate::money::{Currency, Money};
 use crate::reporting;
 use crate::rule::{self, ApplyError, StoreError};
 use crate::transfer::{self, TransferStatus};
@@ -76,6 +76,10 @@ use crate::transfer::{self, TransferStatus};
 #[cfg(test)]
 #[path = "approve_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "refund_link_tests.rs"]
+mod refund_link_tests;
 
 /// What the user chose when approving.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -812,6 +816,112 @@ pub fn mark_transfer(
     let settled = settle_transfer_pair(&tx, &confirmed)?;
     tx.commit()?;
     Ok(TransferMarked { marked, settled })
+}
+
+/// A suggested pair linked as a refund: the pair rejected and a confirmed
+/// refund made. What [`undo_refund_linked`] needs to reverse it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RefundLinked {
+    /// The pair's rejection.
+    pub decision: transfer::Decision,
+    /// The confirmed refund, from the money in to the money out.
+    pub link: LinkId,
+    pub inflow: TransactionId,
+    pub purchase: TransactionId,
+    pub amount: Money,
+}
+
+/// A suggested pair the user linked as a refund in Transactions, with the
+/// Inbox suggestions that settled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefundDecided {
+    pub linked: RefundLinked,
+    /// Pending `transfer_pair` suggestions for the same two rows, rejected
+    /// as "Not a transfer" rejects them.
+    pub settled: Vec<SuggestionId>,
+}
+
+/// Rejects suggested transfer group `group` ("Not a transfer", settling an
+/// agent's pending suggestion for the pair as [`decide_transfer`] does) and
+/// links its money in as a refund of its money out, for the money in's
+/// whole amount, in one DB transaction (`BEGIN IMMEDIATE`). The link
+/// follows [`link::create`]'s rules; if it is refused, the pair stays
+/// suggested and nothing is written.
+pub fn link_as_refund(
+    db: &mut Database,
+    group: TransferGroupId,
+) -> Result<RefundDecided, ApproveError> {
+    let tx = db
+        .conn_mut()
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let decision = transfer::reject_in(&tx, group)?;
+    let [a, b] = decision.transactions;
+    let side = |id: TransactionId| -> Result<(i64, Currency), ApproveError> {
+        Ok(tx.query_row(
+            "SELECT amount_minor, currency FROM \"transaction\" WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?)
+    };
+    let ((amount_a, currency), (amount_b, _)) = (side(a)?, side(b)?);
+    let (inflow, purchase) = if amount_a > 0 && amount_b < 0 {
+        (a, b)
+    } else if amount_b > 0 && amount_a < 0 {
+        (b, a)
+    } else {
+        // Not reachable for a pair, whose two sides have opposite amounts.
+        return Err(if amount_a <= 0 && amount_b <= 0 {
+            link::Error::NotMoneyIn(a)
+        } else {
+            link::Error::NotMoneyOut(if amount_a >= 0 { a } else { b })
+        }
+        .into());
+    };
+    let amount = Money::new(amount_a.max(amount_b), currency);
+    let link = link::create_in(
+        &tx,
+        &NewLink {
+            kind: LinkKind::Refund,
+            inflow,
+            target: LinkTarget::Purchase(purchase),
+            amount,
+        },
+    )?;
+    let settled = settle_transfer_pair(&tx, &decision)?;
+    tx.commit()?;
+    Ok(RefundDecided {
+        linked: RefundLinked {
+            decision,
+            link,
+            inflow,
+            purchase,
+            amount,
+        },
+        settled,
+    })
+}
+
+/// Reverses [`link_as_refund`]: deletes the refund and sets the pair back to
+/// suggested, in one DB transaction. Refused ([`transfer::Error::Changed`])
+/// when the link or the pair has changed since. Settled Inbox suggestions
+/// stay as they are.
+pub fn undo_refund_linked(db: &mut Database, linked: &RefundLinked) -> Result<(), ApproveError> {
+    let tx = db
+        .conn_mut()
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let changed = || ApproveError::Transfer(transfer::Error::Changed(linked.decision.group));
+    let stored = link::load_link(&tx, linked.link).map_err(|_| changed())?;
+    if stored.status != LinkStatus::Confirmed
+        || stored.inflow != linked.inflow
+        || stored.target != LinkTarget::Purchase(linked.purchase)
+        || stored.amount != linked.amount
+    {
+        return Err(changed());
+    }
+    tx.execute("DELETE FROM transaction_link WHERE id = ?1", [linked.link])?;
+    transfer::undo_in(&tx, &linked.decision)?;
+    tx.commit()?;
+    Ok(())
 }
 
 /// Settles the pending `transfer_pair` suggestions naming `decision`'s two

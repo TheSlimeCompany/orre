@@ -414,7 +414,7 @@ fn category_counts_match_what_the_category_filter_keeps() {
 }
 
 #[test]
-fn sorting_orders_rows_within_each_day() {
+fn sorting_lists_every_row_in_one_flat_order() {
     let mut ledger = TestLedger::new();
     let current = ledger.account("Current account", Currency::GBP);
     let joint = ledger.account("Joint account", Currency::GBP);
@@ -456,31 +456,44 @@ fn sorting_orders_rows_within_each_day() {
     let sorted = |sort: Sort| ids(&register, &register.select(&Filter::default(), sort));
 
     assert_eq!(sorted(Sort::Default), [tfl, amazon, pret, bills, refund]);
+    let asc = |column| sorted(Sort::Ascending(column));
+    let desc = |column| sorted(Sort::Descending(column));
     assert_eq!(
-        sorted(Sort::Ascending(SortColumn::Merchant)),
-        [amazon, pret, tfl, refund, bills],
-        "ignoring case, and never across days"
+        asc(SortColumn::Merchant),
+        [amazon, refund, bills, pret, tfl],
+        "ignoring case, across days"
     );
     assert_eq!(
-        sorted(Sort::Descending(SortColumn::Merchant)),
-        [tfl, pret, amazon, bills, refund]
+        desc(SortColumn::Merchant),
+        [tfl, pret, bills, refund, amazon]
     );
+    assert_eq!(asc(SortColumn::Amount), [bills, amazon, pret, tfl, refund]);
+    assert_eq!(desc(SortColumn::Amount), [refund, tfl, pret, amazon, bills]);
+    // Ties (the same account) keep newest first, then the default order.
+    assert_eq!(asc(SortColumn::Account), [tfl, pret, bills, amazon, refund]);
     assert_eq!(
-        sorted(Sort::Ascending(SortColumn::Amount)),
-        [amazon, pret, tfl, bills, refund]
-    );
-    assert_eq!(
-        sorted(Sort::Ascending(SortColumn::Account)),
-        [tfl, pret, amazon, bills, refund]
+        desc(SortColumn::Account),
+        [amazon, refund, tfl, pret, bills]
     );
     // Uncategorised rows sort first.
     assert_eq!(
-        sorted(Sort::Ascending(SortColumn::Category)),
-        [pret, amazon, tfl, refund, bills]
+        asc(SortColumn::Category),
+        [pret, refund, bills, amazon, tfl]
     );
-    let listing = register.select(&Filter::default(), Sort::Ascending(SortColumn::Amount));
-    assert_eq!(listing.days.len(), 2);
-    assert_eq!(listing.days[1].rows, 3..5);
+    assert_eq!(
+        desc(SortColumn::Category),
+        [tfl, amazon, bills, pret, refund]
+    );
+
+    let flat = register.select(&Filter::default(), Sort::Ascending(SortColumn::Amount));
+    assert!(flat.flat);
+    assert!(flat.days.is_empty(), "no day headers or nets");
+    assert_eq!(flat.len(), 5);
+    let grouped = register.select(&Filter::default(), Sort::Default);
+    assert!(!grouped.flat);
+    assert_eq!(grouped.days.len(), 2);
+    assert_eq!(grouped.days[1].rows, 3..5);
+    assert_eq!(grouped.uncategorised, flat.uncategorised);
 }
 
 #[test]

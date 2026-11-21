@@ -671,7 +671,10 @@ impl ShellView {
         }
         let imports = self.imports.clone();
         let selected = self.accounts.read(cx).selected();
-        let dialog = cx.new(|cx| ImportDialog::new(imports, selected, path, window, cx));
+        let accounts = self.accounts.clone();
+        let dialog = cx.new(|cx| {
+            ImportDialog::new(imports, selected, path, window, cx).with_accounts(accounts)
+        });
         self.import_dialog = Some(dialog.downgrade());
         self.open_dialog(dialog, window, cx);
     }
@@ -1024,6 +1027,46 @@ impl ShellView {
                 let dialog = cx.new(|cx| AddBalanceDialog::new(accounts, account, window, cx));
                 self.open_dialog(dialog, window, cx);
             }
+            AccountsEvent::EditBalanceRequested(account, balance) => {
+                let accounts = self.accounts.clone();
+                let dialog =
+                    cx.new(|cx| AddBalanceDialog::edit(accounts, account, balance, window, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+            // The accounts panel's context menus (M3.P10).
+            AccountsEvent::ShowTransactionsRequested(account)
+            | AccountsEvent::InspectRequested(account) => self.show_account(account, window, cx),
+            AccountsEvent::NewTransactionRequested(account) => {
+                self.show_account(account, window, cx);
+                if self.dialog.is_none() {
+                    let transactions = self.transactions.clone();
+                    let dialog = cx.new(|cx| {
+                        NewTransactionDialog::new(transactions, Some(account), window, cx)
+                    });
+                    self.open_dialog(dialog, window, cx);
+                }
+            }
+            // `open_import` reads the selected account.
+            AccountsEvent::ImportRequested(account) => {
+                self.accounts
+                    .update(cx, |accounts, cx| accounts.select(Some(account), cx));
+                self.open_import(None, window, cx);
+            }
+            AccountsEvent::CategoryShowRequested(pick) => {
+                self.show(View::Transactions, window, cx);
+                self.transactions.update(cx, |transactions, cx| {
+                    transactions.pick_category(pick, false, cx)
+                });
+            }
+            AccountsEvent::CategoryRulesRequested(category) => {
+                self.show(View::Rules, window, cx);
+                self.rules.update(cx, |rules, cx| {
+                    rules.select_category(
+                        Some(crate::rules::CategorySelection::Stored(category)),
+                        cx,
+                    )
+                });
+            }
             AccountsEvent::CloseRequested(account) => {
                 let accounts = self.accounts.clone();
                 let dialog = cx.new(|cx| CloseAccountDialog::new(accounts, account, window, cx));
@@ -1051,6 +1094,21 @@ impl ShellView {
                 self.rules.update(cx, |rules, cx| rules.new_category(cx));
             }
         }
+    }
+
+    /// Selects `account` and shows Transactions, where its inspector is
+    /// (no transaction stays selected over it).
+    fn show_account(
+        &mut self,
+        account: orre_core::id::AccountId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.accounts
+            .update(cx, |accounts, cx| accounts.select(Some(account), cx));
+        self.show(View::Transactions, window, cx);
+        self.transactions
+            .update(cx, |transactions, cx| transactions.clear_selection(cx));
     }
 
     fn on_settings_event(

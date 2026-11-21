@@ -353,13 +353,14 @@ pub fn amount_input(
         .when(typed, |this| this.font_family(font::MONO))
 }
 
-/// A date field typed as text, `9 Nov 2026`: 96px (`--container-column-
-/// amount`), Geist Mono. No picker is drawn yet (`DESIGN.md` → "Accounts
+/// A date field typed as text, `17 Nov 2026`: 112px
+/// (`--container-field-date`, M3.P5: wide enough for a two-digit day and the
+/// caret), Geist Mono. No picker is drawn yet (`DESIGN.md` → "Accounts
 /// management").
 pub fn date_input(state: &Entity<InputState>) -> Input {
     text_input(state)
         .flex_none()
-        .w(size::COLUMN_AMOUNT)
+        .w(size::FIELD_DATE)
         .font_family(font::MONO)
 }
 

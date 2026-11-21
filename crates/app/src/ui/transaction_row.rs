@@ -65,6 +65,10 @@ pub enum TransactionColumn {
     Category,
     Account,
     Amount,
+    /// The first column while the table is one flat list (sorted by
+    /// another column, M3.P13): clicking its title goes back to days. Not
+    /// in [`Self::ALL`], the sortable titles.
+    Date,
 }
 
 impl TransactionColumn {
@@ -82,6 +86,7 @@ impl TransactionColumn {
             Self::Category => "sort-category",
             Self::Account => "sort-account",
             Self::Amount => "sort-amount",
+            Self::Date => "sort-date",
         }
     }
 
@@ -91,6 +96,7 @@ impl TransactionColumn {
             Self::Category => "Category",
             Self::Account => "Account",
             Self::Amount => "Amount",
+            Self::Date => "Date",
         }
     }
 }
@@ -102,6 +108,7 @@ impl TransactionColumn {
 fn columns(
     row: Div,
     clip: bool,
+    date: Option<AnyElement>,
     merchant: impl IntoElement,
     category: impl IntoElement,
     account: Option<impl IntoElement>,
@@ -120,6 +127,9 @@ fn columns(
     row.flex()
         .items_center()
         .gap(spacing::S3)
+        .when_some(date, |this, date| {
+            this.child(cell(size::COLUMN_AMOUNT).child(date))
+        })
         .child(
             div()
                 .flex()
@@ -181,6 +191,8 @@ pub struct TransactionHeader {
     descending: bool,
     show_account: bool,
     full_bleed: bool,
+    /// The flat list's Date column first (M3.P13).
+    date_column: bool,
     on_sort: Option<SortHandler>,
     /// Each title's focus handle, in [`TransactionColumn::ALL`]'s order.
     focus: Option<[FocusHandle; 4]>,
@@ -194,6 +206,7 @@ impl TransactionHeader {
             descending: true,
             show_account: true,
             full_bleed: false,
+            date_column: false,
             on_sort: None,
             focus: None,
         }
@@ -245,6 +258,14 @@ impl TransactionHeader {
         self.show_account = show;
         self
     }
+
+    /// Puts the Date column first, as the rows of a flat list have it
+    /// ([`TransactionRow::date`]). Its title has no chevron: clicking it
+    /// goes back to days, newest first ([`TransactionColumn::Date`]).
+    pub fn date_column(mut self, show: bool) -> Self {
+        self.date_column = show;
+        self
+    }
 }
 
 impl Default for TransactionHeader {
@@ -289,10 +310,11 @@ impl RenderOnce for TransactionHeader {
             let handler = on_sort.clone();
             // The chevron sits on the column's inner side, so no title moves:
             // before the right-aligned Amount (as Paper `XL-0` draws it),
-            // after the others.
+            // after the others. Date has none: it isn't a sort.
             let lead = column == TransactionColumn::Amount;
+            let dated = column == TransactionColumn::Date;
             let marker = || {
-                (sorted || sortable).then(|| {
+                (!dated && (sorted || sortable)).then(|| {
                     div()
                         .flex()
                         .flex_none()
@@ -360,6 +382,8 @@ impl RenderOnce for TransactionHeader {
                 .border_b(size::HAIRLINE)
                 .border_color(color::HAIRLINE),
             false,
+            self.date_column
+                .then(|| title(TransactionColumn::Date).into_any_element()),
             title(TransactionColumn::Merchant),
             title(TransactionColumn::Category),
             self.show_account.then(|| title(TransactionColumn::Account)),
@@ -638,6 +662,8 @@ impl RowColors {
 #[derive(IntoElement)]
 pub struct TransactionRow {
     id: ElementId,
+    /// The flat list's Date cell (M3.P13).
+    date: Option<SharedString>,
     merchant: SharedString,
     category: CategoryCell,
     account: Option<SharedString>,
@@ -664,6 +690,7 @@ impl TransactionRow {
     ) -> Self {
         Self {
             id: id.into(),
+            date: None,
             merchant: merchant.into(),
             category,
             account: None,
@@ -678,6 +705,14 @@ impl TransactionRow {
             on_edit_category: None,
             category_menu: None,
         }
+    }
+
+    /// Puts the row's date first, in mono 11/14 `text-muted` (`14 Oct`), as
+    /// a flat list sorted by another column shows it (M3.P13). Give it to
+    /// every row, with [`TransactionHeader::date_column`].
+    pub fn date(mut self, date: impl Into<SharedString>) -> Self {
+        self.date = Some(date.into());
+        self
     }
 
     /// Fills the account column. Leave it out on every row, and hide it on
@@ -965,6 +1000,12 @@ impl RenderOnce for TransactionRow {
             .child(columns(
                 div().w_full().min_w_0(),
                 true,
+                self.date.clone().map(|date| {
+                    truncating(date)
+                        .text_role(typography::MONO_VALUE)
+                        .text_color(color::TEXT_MUTED)
+                        .into_any_element()
+                }),
                 merchant,
                 category,
                 account,

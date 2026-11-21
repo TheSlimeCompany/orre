@@ -38,7 +38,7 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, Rgba, SharedString,
     Styled as _, Subscription, Task, Window, div,
 };
-use orre_core::account::Account;
+use orre_core::account::{Account, AccountKind};
 use orre_core::id::AccountId;
 use orre_core::import::{Committed, Error as ImportError};
 use orre_core::money::{Currency, DecimalMark};
@@ -50,7 +50,8 @@ use orre_import::csv::{
 };
 use orre_import::preset::{Preset, PresetParts, slug};
 
-use crate::accounts::DialogClosed;
+use crate::accounts::new_account::{AccountCreated, NewAccountDialog, NewAccountPrefill};
+use crate::accounts::{Accounts, DialogClosed};
 use crate::settings::table::{Run, mono as mono_run, plain as plain_run, rich};
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, radius, size, spacing, typography, weight};
@@ -82,15 +83,19 @@ const REGIONS: [(&str, &str); 3] = [("uk", "UK"), ("us", "US"), ("eu", "Euro are
 
 /// What Map says when the database has no accounts at all: the Account
 /// menu has no room for it.
-const NO_ACCOUNTS: &str =
-    "There are no accounts yet. Add one in the Accounts panel to import into.";
+const NO_ACCOUNTS: &str = "There are no accounts yet. Choose New account… in the Account menu.";
 
 /// What Map says when there are accounts but none can take an import
 /// (only pots, closed accounts, assets and liabilities).
 const NONE_IMPORTABLE: &str =
-    "No account can take an import. Add a current or card account in the Accounts panel.";
+    "No account can take an import. Choose New account… in the Account menu.";
 
-/// The Account menu's one row when it has no options, for each case above.
+/// The Account menu's last item, which opens the New account dialog over
+/// this one. Account options are keyed by their ID, so it can't clash.
+const NEW_ACCOUNT: &str = "new-account";
+
+/// The Account menu's row when it has no accounts to offer, for each case
+/// above.
 const NO_ACCOUNTS_ROW: &str = "No accounts yet";
 const NONE_IMPORTABLE_ROW: &str = "No accounts to import into";
 
@@ -242,7 +247,19 @@ pub struct ImportDialog {
     saved: Option<SharedString>,
     focus: FocusHandle,
     task: Option<Task<()>>,
+    /// Where "New account…" adds an account; without it the item is
+    /// disabled (the sample dialog).
+    accounts: Option<Entity<Accounts>>,
+    /// The New account dialog, drawn over this one while it's open.
+    new_account: Option<NewAccountHost>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// The New account dialog opened from the Account menu, and what listens
+/// to it.
+struct NewAccountHost {
+    dialog: Entity<NewAccountDialog>,
+    _subscriptions: [Subscription; 2],
 }
 
 impl EventEmitter<DialogClosed> for ImportDialog {}
@@ -292,10 +309,97 @@ impl ImportDialog {
             saved: None,
             focus,
             task: None,
+            accounts: None,
+            new_account: None,
             _subscriptions: subscriptions,
         };
         dialog.load(path, cx);
         dialog
+    }
+
+    /// Lets the Account menu's "New account…" add accounts through
+    /// `accounts`, the store the Accounts panel shows.
+    pub fn with_accounts(mut self, accounts: Entity<Accounts>) -> Self {
+        self.accounts = Some(accounts);
+        self
+    }
+
+    /// The New account dialog over this one, if it's open.
+    pub fn new_account(&self) -> Option<&Entity<NewAccountDialog>> {
+        self.new_account.as_ref().map(|host| &host.dialog)
+    }
+
+    /// Opens the New account dialog over this one, started from the file:
+    /// its currency, the detected preset's bank, a current account.
+    pub fn open_new_account(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(accounts), Some(session), Some(setup)) =
+            (self.accounts.clone(), &self.session, &self.setup)
+        else {
+            return;
+        };
+        if self.new_account.is_some() || self.store.is_none() {
+            return;
+        }
+        let bank = session
+            .preset_id()
+            .and_then(|id| setup.presets.get(id))
+            .map(|preset| preset.name().to_owned());
+        let prefill = NewAccountPrefill {
+            currency: session.currency(&setup.presets, &setup.accounts),
+            bank,
+            kind: AccountKind::Current,
+            caption: format!(
+                "For {}: the bank, kind and currency come from the file. Add account chooses it \
+                 in Import, which carries on where it was.",
+                session.file().name()
+            )
+            .into(),
+        };
+        let dialog = cx.new(|cx| {
+            let mut dialog = NewAccountDialog::new(accounts, window, cx);
+            dialog.prefill(prefill, window, cx);
+            dialog
+        });
+        let created = cx.subscribe_in(&dialog, window, |this, _, event: &AccountCreated, _, cx| {
+            this.choose_created(event.0, cx)
+        });
+        let closed = cx.subscribe_in(&dialog, window, |this, _, _: &DialogClosed, window, cx| {
+            this.new_account = None;
+            this.focus.focus(window, cx);
+            cx.notify();
+        });
+        self.new_account = Some(NewAccountHost {
+            dialog,
+            _subscriptions: [created, closed],
+        });
+        cx.notify();
+    }
+
+    /// Reads the accounts again, now one has been added, and chooses it,
+    /// keeping the file, the mapping and the step.
+    fn choose_created(&mut self, account: AccountId, cx: &mut Context<Self>) {
+        let Some(store) = self.store.clone() else {
+            return;
+        };
+        self.busy = Some(Busy::Loading);
+        self.task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { store.setup() })
+                .await
+                .map_err(|error| SharedString::from(sentence(&error.to_string())));
+            let _ = this.update(cx, |this, cx| {
+                this.busy = None;
+                match result {
+                    Ok(setup) => {
+                        this.setup = Some(setup);
+                        this.set_account(account, cx);
+                    }
+                    Err(error) => this.problem = Some(error),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
 
     /// The dialog with the sample setup (snapshots, tests): the bundled
@@ -711,6 +815,9 @@ impl ImportDialog {
     }
 
     fn choose(&mut self, pick: Pick, key: &SharedString, cx: &mut Context<Self>) {
+        if pick == Pick::Account && key.as_ref() == NEW_ACCOUNT {
+            return;
+        }
         let key = key.to_string();
         let Some(setup) = self.setup.clone() else {
             return;
@@ -847,7 +954,11 @@ impl ImportDialog {
         .on_choose(move |key, window, cx| {
             let _ = choose.update(cx, |this, cx| {
                 this.selects[index].set_open(false, None, window, cx);
-                this.choose(pick, key, cx);
+                if pick == Pick::Account && key.as_ref() == NEW_ACCOUNT {
+                    this.open_new_account(window, cx);
+                } else {
+                    this.choose(pick, key, cx);
+                }
             });
         })
         .on_move(move |delta, _, cx| {
@@ -1270,10 +1381,22 @@ impl ImportDialog {
             Some(account) => SelectField::new("import-account-field", account.name.clone()),
             None => SelectField::new("import-account-field", "Choose an account").placeholder(true),
         };
+        // "New account…" is always last, under a hairline (Paper "Menu ·
+        // Account", M3.P3); with no account to offer, the menu's empty row
+        // says why above it.
+        let mut account_groups = Vec::new();
+        if !accounts.is_empty() {
+            account_groups.push(MenuGroup::new(None, accounts));
+        }
+        account_groups.push(MenuGroup::footer(vec![
+            MenuOption::new(NEW_ACCOUNT, "New account…")
+                .icon(Glyph::Plus)
+                .disabled(self.accounts.is_none() || self.store.is_none()),
+        ]));
         let account_select = self.select(
             Pick::Account,
             account_field,
-            vec![MenuGroup::new(None, accounts)],
+            account_groups,
             session.account_id().map(|id| id.to_string()),
             cx,
         );
@@ -2490,7 +2613,9 @@ impl Render for ImportDialog {
             .title_trailing(trailing)
             .on_cancel(move |_, cx| {
                 let _ = on_cancel.update(cx, |this, cx| {
-                    if this.saving {
+                    if this.new_account.is_some() {
+                        // Escape belongs to the New account dialog on top.
+                    } else if this.saving {
                         this.close_save_form(cx);
                     } else {
                         this.cancel(cx);
@@ -2663,7 +2788,9 @@ impl Render for ImportDialog {
                     );
             }
         }
-        dialog
+        div()
+            .child(dialog)
+            .children(self.new_account.as_ref().map(|host| host.dialog.clone()))
     }
 }
 

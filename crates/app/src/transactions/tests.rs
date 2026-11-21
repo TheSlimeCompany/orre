@@ -198,7 +198,7 @@ fn search_narrows_the_rows_and_escape_clears_it(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn uncategorised_toggles_and_sort_reorders_within_days(cx: &mut TestAppContext) {
+fn uncategorised_toggles_and_a_column_sort_lists_one_flat_order(cx: &mut TestAppContext) {
     let (view, cx) = open_fixture(cx);
     click("filter-uncategorised", cx);
     let rows = listed(&view, cx);
@@ -211,18 +211,50 @@ fn uncategorised_toggles_and_sort_reorders_within_days(cx: &mut TestAppContext) 
     click("filter-uncategorised", cx);
     assert_eq!(listed(&view, cx).len(), fixture::TRANSACTIONS.len());
 
-    // Amount, smallest (most money out) first, within each day.
+    // Amount, smallest (most money out) first, as one list over every day.
+    let amounts = |view: &Entity<TransactionsView>, cx: &mut VisualTestContext| {
+        let ids = listed(view, cx);
+        cx.update(|_, cx| {
+            let register = view.read(cx).register();
+            ids.iter()
+                .map(|id| register.row(*id).unwrap().amount.minor())
+                .collect::<Vec<_>>()
+        })
+    };
+    let grouped = describe(&view, cx);
+    assert!(!grouped.days.is_empty() && grouped.flat.is_empty());
     click("sort-amount", cx);
-    let rows = listed(&view, cx);
-    assert_eq!(rows[0], fixture::id("txn-rainy-day-09"));
+    let ascending = amounts(&view, cx);
+    assert!(ascending.is_sorted(), "{ascending:?}");
+    let flat = describe(&view, cx);
+    assert!(flat.days.is_empty(), "no day headers while sorted");
+    assert_eq!(flat.flat.len(), fixture::TRANSACTIONS.len());
     click("sort-amount", cx);
-    assert_eq!(listed(&view, cx)[0], fixture::id("txn-tfl-09"));
+    let descending = amounts(&view, cx);
+    assert!(descending.is_sorted_by(|a, b| a >= b), "{descending:?}");
     click("sort-amount", cx);
+    let back = describe(&view, cx);
+    assert!(back.flat.is_empty(), "back to the days");
     assert_eq!(
         listed(&view, cx)[0],
         fixture::id("txn-pret-09"),
         "back to newest first"
     );
+}
+
+#[gpui_kit::test]
+fn a_flat_list_has_a_date_column_whose_title_goes_back_to_days(cx: &mut TestAppContext) {
+    let (view, cx) = open_fixture(cx);
+    assert!(!shows("sort-date", cx), "days carry the date");
+    click("sort-merchant", cx);
+    assert!(shows("sort-date", cx), "the flat list's first column");
+    assert!(describe(&view, cx).days.is_empty());
+
+    click("sort-date", cx);
+    let back = describe(&view, cx);
+    assert_eq!(back.sort, orre_core::reporting::register::Sort::Default);
+    assert!(back.flat.is_empty() && !back.days.is_empty());
+    assert!(!shows("sort-date", cx));
 }
 
 #[gpui_kit::test]
@@ -978,6 +1010,7 @@ fn the_description_reads_the_screen_in_full(cx: &mut TestAppContext) {
             sort: orre_core::reporting::register::Sort::Default,
             focused_column: None,
             empty: None,
+            flat: Vec::new(),
             days: vec![
                 day("Mon 9 Nov", pret("txn-pret-09", "−£6.45", true)),
                 day("Thu 5 Nov", pret("txn-pret-05", "−£7.15", false)),
@@ -1297,7 +1330,15 @@ fn enter_and_space_on_a_focused_title_sort_and_cycle(cx: &mut TestAppContext) {
     assert_eq!(listed(&view, cx)[0], id("txn-rainy-day-09"));
     assert_eq!(open_menu(&view, cx), None, "Enter sorts, not a category");
     press("space", cx);
-    assert_eq!(listed(&view, cx)[0], id("txn-tfl-09"));
+    let largest = cx.update(|_, cx| {
+        let register = view.read(cx).register();
+        register
+            .rows()
+            .iter()
+            .max_by_key(|row| row.amount.minor())
+            .map(|row| row.id)
+    });
+    assert_eq!(listed(&view, cx)[0], largest.unwrap(), "one list, no days");
     press("enter", cx);
     assert_eq!(
         describe(&view, cx).sort,

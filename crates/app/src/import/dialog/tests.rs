@@ -536,10 +536,11 @@ fn nowhere_to_import(
     assert_eq!(statement.as_deref(), Some(footer));
 
     // The Account menu, opened, shows its owner's words in one row, not
-    // the filter's "No matches".
+    // the filter's "No matches", and "New account…" under it.
     click("import-account", cx);
+    assert!(shows("option-new-account", cx));
     let row = cx.update(|window, _| window.try_find("menu-empty"));
-    let row = row.expect("the Account menu is open and empty");
+    let row = row.expect("the Account menu is open and has no accounts");
     assert_eq!(row.label(), Some(menu_row));
     assert_eq!(row.bounds().size.height, size::CONTROL);
 }
@@ -549,7 +550,7 @@ fn with_no_accounts_at_all_import_says_to_add_one(cx: &mut TestAppContext) {
     nowhere_to_import(
         cx,
         |_| {},
-        "There are no accounts yet. Add one in the Accounts panel to import into.",
+        "There are no accounts yet. Choose New account… in the Account menu.",
         "No accounts yet",
     );
 }
@@ -576,7 +577,156 @@ fn with_only_accounts_that_cant_take_an_import_import_says_which_to_add(cx: &mut
             let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
             account::close::close(db, current, day).unwrap();
         },
-        "No account can take an import. Add a current or card account in the Accounts panel.",
+        "No account can take an import. Choose New account… in the Account menu.",
         "No accounts to import into",
     );
+}
+
+/// The shell importing into the database at `path`, its Accounts panel
+/// reading and writing the same database, so "New account…" can add one.
+fn open_with_accounts<'a>(
+    cx: &'a mut TestAppContext,
+    path: &Path,
+) -> (Entity<ShellView>, &'a mut VisualTestContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        crate::shell::init(cx);
+    });
+    let store = ImportStore::new(path.to_owned());
+    let accounts_store = crate::accounts::store::AccountStore::new(path.to_owned());
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        let accounts = cx.new(|_| Accounts::from_store(accounts_store));
+        let mut shell = ShellView::with_accounts(View::Transactions, accounts, window, cx);
+        shell.import_into(store, cx);
+        shell
+    });
+    redraw(cx);
+    (shell, cx)
+}
+
+/// The Import dialog on Map with Monzo's export, over the database at
+/// `path`.
+fn monzo_on_map<'a>(
+    cx: &'a mut TestAppContext,
+    path: &Path,
+) -> (
+    Entity<ShellView>,
+    Entity<ImportDialog>,
+    &'a mut VisualTestContext,
+) {
+    let (shell, cx) = open_with_accounts(cx, path);
+    shell.update_in(cx, |shell, window, cx| {
+        shell.open_import(Some(fixture("presets/uk/monzo.csv")), window, cx)
+    });
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).step()), Step::Map);
+    (shell, dialog, cx)
+}
+
+fn empty_database() -> (TempDir, PathBuf) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("orre.db");
+    Database::open(&path).unwrap();
+    (dir, path)
+}
+
+#[gpui_kit::test]
+fn the_account_menu_ends_with_new_account_with_or_without_accounts(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_, _, cx) = monzo_on_map(cx, &scratch.path);
+    click("import-account", cx);
+    assert!(shows("option-new-account", cx));
+    assert!(shows(&format!("option-{}", scratch.account), cx));
+}
+
+#[gpui_kit::test]
+fn new_account_in_the_menu_opens_the_dialog_started_from_the_file(cx: &mut TestAppContext) {
+    let (_dir, path) = empty_database();
+    let (_, dialog, cx) = monzo_on_map(cx, &path);
+    click("import-account", cx);
+    assert!(shows("option-new-account", cx));
+    click("option-new-account", cx);
+
+    let inner = cx
+        .update(|_, cx| dialog.read(cx).new_account().cloned())
+        .expect("New account is open over Import");
+    cx.update(|_, cx| {
+        let inner = inner.read(cx);
+        assert_eq!(inner.currency(), Currency::GBP);
+        assert_eq!(inner.kind(), AccountKind::Current);
+        let fields = inner.describe(cx).fields;
+        assert!(fields.contains(&("Name".to_owned(), String::new())));
+        assert!(fields.contains(&("Bank".to_owned(), "Monzo".to_owned())));
+        assert_eq!(dialog.read(cx).step(), Step::Map);
+    });
+    assert!(shows("new-account-add", cx));
+}
+
+#[gpui_kit::test]
+fn add_account_chooses_it_in_import_and_review_follows(cx: &mut TestAppContext) {
+    let (_dir, path) = empty_database();
+    let (_, dialog, cx) = monzo_on_map(cx, &path);
+    cx.update(|_, cx| assert!(dialog.read(cx).review_blocker().is_some()));
+    dialog.update_in(cx, |dialog, window, cx| dialog.open_new_account(window, cx));
+    redraw(cx);
+    let inner = cx
+        .update(|_, cx| dialog.read(cx).new_account().cloned())
+        .unwrap();
+    inner.update_in(cx, |inner, window, cx| {
+        inner.type_name("Monzo current", window, cx);
+        inner.submit(window, cx);
+    });
+    redraw(cx);
+
+    let created = account::list(&Database::open(&path).unwrap()).unwrap();
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].institution.as_deref(), Some("Monzo"));
+    cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert!(dialog.new_account().is_none());
+        assert_eq!(dialog.step(), Step::Map);
+        assert_eq!(dialog.session().unwrap().account_id(), Some(created[0].id));
+        assert_eq!(dialog.review_blocker(), None);
+    });
+    click("import-review", cx);
+    assert_eq!(cx.update(|_, cx| dialog.read(cx).step()), Step::Review);
+}
+
+#[gpui_kit::test]
+fn cancel_leaves_import_as_it_was(cx: &mut TestAppContext) {
+    let (_dir, path) = empty_database();
+    let (_, dialog, cx) = monzo_on_map(cx, &path);
+    dialog.update_in(cx, |dialog, window, cx| dialog.open_new_account(window, cx));
+    redraw(cx);
+    click("new-account-cancel", cx);
+    cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert!(dialog.new_account().is_none());
+        assert_eq!(dialog.step(), Step::Map);
+        assert_eq!(dialog.session().unwrap().account_id(), None);
+    });
+    assert!(
+        account::list(&Database::open(&path).unwrap())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[gpui_kit::test]
+fn escape_closes_only_new_account(cx: &mut TestAppContext) {
+    let (_dir, path) = empty_database();
+    let (shell, dialog, cx) = monzo_on_map(cx, &path);
+    dialog.update_in(cx, |dialog, window, cx| dialog.open_new_account(window, cx));
+    redraw(cx);
+    cx.simulate_keystrokes("escape");
+    redraw(cx);
+    cx.update(|_, cx| {
+        assert!(dialog.read(cx).new_account().is_none());
+        assert!(shell.read(cx).dialog().is_some(), "Import is still open");
+    });
+    cx.simulate_keystrokes("escape");
+    redraw(cx);
+    cx.update(|_, cx| assert!(shell.read(cx).dialog().is_none()));
 }

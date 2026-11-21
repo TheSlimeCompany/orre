@@ -132,6 +132,11 @@ description.
   pot's mirrored pair can't be unpaired. No lock applies, and an agent's pending
   suggestion for the pair is settled in the same DB transaction
   (`inbox::decide_transfer`).
+- **Transfer or refund** (`inbox::link_as_refund`, `reporting::pairing::Pair::refund`):
+  a suggested pair whose money out is spending can be linked as a refund instead, in one
+  DB transaction that rejects the pair and makes a confirmed refund of the money in's
+  whole amount; `undo_refund_linked` reverses both ("Decision record: transfer or refund
+  in the suggestion card").
 - **Mark as transfer** (`transfer::markable`, `inbox::mark_transfer`): exactly two rows
   on different accounts, one currency, opposite non-zero amounts, neither in a suggested
   or confirmed pair, excluded, split or linked. A row may leave a rejected group to be
@@ -148,7 +153,7 @@ a row they superseded, and deletes them, inside the caller's DB transaction.
 
 `reporting::register::Register` reads every transaction once, with its split lines, pair,
 links, tags, source and exclusion, on a background thread; `Register::select` filters,
-groups by day and sorts in memory, so typing never reads the database. Day nets leave
+groups by day (or, sorted by a column, lists every row in one flat order) and sorts in memory, so typing never reads the database. Day nets leave
 out transfers and excluded rows. `RegisterRow` says what a row takes (`splittable`,
 `takes_share`, `takes_links`, `no_own_category`), so the app offers only what core
 accepts. Search matches the display merchant, the bank's merchant and the raw
@@ -335,6 +340,7 @@ and "Data table (Transactions)", or an earlier record.
    rows by it (merchant, category, account A–Z; amount smallest first, so the largest
    payments out lead), a second click reverses, a third goes back to newest first. Day
    headers and nets never move.
+   *Superseded 2026-11-20 by "a column sort is one flat list" below (M3.P13).*
 6. **Composed states, not drawn (user; `DESIGN.md` → "Transactions" → "Built in
    M3.3").** The category menu is the Kind menu with the marker in the icon slot, each
    group under its caps label (its own category first), and a filter field at the top;
@@ -607,3 +613,59 @@ suggested pair counted as income and spending with nothing in the table to say s
    transaction can take, decided in core", point 4.
 4. **Rejected: counting a suggested pair as a transfer before it is confirmed.** A wrong
    guess would hide real spending from the reports with no visible sign.
+
+### Decision record: a column sort is one flat list (2026-11-20)
+
+M3.P13, from the user's M3 exit check (test 5.2): sorting by a column looked like it did
+nothing, because it sorted only within each day and most days hold one or two rows. The
+user chose a flat list. Drawn on M3 punch list · states (`IS2-0`, "Item · Sorted by a
+column (P13)"; `DESIGN.md` → "M3 punch list"). **Supersedes** "the Transactions view",
+point 5. **No migration.**
+
+1. **Sorted by Merchant, Category, Account or Amount, the table is one flat list**
+   (`Register::select` returns a `Listing` with `flat` set and no days): every row that
+   passes the filters in that order, ties newest first, then in the register's stable
+   order. No day headers and no day nets.
+2. **A Date column comes first while it's flat**, 96px, `14 Oct` this year and `14 Oct
+   25` otherwise (`format::list_date`, as the app's other lists), since the day headers that carried the date are gone. Its title
+   DATE goes back to the default; so does a third click on the sorted column (asc → desc
+   → default, as before).
+3. **The default stays grouped by day, newest first**, exactly as before; the panel's
+   CATEGORIES counts don't depend on the sort.
+4. **Rejected: keeping the within-day sort.** It only earns its place on days with many
+   rows, and a flat list sorted by amount answers "what were my biggest payments" across
+   the whole filter, which the within-day sort never could.
+
+### Decision record: transfer or refund in the suggestion card (2026-11-20)
+
+M3.P11, from the user's M3 exit check ("poor UX"): money in that matched a purchase in
+another account was always suggested as a transfer, and while it was, the Links section
+was hidden, so linking it as a refund needed "Not a transfer" first, which nothing
+hinted at. The user chose to offer the refund in the card. Drawn on M3 punch list ·
+states (`IS2-0`, "Card · transfer or refund"; `DESIGN.md` → "M3 punch list"). **No
+migration.**
+
+1. **One write** (`inbox::link_as_refund`): in one `BEGIN IMMEDIATE` DB transaction it
+   rejects the suggested pair (`transfer::reject_in`, settling an agent's pending
+   suggestion for the pair as "Not a transfer" does) and creates a confirmed refund link
+   from the money in to the money out for the money in's whole amount
+   (`link::create_in`, so every link rule applies). If the link is refused, nothing is
+   written and the pair stays suggested.
+2. **Undo is one step** (`inbox::undo_refund_linked`): it deletes the link and sets the
+   pair back to suggested, refusing if either has changed since. Settled Inbox
+   suggestions stay decided, as with other transfer decisions. No change batch.
+3. **What the card offers comes from the register** (`reporting::pairing::Pair::refund`,
+   `RefundBlocked`): the pair can be rejected, it is one money in and one money out in
+   one currency, neither side is a duplicate, the money in isn't split or shared, both
+   have enough left to link, and **the money out is spending** (its category, or a split
+   line's, has kind `spending`). The last is the lead's narrowing, not a link rule:
+   detection pairs every matching in and out, so without it a plain move to Savings would
+   ask "Transfer or refund?" too. An uncategorised purchase gets the plain card, and
+   "Not a transfer" then Links still works.
+4. **The card.** With the refund available: "Transfer or refund?", outline "Transfer",
+   outline "Refund", ghost "Neither"; otherwise unchanged ("Is this a transfer?",
+   Confirm transfer / Not a transfer). Undo bar: "Linked as refund: {merchant}".
+5. **Rejected: letting detection prefer a refund.** Detection would have to guess from
+   categories, which can change after it runs, and a wrong guess would hide the
+   transfer suggestion; asking in the card keeps detection deterministic and the choice
+   the user's.

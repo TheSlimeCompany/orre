@@ -29,6 +29,7 @@
 //! screen are fractions.
 
 use chrono::{Datelike as _, Months, NaiveDate};
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, InteractiveElement as _, IntoElement,
@@ -36,6 +37,7 @@ use gpui_kit::{
     Styled as _, Window, canvas, div, point, px, relative,
 };
 use orre_core::account::{AccountKind, StoredBalance};
+use orre_core::id::BalanceId;
 use orre_core::money::{Currency, Money};
 use orre_core::reporting::account_tree::AccountNode;
 
@@ -94,6 +96,8 @@ impl Words {
 /// One row of the table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValuationRow {
+    /// The balance's ID when the user entered it: a click on its row edits it.
+    pub id: Option<BalanceId>,
     pub date: NaiveDate,
     pub value: Money,
     /// Since the value before it; `None` for the first value.
@@ -108,6 +112,7 @@ pub fn rows(balances: &[StoredBalance]) -> Vec<ValuationRow> {
         .iter()
         .enumerate()
         .map(|(at, balance)| ValuationRow {
+            id: balance.id,
             date: balance.date,
             value: balance.balance,
             change: balances
@@ -727,6 +732,16 @@ impl ValuationsView {
                 color::TEXT_MUTED
             };
             let change = text.change;
+            // A value the user entered, after the lock date, opens its edit
+            // dialog (M3.P9).
+            let editable = row.id.filter(|_| {
+                !node
+                    .account
+                    .reconciled_through
+                    .is_some_and(|through| row.date <= through)
+            });
+            let account = node.account.id;
+            let accounts = self.accounts.clone();
             div()
                 .id(SharedString::from(format!("valuation-{}", row.date)))
                 .flex()
@@ -736,6 +751,15 @@ impl ValuationsView {
                 .h(size::CONTROL)
                 .px(spacing::S2)
                 .rounded(radius::MD)
+                .when_some(editable, |this, id| {
+                    this.cursor_pointer()
+                        .hover(|style| style.bg(color::HOVER))
+                        .on_click(move |_, _, cx| {
+                            accounts.update(cx, |accounts, cx| {
+                                accounts.request_edit_balance(account, id, cx)
+                            })
+                        })
+                })
                 .child(
                     div()
                         .flex_none()
@@ -768,6 +792,8 @@ impl ValuationsView {
                         .text_color(color::TEXT)
                         .child(text.value),
                 )
+                .test_support()
+                .into_any_element()
         });
         let note = table_note(node, rows);
         div()

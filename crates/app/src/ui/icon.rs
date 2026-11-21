@@ -46,8 +46,9 @@ pub enum Glyph {
     Maximize,
     /// Settings (sliders), in the title bar. 14px.
     Settings,
-    /// Orre's mark, the strongbox (`DESIGN.md` → "Logo"). Filled, drawn
-    /// in `molten` beside the wordmark. 16px.
+    /// Orre's mark, the halo: a ring split by a lens on the diagonal, bottom
+    /// left to top right, its two arcs flaring into wings (`DESIGN.md` →
+    /// "Logo"). Filled, drawn in `molten` beside the wordmark. 16px.
     Mark,
     /// A cash account: a banknote (Paper `FHZ-0`, the Kind menu). 12px.
     Cash,
@@ -297,8 +298,9 @@ impl Glyph {
             ),
             Self::Mark => concat!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">"#,
-                r#"<path d="M2.5 2H13.5A1.5 1.5 0 0 1 15 3.5V6H1V3.5A1.5 1.5 0 0 1 2.5 2Z"/>"#,
-                r#"<path d="M1 7H7V9A1 1 0 0 0 9 9V7H15V12.5A1.5 1.5 0 0 1 13.5 14H2.5A1.5 1.5 0 0 1 1 12.5Z"/></svg>"#
+                r#"<path d="M1 14.719C3.023 12.695 4.558 10.495 4.299 9.025A4.079 4.079 0 0 1 9.025 4.299C10.495 4.558 12.695 3.023 14.719 1L9.92 5.799A2.985 2.985 0 0 0 5.799 9.92Z"/>"#,
+                r#"<path d="M4.521 13.027C5.423 12.124 6.665 11.965 7.643 12.138A3.88 3.88 0 0 0 12.138 7.643C11.965 6.665 12.124 5.423 13.027 4.521L10.834 6.713A2.985 2.985 0 0 1 6.713 10.834Z"/>"#,
+                r#"<path d="M1.633 15C4.887 10.902 10.902 4.887 15 1.633C11.746 5.731 5.731 11.746 1.633 15Z"/></svg>"#
             ),
             Self::Cash => concat!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
@@ -647,12 +649,15 @@ mod tests {
     #[test]
     fn the_mark_matches_the_brand_assets() {
         // The SVGs in `assets/brand/` are the mark outside the app (app icon,
-        // README); they must draw the same strongbox as the title bar.
+        // README); they must draw the same mark as the title bar.
         let mark = path_data(Glyph::Mark.markup());
-        assert_eq!(mark.len(), 2, "lid and body");
+        assert_eq!(mark.len(), 3, "two arcs and the lens");
         for asset in [
             include_str!("../../../../assets/brand/orre-mark.svg"),
-            include_str!("../../../../assets/brand/orre-icon.svg"),
+            include_str!("../../../../assets/brand/orre-mark-molten.svg"),
+            include_str!("../../../../assets/brand/orre-mark-dark.svg"),
+            include_str!("../../../../assets/brand/orre-mark-white.svg"),
+            include_str!("../../../../assets/brand/orre-app-icon.svg"),
         ] {
             assert_eq!(path_data(asset), mark);
         }
