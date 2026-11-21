@@ -5,6 +5,8 @@
 pub mod accounts;
 pub mod checks;
 pub mod cli;
+#[cfg(feature = "dev-driver")]
+pub mod dev_driver;
 pub mod format;
 pub mod import;
 pub mod inbox;

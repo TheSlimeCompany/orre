@@ -21,8 +21,8 @@ charts, and exposes the data to AI clients through an MCP server.
 ## Status and code map
 
 - **Status:** M0, the design track (D1–D6), M1 and M2 are done; every M3 item is built,
-  and M3's exit check on real data is the user's. The UI review is done except U.5
-  (deferred). Detail per item: `docs/ROADMAP.md`.
+  and M3's exit check on real data is the user's. The UI review is done, U.5 (the dev
+  driver) included. Detail per item: `docs/ROADMAP.md`.
 - **Where things are:** [`docs/CODEMAP.md`](docs/CODEMAP.md), by crate and area. It
   lags the code: check the tree before assuming a module exists, and update the map
   when you add or move a module.
@@ -38,6 +38,8 @@ cargo test                                        # all tests (whole workspace)
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
 cargo run --example snapshot -- <dir>             # render views to PNG, compare with Paper
+ORRE_DATA_DIR=<scratch> cargo run --features dev-driver            # a dev build to drive
+ORRE_DATA_DIR=<scratch> cargo run --features dev-driver -- dev describe   # …and drive it
 devenv test                                       # environment check (cargo check)
 lefthook run pre-push --force < /dev/null         # everything the pre-push hook runs
 ```
@@ -47,9 +49,11 @@ lefthook run pre-push --force < /dev/null         # everything the pre-push hook
    `cargo test` pass. Run `lefthook run pre-push --force < /dev/null` before a push; without
    `< /dev/null` its data-guard job waits on stdin forever.
 3. UI changes: views are tested headlessly with `#[gpui_kit::test]` on their fixtures,
-   and the snapshot example renders them for comparison with Paper. Clicking through the
-   real window can't be done headlessly; say so when a change is verified only by tests,
-   snapshots or the build.
+   and the snapshot example renders them for comparison with Paper. To check a change in
+   the running app, drive a dev build with `orre dev` (`describe`, `show`, `press`,
+   `type`, `click`, `run <label>`; `docs/architecture/app.md` → "The dev driver"),
+   always against a scratch `ORRE_DATA_DIR`. It opens a real window, so it needs a
+   display. Say which of these verified a change.
 
 Git hooks are managed by lefthook (`lefthook.yml`, installed on devenv shell entry).
 Only `pre-push` is used: data guard (no statements/databases outside `fixtures/`),

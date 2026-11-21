@@ -159,7 +159,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 
 - Section: The app (The shell and navigation; Window state; The status bar; Opening the
   database; Applying edits; What runs off the UI thread; `describe()` stays out of
-  release builds)
+  release builds; The dev driver)
 - Decision record: the app shell and window state (2026-11-14)
 - Decision record: one gate for opening the database, and the Transactions edit pipeline (2026-11-15)
 - Decision record: the status bar reads the database (2026-11-17)
@@ -167,6 +167,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 - Decision record: performance at 100,000 transactions (2026-11-19)
 - Decision record: Accounts and Rules read in the background (2026-11-19)
 - Decision record: right-click menus on the accounts panel (2026-11-20)
+- Decision record: the dev driver (2026-11-21)
 
 ### In this file
 

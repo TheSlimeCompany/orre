@@ -320,7 +320,7 @@ pub fn render(
     let data = state.data();
     let selected = state.selected();
     let ring = focus.is_focused(window) && window.last_input_was_keyboard();
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     state.record_panel_ring(ring);
 
     let menu_target = state.context_menu().map(|menu| menu.target);

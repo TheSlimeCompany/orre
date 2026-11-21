@@ -143,6 +143,19 @@ pub enum Command {
     /// Set the category of transactions, as your own choice, recorded as
     /// one change batch: `orre categorize 12 13 food.groceries`.
     Categorize(CategorizeArgs),
+    /// Drive the running dev build's window (ROADMAP U.5): `describe`,
+    /// `show <view>`, `press <keys…>`, `type <text>`, `click <id>`, `run
+    /// <label>`. Dev builds only, against a scratch ORRE_DATA_DIR.
+    #[cfg(feature = "dev-driver")]
+    Dev(DevArgs),
+}
+
+/// `orre dev`'s command and its arguments, sent as one line.
+#[cfg(feature = "dev-driver")]
+#[derive(Debug, clap::Args)]
+pub struct DevArgs {
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    pub command: Vec<String>,
 }
 
 /// The bundled presets and the ones the user saved from the import screen
@@ -244,6 +257,13 @@ pub fn run_with(
         Command::Categorize(args) => {
             let mut db = open_existing(database)?;
             categorize::run(&mut db, &args, out)
+        }
+        // Talks only to the dev build's socket; the database isn't opened.
+        #[cfg(feature = "dev-driver")]
+        Command::Dev(args) => {
+            let reply = crate::dev_driver::client::send(&args.command)?;
+            writeln!(out, "{reply}")?;
+            Ok(())
         }
     }
 }

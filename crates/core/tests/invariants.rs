@@ -178,12 +178,20 @@ fn loud_logs_carry_no_transaction_content() {
     );
 }
 
+/// The cfg that may gate a `describe` module or the dev driver: tests, or
+/// the `dev-driver` feature (decision record "the dev driver", which can't
+/// be on in a release build). Any other feature would put them in one.
+const DESCRIBE_GATES: [&str; 2] = [
+    "#[cfg(test)]",
+    "#[cfg(any(test, feature = \"dev-driver\"))]",
+];
+
 /// AGENTS.md → "A view's `describe()` and anything that runs its actions are
 /// test-only or dev-feature only." The views' descriptions live in
 /// `describe` modules built on `ui::describe`; as long as every such module
-/// is declared under `#[cfg(test)]`, release code that reaches one doesn't
-/// compile. So the rule to keep is that each `mod describe` declaration stays
-/// gated (`#[cfg(test)]`, or a `cfg` naming a feature).
+/// is gated, release code that reaches one doesn't compile. So the rule to
+/// keep is that each `mod describe` declaration stays under one of
+/// [`DESCRIBE_GATES`].
 #[test]
 fn describe_modules_are_test_only() {
     let mut found = Vec::new();
@@ -208,9 +216,7 @@ fn describe_modules_are_test_only() {
                 .rev()
                 .map(|line| line.trim())
                 .take_while(|line| line.starts_with("#[") || line.starts_with("///"))
-                .any(|attr| {
-                    attr.starts_with("#[cfg") && (attr.contains("test") || attr.contains("feature"))
-                });
+                .any(|attr| DESCRIBE_GATES.contains(&attr));
             if !gated {
                 found.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
             }
@@ -222,7 +228,58 @@ fn describe_modules_are_test_only() {
     );
     fail_if_any(
         "A `describe` module reachable from a release build. Declare it under \
-         `#[cfg(test)]` (decision record 2026-11-18 in docs/ARCHITECTURE.md).",
+         `#[cfg(test)]` or `#[cfg(any(test, feature = \"dev-driver\"))]` (decision \
+         records 2026-11-18 and 2026-11-21 in docs/ARCHITECTURE.md).",
+        found,
+    );
+}
+
+/// Decision record "the dev driver" (2026-11-21): the `dev-driver` feature
+/// is off by default and enabled by no other feature, its module refuses
+/// to compile in a release build, and `orre mcp`'s code never names it.
+#[test]
+fn the_dev_driver_stays_out_of_release_and_mcp() {
+    let root = workspace_root();
+    let manifest = fs::read_to_string(root.join("crates/app/Cargo.toml")).unwrap();
+    let mut found = Vec::new();
+    let mut in_features = false;
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_features = line == "[features]";
+            continue;
+        }
+        if in_features && line.contains("dev-driver") && !line.starts_with("dev-driver =") {
+            found.push(format!("crates/app/Cargo.toml: {line}"));
+        }
+    }
+    assert!(
+        manifest.contains("\ndev-driver = ["),
+        "the dev-driver feature moved; update this check"
+    );
+    for (path, text) in sources(&["mcp"]).into_iter().chain(
+        sources(&["app"])
+            .into_iter()
+            .filter(|(path, _)| path.to_string_lossy().contains("/cli/mcp")),
+    ) {
+        if text.contains("dev_driver") || text.contains(".describe(") {
+            found.push(format!(
+                "{}: names the dev driver or describe()",
+                path.display()
+            ));
+        }
+    }
+    let driver = fs::read_to_string(root.join("crates/app/src/dev_driver.rs")).unwrap();
+    if !driver.contains("#[cfg(not(debug_assertions))]\ncompile_error!(") {
+        found.push("crates/app/src/dev_driver.rs: lost its release-build compile_error!".into());
+    }
+    let lib = fs::read_to_string(root.join("crates/app/src/lib.rs")).unwrap();
+    if !lib.contains("#[cfg(feature = \"dev-driver\")]\npub mod dev_driver;") {
+        found.push("crates/app/src/lib.rs: dev_driver isn't gated on its feature".into());
+    }
+    fail_if_any(
+        "The dev driver reachable outside a dev build (decision record 2026-11-21 in \
+         docs/ARCHITECTURE.md).",
         found,
     );
 }

@@ -1224,7 +1224,7 @@ stays as it is.
 
 ---
 
-## UI review — agent-readable views and keyboard paths ✅ (U.5 deferred)
+## UI review — agent-readable views and keyboard paths ✅
 
 From reviewing Vercel's UI SDK against Orre on 2026-11-17 (UI SDK itself is web-only
 and isn't used). Three ideas apply: views that state their contents and actions as data
@@ -1251,15 +1251,15 @@ drag. Not a milestone. Order: U.1 with U.4, then U.6. New UI is drawn in Paper f
   and never reachable from `orre mcp`. A tool that could press Approve would get round
   "MCP writes go to the inbox only" and approval in Orre's own UI. L.7's in-GUI MCP
   falls under the same record
-- ⬜ U.5 Later, only if U.1–U.3 earn it: a dev-feature-only local socket so an agent can
-  drive a dev build through `describe()` and its actions, against a scratch
-  `ORRE_DATA_DIR`, to check a UI change in the running app instead of reporting it as
-  build-verified. Never against the real database. Deferred (2026-11-18): U.1–U.3 earned
-  `describe()` for tests, not yet a driver. Before one is worth building: actions need to
-  be named commands a driver can run (they're labels now), dialogs live in the shell's
-  windows outside each view's `describe()`, and focus and hover aren't described. It
-  would also take `describe()` out of `cfg(test)` into a dev feature (decision record
-  2026-11-18, point 1)
+- ✅ U.5 A dev-feature-only local socket so an agent can drive a dev build through
+  `describe()` and its actions, against a scratch `ORRE_DATA_DIR`, to check a UI change in
+  the running app instead of reporting it as build-verified. Never against the real
+  database. Deferred on 2026-11-18, built on 2026-11-21 at the user's request: the
+  `dev-driver` feature (debug builds only), `orre dev` (`describe`, `show`, `press`,
+  `type`, `click`, `run <label>`), with dialogs and focus described at the shell
+  (`shell::describe`). An action is named by its accessible label, and a test per view
+  checks that every button it describes can be clicked. Hover isn't described.
+  `docs/architecture/app.md` → "Decision record: the dev driver"
 
 **Behaviours apart from looks**
 

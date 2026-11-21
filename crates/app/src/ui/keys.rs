@@ -241,7 +241,7 @@ fn hint(Hint { cap, label }: Hint) -> impl IntoElement {
         )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "dev-driver"))]
 impl ViewKeys {
     /// Asserts that the keymap binds exactly these keys in the view's
     /// context ([`ViewKeys::drift`] is empty).

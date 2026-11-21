@@ -1,9 +1,10 @@
-//! What every view's test-only `describe()` shares (ROADMAP U.1–U.3): the
+//! What every view's `describe()` shares (ROADMAP U.1–U.3): the
 //! actions a view offers, the rows of a left panel, an inspector and a
 //! dialog, as plain data.
 //!
-//! Compiled for tests only (`#[cfg(test)]` on the module), like each
-//! view's `describe()`: nothing here is in a release build or reachable
+//! Compiled for tests and the dev driver only (the `dev-driver` feature,
+//! debug builds), like each view's `describe()`: nothing here is in a
+//! release build or reachable
 //! from `orre mcp` (`docs/architecture/app.md` → "Decision record: views
 //! that describe themselves stay out of the release binary").
 

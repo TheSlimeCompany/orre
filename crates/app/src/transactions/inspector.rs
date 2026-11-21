@@ -145,7 +145,7 @@ impl Section {
 
     /// Where an edit's error is said in it (the sections say it
     /// themselves; `describe()` asks).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     pub(super) fn place(self) -> Option<EditPlace> {
         match self {
             Self::Transfer => Some(EditPlace::Transfer),

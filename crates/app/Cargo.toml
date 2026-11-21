@@ -11,6 +11,15 @@ default-run = "orre"
 name = "orre"
 path = "src/main.rs"
 
+[features]
+# The dev driver (ROADMAP U.5): `describe()` and a local socket that drives
+# the window, for an agent checking a UI change in the running app. Off by
+# default, enabled by no other feature, and a compile error in a release
+# build (`src/dev_driver.rs`; decision record "the dev driver" in
+# docs/architecture/app.md). gpui-kit's `test-support` gives it the calls
+# the UI tests drive the window with.
+dev-driver = ["gpui-kit/test-support"]
+
 [dependencies]
 orre-core.workspace = true
 orre-import.workspace = true
