@@ -338,6 +338,9 @@ stdin (R.1), checked by `cli::run_with`.
 - Importer-path tests: `crates/import/tests/` and `crates/app/tests/` (M1.19);
   `crates/import/tests/m1_exit.rs` walks the M1 exit criteria end to end.
 - MCP: `crates/mcp/tests/` (above).
+- Invariant checks: `crates/core/tests/invariants.rs` scans the workspace's source for
+  rules in `AGENTS.md` → "Invariants"; `.lefthook/pre-push/` holds the ones that need
+  git or `cargo tree` (shipped migrations, dependency direction).
 - App views: `#[gpui_kit::test]` tests next to each view (e.g.
   `transactions/write_tests.rs`), on the views' fixtures.
 - `cargo run --example snapshot -- <dir>` renders the app and the showcase headlessly to
