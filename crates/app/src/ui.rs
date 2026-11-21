@@ -12,7 +12,7 @@ pub mod agent_suggestion;
 pub mod badge;
 pub mod bulk_action_bar;
 pub mod button;
-#[cfg(test)]
+#[cfg(any(test, feature = "dev-driver"))]
 pub mod describe;
 pub mod dialog;
 pub mod empty_state;

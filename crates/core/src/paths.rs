@@ -47,12 +47,18 @@ pub fn database_path() -> Result<PathBuf, NoDataDir> {
     Ok(data_dir()?.join(DATABASE_FILE))
 }
 
+/// The platform data dir, whatever `ORRE_DATA_DIR` says: where the
+/// user's real database lives.
+pub fn platform_data_dir() -> Result<PathBuf, NoDataDir> {
+    ProjectDirs::from("", "", "Orre")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .ok_or(NoDataDir)
+}
+
 fn resolve_data_dir(env_override: Option<OsString>) -> Result<PathBuf, NoDataDir> {
     match env_override {
         Some(dir) if !dir.is_empty() => Ok(PathBuf::from(dir)),
-        _ => ProjectDirs::from("", "", "Orre")
-            .map(|dirs| dirs.data_dir().to_path_buf())
-            .ok_or(NoDataDir),
+        _ => platform_data_dir(),
     }
 }
 

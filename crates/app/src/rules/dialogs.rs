@@ -490,7 +490,7 @@ impl Render for UndoChangeDialog {
 
 /// What each dialog shows, for the test-only `describe()`
 /// ([`super::describe`]): its title, body, refusal and buttons, as drawn.
-#[cfg(test)]
+#[cfg(any(test, feature = "dev-driver"))]
 mod described {
     use super::super::describe::DialogDescription;
     use super::*;

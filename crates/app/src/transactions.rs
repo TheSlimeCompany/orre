@@ -55,8 +55,8 @@
 
 mod bulk;
 pub mod confirm;
-#[cfg(test)]
-mod describe;
+#[cfg(any(test, feature = "dev-driver"))]
+pub(crate) mod describe;
 mod editor;
 pub mod exclude_dialog;
 pub mod fixture;
@@ -149,11 +149,11 @@ const CURSOR_MOVES: [(&str, Move, &str); 2] = [
 ];
 
 /// Space: what it does to the keyboard row.
-#[cfg(test)]
+#[cfg(any(test, feature = "dev-driver"))]
 const TOGGLE_ROW: &str = "Add or remove the keyboard row";
 
 /// What Enter or Space does on a focused column title.
-#[cfg(test)]
+#[cfg(any(test, feature = "dev-driver"))]
 const SORT_BY_TITLE: &str = "Sort by the focused column";
 
 /// The labels of the canvas's own buttons (`describe()` lists them).
@@ -568,7 +568,7 @@ pub struct TransactionsView {
     column_focus: [FocusHandle; 4],
     /// The column title that had focus when the view was last drawn, for
     /// the test-only `describe()`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-driver"))]
     focused_column: Option<TransactionColumn>,
     /// Why the last change wasn't saved, said under the inspector's Category.
     edit_error: Option<SharedString>,
@@ -647,7 +647,7 @@ impl TransactionsView {
             inspector_select: SelectState::new(cx),
             chip_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
             column_focus: std::array::from_fn(|_| cx.focus_handle().tab_stop(true)),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "dev-driver"))]
             focused_column: None,
             focus,
             search,
@@ -2118,7 +2118,7 @@ impl Render for TransactionsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_search(window, cx);
         self.sync_editor(window, cx);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "dev-driver"))]
         {
             self.focused_column = TransactionColumn::ALL
                 .into_iter()
