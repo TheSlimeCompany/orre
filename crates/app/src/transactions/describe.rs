@@ -58,6 +58,8 @@ pub struct TransactionsDescription {
     /// What the table area says with no rows.
     pub empty: Option<EmptyDescription>,
     pub days: Vec<DayDescription>,
+    /// The rows when a column sort lists them as one flat list: no days.
+    pub flat: Vec<RowDescription>,
     /// The menu that's open: a chip's, a row's, the inspector's or the bulk
     /// bar's.
     pub menu: Option<MenuDescription>,
@@ -299,6 +301,19 @@ fn row(
         selected: view.selection.contains(row.id),
         keyboard: view.selection.current() == Some(row.id),
     }
+}
+
+fn flat(view: &TransactionsView) -> Vec<RowDescription> {
+    if !view.listing.flat {
+        return Vec::new();
+    }
+    view.items
+        .iter()
+        .filter_map(|item| match *item {
+            TableItem::Row(index) => Some(row(view, &view.register.rows()[index])),
+            TableItem::Day { .. } => None,
+        })
+        .collect()
 }
 
 fn days(view: &TransactionsView) -> Vec<DayDescription> {
@@ -621,6 +636,7 @@ impl TransactionsView {
                 },
             ),
             days: days(self),
+            flat: flat(self),
             menu: self.describe_menu(cx),
             inspector: self.describe_inspector(cx),
             bar: self.describe_bar(),
@@ -632,7 +648,7 @@ impl TransactionsView {
 impl TransactionsDescription {
     /// Every row, in the table's order.
     pub fn rows(&self) -> impl Iterator<Item = &RowDescription> {
-        self.days.iter().flat_map(|day| &day.rows)
+        self.days.iter().flat_map(|day| &day.rows).chain(&self.flat)
     }
 
     /// The rows the table lists, in its order.

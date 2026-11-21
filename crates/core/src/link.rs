@@ -1383,7 +1383,7 @@ fn read_link(row: &Row<'_>) -> rusqlite::Result<Link> {
     })
 }
 
-fn load_link(conn: &Connection, id: LinkId) -> Result<Link, Error> {
+pub(crate) fn load_link(conn: &Connection, id: LinkId) -> Result<Link, Error> {
     conn.query_row(
         &format!(
             "SELECT {LINK_COLUMNS} FROM transaction_link l \

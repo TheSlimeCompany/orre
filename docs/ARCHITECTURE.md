@@ -33,6 +33,7 @@ How a file becomes rows: the importers, presets, dedupe, reconciliation, the com
 - Decision record: a bank's correction supersedes the stored row (2026-11-18)
 - Decision record: a preset's dedupe identity is frozen (2026-11-18)
 - Decision record: a file's account number is checked, never stored (2026-11-19)
+- Decision record: New account from Import (2026-11-20)
 
 ### [Money and the data model](architecture/data-model.md)
 
@@ -53,6 +54,7 @@ Accounts and their balances: pots and other sub-accounts, accounts the user keep
 - Decision record: accounts management (2026-11-14)
 - Decision record: asset and liability accounts, closing and deleting (built) (2026-11-14)
 - Decision record: cash counts (built) (2026-11-15)
+- Decision record: editing and removing entered balances (built) (2026-11-20)
 
 ### [Transactions](architecture/transactions.md)
 
@@ -70,6 +72,8 @@ The Transactions view and what the user can do to a row: splits, tags, notes, me
 - Decision record: removing transactions, and which rows need a category (2026-11-16)
 - Decision record: Mark as transfer and Create rule from the bulk-action bar (2026-11-18)
 - Decision record: two kinds of transfer, and marking a suggested pair (2026-11-19)
+- Decision record: a column sort is one flat list (2026-11-20)
+- Decision record: transfer or refund in the suggestion card (2026-11-20)
 
 ### [Categories](architecture/categories.md)
 
@@ -162,6 +166,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 - Decision record: views that describe themselves stay out of the release binary (2026-11-18)
 - Decision record: performance at 100,000 transactions (2026-11-19)
 - Decision record: Accounts and Rules read in the background (2026-11-19)
+- Decision record: right-click menus on the accounts panel (2026-11-20)
 
 ### In this file
 

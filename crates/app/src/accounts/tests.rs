@@ -1314,6 +1314,7 @@ fn the_sample_accounts_are_described_in_full(cx: &mut TestAppContext) {
             }),
             valuations: None,
             undo_bar: None,
+            context_menu: None,
             dialog: None,
             keys: vec![
                 key("Move up", "up", true),
@@ -1566,4 +1567,373 @@ fn a_new_account_s_inspector_fills_in_when_its_read_lands(cx: &mut TestAppContex
     let stored = account::get(&scratch.db(), added.id).unwrap();
     assert_eq!(stored.name, "Amex Gold");
     assert_eq!(stored.institution.as_deref(), Some("American Express"));
+}
+
+// Editing and removing entered balances (M3.P9) ---------------------------------
+
+fn entered_row(scratch: &Scratch) -> String {
+    let id = account::entered_balances(&scratch.db(), scratch.current).unwrap()[0]
+        .id
+        .expect("an entered balance");
+    inspector::balance_row_id(id).to_string()
+}
+
+fn day(d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(2026, 11, d).unwrap()
+}
+
+#[gpui_kit::test]
+fn clicking_an_entered_balance_opens_the_edit_dialog_filled_in(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click(&entered_row(&scratch), cx);
+    let shown = describe(&shell, &accounts, cx);
+    let dialog = dialog(&shown);
+    assert_eq!(dialog.title, "Edit a balance for Current account");
+    assert_eq!(
+        dialog.fields,
+        [
+            ("Balance".to_owned(), "100.00".to_owned()),
+            (String::new(), "1 Nov 2026".to_owned()),
+            ("Note".to_owned(), String::new()),
+        ]
+    );
+    assert_eq!(
+        labels(&dialog.actions),
+        ["Remove balance", "Cancel", "Save"]
+    );
+    // Its own day isn't taken, so Save waits for nothing.
+    assert_eq!(dialog.error, None);
+    assert!(dialog.actions.iter().all(|action| action.enabled));
+}
+
+#[gpui_kit::test]
+fn save_changes_the_amount_date_and_note(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click(&entered_row(&scratch), cx);
+    retype_date("add-balance-amount", "250.00", cx);
+    retype_date("add-balance-date", "2 Nov 2026", cx);
+    type_into("add-balance-note", "Corrected", cx);
+    click("add-balance-add", cx);
+
+    assert_eq!(describe(&shell, &accounts, cx).dialog, None);
+    let balances = account::entered_balances(&scratch.db(), scratch.current).unwrap();
+    assert_eq!(balances.len(), 1, "edited in place, not added");
+    assert_eq!(balances[0].date, day(2));
+    assert_eq!(balances[0].balance.minor(), 25_000);
+    assert_eq!(balances[0].note.as_deref(), Some("Corrected"));
+}
+
+#[gpui_kit::test]
+fn editing_says_before_a_click_that_another_balance_has_the_day(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let other = EnteredBalance {
+        date: day(5),
+        balance: Money::new(9_000, Currency::GBP),
+        source: EnteredSource::Manual,
+        note: None,
+    };
+    account::add_balance(&mut scratch.db(), scratch.current, &other).unwrap();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    // The older one is the second row.
+    let older = account::entered_balances(&scratch.db(), scratch.current).unwrap()[1]
+        .id
+        .unwrap();
+    click(&inspector::balance_row_id(older), cx);
+    assert_eq!(dialog(&describe(&shell, &accounts, cx)).error, None);
+
+    retype_date("add-balance-date", "5 Nov 2026", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(
+        dialog(&shown).error.as_deref(),
+        Some("This account already has a balance on 5 Nov 2026. Choose another day.")
+    );
+    assert!(!dialog(&shown).actions[2].enabled, "Save waits");
+}
+
+#[gpui_kit::test]
+fn remove_balance_removes_it_and_undo_adds_it_back(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let before = account::entered_balances(&scratch.db(), scratch.current).unwrap();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click(&entered_row(&scratch), cx);
+    click("remove-balance", cx);
+
+    assert!(
+        account::entered_balances(&scratch.db(), scratch.current)
+            .unwrap()
+            .is_empty()
+    );
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(shown.dialog, None, "no confirmation: the dialog closes");
+    assert_eq!(
+        shown.undo_bar,
+        Some((
+            "Removed the balance on 1 Nov 2026".to_owned(),
+            vec![Action::button("Undo", true)]
+        ))
+    );
+
+    click("undo-change", cx);
+    let after = account::entered_balances(&scratch.db(), scratch.current).unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].date, before[0].date);
+    assert_eq!(after[0].balance, before[0].balance);
+    assert_eq!(after[0].source, before[0].source);
+    assert_eq!(describe(&shell, &accounts, cx).undo_bar, None);
+}
+
+#[gpui_kit::test]
+fn undoing_a_removal_says_why_when_the_day_was_taken_since(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click(&entered_row(&scratch), cx);
+    click("remove-balance", cx);
+    let again = EnteredBalance {
+        date: day(1),
+        balance: Money::new(1, Currency::GBP),
+        source: EnteredSource::Manual,
+        note: None,
+    };
+    account::add_balance(&mut scratch.db(), scratch.current, &again).unwrap();
+
+    click("undo-change", cx);
+    let shown = describe(&shell, &accounts, cx);
+    let (message, _) = shown.undo_bar.expect("the bar stays");
+    assert!(message.contains("1 Nov 2026"), "{message}");
+    assert!(!message.contains("2026-11-01"), "{message}");
+    assert_eq!(
+        account::entered_balances(&scratch.db(), scratch.current)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[gpui_kit::test]
+fn a_balance_in_the_locked_period_is_not_clickable(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    // 2 Nov repeats 1 Nov's £100.00 with nothing between: a passing check to
+    // lock through. 5 Nov is after the lock.
+    for (date, minor) in [(2, 10_000), (5, 9_000)] {
+        let entered = EnteredBalance {
+            date: day(date),
+            balance: Money::new(minor, Currency::GBP),
+            source: EnteredSource::Manual,
+            note: None,
+        };
+        account::add_balance(&mut scratch.db(), scratch.current, &entered).unwrap();
+    }
+    orre_core::reconciliation::lock(&mut scratch.db(), scratch.current, day(2)).unwrap();
+    let balances = account::entered_balances(&scratch.db(), scratch.current).unwrap();
+    let (free, locked) = (balances[0].id.unwrap(), balances[1].id.unwrap());
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let seen = requests(&accounts, cx);
+    click(&row(scratch.current), cx);
+
+    click(&inspector::balance_row_id(locked), cx);
+    assert_eq!(describe(&shell, &accounts, cx).dialog, None);
+    assert!(
+        seen.borrow()
+            .iter()
+            .all(|event| !matches!(event, AccountsEvent::EditBalanceRequested(..)))
+    );
+
+    click(&inspector::balance_row_id(free), cx);
+    assert_eq!(
+        dialog(&describe(&shell, &accounts, cx)).title,
+        "Edit a balance for Current account"
+    );
+}
+
+#[gpui_kit::test]
+fn a_value_on_the_valuations_table_opens_its_edit_dialog(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let house = valued(&scratch, "House", AccountKind::Asset, 38_500_000);
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(house), cx);
+    click("valuation-2026-10-12", cx);
+    let shown = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&shown).title, "Edit a valuation for House");
+    assert_eq!(field(dialog(&shown), "Value"), Some("385,000.00"));
+    retype_date("add-balance-amount", "400,000.00", cx);
+    click("add-balance-add", cx);
+    let values = account::entered_balances(&scratch.db(), house).unwrap();
+    assert_eq!(values[0].balance.minor(), 40_000_000);
+}
+
+// Context menus on the accounts panel (M3.P10) -----------------------------------
+
+fn right_click(id: &str, cx: &mut VisualTestContext) {
+    let id = gpui_kit::SharedString::from(id.to_owned());
+    cx.update(move |window, cx| window.right_click(id, cx));
+    redraw(cx);
+}
+
+type ShownMenu = Vec<Vec<describe::ContextItem>>;
+
+fn menu(
+    shell: &Entity<ShellView>,
+    accounts: &Entity<Accounts>,
+    cx: &mut VisualTestContext,
+) -> ShownMenu {
+    describe(shell, accounts, cx)
+        .context_menu
+        .expect("a context menu is open")
+}
+
+fn items(menu: &ShownMenu) -> Vec<Vec<&str>> {
+    menu.iter()
+        .map(|group| group.iter().map(|(label, _)| label.as_str()).collect())
+        .collect()
+}
+
+#[gpui_kit::test]
+fn right_clicking_an_account_opens_its_menu_without_selecting_it(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    assert_eq!(describe(&shell, &accounts, cx).context_menu, None);
+    right_click(&row(scratch.current), cx);
+
+    let menu = menu(&shell, &accounts, cx);
+    assert_eq!(
+        items(&menu),
+        [
+            vec![
+                "Show transactions",
+                "New transaction…",
+                "Import into this account…",
+                "Add balance…",
+                "Edit in the inspector",
+            ],
+            vec!["Close account…", "Delete account…"],
+        ]
+    );
+    // It has a pot, so core won't delete it: the reason is the item's caption.
+    assert_eq!(menu[1][0].1, None);
+    assert_eq!(menu[1][1].1.as_deref(), Some("Has pots"));
+    assert_eq!(selected(&accounts, cx), None, "the selection stays");
+    assert!(shows("option-show-transactions", cx));
+}
+
+#[gpui_kit::test]
+fn the_menu_follows_the_kind_of_row(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let house = valued(&scratch, "House", AccountKind::Asset, 38_500_000);
+    let mortgage = valued(&scratch, "Mortgage", AccountKind::Liability, -21_264_000);
+    let cash = cash_account(&scratch, false);
+    let (shell, accounts, cx) = open(cx, &scratch);
+
+    right_click(&row(scratch.pot), cx);
+    assert_eq!(
+        items(&menu(&shell, &accounts, cx)),
+        [vec!["Show transactions", "Add balance…"]]
+    );
+    press("escape", cx);
+
+    right_click(&row(house), cx);
+    let shown = menu(&shell, &accounts, cx);
+    assert_eq!(
+        items(&shown),
+        [
+            vec!["Add value…", "Edit in the inspector"],
+            vec!["Close account…", "Delete account…"],
+        ]
+    );
+    assert_eq!(shown[1][1].1, None, "an account of values only can go");
+    press("escape", cx);
+
+    right_click(&row(mortgage), cx);
+    assert_eq!(items(&menu(&shell, &accounts, cx))[0][0], "Add balance…");
+    press("escape", cx);
+
+    // Cash isn't imported into.
+    right_click(&row(cash), cx);
+    let shown = menu(&shell, &accounts, cx);
+    assert!(!items(&shown)[0].contains(&"Import into this account…"));
+    assert!(items(&shown)[0].contains(&"New transaction…"));
+    press("escape", cx);
+
+    right_click(panel::UNCATEGORISED_ROW, cx);
+    assert_eq!(
+        items(&menu(&shell, &accounts, cx)),
+        [vec!["Show transactions"]]
+    );
+}
+
+#[gpui_kit::test]
+fn escape_closes_the_menu_and_a_chosen_item_closes_it_too(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let seen = requests(&accounts, cx);
+    right_click(&row(scratch.current), cx);
+    press("escape", cx);
+    assert_eq!(describe(&shell, &accounts, cx).context_menu, None);
+    assert!(seen.borrow().is_empty());
+
+    right_click(&row(scratch.current), cx);
+    click("option-show-transactions", cx);
+    assert_eq!(describe(&shell, &accounts, cx).context_menu, None);
+    assert_eq!(
+        seen.borrow().first(),
+        Some(&AccountsEvent::ShowTransactionsRequested(scratch.current))
+    );
+    assert_eq!(selected(&accounts, cx), Some(scratch.current));
+}
+
+#[gpui_kit::test]
+fn the_keys_move_through_the_menu_and_enter_chooses(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let seen = requests(&accounts, cx);
+    right_click(&row(scratch.current), cx);
+    press("down", cx);
+    press("down", cx);
+    press("enter", cx);
+    assert_eq!(describe(&shell, &accounts, cx).context_menu, None);
+    assert_eq!(
+        seen.borrow().first(),
+        Some(&AccountsEvent::NewTransactionRequested(scratch.current))
+    );
+    // New transaction opens its dialog.
+    assert!(cx.update(|_, cx| shell.read(cx).dialog().is_some()));
+}
+
+#[gpui_kit::test]
+fn a_disabled_item_cant_be_chosen(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let seen = requests(&accounts, cx);
+    right_click(&row(scratch.current), cx);
+    click("option-delete", cx);
+    assert!(seen.borrow().is_empty());
+    assert_eq!(menu(&shell, &accounts, cx).len(), 2, "the menu stays open");
+}
+
+#[gpui_kit::test]
+fn the_items_ask_for_what_the_inspector_buttons_do(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_, accounts, cx) = open(cx, &scratch);
+    let seen = requests(&accounts, cx);
+    for (key, event) in [
+        (
+            "add-balance",
+            AccountsEvent::AddBalanceRequested(scratch.current),
+        ),
+        ("close", AccountsEvent::CloseRequested(scratch.current)),
+        ("inspect", AccountsEvent::InspectRequested(scratch.current)),
+    ] {
+        seen.borrow_mut().clear();
+        right_click(&row(scratch.current), cx);
+        click(&format!("option-{key}"), cx);
+        assert_eq!(seen.borrow().first(), Some(&event), "{key}");
+        // The shell opens a dialog for the first two: leave it.
+        press("escape", cx);
+    }
 }

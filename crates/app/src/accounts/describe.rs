@@ -60,12 +60,18 @@ pub struct AccountsDescription {
     pub valuations: Option<ValuationsDescription>,
     /// The bar after closing an account: what it says, and Undo.
     pub undo_bar: Option<(String, Vec<Action>)>,
+    /// The context menu open on a panel row: each group's items, as a label
+    /// and, for one that can't be chosen, its reason.
+    pub context_menu: Option<Vec<Vec<ContextItem>>>,
     /// The dialog open over the window, when it's one of accounts'
     /// ([`AccountsDescription::with_dialog`]).
     pub dialog: Option<Dialog>,
     /// The panel's keys: ↑↓ through the accounts, Escape, Enter and ⌘N.
     pub keys: Vec<Action>,
 }
+
+/// A context menu item: its label and, when it can't be chosen, why.
+pub type ContextItem = (String, Option<String>);
 
 /// A section of the panel.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -188,6 +194,7 @@ fn describe_inspector(
             date,
             label,
             amount,
+            ..
         } in balance_rows(node, &detail.balances, data)
         {
             balances = balances.row(date, format!("{label} · {amount}"));
@@ -334,12 +341,40 @@ impl Accounts {
                 .zip(inspector)
                 .map(|(node, fields)| describe_inspector(self, node, fields, cx)),
             valuations: valued_node.map(|node| describe_valuations(self, node)),
-            undo_bar: self.closed().map(|closed| {
-                let message = self.closed_error().unwrap_or(&closed.message);
-                (
-                    message.to_string(),
-                    vec![Action::button(crate::ui::undo_bar::UNDO, true)],
-                )
+            undo_bar: match (self.removed(), self.closed()) {
+                (Some(removed), _) => Some(removed.message.clone()).map(|message| {
+                    (
+                        self.removed_error().unwrap_or(&message).to_string(),
+                        vec![Action::button(crate::ui::undo_bar::UNDO, true)],
+                    )
+                }),
+                (None, Some(closed)) => {
+                    let message = self.closed_error().unwrap_or(&closed.message);
+                    Some((
+                        message.to_string(),
+                        vec![Action::button(crate::ui::undo_bar::UNDO, true)],
+                    ))
+                }
+                (None, None) => None,
+            },
+            context_menu: self.context_menu().map(|menu| {
+                menu.groups
+                    .iter()
+                    .map(|group| {
+                        group
+                            .options
+                            .iter()
+                            .map(|option| {
+                                (
+                                    option.label.to_string(),
+                                    option.disabled.then(|| {
+                                        option.hint.clone().unwrap_or_default().to_string()
+                                    }),
+                                )
+                            })
+                            .collect()
+                    })
+                    .collect()
             }),
             dialog: None,
             keys: Action::moves(&panel::KEYS, !panel::order(data).is_empty())

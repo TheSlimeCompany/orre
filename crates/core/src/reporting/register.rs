@@ -13,9 +13,9 @@
 //!   after a change, never per keystroke.
 //! - [`Register::select`] is pure: it filters ([`Filter`]: account,
 //!   category, dates, uncategorised, text, excluded), groups the rows into
-//!   days with each day's net, and sorts within each day ([`Sort`]). Day
-//!   headers hold in every order: sorting by merchant, category, account or
-//!   amount reorders a day's rows, never the days.
+//!   days with each day's net, newest first. Sorting by a column
+//!   ([`Sort`]) drops the days: one flat list in that order, ties newest
+//!   first ([`Listing::flat`]).
 //! - [`Register::category_counts`] counts what each top-level group holds,
 //!   all time, as the Category filter keeps rows: the accounts panel's
 //!   CATEGORIES.
@@ -467,7 +467,7 @@ pub struct Filter {
     pub include_excluded: bool,
 }
 
-/// A column the rows of each day can be sorted by.
+/// A column the rows can be sorted by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SortColumn {
     Merchant,
@@ -476,7 +476,7 @@ pub enum SortColumn {
     Amount,
 }
 
-/// How each day's rows are ordered; the default is newest first.
+/// How the rows are ordered; the default is by day, newest first.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Sort {
     /// As imported: newest first.
@@ -522,9 +522,14 @@ pub struct ListingDay {
 /// What [`Register::select`] picked.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Listing {
-    /// Indices into [`Register::rows`], day by day, newest day first.
+    /// Indices into [`Register::rows`]: day by day, newest day first, when
+    /// grouped; in the sort's order when [`Listing::flat`].
     pub rows: Vec<usize>,
+    /// The days of [`Listing::rows`]; empty when [`Listing::flat`].
     pub days: Vec<ListingDay>,
+    /// Whether the rows are one list in the sort's order, with no days
+    /// (any sort but [`Sort::Default`]).
+    pub flat: bool,
     /// How many rows match every part of the filter but `uncategorised`
     /// and need a category: the Uncategorised chip's count.
     pub uncategorised: usize,
@@ -726,7 +731,9 @@ impl Register {
         }
     }
 
-    /// The rows `filter` keeps, grouped by day, each day sorted by `sort`.
+    /// The rows `filter` keeps: grouped by day, newest first, under
+    /// [`Sort::Default`]; under any other sort, one flat list in that order
+    /// with no days (ties newest first, then by ID).
     pub fn select(&self, filter: &Filter, sort: Sort) -> Listing {
         let text = filter.text.trim().to_lowercase();
         let mut uncategorised = 0;
@@ -748,16 +755,22 @@ impl Register {
             kept.push(index);
         }
 
+        if sort != Sort::Default {
+            kept.sort_by(|&a, &b| self.compare(a, b, sort));
+            return Listing {
+                rows: kept,
+                days: Vec::new(),
+                flat: true,
+                uncategorised,
+            };
+        }
+
         // `kept` is newest first, so each day's rows are together.
         let mut rows = Vec::with_capacity(kept.len());
         let mut days = Vec::new();
         for day_rows in kept.chunk_by(|&a, &b| self.rows[a].date == self.rows[b].date) {
-            let mut day_rows = day_rows.to_vec();
-            if sort != Sort::Default {
-                day_rows.sort_by(|&a, &b| self.compare(a, b, sort));
-            }
             let start = rows.len();
-            rows.extend_from_slice(&day_rows);
+            rows.extend_from_slice(day_rows);
             days.push(ListingDay {
                 date: self.rows[day_rows[0]].date,
                 net: net(day_rows.iter().map(|&index| &self.rows[index])),
@@ -767,6 +780,7 @@ impl Register {
         Listing {
             rows,
             days,
+            flat: false,
             uncategorised,
         }
     }
@@ -912,7 +926,7 @@ impl Register {
         true
     }
 
-    /// The order of two rows of one day under `sort`; ties keep the
+    /// The order of two rows under `sort`; ties keep the
     /// default order (newest first, then by ID).
     fn compare(&self, a: usize, b: usize, sort: Sort) -> Ordering {
         let (column, descending) = match sort {

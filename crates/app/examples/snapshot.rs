@@ -16,7 +16,8 @@
 //!   Blue Bottle row (composed for M3.3, no Paper drawing);
 //! - `transactions-date-menu`: the Date chip's menu (composed for M3.3);
 //! - `transactions-sorted`: sorted by amount, largest out first, with the
-//!   Uncategorised chip on;
+//!   Uncategorised chip on: one flat list with a Date column (M3.P13, Paper
+//!   "Item · Sorted by a column (P13)" on `IS2-0`);
 //! - `transactions-no-match`: a search that matches nothing;
 //! - `transactions-split`: Paper `2Q3-0`, the Waitrose payment split, with
 //!   tags, the bank's note and the user's;
@@ -46,6 +47,9 @@
 //! - `add-balance`: Add balance for Current account (Paper `I7C-0`);
 //! - `add-balance-day-taken`: the same on 1 Sep, which has a balance:
 //!   said before any click, Add balance disabled (Paper `IRD-0`, M3.P6);
+//! - `account-context-menu`: a right-click on Current account (Paper
+//!   "Context menu · account" on `IS2-0`, M3.P10); `edit-balance`: Edit for
+//!   its 1 Sep balance ("Dialog · Edit balance", M3.P9);
 //! - D6.9's accounts you keep yourself (M3.17): `accounts-asset`, House
 //!   selected with its valuations (Paper `BSI-0`); `accounts-liability`,
 //!   Mortgage (the inspector on `EPF-0`); `new-account-asset` (`EPI-0`);
@@ -375,6 +379,8 @@ fn main() -> Result<()> {
         ("new-account", AccountStep::NewAccount),
         ("add-balance", AccountStep::AddBalance),
         ("add-balance-day-taken", AccountStep::DayTaken),
+        ("account-context-menu", AccountStep::ContextMenu),
+        ("edit-balance", AccountStep::EditBalance),
     ] {
         let built: Rc<RefCell<Option<Entity<ShellView>>>> = Rc::default();
         let keep = built.clone();
@@ -386,7 +392,12 @@ fn main() -> Result<()> {
             accounts.update(cx, |accounts, cx| {
                 accounts.select(Some(accounts_fixture::CURRENT), cx);
                 match step {
-                    AccountStep::Select | AccountStep::KindMenu => {}
+                    AccountStep::Select | AccountStep::KindMenu | AccountStep::ContextMenu => {}
+                    AccountStep::EditBalance => accounts.request_edit_balance(
+                        accounts_fixture::CURRENT,
+                        orre_core::id::BalanceId::new(1),
+                        cx,
+                    ),
                     AccountStep::NewAccount => accounts.request_new_account(cx),
                     AccountStep::AddBalance | AccountStep::DayTaken => {
                         accounts.request_add_balance(accounts_fixture::CURRENT, cx)
@@ -413,6 +424,29 @@ fn main() -> Result<()> {
                 dialog.update(cx, |dialog, cx| {
                     dialog.type_amount("1,290.00", window, cx);
                     dialog.type_date("1 Sep 2026", window, cx);
+                });
+                return;
+            }
+            if step == AccountStep::ContextMenu {
+                // A right-click on Current account, as in Paper's "Context
+                // menu · account" (drawn on Savings).
+                let accounts = shell.read(cx).accounts().clone();
+                let focus = cx.focus_handle();
+                accounts.update(cx, |accounts, cx| {
+                    let groups = orre_app::accounts::context_menu::account_groups(
+                        accounts.data(),
+                        accounts_fixture::CURRENT,
+                    );
+                    accounts.open_context_menu(
+                        orre_app::accounts::context_menu::ContextTarget::Account(
+                            accounts_fixture::CURRENT,
+                        ),
+                        groups,
+                        gpui_kit::point(gpui_kit::px(180.), gpui_kit::px(150.)),
+                        focus,
+                        window,
+                        cx,
+                    );
                 });
                 return;
             }
@@ -1471,6 +1505,8 @@ enum AccountStep {
     NewAccount,
     AddBalance,
     DayTaken,
+    ContextMenu,
+    EditBalance,
 }
 
 /// Opens `build`'s view in a 1440×900 window and writes it as
