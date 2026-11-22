@@ -1327,7 +1327,11 @@ LU.6 alongside.
     snapshots don't run it.
   - It maps each topic to the views that reload: Inbox and its badge; Transactions,
     Accounts and Checks; Rules; Settings (AI clients). The status bar follows the
-    reloads, as now.
+    reloads, as now. A Rules change reloads Transactions too (merchant names); a
+    Ledger change reloads Rules only while Rules is on show (decided 2026-11-22).
+  - Settings: when the log's chase for the selected call fails, truncate the log back
+    to the length it had before the chase, so it doesn't keep one page more per
+    failed chase.
   - Everything off the UI thread, within the 50 ms budget.
 - ✅ LU.4 Reloading keeps your place. A reload that arrives unasked must not lose what the
   user is doing. Per view:
