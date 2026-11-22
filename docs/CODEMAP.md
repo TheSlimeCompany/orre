@@ -205,6 +205,10 @@ per call through its own store and changes data only through core.
   `ShellView::from_database` builds the shell over a database as `orre` opens it (the
   dev driver's tests use it too). `shell::describe` (tests and `dev-driver` only):
   `ShellView::describe`, the open view's description, the dialog over it and focus.
+  `shell::live` (LU.3): live updates, the `orre_core::watch::Watcher` on a timer (only
+  `shell::open` starts it), the topic map (`live::views`), and the views' own writes
+  (`live::Wrote`) rebased and reloaded in coalesced rounds (`docs/architecture/app.md` →
+  "Live updates").
 - `dev_driver` (U.5, `dev-driver` feature, debug builds only): the local socket an agent
   drives a dev build through (`orre dev`). `command` parses a line, `act` does it in the
   window with gpui-kit's test calls, `guard` refuses anything but a scratch
@@ -301,9 +305,10 @@ per call through its own store and changes data only through core.
 - `checks/`: the review queues, opened from the Inbox panel's CHECKS rows (the status
   bar counts failing checks; the accounts panel's flagged dot opens them). `Checks` (the
   open queue, selections, merges, dismissals, undo and locks through
-  `store::ChecksStore`), `duplicates` (the pair side by side, "If you merge"),
-  `balances` (checks per account, the failing window, the lock prompt), `owed` (Owed to
-  you), `lock` (lock and unlock dialogs), `view` (M / N / ←→ / ↑↓, the undo bar), `text`,
+  `store::ChecksStore`; read in the background, `Checks::unloaded` then `reload`),
+  `duplicates` (the pair side by side, "If you merge"), `balances` (checks per account,
+  the failing window, the lock prompt), `owed` (Owed to you), `lock` (lock and unlock
+  dialogs), `view` (M / N / ←→ / ↑↓, the undo bar), `text`,
   `fixture` (D6.4's sample accounts).
 
 ### Rules and categories (M3.13, M3.7)

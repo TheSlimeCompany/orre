@@ -107,6 +107,7 @@ use crate::accounts::panel::{PanelCategories, PanelCategory};
 use crate::accounts::store::StoreError;
 use crate::accounts::{Accounts, AccountsEvent};
 use crate::format::{self, Sign};
+use crate::shell::live::{Reloads, Wrote};
 use crate::theme::tokens::{color, size as token_size, spacing};
 use crate::ui::bulk_action_bar::BulkActionBar;
 use crate::ui::button::{Button, ButtonVariant, Chip};
@@ -244,6 +245,7 @@ pub enum TransactionsEvent {
 }
 
 impl gpui_kit::EventEmitter<TransactionsEvent> for TransactionsView {}
+impl gpui_kit::EventEmitter<Wrote> for TransactionsView {}
 
 /// Which menu is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -557,6 +559,8 @@ pub struct TransactionsView {
     load_error: Option<SharedString>,
     /// The read in flight; replacing it drops a stale one.
     loading: Option<Task<()>>,
+    /// Who reads the register again after the view's own write.
+    reloads: Reloads,
     /// How many times the register has been read: the editor refreshes
     /// its fields when it moves.
     generation: u64,
@@ -648,6 +652,7 @@ impl TransactionsView {
             loaded: false,
             load_error: None,
             loading: None,
+            reloads: Reloads::Itself,
             generation: 0,
             today,
             filter: Filter::default(),
@@ -763,6 +768,25 @@ impl TransactionsView {
             .in_order(&self.order)
             .filter_map(|id| self.register.row(id))
             .collect()
+    }
+
+    /// After the view's own write, the shell reads the register again,
+    /// with every other view of the ledger ([`crate::shell::live`]).
+    pub fn reload_through_shell(&mut self) {
+        self.reloads = Reloads::ByShell;
+    }
+
+    /// The view's own write changed the ledger: it reads the register again
+    /// itself, or inside a shell drops the read in flight (it started
+    /// before the write) and leaves the read to the shell.
+    fn wrote_ledger(&mut self, cx: &mut Context<Self>) {
+        match self.reloads {
+            Reloads::Itself => self.reload(cx),
+            Reloads::ByShell => {
+                self.loading = None;
+                cx.emit(Wrote::of([orre_core::watch::Topic::Ledger]));
+            }
+        }
     }
 
     /// Reads the register again, in the background.

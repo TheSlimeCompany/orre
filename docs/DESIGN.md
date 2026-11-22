@@ -14,7 +14,7 @@ this file covers how the app looks and feels.
 | Tool | [Paper](https://paper.design), read and written via the Paper MCP server |
 | Orre file | **Orre** — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Orre design work happens here |
 | Orre page | `Page 1` (`p-1-0`) |
-| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only); Logo · strongbox (retired) (`J2Q-0`): the D6.2 mark, replaced 2026-11-20 (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide. M3 punch list (M3.P3, P5, P9, P10, P11, P13): M3 punch list · states (`IS2-0`), 1440 wide |
+| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only); Logo · strongbox (retired) (`J2Q-0`): the D6.2 mark, replaced 2026-11-20 (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide. M3 punch list (M3.P3, P5, P9, P10, P11, P13): M3 punch list · states (`IS2-0`), 1440 wide. LU.5, showing what arrived: Transactions · what arrived (LU.5) (`JJY-0`), 1440×900, and Live updates · LU.5 states (`JYE-0`), 1440 wide, beside the Components artboard |
 | Orre tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1, `--container-field-date` added for M3.P5; content hash `f0be798c` (see "Tokens") |
 | Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Orre's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
 | Reference page | `Editor — v1` (`p-1-0`) |
@@ -404,6 +404,8 @@ Off: track `#2C2C30`, knob `text-muted`. On: track `text` (`#EDEDEF`), knob `chr
 
 **Badge** (`14J-0`, neutral `14N-0`) — 16px min, radius 8, 4px padding, `moldavite-soft` fill, moldavite
 10/12 700. Agent-only; a neutral badge would use `hover` + `text-muted`.
+Unseen (LU.5, `JYE-0`): `moldavite` fill, `on-moldavite` text, for a count that went up
+while its view wasn't on show (see "Live updates: showing what arrived").
 
 **Status dot** — 6×6, radius 3. Moldavite = agent connected/live. Molten = unread/new.
 
@@ -428,6 +430,10 @@ toolbar/dock shadow, 2px gap, separators 1×16–20 `#2E2E33`.
 
 **Status bar** (`RG-0`) — 28px, `#141416`, top hairline, 12px padding, 16px gap, 11/14 muted
 text, mono values, 1×12 separators, status dots.
+The item before the home currency at the right end is the arrival line (LU.5): a lead
+(10px sparkle in `moldavite`, or the 6px `molten` dot, or none) and caption text in
+`text-secondary`, one step above the other items (see "Live updates: showing what
+arrived").
 
 **Agent card** (`11R-0`) — `moldavite-surface` fill, 1px `moldavite-border`, radius 10, 12px
 padding, 10px gap; header (sparkle + agent name in moldavite 600 + `moldavite-text-muted`
@@ -706,6 +712,9 @@ the theme module's (`motion::FAST` …), not Paper tokens.
   `cubic-bezier(0.4, 0, 1, 1)` at two-thirds of the duration. No bounce or spring.
 - Tooltips appear after 500ms; moving between adjacent targets shows the next one
   immediately; hiding is instant.
+- What arrived from another process (LU.5): the arrival line, row marks and the badge's
+  unseen fill fade in over `--motion-base` and out at its exit (100ms); the 10s hold
+  after they're seen is a delay, not motion. See "Live updates: showing what arrived".
 - Charts: bars grow from the baseline on first render only; later changes animate values in
   place. Numbers never count up. No animation on window resize.
 - Respect the OS reduced-motion setting: every animation goes to 0ms, opacity fades
@@ -2728,6 +2737,77 @@ built from an existing component; the only new token is `--container-field-date`
   year, as the app's other lists write it). DATE has no chevron and is click-only (not a
   Tab stop): it isn't a sort. Rows keep every look they have in the grouped list. Clicking DATE, or a third
   click on the sorted column, goes back to days, newest first.
+
+**Live updates: showing what arrived** — LU.5, drawn 2026-11-22 on Transactions · what
+arrived (LU.5) (`JJY-0`, 1440×900: an `orre import` landed while a row was selected, and
+Claude Code filed suggestions earlier) and Live updates · LU.5 states (`JYE-0`, 1440
+wide). With LU.3 the app reloads views when another process changes the database (an
+MCP client, `orre import`, `undo-import`, `categorize`, `inbox`). LU.5 shows what came:
+marked where it lands, said once in the status bar. **No new tokens or components**, two
+new variants (the badge's unseen state, the status bar's arrival item): the molten dot
+already means new, the moldavite badge the agent.
+- **Never in the way.** Nothing takes focus, opens, scrolls, or moves the selection,
+  filters, search, an inline edit or a dialog (LU.4). No toast, no overlay, no OS
+  notification, sound or title-bar flash. Only changes from another process are marked;
+  the app's own changes already have their undo bars.
+- **Inbox tab badge** (`JYE-0` section 1). The number changes at once and never counts
+  up ("Motion"). A count that went up while the Inbox wasn't on show in a focused window
+  turns **unseen**: `moldavite` fill, `on-moldavite` text (the agent primary button's
+  pair). A drop (a suggestion decided elsewhere) only changes the number: it neither
+  makes the badge unseen nor clears it. At 0 the badge goes, as now. With the Inbox on
+  show and the window focused the badge stays default and the new rows carry the mark.
+- **Arrival line** (section 2). The status bar item before the home currency, at the
+  right end, replacing the sample's "3 new" (`shell/status.rs`). Caption 11/14 in
+  `text-secondary` (other items are `text-muted`), 8px after its lead. One line, for
+  the newest arrival:
+
+  | Arrival | Lead | Copy | Click |
+  |---|---|---|---|
+  | Suggestions from one client | 10px sparkle, `moldavite` | "3 suggestions from Claude Code" (name in `moldavite-text`; "1 suggestion") | Opens Inbox → Pending |
+  | From two or more clients | sparkle | "5 suggestions from 2 AI clients" | Opens Inbox → Pending |
+  | New transactions (an import) | 6px `molten` dot | "9 new transactions" ("1 new transaction") | Opens Transactions |
+  | Changed transactions (`categorize`, a rule applied, `inbox approve`) | `molten` dot | "12 transactions changed" | Opens Transactions |
+  | Removed (`undo-import`) | none | "9 transactions removed · import undone" | None: nothing to look at |
+
+  The client's name is its display name in Settings → AI clients, cut at 24 characters
+  with "…". The file name isn't repeated: the import item on the left already says
+  "Imported just now from monzo-november.csv". Opening a view changes nothing in it:
+  no filter is cleared, nothing scrolls or is selected.
+- **Row mark** (section 4). A 6px `molten` dot (`radius-label`) in the list's 8px left
+  inset, outside the row, centred on it: 1px clear of the panel edge and of the row. It
+  never shifts text or changes a row's fill, so it shows on hover and on a selected
+  row. One mark for new and changed rows in Transactions, and for new suggestions in
+  the Inbox list. Accounts panel rows get none (balances change in place); Rules and
+  Settings reload with no mark. Marked rows outside the scroll stay there; rows a filter
+  or search hides aren't marked, and the line still counts them.
+- **How long it stays** (section 3). The line, the badge's unseen fill and the row
+  marks follow one rule, each seen through its own view (Inbox for suggestions,
+  Transactions for rows):
+  1. *Arrives*: within about 2s of the commit (LU.3); fades in over `--motion-base`.
+  2. *Unseen*: no time limit while the view isn't on show or the window isn't focused,
+     so a user away from the desk comes back to it. More of the same kind from the same
+     source adds to the count (3 + 2 → "5 suggestions from Claude Code"); a different
+     arrival replaces the line at once, while the badge and marks keep the earlier one.
+  3. *Seen*: the view is on show in a focused window, or the user clicks the line. That
+     starts a 10s hold, once.
+  4. *Fades*: out at `--motion-base`'s exit (100ms), all together. Nothing reflows.
+  5. *Gone*: the Inbox count and the import line stay; they are facts, not news.
+- **Undo-import** (section 5). Removed rows go at once: no fade, no ghost row, no
+  strike-through (a ghost would read as still counted). Totals and balances change in
+  place, and the scroll stays anchored on the first row still there above the gap. The
+  selection keeps the rows still there and never gains one. If every selected row went,
+  the inspector shows an Empty state until the next selection: "This transaction was
+  removed", "Pret A Manger, −£6.45 on 9 Nov, came from monzo-november.csv. That import
+  was undone outside this window." (name, amount and date from the data loaded before
+  the reload; several rows: "These 3 transactions were removed", "They came from
+  monzo-november.csv."). An inline edit on a removed row closes and shows the same note.
+  An open dialog about one stays open, its primary disabled, with the caption "This
+  transaction was removed outside this window." above the footer; Cancel closes it.
+- **Reduced motion.** Both fades are 0ms (`App::reduce_motion`, see "Motion"). The holds
+  aren't motion and keep their timings. Nothing pulses, blinks or slides in either mode.
+- **Not drawn:** the dialog with its primary disabled (composed from "Dialogs" and the
+  disabled state), and Accounts' inspector when its account was removed (not possible
+  today: undo-import removes transactions, not accounts).
 
 **Not drawn in D6.1:** empty states for these screens (empty Inbox, no budgets, no
 reviews), the Approved / Rejected inbox lists, Save as preset (M3.5), and the screens

@@ -56,7 +56,9 @@ fn run_gui(showcase: bool) {
                 // The app shell (M3.1) around its views; Transactions shows
                 // fixture data until the table reads the database (M3.3).
                 orre_app::shell::init(cx);
-                orre_app::shell::open(cx).expect("Failed to open the window");
+                // The window opens once the live-updates baseline is
+                // taken; one that can't open is logged and the app quits.
+                orre_app::shell::open(cx);
             }
         });
 }

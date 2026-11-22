@@ -16,10 +16,11 @@
 //!   bar, which offers the same Undo again with the reason. The text is
 //!   core's error as a sentence.
 //! - **A save** takes the bar away, asks for everything to be read again
-//!   ([`Rules::reload`], on a background thread) and tells the shell
-//!   [`RulesEvent::Changed`] when the policy names it: when a transaction
-//!   changed, or what Transactions shows of one (its category, its rule, its
-//!   name). The write itself runs here, on the UI thread. Until the read
+//!   ([`Rules::reload`], on a background thread; inside a shell the shell
+//!   does, with every view of what changed, [`crate::shell::live`]) and
+//!   tells the shell [`RulesEvent::Changed`] when the policy names it: when
+//!   a transaction changed, or what Transactions shows of one (its
+//!   category, its rule, its name). The write itself runs here, on the UI thread. Until the read
 //!   lands the view shows the last one, so the caller does what must show at
 //!   once: a moved rule takes its new place, a deleted row goes, a created
 //!   rule or category is selected when the read lands, and what was saved is
@@ -33,8 +34,10 @@
 use gpui_kit::{Context, SharedString};
 use orre_core::db::Database;
 use orre_core::id::ChangeBatchId;
+use orre_core::watch::Topic;
 
 use crate::accounts::store::StoreError;
+use crate::shell::live::{Reloads, Wrote};
 
 use super::store::RulesStore;
 use super::{Outcome, Rules, RulesEvent, Source, message};
@@ -105,8 +108,9 @@ impl Rules {
         match result {
             Ok(value) => {
                 self.outcome = None;
-                self.reload(cx);
-                if (policy.tells_shell)(&value) {
+                let tells_shell = (policy.tells_shell)(&value);
+                self.after_save(tells_shell, cx);
+                if tells_shell {
                     cx.emit(RulesEvent::Changed);
                 }
                 cx.notify();
@@ -125,6 +129,23 @@ impl Rules {
                 }
                 cx.notify();
                 Err(error)
+            }
+        }
+    }
+
+    /// A save changed the rules (and the ledger, when it `tells_shell`):
+    /// everything is read again, or inside a shell the read in flight
+    /// (started before the save) is dropped and the shell reads every view
+    /// of what changed. A form typed into from now on keeps its typing
+    /// when that read lands, as if the read had been asked for now.
+    fn after_save(&mut self, tells_shell: bool, cx: &mut Context<Self>) {
+        match self.reloads {
+            Reloads::Itself => self.reload(cx),
+            Reloads::ByShell => {
+                self.loading = None;
+                self.asked_edits.get_or_insert(self.form_edits);
+                let ledger = tells_shell.then_some(Topic::Ledger);
+                cx.emit(Wrote::of([Topic::Rules].into_iter().chain(ledger)));
             }
         }
     }

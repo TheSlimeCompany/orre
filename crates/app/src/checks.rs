@@ -34,7 +34,7 @@ pub mod store;
 pub mod text;
 pub mod view;
 
-use gpui_kit::{Context, EventEmitter, SharedString};
+use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
 use orre_core::checks::{AccountReview, CheckRow, Pair};
 use orre_core::id::{AccountId, ChangeBatchId, DuplicateCandidateId, LinkId, TransactionId};
 use orre_core::link::ShareLabel;
@@ -43,6 +43,7 @@ use orre_core::money::Currency;
 use orre_core::reconciliation::BalanceRef;
 
 use crate::accounts::store::StoreError;
+use crate::shell::live::{Reloads, Wrote};
 use crate::ui::list::{self, Move};
 use store::{ChecksData, ChecksStore};
 
@@ -138,16 +139,35 @@ pub struct Checks {
     person: Option<(ShareLabel, Currency)>,
     outcome: Option<Outcome>,
     load_error: Option<SharedString>,
+    /// The background read in flight; a newer one replaces it.
+    loading: Option<Task<()>>,
+    /// Who reads the queues again after their own write.
+    reloads: Reloads,
+    /// A pair to select when the read lands (Undo reopening it).
+    pending_pair: Option<DuplicateCandidateId>,
+    /// An account whose check to select when the read lands (`show_account`).
+    pending_account: Option<AccountId>,
+    /// Select the open queue's first entry when the read lands, if nothing
+    /// in it is selected (`show`).
+    pending_default: bool,
 }
 
 impl EventEmitter<ChecksEvent> for Checks {}
+impl EventEmitter<Wrote> for Checks {}
 
 impl Checks {
-    /// The queues in `store`, read now.
+    /// The queues in `store`, read now, on this thread: for tests and the
+    /// snapshot. The app uses [`Checks::unloaded`].
     pub fn from_store(store: ChecksStore) -> Self {
         let mut checks = Self::with_source(Source::Database(store));
-        checks.load();
+        checks.read_now();
         checks
+    }
+
+    /// The queues in `store`, not read yet: the shell starts the first read
+    /// (`start_loading`), on a background thread.
+    pub fn unloaded(store: ChecksStore) -> Self {
+        Self::with_source(Source::Database(store))
     }
 
     /// No queues, because they can't be read: `reason` says why.
@@ -174,6 +194,11 @@ impl Checks {
             person: None,
             outcome: None,
             load_error: None,
+            loading: None,
+            reloads: Reloads::Itself,
+            pending_pair: None,
+            pending_account: None,
+            pending_default: false,
         }
     }
 
@@ -245,6 +270,7 @@ impl Checks {
         let opened = self.queue != Some(queue);
         self.queue = Some(queue);
         if opened {
+            self.pending_default = true;
             self.reload(cx);
         }
         self.select_default();
@@ -265,7 +291,15 @@ impl Checks {
     /// Accounts panel's flagged dot), else its newest check.
     pub fn show_account(&mut self, account: AccountId, cx: &mut Context<Self>) {
         self.queue = Some(Queue::Balances);
+        self.pending_account = Some(account);
         self.reload(cx);
+        self.select_account_check(account);
+        cx.emit(ChecksEvent::Shown(Some(Queue::Balances)));
+        cx.notify();
+    }
+
+    /// Selects `account`'s first failing check, else its newest.
+    fn select_account_check(&mut self, account: AccountId) {
         let row = self.data.review.account(account).and_then(|review| {
             review
                 .rows
@@ -275,8 +309,6 @@ impl Checks {
                 .map(|row| row.check.balance)
         });
         self.check = row.map(|balance| (account, balance));
-        cx.emit(ChecksEvent::Shown(Some(Queue::Balances)));
-        cx.notify();
     }
 
     fn select_default(&mut self) {
@@ -309,24 +341,82 @@ impl Checks {
 
     // Reading ------------------------------------------------------------------
 
-    /// Reads the queues again, keeping the selection where it still is.
+    /// Reads the queues again on a background thread, keeping the
+    /// selection where it still is. A newer read replaces one in flight.
+    /// When it lands, a selection that has gone is let go and the pending
+    /// selections (`show`, `show_account`, Undo) are made from the new data.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
-        self.load();
-        cx.notify();
+        let Source::Database(store) = &self.source else {
+            self.pending_pair = None;
+            self.pending_account = None;
+            self.pending_default = false;
+            cx.notify();
+            return;
+        };
+        let store = store.clone();
+        self.loading = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { store.load() })
+                .await
+                .map_err(|error| SharedString::from(error.to_string()));
+            this.update(cx, |this, cx| {
+                this.loading = None;
+                this.land(result);
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
-    fn load(&mut self) {
+    /// Starts the first read, if it hasn't been asked for.
+    pub(crate) fn start_loading(&mut self, cx: &mut Context<Self>) {
+        if self.loading.is_none() && matches!(self.source, Source::Database(_)) {
+            self.reload(cx);
+        }
+    }
+
+    /// After their own write, the shell reads the queues again, with every
+    /// other view of the ledger ([`crate::shell::live`]).
+    pub fn reload_through_shell(&mut self) {
+        self.reloads = Reloads::ByShell;
+    }
+
+    /// Their own write changed the ledger: the queues read again
+    /// themselves, or inside a shell drop the read in flight (it started
+    /// before the write) and leave the read to the shell. The pending
+    /// selections are made when that read lands.
+    fn wrote_ledger(&mut self, cx: &mut Context<Self>) {
+        match self.reloads {
+            Reloads::Itself => self.reload(cx),
+            Reloads::ByShell => {
+                self.loading = None;
+                cx.emit(Wrote::of([orre_core::watch::Topic::Ledger]));
+                cx.notify();
+            }
+        }
+    }
+
+    /// Reads on this thread (tests and the snapshot).
+    fn read_now(&mut self) {
         let Source::Database(store) = &self.source else {
             return;
         };
-        match store.load() {
+        let result = store
+            .load()
+            .map_err(|error| SharedString::from(error.to_string()));
+        self.land(result);
+    }
+
+    /// Takes a read, then fixes the selection against it.
+    fn land(&mut self, result: Result<ChecksData, SharedString>) {
+        match result {
             Ok(data) => {
                 self.data = data;
                 self.load_error = None;
             }
             Err(error) => {
                 tracing::warn!(%error, "couldn't read the review queues");
-                self.load_error = Some(error.to_string().into());
+                self.load_error = Some(error);
             }
         }
         if self
@@ -346,6 +436,18 @@ impl Checks {
         }
         if self.selected_person().is_none() {
             self.person = None;
+        }
+        if let Some(candidate) = self.pending_pair.take()
+            && self.data.review.pair(candidate).is_some()
+        {
+            self.pair = Some(candidate);
+            self.swapped = None;
+        }
+        if let Some(account) = self.pending_account.take() {
+            self.select_account_check(account);
+        }
+        if std::mem::take(&mut self.pending_default) {
+            self.select_default();
         }
     }
 
@@ -467,7 +569,7 @@ impl Checks {
             }
             Err(message) => Outcome::Refused(message),
         });
-        self.reload(cx);
+        self.wrote_ledger(cx);
         cx.emit(ChecksEvent::Changed);
     }
 
@@ -500,7 +602,7 @@ impl Checks {
             }
             Err(message) => Outcome::Refused(message),
         });
-        self.reload(cx);
+        self.wrote_ledger(cx);
     }
 
     /// The bar's Undo: undoes the last merge or dismissal, and opens the
@@ -526,17 +628,10 @@ impl Checks {
         match result {
             Ok(()) => {
                 self.outcome = None;
-                self.reload(cx);
-                if matches!(undo, Undo::Batch(_)) {
-                    cx.emit(ChecksEvent::Changed);
-                }
-                if let Some(candidate) = candidate
-                    && self.data.review.pair(candidate).is_some()
-                {
-                    self.pair = Some(candidate);
-                    self.swapped = None;
-                }
-                if matches!(undo, Undo::Merge(..)) {
+                // The pair is selected when the read lands.
+                self.pending_pair = candidate;
+                self.wrote_ledger(cx);
+                if matches!(undo, Undo::Batch(_) | Undo::Merge(..)) {
                     cx.emit(ChecksEvent::Changed);
                 }
             }
@@ -704,7 +799,7 @@ impl Checks {
             },
             Err(message) => Outcome::Refused(message),
         });
-        self.reload(cx);
+        self.wrote_ledger(cx);
         cx.emit(ChecksEvent::Changed);
     }
 
@@ -735,7 +830,7 @@ impl Checks {
             .rename_person(&from, &to)
             .map_err(|error| SharedString::from(error.to_string()))?;
         self.person = Some((to, currency));
-        self.reload(cx);
+        self.wrote_ledger(cx);
         cx.emit(ChecksEvent::Changed);
         Ok(())
     }
@@ -769,7 +864,7 @@ impl Checks {
         self.store()?
             .lock(account, through)
             .map_err(|error| SharedString::from(error.to_string()))?;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         cx.emit(ChecksEvent::Changed);
         Ok(())
     }
@@ -784,7 +879,7 @@ impl Checks {
             .unlock(account)
             .map_err(|error| SharedString::from(error.to_string()))?;
         // Reading again plans the selected pair again, lock lifted.
-        self.reload(cx);
+        self.wrote_ledger(cx);
         cx.emit(ChecksEvent::Changed);
         Ok(())
     }

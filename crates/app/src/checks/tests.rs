@@ -4,7 +4,7 @@
 
 use chrono::NaiveDate;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 use orre_core::db::Database;
 use orre_core::duplicate::{self, CandidateStatus};
 use orre_core::exclusion::{self, ExclusionReason};
@@ -1147,4 +1147,88 @@ fn an_unasked_reload_keeps_the_open_balance_check(cx: &mut TestAppContext) {
     assert_eq!(balances(&after), balances(&before));
     assert_eq!(inspected(&after), inspected(&before));
     assert_eq!(count(&after, "Possible duplicates"), "2");
+}
+
+/// LU.3: `Checks::unloaded` reads nothing on the calling thread: the queues
+/// arrive when the background read lands.
+#[gpui_kit::test]
+fn an_unloaded_read_lands_off_the_calling_thread(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let checks = cx.new(|_| Checks::unloaded(ChecksStore::new(scratch.path.clone())));
+    cx.update(|cx| checks.update(cx, |checks, cx| checks.start_loading(cx)));
+    assert!(cx.update(|cx| checks.read(cx).pairs().is_empty()));
+    assert!(cx.update(|cx| checks.read(cx).loading.is_some()));
+    cx.run_until_parked();
+    assert_eq!(cx.update(|cx| checks.read(cx).pairs().len()), 3);
+    assert!(cx.update(|cx| checks.read(cx).loading.is_none()));
+}
+
+/// LU.3: a newer read replaces one in flight: only the newer one lands, and
+/// it sees what changed in between.
+#[gpui_kit::test]
+fn a_newer_read_replaces_an_older_one(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let checks = cx.new(|_| Checks::unloaded(ChecksStore::new(scratch.path.clone())));
+    cx.update(|cx| checks.update(cx, |checks, cx| checks.reload(cx)));
+    cx.run_until_parked();
+    let landed = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counter = landed.clone();
+    let _subscription =
+        cx.update(|cx| cx.observe(&checks, move |_, _| counter.set(counter.get() + 1)));
+
+    cx.update(|cx| checks.update(cx, |checks, cx| checks.reload(cx)));
+    let last = cx.update(|cx| checks.read(cx).pairs().last().unwrap().candidate);
+    duplicate::dismiss(&mut scratch.db(), last).unwrap();
+    cx.update(|cx| checks.update(cx, |checks, cx| checks.reload(cx)));
+    let notified_before_landing = landed.get();
+    cx.run_until_parked();
+    assert_eq!(landed.get(), notified_before_landing + 1, "one read landed");
+    assert_eq!(cx.update(|cx| checks.read(cx).pairs().len()), 2);
+}
+
+/// LU.3: undoing a merge selects the pair again when the read lands, not
+/// before.
+#[gpui_kit::test]
+fn undoing_a_merge_selects_the_pair_when_the_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let (_shell, checks, cx) = open(cx, &scratch);
+    click("inbox-checks-duplicates", cx);
+    let candidate = selected_pair(&checks, cx).unwrap().candidate;
+    cx.update(|_, cx| checks.update(cx, |checks, cx| checks.merge(cx)));
+    redraw(cx);
+    assert_ne!(
+        selected_pair(&checks, cx).map(|pair| pair.candidate),
+        Some(candidate)
+    );
+
+    cx.update(|_, cx| checks.update(cx, |checks, cx| checks.undo(cx)));
+    assert_ne!(
+        selected_pair(&checks, cx).map(|pair| pair.candidate),
+        Some(candidate),
+        "the read hasn't landed"
+    );
+    cx.run_until_parked();
+    assert_eq!(
+        selected_pair(&checks, cx).map(|pair| pair.candidate),
+        Some(candidate)
+    );
+}
+
+/// LU.3: `show_account` selects the account's failing check when the read
+/// lands.
+#[gpui_kit::test]
+fn show_account_selects_the_failing_check_when_the_read_lands(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let joint = scratch.seeded.joint;
+    let checks = cx.new(|_| Checks::unloaded(ChecksStore::new(scratch.path.clone())));
+    cx.update(|cx| checks.update(cx, |checks, cx| checks.show_account(joint, cx)));
+    assert!(cx.update(|cx| checks.read(cx).selected_check().is_none()));
+    cx.run_until_parked();
+    let failed = cx.update(|cx| {
+        checks
+            .read(cx)
+            .selected_check()
+            .map(|(account, row)| (account.account, row.check.outcome.is_failed()))
+    });
+    assert_eq!(failed, Some((joint, true)));
 }
