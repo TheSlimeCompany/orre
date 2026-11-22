@@ -367,13 +367,50 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Reads everything again: after a restore, or when Settings opens.
+    /// Reads everything again: after a restore, when Settings opens, and
+    /// when another process changed the database. The section, the
+    /// selections, the filters, the notice and the log's scroll position
+    /// stay (a selection only moves when its row is gone), and the log
+    /// keeps as many pages as were loaded so a call further down stays
+    /// listed. Dialogs belong to the shell and are not touched.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
+        let loaded = self.log.len();
         for section in Section::ALL {
             self.reload_section(section);
         }
+        self.reload_log_pages(loaded);
         self.select_defaults();
         cx.notify();
+    }
+
+    /// Reads further pages of the log until it lists `rows` calls again, or
+    /// runs out. Calls logged since push older ones down, so the count alone
+    /// can leave the selected call out: then at most one page more is read
+    /// for it, which covers the calls that arrive between two reloads. Past
+    /// that (Settings opened again after thousands of calls, a call pruned
+    /// or filtered out) the selection falls back to the newest call
+    /// (`select_defaults`), rather than reading page after page on the UI
+    /// thread. The log is newest first and IDs grow with time, so a last
+    /// row older than the selected call means it has gone.
+    fn reload_log_pages(&mut self, rows: usize) {
+        let Source::Database(store) = &self.source else {
+            return;
+        };
+        let store = store.clone();
+        let selected_unlisted = |view: &Self| {
+            view.selected_call.is_some_and(|id| {
+                !view.log.iter().any(|row| row.call.id == id)
+                    && view.log.last().is_some_and(|row| row.call.id > id)
+            })
+        };
+        while self.log_more
+            && self.log_error.is_none()
+            && (self.log.len() < rows
+                || (self.log.len() < rows + store::LOG_PAGE as usize && selected_unlisted(self)))
+        {
+            let after = self.log.last().map(|row| Cursor::after(&row.call));
+            self.load_log(&store, after);
+        }
     }
 
     fn reload_section(&mut self, section: Section) {

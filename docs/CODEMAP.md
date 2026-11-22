@@ -157,6 +157,9 @@ M1.20–M1.27 have no CLI commands yet.
   lock; `backup::gate`, the one way every per-call open checks it, before and after
   opening. `backup::detail`: what a backup holds (read `immutable`), reasons, "since",
   `assess`, `save_copy`.
+- `watch` (LU.2): `Watcher::check` notices a change another process made to the
+  database: a stamp of file metadata first, then one gated open that fingerprints each
+  `Topic` (Inbox, Ledger, Rules, Settings); `Watcher::rebase` before the app's own reload.
 - `export` (M1.29): `export::count`, `date_span`, `Options::include_excluded`. The
   columns are documented in `docs/EXPORT.md`.
 

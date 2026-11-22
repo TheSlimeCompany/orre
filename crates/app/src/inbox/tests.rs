@@ -696,3 +696,77 @@ fn untrusted_text_is_described_as_shown(cx: &mut TestAppContext) {
         )
     );
 }
+
+/// Files a rule suggestion from the agent, as the MCP server would, from a
+/// connection of its own.
+fn file_outside(scratch: &Scratch, pattern: &str) -> SuggestionId {
+    core_inbox::file_suggestion(
+        &mut scratch.db(),
+        &orre_core::mcp_client::ClientName::new(fixture::AGENT).unwrap(),
+        &core_inbox::NewSuggestion {
+            kind: core_inbox::SuggestionKind::Rule,
+            payload: serde_json::json!({"match_field": "description", "match_kind": "contains",
+                "pattern": pattern, "actions": [{"kind": "set_category", "value": "bills"}]}),
+            rationale: Some("From outside.".to_owned()),
+        },
+    )
+    .unwrap()
+    .id
+}
+
+/// LU.4: a reload nobody asked for keeps the selected, open suggestion, and
+/// the new one takes nothing.
+#[gpui_kit::test]
+fn an_unasked_reload_keeps_the_open_suggestion_and_adds_new_ones(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let deliveroo = scratch.rule("DELIVEROO");
+    let uber = scratch.rule("UBER *EATS");
+    let (shell, inbox, cx) = open(cx, &scratch);
+    click(&format!("inbox-row-{uber}"), cx);
+    let before = describe(&shell, &inbox, cx);
+    assert_eq!(
+        before.selected.as_deref(),
+        Some("Merchant contains UBER *EATS")
+    );
+    assert!(before.open.is_some());
+
+    // Another process rejects one and files one.
+    core_inbox::reject(&mut scratch.db(), deliveroo, None).unwrap();
+    file_outside(&scratch, "FROMOUTSIDE");
+    cx.update(|_, cx| inbox.update(cx, |inbox, cx| inbox.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, &inbox, cx);
+    assert_eq!(after.selected, before.selected);
+    assert_eq!(after.open, before.open);
+    assert_eq!(after.inspector, before.inspector);
+    let mut expected = labels(&before);
+    expected.retain(|label| label != "Merchant contains DELIVEROO");
+    let now = labels(&after);
+    assert!(expected.iter().all(|label| now.contains(label)));
+    assert!(now.contains(&"Description contains FROMOUTSIDE".to_owned()));
+    assert_eq!(now.len(), expected.len() + 1);
+}
+
+/// LU.4: when the selected suggestion is decided elsewhere, it goes and
+/// nothing is selected in its place, so `A` can't approve a suggestion the
+/// user didn't pick.
+#[gpui_kit::test]
+fn a_suggestion_decided_elsewhere_goes_and_nothing_else_is_selected(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let uber = scratch.rule("UBER *EATS");
+    let (shell, inbox, cx) = open(cx, &scratch);
+    click(&format!("inbox-row-{uber}"), cx);
+    let before = describe(&shell, &inbox, cx);
+    let gone = before.selected.clone().expect("a suggestion is selected");
+
+    core_inbox::reject(&mut scratch.db(), uber, None).unwrap();
+    cx.update(|_, cx| inbox.update(cx, |inbox, cx| inbox.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, &inbox, cx);
+    assert_eq!(after.selected, None);
+    assert!(after.open.is_none());
+    assert!(!labels(&after).contains(&gone));
+    assert_eq!(labels(&after).len(), labels(&before).len() - 1);
+}
