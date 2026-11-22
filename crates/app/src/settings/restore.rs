@@ -173,6 +173,8 @@ impl RestoreDialog {
         };
         let previous = std::mem::replace(&mut self.stage, Stage::Restoring);
         self.error = None;
+        self.settings
+            .update(cx, |settings, cx| settings.restoring(cx));
         cx.notify();
         let path = self.target.path.clone();
         let work = cx
@@ -189,6 +191,8 @@ impl RestoreDialog {
                 Err(error) => {
                     this.stage = previous;
                     this.error = Some(sentence(&error));
+                    this.settings
+                        .update(cx, |settings, cx| settings.restore_failed(cx));
                     cx.notify();
                 }
             });

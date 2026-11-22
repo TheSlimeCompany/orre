@@ -21,7 +21,9 @@
 //!   links, a change to several rows, excluding and transfer decisions do.
 //!   An undo the bar offered that fails is offered again with the reason.
 //! - **The register** is read again after a save, and the shell is told
-//!   through a [`TransactionsEvent`] when the policy names one.
+//!   through a [`TransactionsEvent`] when the policy names one. Inside a
+//!   shell the shell reads it again, with every other view of the ledger
+//!   ([`crate::shell::live`]).
 //!
 //! Reads that only fill a dialog or a prompt (what undoing an import
 //! removes, the rule prompt's proposal, a manual row's fields) don't change
@@ -274,7 +276,8 @@ impl TransactionsView {
         }
     }
 
-    /// Reads the register again if `reload`, tells the shell `event`.
+    /// Reads the register again if `reload` (inside a shell, the shell
+    /// does, with every view of the ledger), tells the shell `event`.
     fn after_write(
         &mut self,
         event: &Option<TransactionsEvent>,
@@ -282,7 +285,7 @@ impl TransactionsView {
         cx: &mut Context<Self>,
     ) {
         if reload {
-            self.reload(cx);
+            self.wrote_ledger(cx);
         }
         if let Some(event) = event {
             cx.emit(event.clone());

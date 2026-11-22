@@ -860,11 +860,68 @@ fn a_selected_call_far_down_is_not_chased_page_after_page(cx: &mut TestAppContex
     redraw(cx);
 
     let listed = calls(&describe(&shell, &settings, cx)).len();
-    assert!(listed <= 2 * store::LOG_PAGE as usize, "{listed} rows read");
+    assert_eq!(
+        listed,
+        store::LOG_PAGE as usize,
+        "the failed chase is dropped"
+    );
+    assert!(cx.update(|_, cx| settings.read(cx).log_more));
     let now = cx.update(|_, cx| settings.read(cx).selected_call);
     assert_ne!(now, selected);
     assert_eq!(
         now,
         cx.update(|_, cx| settings.read(cx).log.first().map(|row| row.call.id))
     );
+
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.load_more_log(cx)));
+    let ids = cx.update(|_, cx| {
+        settings
+            .read(cx)
+            .log
+            .iter()
+            .map(|row| row.call.id)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(ids.len(), 2 * store::LOG_PAGE as usize);
+    assert!(
+        ids.windows(2).all(|pair| pair[0] > pair[1]),
+        "no duplicate or gap in order: {ids:?}"
+    );
+    assert_eq!(
+        ids[0] - ids[ids.len() - 1],
+        ids.len() as i64 - 1,
+        "no call missing between the pages"
+    );
+}
+
+/// LU.3: failed chases in a row don't grow the log. Each reload starts with
+/// the old call selected again (a failed chase moves the selection to the
+/// newest call), so each one enters the chase.
+#[gpui_kit::test]
+fn failed_chases_in_a_row_do_not_grow_the_log(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_shell, settings, cx) = open(cx, &scratch);
+    click("settings-log", cx);
+    let old = cx
+        .update(|_, cx| settings.read(cx).selected_call)
+        .expect("the newest call is selected by default");
+    for index in 0..3 * store::LOG_PAGE {
+        log_outside(&scratch, "claude-code", &format!("Call {index}"));
+    }
+    for _ in 0..3 {
+        let (len, more) = cx.update(|_, cx| {
+            settings.update(cx, |settings, cx| {
+                settings.selected_call = Some(old);
+                settings.reload(cx);
+                (settings.log.len(), settings.log_more)
+            })
+        });
+        assert_eq!(len, store::LOG_PAGE as usize, "the chase page is dropped");
+        assert!(more);
+        assert_ne!(
+            cx.update(|_, cx| settings.read(cx).selected_call),
+            Some(old),
+            "the chase failed, so the selection fell back"
+        );
+    }
 }
