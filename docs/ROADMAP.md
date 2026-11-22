@@ -1298,7 +1298,7 @@ Transactions stay stale meanwhile. SQLite can't push a change to another process
 app notices it itself. Not a milestone. Order: LU.1, LU.2, LU.4, then LU.3 and LU.5;
 LU.6 alongside.
 
-- ⬜ LU.1 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`)
+- ✅ LU.1 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`)
   before code. To decide:
   - **Detection by the files.** Once a second, read the size and modified time of the
     database and its `-wal` file, plus the database file's identity. Every commit from
@@ -1310,7 +1310,7 @@ LU.6 alongside.
     would write another table on every MCP insert, against "MCP writes go to the inbox
     only". It would also cost a write per imported row.
   - **The poll interval, and slowing it when the window isn't focused.**
-- ⬜ LU.2 A watcher in core (`orre_core::watch`, no GPUI), with two steps:
+- ✅ LU.2 A watcher in core (`orre_core::watch`, no GPUI), with two steps:
   - **Stamp:** the file metadata above. An unchanged stamp ends the check.
   - **Fingerprints:** on a changed stamp, one open through `backup::gate::open` runs a
     cheap indexed query per topic, e.g. the Inbox's newest suggestion id and pending
@@ -1329,7 +1329,7 @@ LU.6 alongside.
     Accounts and Checks; Rules; Settings (AI clients). The status bar follows the
     reloads, as now.
   - Everything off the UI thread, within the 50 ms budget.
-- ⬜ LU.4 Reloading keeps your place. A reload that arrives unasked must not lose what the
+- ✅ LU.4 Reloading keeps your place. A reload that arrives unasked must not lose what the
   user is doing. Per view:
   - **Transactions:** selection, scroll, filters, search, an inline edit or open dialog.
   - **Accounts:** selection and the inspector form.

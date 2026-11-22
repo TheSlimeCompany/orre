@@ -85,8 +85,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity, FocusHandle,
     InteractiveElement as _, IntoElement, KeyBinding, KeyBindingContextPredicate, ListAlignment,
-    ListState, MouseButton, MouseDownEvent, ParentElement as _, Render, SharedString, Styled as _,
-    Subscription, Task, Window, div, list,
+    ListOffset, ListState, MouseButton, MouseDownEvent, ParentElement as _, Render, SharedString,
+    Styled as _, Subscription, Task, Window, div, list,
 };
 use orre_core::account::AccountKind;
 use orre_core::change;
@@ -283,6 +283,22 @@ impl Menu {
             Menu::Inspector | Menu::SplitLine(_) | Menu::Person | Menu::ManualAccount
         )
     }
+}
+
+/// Where the list was scrolled to before a read, by what is at the top
+/// rather than by position, so rows added above it don't move the view.
+#[derive(Clone, Copy, Debug)]
+struct ScrollAnchor {
+    item: ScrolledTo,
+    /// The item's position before the read, for when it has gone.
+    index: usize,
+    offset_in_item: gpui_kit::Pixels,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScrolledTo {
+    Row(TransactionId),
+    Day(NaiveDate),
 }
 
 /// One entry of the table's list.
@@ -770,6 +786,8 @@ impl TransactionsView {
     }
 
     fn apply(&mut self, result: Result<Register, SharedString>, cx: &mut Context<Self>) {
+        // Before the new register replaces the one the list's items index.
+        let scrolled = self.scroll_anchor();
         self.loading = None;
         self.loaded = true;
         self.generation += 1;
@@ -784,10 +802,65 @@ impl TransactionsView {
                 self.load_error = Some(error);
             }
         }
+        // A read the app didn't ask for (another process wrote the database)
+        // lands here too, and must leave the user where they were: the
+        // filters, search text, sort and menus aren't touched, the selection
+        // keeps the rows still listed (a selected row that has gone, say
+        // its import was undone elsewhere, is dropped: nothing is selected
+        // then, rather than another row the user didn't pick), and the
+        // scroll stays on the same item, whatever came in above it.
         self.refilter(cx);
+        self.restore_scroll(scrolled);
         if let Some(id) = self.reveal.take() {
             self.show_row(id, cx);
         }
+    }
+
+    /// The item at the top of the list, and how far into it the list is
+    /// scrolled; `None` while the list is at its very top, which stays there.
+    fn scroll_anchor(&self) -> Option<ScrollAnchor> {
+        let top = self.list.logical_scroll_top();
+        if top.item_ix == 0 && top.offset_in_item <= gpui_kit::px(0.) {
+            return None;
+        }
+        let item = match *self.items.get(top.item_ix)? {
+            TableItem::Row(row) => ScrolledTo::Row(self.register.rows()[row].id),
+            TableItem::Day { day, .. } => ScrolledTo::Day(self.listing.days[day].date),
+        };
+        Some(ScrollAnchor {
+            item,
+            index: top.item_ix,
+            offset_in_item: top.offset_in_item,
+        })
+    }
+
+    /// Scrolls to the item [`Self::scroll_anchor`] found, at its new place
+    /// in the list; where it was by position if it has gone (the list then
+    /// ends at its last item at most).
+    fn restore_scroll(&self, anchor: Option<ScrollAnchor>) {
+        let Some(anchor) = anchor else {
+            return;
+        };
+        let found = self
+            .items
+            .iter()
+            .position(|item| match (*item, anchor.item) {
+                (TableItem::Row(row), ScrolledTo::Row(id)) => self.register.rows()[row].id == id,
+                (TableItem::Day { day, .. }, ScrolledTo::Day(date)) => {
+                    self.listing.days[day].date == date
+                }
+                _ => false,
+            });
+        self.list.scroll_to(match found {
+            Some(item_ix) => ListOffset {
+                item_ix,
+                offset_in_item: anchor.offset_in_item,
+            },
+            None => ListOffset {
+                item_ix: anchor.index.min(self.items.len().saturating_sub(1)),
+                offset_in_item: gpui_kit::px(0.),
+            },
+        });
     }
 
     /// Selects row `id` and scrolls it into view, first clearing the
@@ -2143,6 +2216,8 @@ impl Render for TransactionsView {
 mod bulk_tests;
 #[cfg(test)]
 mod link_tests;
+#[cfg(test)]
+mod reload_tests;
 #[cfg(test)]
 mod source_tests;
 #[cfg(test)]
