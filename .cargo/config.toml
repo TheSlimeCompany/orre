@@ -1,0 +1,10 @@
+[env]
+# Extra compile flags for the bundled SQLite (libsqlite3-sys reads this).
+#
+# MEMSTATUS=0: by default SQLite counts its memory use, and every allocation
+# takes one process-wide mutex to do it. With many connections in parallel
+# (cargo test runs ~24 at once, each migrating a fresh database) threads queue
+# on that lock: the core tests spent ~95% of their time in the kernel and took
+# ~170 s instead of ~15 s. SQLite recommends this flag; Orre never reads the
+# statistics (sqlite3_memory_used / sqlite3_status).
+LIBSQLITE3_FLAGS = "-DSQLITE_DEFAULT_MEMSTATUS=0"
