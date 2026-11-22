@@ -710,3 +710,161 @@ fn the_sample_clients_are_described_in_full(cx: &mut TestAppContext) {
         }
     );
 }
+
+/// A call another process logged.
+fn log_outside(scratch: &Scratch, client: &str, purpose: &str) {
+    access_log::append(
+        &mut scratch.db(),
+        &NewEntry {
+            client: name(client),
+            tool: "search_transactions".into(),
+            access_level: Some(AccessLevel::Standard),
+            outcome: Outcome::Ok,
+            purpose: Some(purpose.into()),
+            args_redacted_json: r#"{"query":{"length":8,"type":"string"}}"#.into(),
+            row_count: 1,
+            result_hash: Some("ab".into()),
+            withheld_count: 0,
+        },
+    )
+    .unwrap();
+}
+
+/// LU.4: a reload nobody asked for, with a client selected and the enable
+/// dialog for another open, changes neither; the new client is listed.
+#[gpui_kit::test]
+fn an_unasked_reload_keeps_the_selected_client_and_an_open_dialog(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, settings, cx) = open(cx, &scratch);
+    click("client-claude-code", cx);
+    click("enable-my-agent", cx);
+    let before = describe(&shell, &settings, cx);
+    assert!(before.dialog.is_some());
+
+    // Another process enables a client and one more asks to connect.
+    mcp_client::enable_at(
+        &mut scratch.db(),
+        &name("aaa-agent"),
+        AccessLevel::Aggregate,
+    )
+    .unwrap();
+    mcp_client::record_requested(&mut scratch.db(), &name("new-agent")).unwrap();
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, &settings, cx);
+    assert_eq!(after.dialog, before.dialog);
+    assert_eq!(after.inspector, before.inspector);
+    assert_eq!(after.title, before.title);
+    assert!(
+        listed(&after)
+            .iter()
+            .any(|(client, ..)| client == "aaa-agent")
+    );
+    assert!(requests(&after).contains(&"new-agent".to_owned()));
+    assert_eq!(
+        after.inspector.map(|inspector| inspector.header.title),
+        Some("claude-code".to_owned())
+    );
+}
+
+/// LU.4: a reload nobody asked for keeps the log's section and selected
+/// call, including one on a page loaded by scrolling.
+#[gpui_kit::test]
+fn an_unasked_reload_keeps_the_log_selection_and_its_pages(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    for index in 0..store::LOG_PAGE {
+        log_outside(&scratch, "claude-code", &format!("Call {index}"));
+    }
+    let (shell, settings, cx) = open(cx, &scratch);
+    click("settings-log", cx);
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.load_more_log(cx)));
+    redraw(cx);
+    let loaded = calls(&describe(&shell, &settings, cx)).len();
+    assert_eq!(loaded, store::LOG_PAGE as usize + 2, "two pages");
+    let last = cx.update(|_, cx| {
+        settings.update(cx, |settings, cx| {
+            let id = settings.log.last().unwrap().call.id;
+            settings.select_call(id, cx);
+            id
+        })
+    });
+    let before = describe(&shell, &settings, cx);
+    assert!(calls(&before).last().is_some_and(|call| call.selected));
+
+    log_outside(&scratch, "claude-code", "Logged elsewhere");
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, &settings, cx);
+    assert_eq!(after.title, "Access log");
+    assert_eq!(calls(&after).len(), loaded + 1);
+    assert_eq!(
+        cx.update(|_, cx| settings.read(cx).selected_call),
+        Some(last)
+    );
+    assert_eq!(after.inspector, before.inspector);
+}
+
+/// LU.4: with more pages to come, calls logged since push the selected call
+/// below the pages that were loaded; the reload reads on until it's listed.
+#[gpui_kit::test]
+fn an_unasked_reload_reads_on_until_the_selected_call_is_listed(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    for index in 0..2 * store::LOG_PAGE + 5 {
+        log_outside(&scratch, "claude-code", &format!("Call {index}"));
+    }
+    let (shell, settings, cx) = open(cx, &scratch);
+    click("settings-log", cx);
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.load_more_log(cx)));
+    redraw(cx);
+    let loaded = calls(&describe(&shell, &settings, cx)).len();
+    assert_eq!(loaded, 2 * store::LOG_PAGE as usize, "two full pages");
+    let last = cx.update(|_, cx| {
+        settings.update(cx, |settings, cx| {
+            let id = settings.log.last().unwrap().call.id;
+            settings.select_call(id, cx);
+            id
+        })
+    });
+    let before = describe(&shell, &settings, cx);
+
+    log_outside(&scratch, "claude-code", "Logged elsewhere");
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, &settings, cx);
+    assert_eq!(
+        cx.update(|_, cx| settings.read(cx).selected_call),
+        Some(last)
+    );
+    assert!(calls(&after).iter().any(|call| call.selected));
+    assert_eq!(after.inspector, before.inspector);
+}
+
+/// LU.4: the selected call is chased one page at most. Settings opened again
+/// after many more calls than that reads the pages it had and one more, and
+/// the selection falls back to the newest call.
+#[gpui_kit::test]
+fn a_selected_call_far_down_is_not_chased_page_after_page(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, settings, cx) = open(cx, &scratch);
+    click("settings-log", cx);
+    let selected = cx.update(|_, cx| settings.read(cx).selected_call);
+    assert!(selected.is_some(), "the newest call is selected by default");
+
+    for index in 0..3 * store::LOG_PAGE {
+        log_outside(&scratch, "claude-code", &format!("Call {index}"));
+    }
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.reload(cx)));
+    redraw(cx);
+
+    let listed = calls(&describe(&shell, &settings, cx)).len();
+    assert!(listed <= 2 * store::LOG_PAGE as usize, "{listed} rows read");
+    let now = cx.update(|_, cx| settings.read(cx).selected_call);
+    assert_ne!(now, selected);
+    assert_eq!(
+        now,
+        cx.update(|_, cx| settings.read(cx).log.first().map(|row| row.call.id))
+    );
+}

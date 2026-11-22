@@ -137,6 +137,19 @@ lists the controls' ids for `click <id>`. Keys go through `press`, as the descri
 list them. A test per view checks that every button its `describe()` lists can be
 clicked this way (`dev_driver::tests`).
 
+### Live updates
+
+Not built yet (ROADMAP → "Live updates", LU.1 to LU.6). The app notices a change made by
+another process (an MCP client filing suggestions, `orre import`, `undo-import`,
+`categorize`) by itself, because SQLite can't push one. Once a second it reads the size
+and modified time of the database and its `-wal` file, plus the database file's identity,
+and opens nothing. A changed stamp leads to one open through `backup::gate::open` that
+fingerprints four topics (Inbox, Ledger, Rules, Settings) and names the ones that differ;
+the shell reloads those views (in the background where the view's read already is:
+Transactions, the Inbox, Accounts, Rules; Checks and Settings read on the UI thread
+today) and keeps the user's place. The reasons,
+the fingerprints, the intervals and what was rejected are in "live updates" below.
+
 ## Decision records
 
 Oldest first.
@@ -549,3 +562,179 @@ binary", points 1 to 5. The rest was composed during the build, for the user to 
    keeps an AI client from acting as the user on the real database. The driver can
    press Approve, but only in a dev build on a scratch dir, and checking the app is what
    it's for.
+
+### Decision record: live updates (2026-11-21)
+
+ROADMAP LU.1, decided before any code. Today a view reloads after the app's own changes
+and when it is shown (`ShellView::show`), so a change from another process is seen only
+when the user moves around. **Nothing here has been confirmed by the user beyond the
+roadmap text.** The stamp as point 1 first states it, points 3 and 4 and the poll of
+once a second come from the roadmap. The rest is **(composed)** for the user to
+confirm: the platform identity (1), the topics and their fingerprints (2), rejecting
+file-notification crates (5), the intervals and the handling of the app's own writes
+(6), and where it runs and how a reload behaves (7 and 8).
+
+1. **Detection is by the files.** `orre_core::watch` keeps a stamp and reads it once per
+   tick: for the database and for its `-wal` file (`db::sidecar(path, "-wal")`), the
+   size and modified time, and for the database alone its identity. A file that isn't
+   there is a valid state of the stamp, not an error: SQLite removes `-wal` when the
+   last connection closes, and every call here is a short-lived connection, so the
+   file comes and goes. The identity is the device and inode on Unix
+   (`std::os::unix::fs::MetadataExt`). Stable std gives no file index on Windows, so
+   there it falls back to the creation time (`Metadata::created`); Windows is L.10.
+   Every commit from any process touches `-wal`, or the database file when the last
+   connection checkpoints, so every change moves the stamp, as finely as the file
+   system's modification times go: two commits in one tick that leave both files'
+   sizes as they were read as one stamp. With nanosecond times (ext4, APFS, NTFS)
+   that doesn't happen in practice; on a coarse file system (exFAT, some network
+   ones) the second commit is seen at the next change. The read opens nothing, so
+   "no connection is held" ("Opening the database") stands.
+   - **An unchanged stamp ends the check.**
+   - **A changed stamp** leads to one open through `backup::gate::open`, with
+     `Database::open_existing` and its `reader()`, as the MCP server opens: it never
+     creates or migrates, and the shell migrated at start-up. The reader runs the
+     queries of point 2, compares the results with the last ones and returns the
+     topics that differ. The watcher then reads the stamp again. It keeps that one
+     only when it is the stamp from before the open; otherwise it keeps the one from
+     before, so the next tick opens and compares again. That covers both a write
+     another process made while the check read (keeping the later stamp would absorb
+     it unseen) and the check's own close, which can checkpoint and remove `-wal`.
+     A check whose open leaves the files as they were settles it, so the cost is one
+     extra open after a change.
+   - **A new database identity** (a restore renames a new file over the database,
+     `backup::restore`) reports every topic.
+   - **A held restore lock** (`backup::restoring`, which the gate checks) skips the
+     check and keeps the old stamp, so the next tick catches up.
+   - **A checkpoint with no data change** moves the stamp, runs the fingerprints and
+     reports nothing.
+2. **Four topics, one fingerprint each.** **(composed)** A fingerprint is the result of
+   the queries below, kept in memory and compared for equality (hashed when long, and
+   never logged, so "no transaction content in logs" holds). The first read after the
+   watcher starts is its baseline and reports nothing; the shell takes it before the
+   views' first reads start, so a write landing between the two is reported. Each must be cheap at 100,000
+   transactions and must not read a table that changes on every MCP call or window
+   move.
+   - **Inbox** (the Inbox view and its tab badge): the newest suggestion and the
+     pending count, which catch a filing, an approval and a rejection.
+     `SELECT coalesce(max(id), 0), (SELECT count(*) FROM suggestion WHERE status =
+     'pending') FROM suggestion`. `id` is the primary key; `suggestion_status
+     (status, created_at)` covers the count. Also `count(*)` and `max(id)` of `report`:
+     an MCP client's saved report, and one deleted below the newest.
+   - **Ledger** (Transactions, Accounts and Checks):
+     - `SELECT coalesce(max(id), 0) FROM "transaction"`, the primary key: an import
+       adds rows. And `count(*)` of it, the one scan of a large table here (an index,
+       milliseconds at 100,000 rows, only on a changed stamp): deleting a manual row
+       below the newest moves no id and records no batch.
+     - `SELECT count(*), coalesce(max(id), 0), coalesce(sum(status = 'undone'), 0) FROM
+       import_batch`, and the same on `change_batch`: an import, `undo-import`, and
+       every bulk change (`orre categorize` records a `bulk_edit` batch, a rule apply a
+       `rule_apply` one and a duplicate merge a `duplicate_merge` one; an Inbox
+       approval of a categorisation is a batch too, "Decision record: Inbox";
+       `change::undo` marks a batch `undone`). Both tables hold one row per import or change, so a scan is small and
+       needs no index.
+     - `SELECT count(*), coalesce(max(id), 0) FROM balance_snapshot`: an imported or
+       entered balance, and a removed one. `count(*)` reads the smallest index
+       (`balance_snapshot_batch`).
+     - `SELECT count(*), coalesce(max(id), 0), (SELECT count(*) FROM duplicate_candidate
+       WHERE status = 'pending') FROM duplicate_candidate`: the Checks queue
+       (`duplicate_candidate_status` covers the pending count).
+     - `count(*)`, `max(id)` and the confirmed and rejected counts of
+       `transaction_link`: deciding a suggested link moves no id and no count.
+     - The same for `transfer_group`: an Inbox approval of a transfer pair confirms
+       or adds a group and records no change batch.
+     - Every column of every `account` row, each through `quote()`, joined with
+       `char(31)`, the rows ordered by `id` and joined with `char(30)` in one
+       `group_concat`: an account opened, renamed, closed or locked by `orre accounts`
+       or a restore. The table is a few dozen rows.
+   - **Rules**: the same `group_concat` shape over `rule` (`rule_priority`), `rule_action`,
+     `merchant_alias` and `category`, every column but `created_at`. These tables hold
+     tens to hundreds of rows. The column lists are in `orre_core::watch`, and a test
+     there compares each with the live schema, so a migration that adds a column
+     fails it until someone puts the column in a list or in its left-out list.
+   - **Settings** (Settings → AI clients, and the status bar's agent count): the same
+     shape over `mcp_client` (`name`, `enabled`, `access_level`, `status`; not
+     `last_seen_at`, which every MCP call writes) and over `setting` (`key`, `value`)
+     without the key `app.window`, which the window's own saves write on every move.
+   - **What catches an edit to an existing row.** `transaction` has no `updated_at`, so
+     a category, name or note edited in place moves no fingerprint. Most writers
+     outside the app that edit existing transactions do it through a `change_batch`
+     (`orre categorize`, an Inbox approval of a categorisation, a rule apply, a
+     duplicate merge) or an import batch, which the Ledger fingerprint reads. Two
+     Inbox approvals don't: a transfer pair writes `transfer_group` (in the Ledger
+     fingerprint above), and a merchant alias recomputes `merchant_display` on the
+     rows it matches, which moves only the Rules fingerprint (`merchant_alias`). So a
+     Rules change has to reload the views that show merchant names too (LU.3). A
+     manual row deleted below the newest moves the `count(*)`. The app's own
+     single-row edits are read back by the app itself. A writer that
+     edits a transaction in place outside a batch has to move a fingerprint, or its
+     change isn't seen until the user moves around. **No migration is proposed.**
+     LU.6 says if its measurement calls for an index.
+   - **What no topic sees:** budgets, schedules, exchange rates, tags' links to
+     transactions, and the MCP access log. Each is one more query when a view needs
+     it (LU.3).
+   - **Which views reload on which topic** is LU.3's. The Rules view's counts are of
+     the ledger, so LU.3 decides whether a Ledger change also reloads Rules; a Rules
+     change reloads Transactions (merchant names, above).
+3. **Rejected: a held connection polling `PRAGMA data_version`.** Restore renames a new
+   file over the database, so a held connection keeps reading the old file and never
+   learns of the new one. On Windows it would also block that rename (L.10). It would
+   also end "no connection is held", which is what lets a restore swap the file.
+4. **Rejected: a change-journal table filled by triggers.** A trigger on `suggestion`
+   would write a second table on every MCP insert, against "MCP writes go to the inbox
+   only": the trigger would be the write. A trigger on `transaction` would cost a write
+   per imported row. It is also a migration, a one-way door, to learn what a `stat`
+   and a few indexed reads already show.
+5. **Rejected: an OS file-notification crate (`notify`, inotify).** **(composed)** It is
+   a new dependency ("keep dependencies few; justify new ones", `AGENTS.md`), with a
+   different back end per platform (inotify, FSEvents, ReadDirectoryChangesW) and
+   quirks on `-wal` and `-shm` files that come and go. A restore's rename, a watch
+   limit or a dropped event would still need the stamp to catch up, so the poll would
+   stay and the crate would add a second path to test. The stamp is two `stat` calls
+   a second.
+6. **When it polls.** **(composed)** Every second while the window is active, so a
+   change shows within about two seconds (the exit criterion: a tick to see the stamp
+   move, then one open and read, well under a second); every five seconds while it
+   isn't, with a check at once when it becomes active again. The timer doesn't poll
+   while a restore runs in the app; when the restore is done, the watcher is rebased on
+   every topic, which also takes the restored file's identity, and then the views the
+   restore reloads are the reads.
+   - **The app's own writes.** After an app write the stamp moves and the watcher would
+     report the topic the app is already reloading, which at 100,000 transactions is
+     not cheap (the Inbox's first read takes 22 s, "performance at 100,000
+     transactions"). So before the app starts a reload of a topic it rebases that
+     topic: the watcher reads its fingerprint again and keeps it. A change from another
+     process that lands before the rebase is in the reload's read, which comes after.
+     One that lands after the rebase is reported. So a reload can be redundant, and
+     none is missed. The window's own saves (`app.window`) are out of the Settings
+     fingerprint, so they cost one stamp tick and no reload.
+7. **Where it runs.** **(composed)** `orre_core::watch`, with no GPUI, so it is tested
+   like the rest of core (LU.2). A timer on the shell, like `ShellView::keep_time`
+   (LU.3), runs the check on a background thread and hands the changed topics to the UI
+   thread. Reading the stamp and the fingerprints never runs on the UI thread, which
+   stays within the 50 ms budget. The timer starts only in the app: tests and the
+   snapshot example don't run it, as they don't run `keep_time`.
+8. **A reload nobody asked for keeps the user's place** (LU.4). **(composed)** It must
+   not lose a selection, a scroll position, filters, a search, an inline edit, or an
+   open dialog or form. A row that has gone (undone, decided elsewhere, or an approval
+   in flight) leaves the list without the selection jumping to another row: what
+   happens to the selection is each view's rule. Every view lets a row that has gone
+   go and selects nothing in its place, except Settings, whose lists always select
+   their first row (`select_defaults`) (Accounts already did, point 4 of "Accounts and
+   Rules read in the background"). For the Inbox that matters most: `A` approves the
+   selected suggestion with no confirmation, so a reload must never select one the
+   user didn't pick. The user's own decision still moves on to the next suggestion,
+   before the read.
+   Transactions keeps the item at the top of the list by identity, so rows arriving
+   above it don't move the view. Rules keeps a form that holds valid unsaved typing,
+   whenever the typing was (`Rules::form_edits` covered only typing after the read
+   was asked for). Settings reloads as many access-log pages as were loaded, and at
+   most one page more when calls logged since have pushed the selected call down; past
+   that the selection falls back to the newest call rather than reading page after
+   page on the UI thread. Each view's test on
+   its `describe()` shows it.
+9. **Cost: to be measured (LU.6).** An idle tick (two `stat` calls) and a fingerprint
+   check at 100,000 transactions, on `ledger_bench` or a new example. The numbers go
+   here, with the machine, when LU.6 is done. Not measured yet.
+
+The user chose nothing in this record beyond the roadmap text; every other point was
+composed for the user to confirm.

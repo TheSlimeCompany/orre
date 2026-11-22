@@ -1102,3 +1102,49 @@ fn the_toolbar_hints_every_bound_key(cx: &mut TestAppContext) {
         Some(OCADO)
     );
 }
+
+/// LU.4: a reload nobody asked for keeps the open queue, its selected pair
+/// and the planned "Keep this instead", when another process dismisses a
+/// different pair.
+#[gpui_kit::test]
+fn an_unasked_reload_keeps_the_open_pair_and_its_swap(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let (shell, checks, cx) = open(cx, &scratch);
+    click("inbox-checks-duplicates", cx);
+    cx.simulate_keystrokes("left");
+    redraw(cx);
+    let before = describe(&shell, &checks, cx);
+    assert_eq!(selected_names(&before).as_deref(), Some(OCADO));
+    let last = cx.update(|_, cx| checks.read(cx).pairs().last().unwrap().candidate);
+
+    duplicate::dismiss(&mut scratch.db(), last).unwrap();
+    cx.update(|_, cx| checks.update(cx, |checks, cx| checks.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, &checks, cx);
+    assert_eq!(count(&after, "Possible duplicates"), "2");
+    assert_eq!(after.title, before.title);
+    assert_eq!(selected_names(&after), selected_names(&before));
+    assert_eq!(open_pair(&after), open_pair(&before));
+    assert_eq!(inspected(&after), inspected(&before));
+}
+
+/// LU.4: the same for Balance checks: the selected check stays open.
+#[gpui_kit::test]
+fn an_unasked_reload_keeps_the_open_balance_check(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let (shell, checks, cx) = open(cx, &scratch);
+    click("inbox-checks-balances", cx);
+    let before = describe(&shell, &checks, cx);
+    let last = cx.update(|_, cx| checks.read(cx).pairs().last().unwrap().candidate);
+
+    duplicate::dismiss(&mut scratch.db(), last).unwrap();
+    cx.update(|_, cx| checks.update(cx, |checks, cx| checks.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, &checks, cx);
+    assert_eq!(after.title, "Balance checks");
+    assert_eq!(balances(&after), balances(&before));
+    assert_eq!(inspected(&after), inspected(&before));
+    assert_eq!(count(&after, "Possible duplicates"), "2");
+}

@@ -425,6 +425,12 @@ impl Inbox {
             }
         }
         self.covered = None;
+        // A suggestion still listed stays selected and open, wherever it
+        // moved to, and new ones don't take the selection. One that has
+        // gone (decided elsewhere, say `orre inbox` in a terminal) leaves
+        // nothing selected, never a neighbour: `A` must only ever decide a
+        // suggestion the user picked (ROADMAP LU.4). The user's own decision
+        // has already moved the selection on before this read (`decide`).
         self.keep_selection_visible();
         if self.selected.is_some_and(|id| self.entry(id).is_none()) {
             self.selected = None;

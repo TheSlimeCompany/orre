@@ -42,3 +42,4 @@ pub mod statement;
 pub mod sub_account;
 pub mod tag;
 pub mod transfer;
+pub mod watch;
