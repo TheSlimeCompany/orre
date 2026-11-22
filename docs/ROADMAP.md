@@ -1322,7 +1322,7 @@ LU.6 alongside.
   - A checkpoint with no data change reports none.
   - A restore (a new file identity) reports every topic.
   - A held restore lock skips the check, and the next check catches up.
-- ⬜ LU.3 Shell wiring:
+- ✅ LU.3 Shell wiring:
   - A background timer, like `ShellView::keep_time`, and only in the app: tests and
     snapshots don't run it.
   - It maps each topic to the views that reload: Inbox and its badge; Transactions,
@@ -1333,6 +1333,10 @@ LU.6 alongside.
     to the length it had before the chase, so it doesn't keep one page more per
     failed chase.
   - Everything off the UI thread, within the 50 ms budget.
+
+  Built in `shell::live`: the app's own writes go through the shell, which rebases and
+  reloads in one place (`docs/architecture/app.md` → "Decision record: live updates in
+  the shell (2026-11-22)", composed, for the user to confirm).
 - ✅ LU.4 Reloading keeps your place. A reload that arrives unasked must not lose what the
   user is doing. Per view:
   - **Transactions:** selection, scroll, filters, search, an inline edit or open dialog.
@@ -1351,7 +1355,8 @@ LU.6 alongside.
   bar. Never a toast that takes focus.
 - ⬜ LU.6 Cost: measure an idle tick and a fingerprint check at 100,000 transactions
   (`ledger_bench` or a new example) and record it in LU.1's record. Fingerprints use
-  existing indexes, or a new migration adds them.
+  existing indexes, or a new migration adds them. Also the Settings clients read on the
+  UI thread (`reload_clients`: an access-log flush and aggregates over `mcp_access_log`).
 
 **Exit criteria:** with Orre open, a suggestion filed by an MCP client and a
 `orre import` run in a terminal both show within about two seconds, without clicking.

@@ -169,6 +169,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 - Decision record: right-click menus on the accounts panel (2026-11-20)
 - Decision record: the dev driver (2026-11-21)
 - Decision record: live updates (2026-11-21)
+- Decision record: live updates in the shell (2026-11-22)
 
 ### In this file
 

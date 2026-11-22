@@ -53,6 +53,7 @@ use orre_core::backup::detail::Since;
 use orre_core::mcp_client::{AccessLevel, ClientName};
 
 use crate::accounts::store::StoreError;
+use crate::shell::live::Wrote;
 use crate::theme::tokens::{color, spacing};
 use crate::ui::list::{self, Move};
 use crate::ui::menu::SelectState;
@@ -121,8 +122,13 @@ pub enum SettingsEvent {
     DeleteRequested(DeleteTarget),
     /// Open the export dialog.
     ExportRequested,
+    /// A restore started: the shell stops checking for changes until it's
+    /// done ([`crate::shell::live`]).
+    RestoreStarted,
     /// A backup was restored: everything else reads the database again.
     Restored,
+    /// The restore failed and nothing was replaced: checking resumes.
+    RestoreFailed,
     /// The kill switch or the clients changed: the status bar follows.
     AiAccessChanged,
 }
@@ -205,6 +211,7 @@ pub struct SettingsView {
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
+impl EventEmitter<Wrote> for SettingsView {}
 
 /// `path` with the home directory written as `~`.
 pub fn display_path(path: &Path) -> String {
@@ -383,6 +390,25 @@ impl SettingsView {
         cx.notify();
     }
 
+    /// Reads the AI clients again, for the shell after they changed
+    /// ([`crate::shell::live`]). On this thread, on every Settings-topic
+    /// report: it flushes refused calls into the access log (a write) and
+    /// aggregates `mcp_access_log`, once with no time bound, so LU.6 measures
+    /// it and moves it to the background if it exceeds the 50 ms budget. The
+    /// selections stay where their rows still are.
+    pub fn reload_clients(&mut self, cx: &mut Context<Self>) {
+        self.reload_section(Section::Clients);
+        self.select_defaults();
+        cx.notify();
+    }
+
+    /// The app's own write to the clients or the kill switch, after the
+    /// clients were read again here: the shell rebases the Settings topic and
+    /// reads them once more ([`crate::shell::live`]).
+    fn wrote_clients(cx: &mut Context<Self>) {
+        cx.emit(Wrote::of([orre_core::watch::Topic::Settings]));
+    }
+
     /// Reads further pages of the log until it lists `rows` calls again, or
     /// runs out. Calls logged since push older ones down, so the count alone
     /// can leave the selected call out: then at most one page more is read
@@ -390,8 +416,10 @@ impl SettingsView {
     /// that (Settings opened again after thousands of calls, a call pruned
     /// or filtered out) the selection falls back to the newest call
     /// (`select_defaults`), rather than reading page after page on the UI
-    /// thread. The log is newest first and IDs grow with time, so a last
-    /// row older than the selected call means it has gone.
+    /// thread, and a chase page that didn't find it is dropped again so
+    /// failed chases don't each keep a page more. The log is newest first
+    /// and IDs grow with time, so a last row older than the selected call
+    /// means it has gone.
     fn reload_log_pages(&mut self, rows: usize) {
         let Source::Database(store) = &self.source else {
             return;
@@ -403,14 +431,29 @@ impl SettingsView {
                     && view.log.last().is_some_and(|row| row.call.id > id)
             })
         };
+        let mut before_chase = None;
         while self.log_more
             && self.log_error.is_none()
             && (self.log.len() < rows
                 || (self.log.len() < rows + store::LOG_PAGE as usize && selected_unlisted(self)))
         {
+            if self.log.len() >= rows && before_chase.is_none() {
+                before_chase = Some((self.log.len(), self.log_more));
+            }
             let after = self.log.last().map(|row| Cursor::after(&row.call));
             self.load_log(&store, after);
         }
+        if let Some((len, more)) = before_chase
+            && !self.selected_call_listed()
+        {
+            self.log.truncate(len);
+            self.log_more = more;
+        }
+    }
+
+    fn selected_call_listed(&self) -> bool {
+        self.selected_call
+            .is_some_and(|id| self.log.iter().any(|row| row.call.id == id))
     }
 
     fn reload_section(&mut self, section: Section) {
@@ -600,6 +643,7 @@ impl SettingsView {
             Ok(store) => change(store).map_err(|error| sentence(&error.to_string())),
             Err(error) => Err(error),
         };
+        let wrote = result.is_ok();
         if let Err(error) = result {
             self.notice = Some(Notice {
                 message: NoticeMessage::Failed(error),
@@ -608,6 +652,9 @@ impl SettingsView {
         }
         self.reload_section(Section::Clients);
         self.select_defaults();
+        if wrote {
+            Self::wrote_clients(cx);
+        }
         cx.emit(SettingsEvent::AiAccessChanged);
         cx.notify();
     }
@@ -645,6 +692,7 @@ impl SettingsView {
         self.reload_section(Section::Clients);
         self.selected_client = Some(name.clone());
         self.select_defaults();
+        Self::wrote_clients(cx);
         cx.emit(SettingsEvent::AiAccessChanged);
         cx.notify();
         Ok(())
@@ -661,6 +709,7 @@ impl SettingsView {
             .map_err(|error| sentence(&error.to_string()))?;
         self.reload_section(Section::Clients);
         self.select_defaults();
+        Self::wrote_clients(cx);
         cx.emit(SettingsEvent::AiAccessChanged);
         cx.notify();
         Ok(())
@@ -883,6 +932,16 @@ impl SettingsView {
     /// Shows the file at `path` in the system's file manager.
     pub fn reveal(&self, path: &Path, cx: &mut Context<Self>) {
         cx.reveal_path(path);
+    }
+
+    /// A restore is starting (the Restore dialog): tells the shell.
+    pub fn restoring(&mut self, cx: &mut Context<Self>) {
+        cx.emit(SettingsEvent::RestoreStarted);
+    }
+
+    /// The restore failed (the Restore dialog says why): tells the shell.
+    pub fn restore_failed(&mut self, cx: &mut Context<Self>) {
+        cx.emit(SettingsEvent::RestoreFailed);
     }
 
     /// After a restore (the Restore dialog): reads everything again, says

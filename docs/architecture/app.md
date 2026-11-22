@@ -68,7 +68,7 @@ artboard for snapshots.
   restore can swap the file ("the app shell and window state", point 3; "one gate for
   opening the database, and the Transactions edit pipeline", point 5, which updates
   "accounts management", point 6, "Inbox", point 8, and "the import flow"). After a
-  restore, Settings and the accounts read the database again.
+  restore every view reads the database again ("Live updates").
 
 ### Applying edits
 
@@ -79,10 +79,14 @@ offer, the event for the shell) and one call to core on the database the pipelin
 opens; the pipeline owns the no-database refusal, the reload and the event. Their
 stores keep only opening and reading ("one gate for opening the database, and the
 Transactions edit pipeline", point 3; `rules.md`, "the Rules view's edit pipeline and
-section state"). Accounts, Inbox, Checks, Settings and Import
-still forward calls through their store's methods (point 4). A single-row edit on
-Transactions shows no undo bar; links, changes to several rows, exclusions and
-transfer decisions do.
+section state"). Accounts, Inbox, Checks, Settings and Import still forward calls
+through their store's methods (point 4). A single-row edit on Transactions shows no
+undo bar; links, changes to several rows, exclusions and transfer decisions do.
+
+After a write, a view inside the shell doesn't reload itself: it drops its read in
+flight and names the topics it changed (`shell::live::Wrote`), and the shell rebases
+them and reloads every view of them ("Live updates"). Outside a shell (a view's own
+tests) it reloads itself, as before.
 
 ### What runs off the UI thread
 
@@ -93,14 +97,18 @@ transactions"; `crates/core/examples/ledger_bench.rs` measures it).
   filtered in memory); the Inbox (`Inbox::reload` on `background_spawn`; the shell
   builds it with `Inbox::unloaded`, and `InboxStore::load` previews every pending
   suggestion with `inbox::preview::preview_all`); the accounts (`Accounts::reload`;
-  the shell builds them with `Accounts::unloaded` and starts the first read) and the
-  Rules view (`Rules::reload`; `Rules::unloaded`, first read when `RulesView` is made),
-  each keeping the last read on screen until the next lands ("Accounts and Rules read
-  in the background"); everything in the import dialog that touches the disk or
-  database (`ImportStore`); backing up, checking a backup and restoring in Settings;
-  the delayed window-state save.
-- **UI thread:** the Checks and Settings reads; every write (Accounts, Rules, Inbox
-  decisions and the rest; each then asks for a background read); Inbox `covered_by` on
+  the shell builds them with `Accounts::unloaded` and starts the first read), the
+  Rules view (`Rules::reload`; `Rules::unloaded`, first read when `RulesView` is made)
+  and the review queues (`Checks::reload`; the shell builds them with `Checks::unloaded`
+  and starts the first read), each keeping the last read on screen until the next lands
+  ("Accounts and Rules read in the background"). Checks makes the selections that
+  depend on a read (`show`, `show_account`, Undo reopening a pair) when it lands;
+  everything in the import dialog that touches the disk or database (`ImportStore`);
+  backing up, checking a backup and restoring in Settings; the delayed window-state
+  save; the live-updates baseline, checks and rebases (`shell::live`).
+- **UI thread:** the Settings read, including the AI clients read again when the
+  Settings topic changes; every write (Accounts, Rules, Inbox decisions and the rest;
+  the shell then has the views read in the background); Inbox `covered_by` on
   selection; the Rules view's other reads (an apply preview, the suggestions over a
   rule, a change's items, what undoing would do).
 
@@ -139,18 +147,37 @@ clicked this way (`dev_driver::tests`).
 
 ### Live updates
 
-The watcher (LU.2) and keeping the user's place (LU.4) are built; the shell wiring
-(LU.3), showing what arrived (LU.5) and the cost (LU.6) are not (ROADMAP → "Live
-updates"). Once LU.3 is wired, the app notices a change made by another process (an MCP
-client filing suggestions, `orre import`, `undo-import`, `categorize`) by itself,
-because SQLite can't push one. Once a second it reads the size and modified time of the
-database and its `-wal` file, plus the database file's identity, and opens nothing. A
-changed stamp leads to one open through `backup::gate::open` that fingerprints four
-topics (Inbox, Ledger, Rules, Settings) and names the ones that differ; the shell
-reloads those views (in the background where the view's read already is: Transactions,
-the Inbox, Accounts, Rules; Checks and Settings read on the UI thread today) and keeps
-the user's place. The reasons, the fingerprints, the intervals and what was rejected are
-in "live updates" below.
+The watcher (LU.2), the shell wiring (LU.3) and keeping the user's place (LU.4) are
+built; showing what arrived (LU.5) and the cost (LU.6) are not (ROADMAP → "Live
+updates"). The app notices a change made by another process (an MCP client filing
+suggestions, `orre import`, `undo-import`, `categorize`) by itself, because SQLite can't
+push one. `shell::live` holds it:
+
+- **The baseline** is taken on a background thread before the window opens
+  (`shell::open`), so it comes before any view's first read.
+- **A check** reads the size and modified time of the database and its `-wal` file, plus
+  the database file's identity, and opens nothing. A changed stamp leads to one open
+  through `backup::gate::open` that fingerprints four topics (Inbox, Ledger, Rules,
+  Settings) and names the ones that differ. Checks run on a background thread every
+  second while the window is active and every five seconds while it isn't, with one at
+  once when it becomes active. Only `shell::open` starts the timer; tests and the
+  snapshot example don't.
+- **The topic map** (`live::views`): Inbox reloads the Inbox and its badge; Ledger
+  reloads Transactions, the accounts and the review queues, and Rules only while it is
+  the view on show; Rules reloads Rules and Transactions (merchant names); Settings
+  reloads Settings' AI clients (`load_ai`: it flushes refused calls into the access log,
+  a write, and aggregates `mcp_access_log`, once with no time bound; on the UI thread on
+  every Settings-topic report, which LU.6 measures). The status bar follows the reloads.
+- **The app's own writes** go through the shell: a view names the topics it changed
+  (`live::Wrote`), and the shell's `refresh` rebases them on a background thread, then
+  reloads every view of them. That is the only place the watcher is rebased. Imports
+  and their undo name the ledger the same way. Each view keeps the user's place.
+- **The app's own restore** pauses the checks; when it is done, every topic is
+  refreshed (which takes the restored file's identity) and the checks resume once that
+  rebase has finished.
+
+The reasons, the fingerprints, the intervals and what was rejected are in "live
+updates" below; how the shell applies it is in "live updates in the shell".
 
 ## Decision records
 
@@ -746,3 +773,96 @@ change reloads Rules only while it is on show (2).
 
 Points 3 and 4 and the stamp come from the roadmap; the user confirmed every other point
 on 2026-11-22. Still open: the cost (9, LU.6). L.10 may revisit the Windows identity (1).
+
+### Decision record: live updates in the shell (2026-11-22)
+
+ROADMAP LU.3, built on "live updates" (2026-11-21), whose points 2, 6 and 7 it
+applies. Every point here was composed by the implementer and the lead from a plan,
+**to be confirmed by the user**. The lead decided Q1 to Q6 below.
+
+1. **The soundness rule.** If the app rebases topic T at time r, every view of T must
+   start a read after r. A rebase not followed by that is the only way to miss a
+   change; a reload without a rebase is always safe (at worst the next check reports
+   the topic again and the views read once more). So naming fewer topics than a write
+   touched is safe too: the watcher reports the rest within a tick.
+2. **Design D: views name their topics, the shell rebases and reloads in rounds.** A
+   view's own write emits `shell::live::Wrote(topics)`. The shell's `refresh` adds them
+   to a pending set and runs a round: one `Watcher::rebase` on a background thread,
+   then, on the UI thread, a reload of every view of those topics (`live::views`).
+   `refresh` is the only caller of `rebase`, so the rule holds by construction. Rounds
+   are coalesced, at most one in flight, and a round is never cancelled once its
+   rebase has begun (that would leave topics rebased with no reload). The watcher sits
+   in an `Arc<Mutex<_>>`; a check and a rebase take turns on it, both off the UI thread.
+   A check's topics are reloaded with no rebase, and always: the watcher has taken
+   them, so dropping a reload would lose them.
+3. **Cancel on write.** A view inside a shell drops its read in flight before it emits
+   `Wrote`, so a read started before the write can't land after it. That keeps
+   "Accounts and Rules read in the background" points 4 and 5 true: the read that
+   lands after `Accounts::create` was started after the write. Rules keeps
+   `asked_edits` from the write, so typing between the write and the shell's read is
+   treated as typing after the read was asked for, and a rule chosen while that read
+   is owed is selected when it lands.
+4. **Rejected: a rebase per view (design A).** Each view rebasing its topic before its
+   own read is the trap: view 1 reads at v1, view 2 rebases at r2 > v1, and a write in
+   between is taken by the rebase and never read by view 1. A test shows the shell
+   doesn't fall into it (`shell::live::tests`, an outside account rename followed by
+   the app's own Transactions edit).
+5. **Rejected: baselines per view in core (design B).** Sound only if each view's
+   fingerprint is committed when its read is applied; it changes LU.2's API and tests,
+   contradicts point 6 of "live updates" ("rebases that topic"), adds an open to every
+   reload, and Checks and Settings would rebase on the UI thread.
+6. **Rejected: the shell rebases on its old events, views still reload themselves
+   (design C).** Sound, but every writer reads twice (the Inbox's 22 s read at 100,000
+   transactions, twice), and writes that send no event (Inbox decisions, most Accounts
+   writes, dismissing a pair) get no rebase, so the watcher reports them again.
+7. **Who names what.** Transactions' pipeline names Ledger after every write that reads
+   the register again; a recategorisation that files Orre's own rule suggestion isn't
+   named Inbox (that would read the Inbox after every category edit), the watcher
+   reports it. Rules' pipeline names Rules, and Ledger when it tells the shell. Every
+   Accounts and Checks write names Ledger. An Inbox approval names Inbox, Ledger and
+   Rules; a rejection names Inbox. Settings' client and kill-switch writes name
+   Settings. An import or its undo names Ledger. Writes that name nothing are safe by
+   point 1: saving an import preset on an account (Ledger) is reported by the watcher;
+   Transactions' "Not now" on a rule prompt, the window state (`app.window`) and the
+   access log Settings flushes as it reads are in no fingerprint.
+8. **Q1: the review queues read in the background.** `Checks::reload` runs on a
+   background thread like the other views, with `Checks::unloaded` in the shell and the
+   selections that need data (`show`, `show_account`, Undo reopening a pair) made when
+   the read lands. Its writes go through `Wrote` like the others.
+9. **Q2: the Settings topic reloads only Settings' AI clients**
+   (`SettingsView::reload_clients`), on the UI thread on every Settings-topic report.
+   `load_ai` reads the clients and the kill switch, flushes refused calls into the access
+   log (a write) and aggregates `mcp_access_log` (the last 7 days, and once with no time
+   bound), so its cost grows with the log, not with a few rows. Reports are rare, but
+   LU.6 measures it and moves it to a background thread if it exceeds the 50 ms budget.
+   Settings' own writes keep their read on the UI thread (the Enable dialog selects the
+   client it enabled from it) and also name Settings, so the shell rebases and reads the
+   clients once more.
+10. **Q3: routing is always on inside a shell.** One code path: the shell sets each
+    view to reload through it whether or not a watcher is attached. Without one (tests),
+    `refresh` reloads the views at once. A view outside a shell reloads itself.
+11. **Q4: the baseline is taken before the window opens**, on a background thread, in
+    `shell::open`, which then opens the window, builds the shell over the watcher and
+    starts the timer; the dev driver starts after it. A window that can't open is
+    logged and the app quits. If the baseline didn't compare (no file yet, a restore
+    held the lock, an error), the first check that compares reloads every view.
+12. **Q5: the topic map.** Inbox → the Inbox (and its badge). Ledger → Transactions, the
+    accounts, the review queues, and Rules only while it is on show. Rules → Rules and
+    Transactions. Settings → Settings' AI clients (and the status bar's agent count).
+    The status bar follows the reloads. The review queues' palette reads categories
+    (Rules) but isn't reloaded on Rules: the app's own Rules writes that change
+    transactions name Ledger too, so only another process's category edit waits until
+    the queues next read.
+13. **Q6: closing a dialog reloads nothing.** Every dialog writes through a view that
+    names its topics, so the blanket reload of the queues and Transactions on
+    `DialogClosed` is gone.
+14. **The timer and the restore.** Every second while the window is active, every five
+    while it isn't, a check at once on becoming active (`observe_window_activation`).
+    The app's own restore pauses the checks (`SettingsEvent::RestoreStarted`); on
+    `Restored` every topic is refreshed and the checks resume when that round's rebase
+    has finished; on `RestoreFailed` they resume with a check at once.
+15. **Errors** from a check or a rebase are logged at debug, once per run of failures,
+    with no database contents ("no transaction content in logs"); the next tick tries
+    again.
+
+Still open: the cost (LU.6), and showing what arrived (LU.5).
