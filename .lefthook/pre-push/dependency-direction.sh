@@ -17,8 +17,14 @@ tree() {
 
 status=0
 check() { # <crate> <extra banned pattern>
-  local found
-  found=$(tree "$1" | grep -E -e "$banned" -e "$2" || true)
+  local deps found
+  # A failed `cargo tree` (no cargo outside the dev shell, a stale lockfile)
+  # must fail the job: an empty tree would otherwise read as a pass.
+  if ! deps=$(tree "$1"); then
+    echo "cargo tree failed for $1; run inside the dev shell (direnv or \`devenv shell\`)." >&2
+    exit 1
+  fi
+  found=$(grep -E -e "$banned" -e "$2" <<<"$deps" || true)
   if [[ -n $found ]]; then
     echo "$1 depends on crates it must not reach:" >&2
     sed 's/^/  /' <<<"$found" >&2
