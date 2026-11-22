@@ -1262,3 +1262,80 @@ fn a_created_category_is_selected_when_its_read_lands(cx: &mut TestAppContext) {
         Some("Coffee beans")
     );
 }
+
+/// A rule added from another process, as `orre categorize` or an approved
+/// suggestion would.
+fn add_rule_outside(scratch: &Scratch, pattern: &str) {
+    use orre_core::rule::{AmountBounds, MatchField, Pattern, RuleAction, RuleDefinition};
+    let definition = RuleDefinition::new(
+        MatchField::Merchant,
+        Pattern::new(MatchKind::Contains, pattern).unwrap(),
+        AmountBounds::default(),
+        None,
+        vec![RuleAction::SetCategory(category_key("transport"))],
+    )
+    .unwrap();
+    core_rule::create(&mut scratch.db(), &definition).unwrap();
+}
+
+/// LU.4: a reload nobody asked for, with a rule open and its pattern typed
+/// but not yet saved, keeps the section, the selected rule and what was
+/// typed, and lists the rule added elsewhere.
+#[gpui_kit::test]
+fn an_unasked_reload_keeps_the_open_rule_and_its_unsaved_text(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    let pret = scratch.seeded.rules[3];
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.select_rule(Some(pret), cx)));
+    redraw(cx);
+    let view = cx.update(|_, cx| shell.read(cx).rules_view().clone());
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.type_into(Input::Pattern, "PRET", window, cx)
+        })
+    });
+    redraw(cx);
+    let before = describe(&shell, cx);
+    let rows_before = rule_rows(&before).len();
+
+    add_rule_outside(&scratch, "OUTSIDE");
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reload(cx)));
+    redraw(cx);
+
+    let after = describe(&shell, cx);
+    assert_eq!(rule_rows(&after).len(), rows_before + 1);
+    assert_eq!(after.selected, before.selected);
+    assert_eq!(item(&after).title, item(&before).title);
+    assert_eq!(item(&after).title, "Merchant contains PRET");
+    let text = cx.update(|_, cx| rules.read(cx).form().map(|form| form.text.clone()));
+    assert_eq!(text.as_deref(), Some("PRET"), "the reload didn't refill it");
+    let stored = core_rule::get(&scratch.db(), pret).unwrap();
+    assert_eq!(stored.definition().pattern().as_str(), "PRET A MANGER");
+}
+
+/// LU.4: the same for a category being renamed, in its section.
+#[gpui_kit::test]
+fn an_unasked_reload_keeps_the_section_and_an_unsaved_category_name(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, rules, cx) = open(cx, &scratch);
+    cx.update(|_, cx| {
+        rules.update(cx, |rules, cx| {
+            rules.show(Section::Categories, cx);
+            rules.edit_category(false, |form| form.name = "Typed name".into(), cx);
+        })
+    });
+    redraw(cx);
+    let before = describe(&shell, cx);
+
+    add_rule_outside(&scratch, "OUTSIDE");
+    cx.update(|_, cx| rules.update(cx, |rules, cx| rules.reload(cx)));
+    redraw(cx);
+
+    assert_eq!(
+        cx.update(|_, cx| rules.read(cx).section()),
+        Section::Categories
+    );
+    let name = cx.update(|_, cx| rules.read(cx).category_form().map(|form| form.name.clone()));
+    assert_eq!(name.as_deref(), Some("Typed name"));
+    assert_eq!(describe(&shell, cx).selected, before.selected);
+}

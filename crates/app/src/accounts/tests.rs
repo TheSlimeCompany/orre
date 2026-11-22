@@ -1515,6 +1515,101 @@ fn a_selected_account_deleted_elsewhere_is_let_go_when_the_read_lands(cx: &mut T
     assert_eq!(*events.borrow(), [AccountsEvent::Selected(None)]);
 }
 
+/// Another process (an `orre import`, say) adds a balance to `current` and
+/// a new account, as the shell's change watcher will find; the panel reads
+/// again.
+fn change_elsewhere_and_reload(
+    scratch: &Scratch,
+    accounts: &Entity<Accounts>,
+    cx: &mut VisualTestContext,
+) {
+    let entered = EnteredBalance {
+        date: NaiveDate::from_ymd_opt(2026, 11, 8).unwrap(),
+        balance: Money::new(25_000, Currency::GBP),
+        source: EnteredSource::Manual,
+        note: Some("From a terminal".into()),
+    };
+    let mut db = scratch.db();
+    account::add_balance(&mut db, scratch.current, &entered).unwrap();
+    account::create(
+        &mut db,
+        &NewAccount::new("Amex", AccountKind::CreditCard, Currency::GBP),
+    )
+    .unwrap();
+    cx.update(|_, cx| accounts.update(cx, |accounts, cx| accounts.reload(cx)));
+    redraw(cx);
+}
+
+#[gpui_kit::test]
+fn a_reload_from_outside_keeps_the_selection_and_a_name_being_typed(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click("account-name", cx);
+    press("end", cx);
+    cx.update(|window, cx| window.input(" 2", cx));
+
+    change_elsewhere_and_reload(&scratch, &accounts, cx);
+
+    assert_eq!(selected(&accounts, cx), Some(scratch.current));
+    let shown = describe(&shell, &accounts, cx);
+    assert!(
+        listed(&shown).iter().any(|(name, _)| *name == "Amex"),
+        "the new account is listed"
+    );
+    assert_eq!(
+        selected_row(&shown).map(|(name, _)| name),
+        Some("Current account")
+    );
+    assert_eq!(
+        value(section(&shown, None), "Name"),
+        Some("Current account 2"),
+        "typed, not saved, and not put back"
+    );
+    let field = cx.update(|window, _| window.find("account-name").value().map(ToString::to_string));
+    assert_eq!(field.as_deref(), Some("Current account 2"), "as drawn");
+    let balances: Vec<&str> = section(&shown, Some("Balances"))
+        .rows
+        .iter()
+        .map(|(_, value)| value.as_str())
+        .collect();
+    assert_eq!(
+        balances,
+        ["From a terminal · £250.00", "Entered by you · £100.00"],
+        "the balance entered elsewhere is listed"
+    );
+    assert_eq!(
+        account::get(&scratch.db(), scratch.current).unwrap().name,
+        "Current account",
+        "the reload saved nothing"
+    );
+}
+
+#[gpui_kit::test]
+fn a_reload_from_outside_keeps_an_open_dialog_and_what_was_typed_in_it(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, accounts, cx) = open(cx, &scratch);
+    click(&row(scratch.current), cx);
+    click("add-balance", cx);
+    type_into("add-balance-amount", "1,284.10", cx);
+    type_into("add-balance-note", "Half typed", cx);
+    let before = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&before).title, "Add a balance for Current account");
+
+    change_elsewhere_and_reload(&scratch, &accounts, cx);
+
+    let after = describe(&shell, &accounts, cx);
+    assert_eq!(dialog(&after), dialog(&before), "the dialog is as it was");
+    assert_eq!(selected(&accounts, cx), Some(scratch.current));
+    assert!(listed(&after).iter().any(|(name, _)| *name == "Amex"));
+
+    // It still saves, to the account it was opened for.
+    click("add-balance-add", cx);
+    assert_eq!(describe(&shell, &accounts, cx).dialog, None);
+    let balances = account::entered_balances(&scratch.db(), scratch.current).unwrap();
+    assert!(balances.iter().any(|b| b.balance.minor() == 128_410));
+}
+
 #[gpui_kit::test]
 fn a_new_account_is_selected_at_once_and_stays_selected_when_the_read_lands(
     cx: &mut TestAppContext,

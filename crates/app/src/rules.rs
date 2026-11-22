@@ -464,6 +464,11 @@ impl Rules {
     /// (or the first one it replaced) was asked for.
     fn land(&mut self, result: Result<RulesData, StoreError>, edits: u64) {
         let first = !self.loaded;
+        // Typed and not saved, as of the data the form was filled from: a
+        // read nobody asked for (another process changed the database)
+        // doesn't overwrite it, whenever the typing was.
+        let unsaved_rule = self.rule_unsaved();
+        let unsaved_category = self.category_unsaved();
         self.loaded = true;
         self.asked_edits = None;
         self.written.clear();
@@ -500,10 +505,30 @@ impl Rules {
             }
         }
         let untouched = self.form_edits == edits;
-        self.reload_rule(untouched);
+        self.reload_rule(untouched && !unsaved_rule);
         self.reload_name();
         self.reload_batch();
-        self.reload_category(untouched);
+        self.reload_category(untouched && !unsaved_category);
+    }
+
+    /// Whether the selected stored rule's form holds valid fields that
+    /// aren't what is stored (as far as the view knows).
+    fn rule_unsaved(&self) -> bool {
+        let Some(RuleEdit::Stored { id, form, .. }) = &self.rules.editing else {
+            return false;
+        };
+        form.definition(self.data.currency(form.account))
+            .is_ok_and(|definition| !self.is_stored(&Written::Rule(*id, definition)))
+    }
+
+    /// Whether the selected stored category's form holds a valid name that
+    /// isn't the stored one (as far as the view knows).
+    fn category_unsaved(&self) -> bool {
+        let Some(CategoryEdit::Stored { id, form }) = &self.categories.editing else {
+            return false;
+        };
+        let label = form.label(self.category_siblings(), Some(*id));
+        label.is_ok_and(|label| !self.is_stored(&Written::Category(*id, label)))
     }
 
     /// Records that `item` was saved, for the read in flight: a save of the
