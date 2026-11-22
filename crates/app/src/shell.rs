@@ -41,12 +41,18 @@
 //! dialogs over everything when the panel or inspector asks; and Settings
 //! ([`SettingsView`], M3.15, M3.16), whose dialogs it opens the same way,
 //! and whose kill switch the status bar shows.
+//!
+//! Live updates (LU.3, [`live`]): the views read again when another process
+//! changes the database, and after the app's own writes, which the views
+//! name to the shell rather than reloading themselves.
 
 #[cfg(any(test, feature = "dev-driver"))]
 pub mod describe;
+pub mod live;
 mod status;
 pub mod window_state;
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -62,6 +68,7 @@ use gpui_kit::{
     WindowOptions, div, px, size,
 };
 use orre_core::setting::WindowState;
+use orre_core::watch::Topic;
 use orre_core::{clock, paths};
 
 use crate::accounts::add_balance::AddBalanceDialog;
@@ -107,6 +114,7 @@ use crate::ui::status_bar::{StatusBar, StatusItem};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::title_bar::{self, CommandBar, TitleBar, ViewTab};
 
+use live::{Live, Wrote};
 use status::{Ai, ChecksStatus, Status};
 use window_state::WindowStore;
 
@@ -298,9 +306,14 @@ pub fn init(cx: &mut App) {
 /// Opens Orre's window as it was last left: the saved bounds and view
 /// from the database in the data dir, or 1440×900 (the size it's designed
 /// at, where the screen allows) on Transactions.
-pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
-    let store = match paths::database_path() {
-        Ok(database) => Some(WindowStore::new(database)),
+///
+/// The window opens once the live-updates baseline is taken, on a
+/// background thread, so it comes before any view's first read ([`live`]).
+/// A window that can't open is logged and the app quits.
+pub fn open(cx: &mut App) {
+    let database = paths::database_path();
+    let store = match &database {
+        Ok(database) => Some(WindowStore::new(database.clone())),
         Err(error) => {
             tracing::warn!(%error, "no data dir; the window state won't be kept");
             None
@@ -326,22 +339,46 @@ pub fn open(cx: &mut App) -> gpui_kit::Result<()> {
         ..title_bar::window_options()
     };
     let view = window_state::restored_view(saved.as_ref());
-    let _opened = gpui_kit::open_window(options, cx, move |window, cx| {
-        cx.new(|cx| {
-            let database = paths::database_path().map_err(|error| error.to_string());
-            let mut shell = ShellView::from_database(view, database, window, cx);
-            if let Some(store) = store {
-                shell.keep_window_state(store, window, cx);
+    let watched_path = database.as_ref().ok().cloned();
+    cx.spawn(async move |cx| {
+        let watched = match watched_path {
+            Some(path) => Some(
+                cx.background_spawn(async move { live::baseline(&path) })
+                    .await,
+            ),
+            None => None,
+        };
+        let opened = cx.update(|cx| {
+            gpui_kit::open_window(options, cx, move |window, cx| {
+                cx.new(|cx| {
+                    let database = database.map_err(|error| error.to_string());
+                    let mut shell = ShellView::from_database(view, database, window, cx);
+                    if let Some(store) = store {
+                        shell.keep_window_state(store, window, cx);
+                    }
+                    shell.keep_time(cx);
+                    if let Some(watched) = watched {
+                        shell.watch(watched, cx);
+                        shell.keep_watching(window, cx);
+                    }
+                    shell
+                })
+            })
+        });
+        match opened {
+            // A dev build drives this window over a local socket (ROADMAP
+            // U.5), against a scratch data dir only.
+            #[cfg(feature = "dev-driver")]
+            Ok((window, shell)) => cx.update(|cx| crate::dev_driver::start(window, shell, cx)),
+            #[cfg(not(feature = "dev-driver"))]
+            Ok(_) => {}
+            Err(error) => {
+                tracing::error!(%error, "couldn't open the window");
+                cx.update(|cx| cx.quit());
             }
-            shell.keep_time(cx);
-            shell
-        })
-    })?;
-    // A dev build drives this window over a local socket (ROADMAP U.5),
-    // against a scratch data dir only.
-    #[cfg(feature = "dev-driver")]
-    crate::dev_driver::start(_opened.0, _opened.1, cx);
-    Ok(())
+        }
+    })
+    .detach();
 }
 
 /// Saving the window state: the latest state, the one last written, and the
@@ -397,6 +434,10 @@ pub struct ShellView {
     /// the task that keeps it current ([`Self::keep_time`]).
     now: DateTime<Utc>,
     clock: Option<Task<()>>,
+    /// Live updates ([`live`]): `None` until [`Self::watch`], and in tests
+    /// that don't watch, where the app's own writes reload the views at
+    /// once.
+    live: Option<Live>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -416,7 +457,7 @@ impl ShellView {
                 Accounts::unloaded(AccountStore::new(database.clone())),
                 transactions::Source::Database(TransactionStore::new(database.clone())),
                 Inbox::unloaded(InboxStore::new(database.clone())),
-                Checks::from_store(ChecksStore::new(database.clone())),
+                Checks::unloaded(ChecksStore::new(database.clone())),
                 Rules::unloaded(RulesStore::new(database.clone())),
             ),
             // Without a data folder there's nothing to read: the panel says
@@ -440,6 +481,7 @@ impl ShellView {
             shell.import_into(ImportStore::new(database.clone()), cx);
         }
         let checks = cx.new(|_| checks);
+        checks.update(cx, |checks, cx| checks.start_loading(cx));
         shell.install_checks(checks, window, cx);
         let rules = cx.new(|_| rules);
         shell.install_rules(rules, window, cx);
@@ -524,24 +566,54 @@ impl ShellView {
         let transactions = cx.new(|cx| {
             let mut transactions = TransactionsView::new(source, window, cx);
             transactions.show_accounts(accounts.clone(), window, cx);
+            transactions.reload_through_shell();
             transactions
         });
         let panel_categories = transactions.read(cx).panel_categories();
-        accounts.update(cx, |accounts, cx| accounts.start_loading(cx));
+        accounts.update(cx, |accounts, cx| {
+            accounts.reload_through_shell();
+            accounts.start_loading(cx);
+        });
+        inbox.update(cx, |inbox, _| inbox.reload_through_shell());
+        // The app's own writes reload the views through the shell ([`live`]).
         let subscriptions = vec![
-            cx.subscribe_in(&accounts, window, |this, _, event, window, cx| {
-                this.on_accounts_event(*event, window, cx)
+            cx.subscribe(&transactions, |this, _, wrote: &Wrote, cx| {
+                this.refresh(wrote.0.clone(), cx)
             }),
+            cx.subscribe(&accounts, |this, _, wrote: &Wrote, cx| {
+                this.refresh(wrote.0.clone(), cx)
+            }),
+            cx.subscribe(&inbox, |this, _, wrote: &Wrote, cx| {
+                this.refresh(wrote.0.clone(), cx)
+            }),
+            cx.subscribe(&settings, |this, _, wrote: &Wrote, cx| {
+                this.refresh(wrote.0.clone(), cx)
+            }),
+            cx.subscribe_in(
+                &accounts,
+                window,
+                |this, _, event: &AccountsEvent, window, cx| {
+                    this.on_accounts_event(*event, window, cx)
+                },
+            ),
             cx.observe(&accounts, |_, _, cx| cx.notify()),
             cx.observe(&inbox, |_, _, cx| cx.notify()),
             // The status bar counts the enabled AI clients.
             cx.observe(&settings, |_, _, cx| cx.notify()),
-            cx.subscribe_in(&settings, window, |this, _, event, window, cx| {
-                this.on_settings_event(event.clone(), window, cx)
-            }),
-            cx.subscribe_in(&transactions, window, |this, _, event, window, cx| {
-                this.on_transactions_event(event.clone(), window, cx)
-            }),
+            cx.subscribe_in(
+                &settings,
+                window,
+                |this, _, event: &SettingsEvent, window, cx| {
+                    this.on_settings_event(event.clone(), window, cx)
+                },
+            ),
+            cx.subscribe_in(
+                &transactions,
+                window,
+                |this, _, event: &TransactionsEvent, window, cx| {
+                    this.on_transactions_event(event.clone(), window, cx)
+                },
+            ),
             // The status bar's counts and the panel's categories follow
             // the register and the table's filter.
             cx.observe(&transactions, |this, transactions, cx| {
@@ -589,6 +661,7 @@ impl ShellView {
             persistence: None,
             now: clock::now().unwrap_or_default(),
             clock: None,
+            live: None,
             _subscriptions: subscriptions,
         }
     }
@@ -601,16 +674,12 @@ impl ShellView {
         self._subscriptions.push(subscription);
     }
 
-    /// After an import or its undo, the panel and Transactions read the
-    /// database again.
+    /// After an import or its undo, the views of the ledger read the
+    /// database again: the panel, Transactions, and the checks (possible
+    /// duplicates added or cleared, the balance checks changed).
     fn watch_imports(imports: &Entity<Imports>, cx: &mut Context<Self>) -> Subscription {
         cx.subscribe(imports, |this, _, _: &ImportsChanged, cx| {
-            this.accounts.update(cx, |accounts, cx| accounts.reload(cx));
-            this.transactions
-                .update(cx, |transactions, cx| transactions.reload(cx));
-            // An import or its undo adds or clears possible duplicates and
-            // changes the balance checks.
-            this.checks.update(cx, |checks, cx| checks.reload(cx));
+            this.refresh(BTreeSet::from([Topic::Ledger]), cx);
             // "Imported just now", not the time last read.
             if let Ok(now) = clock::now() {
                 this.now = now;
@@ -756,9 +825,17 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        checks.update(cx, |checks, _| checks.reload_through_shell());
         self.checks_subscriptions = vec![
-            cx.subscribe_in(&checks, window, |this, _, event, window, cx| {
-                this.on_checks_event(event.clone(), window, cx)
+            cx.subscribe_in(
+                &checks,
+                window,
+                |this, _, event: &ChecksEvent, window, cx| {
+                    this.on_checks_event(event.clone(), window, cx)
+                },
+            ),
+            cx.subscribe(&checks, |this, _, wrote: &Wrote, cx| {
+                this.refresh(wrote.0.clone(), cx)
             }),
             cx.observe(&checks, |_, _, cx| cx.notify()),
         ];
@@ -775,9 +852,13 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        rules.update(cx, |rules, _| rules.reload_through_shell());
         self.rules_subscriptions = vec![
-            cx.subscribe_in(&rules, window, |this, _, event, window, cx| {
+            cx.subscribe_in(&rules, window, |this, _, event: &RulesEvent, window, cx| {
                 this.on_rules_event(*event, window, cx)
+            }),
+            cx.subscribe(&rules, |this, _, wrote: &Wrote, cx| {
+                this.refresh(wrote.0.clone(), cx)
             }),
             cx.observe(&rules, |_, _, cx| cx.notify()),
         ];
@@ -819,14 +900,9 @@ impl ShellView {
                     inbox.select(Some(id), cx);
                 });
             }
-            // An apply, an undo, a deleted rule, a name or a category changed
-            // what the other views read.
-            RulesEvent::Changed => {
-                self.transactions
-                    .update(cx, |transactions, cx| transactions.reload(cx));
-                self.accounts.update(cx, |accounts, cx| accounts.reload(cx));
-                self.checks.update(cx, |checks, cx| checks.reload(cx));
-            }
+            // What the other views read changed: the `Wrote` that came with
+            // it names the ledger, and the shell's round reloads them.
+            RulesEvent::Changed => {}
         }
     }
 
@@ -868,13 +944,9 @@ impl ShellView {
             ChecksEvent::AddBalanceRequested(account) => {
                 self.on_accounts_event(AccountsEvent::AddBalanceRequested(account), window, cx)
             }
-            // A merge, an undo or a lock changed what the accounts panel
-            // and Transactions read.
-            ChecksEvent::Changed => {
-                self.accounts.update(cx, |accounts, cx| accounts.reload(cx));
-                self.transactions
-                    .update(cx, |transactions, cx| transactions.reload(cx));
-            }
+            // A merge, an undo or a lock: the `Wrote` that came with it
+            // reloads the accounts panel and Transactions.
+            ChecksEvent::Changed => {}
         }
     }
 
@@ -901,9 +973,9 @@ impl ShellView {
             TransactionsEvent::LinkRequested(from) => {
                 self.open_link_dialog(from, window, cx);
             }
-            TransactionsEvent::Changed => {
-                self.checks.update(cx, |checks, cx| checks.reload(cx));
-            }
+            // Links, shares or the ledger changed: the `Wrote` that came
+            // with it reloads Owed to you, the accounts and the checks.
+            TransactionsEvent::Changed | TransactionsEvent::LedgerChanged => {}
             TransactionsEvent::ExcludeRequested(transaction) => {
                 self.open_exclude_dialog(transaction, window, cx);
             }
@@ -917,11 +989,6 @@ impl ShellView {
                 let dialog = cx
                     .new(|cx| DeleteTransactionDialog::new(transactions, transaction, window, cx));
                 self.open_dialog(dialog, window, cx);
-            }
-            TransactionsEvent::LedgerChanged => {
-                // Balances, and what the checks compare, moved.
-                self.accounts.update(cx, |accounts, cx| accounts.reload(cx));
-                self.checks.update(cx, |checks, cx| checks.reload(cx));
             }
         }
     }
@@ -1106,9 +1173,9 @@ impl ShellView {
                 self.show(View::Rules, window, cx);
                 self.rules.update(cx, |rules, cx| rules.new_category(cx));
             }
-            AccountsEvent::BalancesChanged => {
-                self.checks.update(cx, |checks, cx| checks.reload(cx));
-            }
+            // The balance written came with a `Wrote`, which reloads the
+            // checks.
+            AccountsEvent::BalancesChanged => {}
         }
     }
 
@@ -1155,8 +1222,11 @@ impl ShellView {
                 let dialog = cx.new(|cx| ExportDialog::new(settings, window, cx));
                 self.open_dialog(dialog, window, cx);
             }
-            // The database was replaced: everything reads it again.
-            SettingsEvent::Restored => self.accounts.update(cx, |accounts, cx| accounts.reload(cx)),
+            // No checks while the app's own restore runs ([`live`]).
+            SettingsEvent::RestoreStarted => self.pause_watching(),
+            // The database was replaced: every view reads it again.
+            SettingsEvent::Restored => self.restored(cx),
+            SettingsEvent::RestoreFailed => self.restore_failed(cx),
             SettingsEvent::AiAccessChanged => cx.notify(),
         }
     }
@@ -1169,7 +1239,8 @@ impl ShellView {
     }
 
     /// Shows `dialog` over the window until it closes, then puts focus back
-    /// on the shell.
+    /// on the shell. What a dialog wrote reloads the views through the
+    /// view it wrote with ([`live`]), not here.
     fn open_dialog<D>(&mut self, dialog: Entity<D>, window: &mut Window, cx: &mut Context<Self>)
     where
         D: Render + gpui_kit::EventEmitter<DialogClosed>,
@@ -1178,11 +1249,6 @@ impl ShellView {
             cx.subscribe_in(&dialog, window, |this, _, _: &DialogClosed, window, cx| {
                 this.dialog = None;
                 this.import_dialog = None;
-                // A balance added or a lock changed: the checks read again.
-                this.checks.update(cx, |checks, cx| checks.reload(cx));
-                // A cash count may have added its difference (M3.10).
-                this.transactions
-                    .update(cx, |transactions, cx| transactions.reload(cx));
                 this.focus.focus(window, cx);
                 cx.notify();
             });

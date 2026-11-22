@@ -66,6 +66,7 @@ use orre_core::rule::{
 };
 
 use crate::accounts::store::StoreError;
+use crate::shell::live::{Reloads, Wrote};
 use crate::ui::list;
 use form::{CategoryError, CategoryForm, FormError, NameForm, RuleForm};
 use state::{CategoriesPane, CategoryEdit, HistoryPane, NameEdit, NamesPane, RuleEdit, RulesPane};
@@ -264,6 +265,8 @@ pub struct Rules {
     loaded: bool,
     /// The background read in flight; a newer one replaces it.
     loading: Option<Task<()>>,
+    /// Who reads everything again after the view's own write.
+    reloads: Reloads,
     /// Bumped on every change to an inspector form: a read refills a form
     /// only if this hasn't moved since the read was asked for.
     form_edits: u64,
@@ -300,6 +303,7 @@ impl Written {
 }
 
 impl EventEmitter<RulesEvent> for Rules {}
+impl EventEmitter<Wrote> for Rules {}
 
 fn message(error: impl std::fmt::Display) -> SharedString {
     SharedString::from(text::sentence(&error.to_string()))
@@ -354,6 +358,7 @@ impl Rules {
             load_error: None,
             loaded: true,
             loading: None,
+            reloads: Reloads::Itself,
             form_edits: 0,
             asked_edits: None,
             written: Vec::new(),
@@ -454,6 +459,12 @@ impl Rules {
         if !self.loaded && self.loading.is_none() {
             self.reload(cx);
         }
+    }
+
+    /// After the view's own write, the shell reads everything again, with
+    /// every other view of what it changed ([`crate::shell::live`]).
+    pub fn reload_through_shell(&mut self) {
+        self.reloads = Reloads::ByShell;
     }
 
     /// Takes a read: its data, or the old data kept with the error. A rule
@@ -913,9 +924,11 @@ impl Rules {
         }
         // A rule the view hasn't read yet ("Open rule" from Transactions just
         // after start-up, or on a rule an Inbox approval made, while the read
-        // the shell asked for is in flight) is selected when the read lands,
-        // instead of nothing or the first row.
-        if self.rules.editing.is_none() && (!self.loaded || self.loading.is_some()) {
+        // the shell asked for is in flight or, after a save, still to start)
+        // is selected when the read lands, instead of nothing or the first
+        // row.
+        let read_owed = self.loading.is_some() || self.asked_edits.is_some();
+        if self.rules.editing.is_none() && (!self.loaded || read_owed) {
             self.pending_rule = id;
         }
         cx.notify();

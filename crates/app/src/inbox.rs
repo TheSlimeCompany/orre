@@ -36,10 +36,12 @@ pub mod store;
 pub mod text;
 pub mod view;
 
-use gpui_kit::{AppContext as _, Context, SharedString, Task};
+use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
 use orre_core::inbox::preview::Covered;
 use orre_core::inbox::{ORRE_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
+use orre_core::watch::Topic;
 
+use crate::shell::live::{Reloads, Wrote};
 use crate::ui::list::{self, Move};
 use store::{Entry, InboxData, InboxStore};
 
@@ -110,11 +112,15 @@ pub struct Inbox {
     loaded: bool,
     /// The background read in flight; a newer one replaces it.
     loading: Option<Task<()>>,
+    /// Who reads the suggestions again after a decision.
+    reloads: Reloads,
     /// The panel row the keyboard cursor was last drawn on, for
     /// `describe()` (test-only).
     #[cfg(any(test, feature = "dev-driver"))]
     panel_cursor: std::cell::RefCell<Option<panel::InboxPanelRow>>,
 }
+
+impl EventEmitter<Wrote> for Inbox {}
 
 impl Inbox {
     /// The suggestions in `store`, read now, on this thread: for tests and
@@ -162,6 +168,7 @@ impl Inbox {
             load_error: None,
             loaded: true,
             loading: None,
+            reloads: Reloads::Itself,
             #[cfg(any(test, feature = "dev-driver"))]
             panel_cursor: Default::default(),
         }
@@ -388,6 +395,25 @@ impl Inbox {
         }
     }
 
+    /// After a decision, the shell reads the suggestions again, with every
+    /// other view of what it changed ([`crate::shell::live`]).
+    pub fn reload_through_shell(&mut self) {
+        self.reloads = Reloads::ByShell;
+    }
+
+    /// A decision changed `topics`: the suggestions read again, or inside a
+    /// shell the read in flight (started before the decision) is dropped
+    /// and the shell reads them.
+    fn wrote(&mut self, topics: &[Topic], cx: &mut Context<Self>) {
+        match self.reloads {
+            Reloads::Itself => self.reload(cx),
+            Reloads::ByShell => {
+                self.loading = None;
+                cx.emit(Wrote::of(topics.iter().copied()));
+            }
+        }
+    }
+
     /// Reads on this thread (tests and the snapshot).
     fn read_now(&mut self) {
         let Source::Database(store) = &self.source else {
@@ -515,6 +541,7 @@ impl Inbox {
             }
             .map_err(|error| SharedString::from(error.to_string()))
         });
+        let decided = result.is_ok();
         self.outcome = match result {
             Ok(()) => {
                 self.selected = next;
@@ -522,7 +549,15 @@ impl Inbox {
             }
             Err(message) => Some(Outcome::Refused { scope, message }),
         };
-        self.reload(cx);
+        if !decided {
+            self.reload(cx);
+        } else if approve {
+            // An approval can change transactions (a categorisation, a
+            // transfer pair) and rules or names.
+            self.wrote(&[Topic::Inbox, Topic::Ledger, Topic::Rules], cx);
+        } else {
+            self.wrote(&[Topic::Inbox], cx);
+        }
     }
 
     /// The row to select after `ids` leave the list: the next one below

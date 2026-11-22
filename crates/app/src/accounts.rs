@@ -109,6 +109,7 @@ use orre_core::id::{AccountId, BalanceId};
 use orre_core::money::Money;
 use orre_core::reporting::account_tree::AccountNode;
 
+use crate::shell::live::{Reloads, Wrote};
 use crate::ui::list;
 use data::AccountsData;
 use store::AccountStore;
@@ -219,6 +220,8 @@ pub struct Accounts {
     loaded: bool,
     /// The background read in flight; a newer one replaces it.
     loading: Option<Task<()>>,
+    /// Who reads the accounts again after their own write.
+    reloads: Reloads,
     /// The account closed last, until the bar is dismissed.
     closed: Option<Closed>,
     /// Why Undo couldn't reopen it, said in the bar.
@@ -236,6 +239,7 @@ pub struct Accounts {
 }
 
 impl EventEmitter<AccountsEvent> for Accounts {}
+impl EventEmitter<Wrote> for Accounts {}
 
 impl Accounts {
     /// The accounts in `store`, read now, on this thread: for tests and the
@@ -248,6 +252,7 @@ impl Accounts {
             load_error: None,
             loaded: true,
             loading: None,
+            reloads: Reloads::Itself,
             closed: None,
             closed_error: None,
             removed: None,
@@ -270,6 +275,7 @@ impl Accounts {
             selected: None,
             load_error: None,
             loading: None,
+            reloads: Reloads::Itself,
             closed: None,
             closed_error: None,
             removed: None,
@@ -290,6 +296,7 @@ impl Accounts {
             load_error: Some(reason.into()),
             loaded: true,
             loading: None,
+            reloads: Reloads::Itself,
             closed: None,
             closed_error: None,
             removed: None,
@@ -309,6 +316,7 @@ impl Accounts {
             load_error: None,
             loaded: true,
             loading: None,
+            reloads: Reloads::Itself,
             closed: None,
             closed_error: None,
             removed: None,
@@ -563,6 +571,26 @@ impl Accounts {
         }
     }
 
+    /// After their own write, the shell reads the accounts again, with
+    /// every other view of the ledger ([`crate::shell::live`]).
+    pub fn reload_through_shell(&mut self) {
+        self.reloads = Reloads::ByShell;
+    }
+
+    /// Their own write changed the ledger: the accounts read again
+    /// themselves, or inside a shell drop the read in flight (it started
+    /// before the write, so it mustn't land after it) and leave the read to
+    /// the shell, which starts it after the write.
+    fn wrote_ledger(&mut self, cx: &mut Context<Self>) {
+        match self.reloads {
+            Reloads::Itself => self.reload(cx),
+            Reloads::ByShell => {
+                self.loading = None;
+                cx.emit(Wrote::of([orre_core::watch::Topic::Ledger]));
+            }
+        }
+    }
+
     /// Reads on this thread (tests and the snapshot).
     fn read_now(&mut self) {
         let Source::Database(store) = &self.source else {
@@ -623,8 +651,9 @@ impl Accounts {
             .store()?
             .create(account, balance)
             .map_err(|error| SharedString::from(error.to_string()))?;
-        self.reload(cx);
-        // Selected at once, by ID; the read just started has the account.
+        self.wrote_ledger(cx);
+        // Selected at once, by ID; the read asked for after the write has
+        // the account.
         self.select(Some(id), cx);
         Ok(id)
     }
@@ -639,7 +668,7 @@ impl Accounts {
         self.store()?
             .update(account, edit)
             .map_err(|error| SharedString::from(error.to_string()))?;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         Ok(())
     }
 
@@ -666,7 +695,7 @@ impl Accounts {
         self.closed_error = None;
         self.removed = None;
         self.removed_error = None;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         Ok(())
     }
 
@@ -684,7 +713,7 @@ impl Accounts {
             Ok(_) => {
                 self.closed = None;
                 self.closed_error = None;
-                self.reload(cx);
+                self.wrote_ledger(cx);
                 self.select(Some(closed.account), cx);
             }
             Err(error) => {
@@ -710,7 +739,7 @@ impl Accounts {
         self.store()?
             .delete(account)
             .map_err(|error| SharedString::from(error.to_string()))?;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         Ok(())
     }
 
@@ -749,8 +778,8 @@ impl Accounts {
     /// transaction when `add_difference`. The error says why it wasn't.
     ///
     /// Reloads the accounts, so the panel's balance changes. A difference
-    /// transaction also changes what Transactions shows, which the shell has
-    /// to read again once the dialog closes.
+    /// transaction also changes what Transactions shows: inside a shell the
+    /// shell reads every view of the ledger again.
     pub fn count_cash(
         &mut self,
         account: AccountId,
@@ -761,7 +790,7 @@ impl Accounts {
         self.store()?
             .count_cash(account, count, add_difference)
             .map_err(|error| SharedString::from(error.to_string()))?;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         Ok(())
     }
 
@@ -777,7 +806,7 @@ impl Accounts {
         self.store()?
             .update_balance(account, balance, entered)
             .map_err(|error| SharedString::from(error.to_string()))?;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         Ok(())
     }
 
@@ -807,7 +836,7 @@ impl Accounts {
         self.removed_error = None;
         self.closed = None;
         self.closed_error = None;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         Ok(())
     }
 
@@ -865,7 +894,7 @@ impl Accounts {
         self.store()?
             .add_balance(account, balance)
             .map_err(|error| SharedString::from(error.to_string()))?;
-        self.reload(cx);
+        self.wrote_ledger(cx);
         Ok(())
     }
 }
