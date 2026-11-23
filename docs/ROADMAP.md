@@ -1353,10 +1353,15 @@ LU.6 alongside.
 - ⬜ LU.5 Showing what arrived, designed in Paper first: for example the badge counting
   up, new rows marked briefly, a quiet "3 suggestions from Claude Code" in the status
   bar. Never a toast that takes focus.
-- ⬜ LU.6 Cost: measure an idle tick and a fingerprint check at 100,000 transactions
+- ✅ LU.6 Cost: measure an idle tick and a fingerprint check at 100,000 transactions
   (`ledger_bench` or a new example) and record it in LU.1's record. Fingerprints use
   existing indexes, or a new migration adds them. Also the Settings clients read on the
   UI thread (`reload_clients`: an access-log flush and aggregates over `mcp_access_log`).
+
+  Measured (`docs/architecture/app.md` → "Decision record: live updates (2026-11-21)",
+  point 9, composed for the user to confirm): an idle tick is 3 µs, a fingerprint check
+  5 ms, and no fingerprint needs an index, so no migration. The clients read is 129 ms
+  with a year of heavy MCP use, so `reload_clients` reads in the background now.
 
 **Exit criteria:** with Orre open, a suggestion filed by an MCP client and a
 `orre import` run in a terminal both show within about two seconds, without clicking.

@@ -69,7 +69,8 @@
 //!   and changes no count or newest ID. Core records one for every edit of
 //!   a user-facing field ([`crate::change`]) and undoing it changes the
 //!   batch's status, which the fingerprint holds. Catching an unrecorded one
-//!   would need an index or column to read cheaply (a migration, LU.6).
+//!   would need an index or column to read cheaply (a migration; LU.6 found
+//!   no need for one).
 //! - The excluded columns: `created_at` of the rule tables, a client's
 //!   `last_seen_at` and the window state setting. They change without the
 //!   user having changed anything the views show.
