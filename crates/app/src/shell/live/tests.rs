@@ -1090,3 +1090,49 @@ fn a_check_overlapping_an_own_write_shows_nothing(cx: &mut TestAppContext) {
     assert_eq!(line(&shell, cx), None);
     assert!(marked_rows(&shell, cx).is_empty());
 }
+
+/// A read for another process's change still in flight when the app's own
+/// import starts may land with the import in it: nothing it brings is an
+/// arrival.
+#[gpui_kit::test]
+fn an_outside_read_overlapping_an_own_import_shows_nothing(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let imports = cx.update(|_, cx| shell.read(cx).imports().clone());
+    // What the import commits, seen by the outside read.
+    add_row_outside(&scratch, &shell, cx);
+    cx.update(|_, cx| {
+        shell.update(cx, |shell, cx| {
+            shell.reload_views(&topics(&[Topic::Ledger]), Reader::Outside, cx)
+        });
+        imports.update(cx, |imports, cx| imports.writing(cx));
+    });
+    settle(cx);
+    assert_eq!(line(&shell, cx), None);
+    assert!(marked_rows(&shell, cx).is_empty());
+}
+
+/// An undo that removes the selected row while an outside read is in
+/// flight: the inspector doesn't say it was removed outside the window.
+#[gpui_kit::test]
+fn an_outside_read_overlapping_an_own_undo_notes_no_removal(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let imports = cx.update(|_, cx| shell.read(cx).imports().clone());
+    let transactions = cx.update(|_, cx| shell.read(cx).transactions().clone());
+    let added = add_row_outside(&scratch, &shell, cx);
+    check(&shell, cx);
+    cx.update(|_, cx| transactions.update(cx, |view, cx| view.select([added], cx)));
+
+    // What the undo removes, seen by the outside read.
+    manual::delete(&mut scratch.db(), added).unwrap();
+    cx.update(|_, cx| {
+        shell.update(cx, |shell, cx| {
+            shell.reload_views(&topics(&[Topic::Ledger]), Reader::Outside, cx)
+        });
+        imports.update(cx, |imports, cx| imports.writing(cx));
+    });
+    settle(cx);
+    assert!(cx.update(|_, cx| transactions.read(cx).removed_note().is_none()));
+    assert_ne!(line(&shell, cx).as_deref(), Some("1 transaction removed"));
+}

@@ -875,6 +875,11 @@ impl TransactionsView {
         self.read_follows_own_write = true;
     }
 
+    /// Whether a read of the register is in flight.
+    pub fn reading(&self) -> bool {
+        self.loading.is_some()
+    }
+
     /// The register the table shows.
     /// Today, as the screen dates things.
     pub fn today(&self) -> NaiveDate {

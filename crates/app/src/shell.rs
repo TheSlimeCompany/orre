@@ -708,7 +708,7 @@ impl ShellView {
     /// ([`ImportWrite`]).
     fn watch_import_writes(imports: &Entity<Imports>, cx: &mut Context<Self>) -> Subscription {
         cx.subscribe(imports, |this, _, write: &ImportWrite, cx| match write {
-            ImportWrite::Started => this.own_write_started(),
+            ImportWrite::Started => this.own_write_started(cx),
             ImportWrite::Failed => this.own_write_failed(cx),
         })
     }
