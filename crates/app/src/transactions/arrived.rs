@@ -9,8 +9,10 @@
 //! imported source fields (date, time, amount, original amount, raw
 //! description, bank merchant, payment type, bank note, source) are never
 //! edited, so they are not compared; neither is the account, which can't
-//! move. A row's merchant is compared as the table shows it (the display
-//! merchant, else the bank's).
+//! move. A manual row has no source fields: its account, date, time, amount
+//! and text are the user's, editable (`manual::update`), so for it they are
+//! compared too. A row's merchant is compared as the table shows it (the
+//! display merchant, else the bank's).
 
 use std::collections::{HashMap, HashSet};
 
@@ -106,6 +108,19 @@ fn user_facing_differs(was: &RegisterRow, now: &RegisterRow) -> bool {
         || was.tags != now.tags
         || was.links != now.links
         || was.share != now.share
+        || (now.source.is_manual() && manual_differs(was, now))
+}
+
+/// The fields `manual::update` rewrites on a manual row, beyond the
+/// user-facing ones every row has.
+fn manual_differs(was: &RegisterRow, now: &RegisterRow) -> bool {
+    was.account != now.account
+        || was.date != now.date
+        || was.time != now.time
+        || was.amount != now.amount
+        || was.original != now.original
+        || was.description != now.description
+        || was.bank_merchant != now.bank_merchant
 }
 
 /// The inspector's empty state for rows that went in a read the app didn't
@@ -228,6 +243,26 @@ mod tests {
         let mut after = before.clone();
         row(&mut after, "txn-pret-09").description = "OTHER TEXT".to_owned();
         assert!(RegisterChange::between(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn an_edit_to_a_manual_rows_own_fields_is_a_change() {
+        let before = fixture::manual_register().rows().to_vec();
+        let edits: [fn(&mut RegisterRow); 5] = [
+            |row| row.amount = Money::new(-500, Currency::GBP),
+            |row| row.date = NaiveDate::from_ymd_opt(2026, 11, 3).unwrap(),
+            |row| row.time = chrono::NaiveTime::from_hms_opt(9, 30, 0),
+            |row| row.account = orre_core::id::AccountId::new(1),
+            |row| row.description = "Corner shop, milk".to_owned(),
+        ];
+        for edit in edits {
+            let mut after = before.clone();
+            let id = fixture::manual_id(1);
+            edit(after.iter_mut().find(|row| row.id == id).unwrap());
+            let change = RegisterChange::between(&before, &after);
+            assert_eq!(change.changed, [id]);
+            assert!(change.new.is_empty() && change.removed.is_empty());
+        }
     }
 
     #[test]
