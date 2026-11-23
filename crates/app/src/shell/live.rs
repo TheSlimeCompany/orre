@@ -454,12 +454,22 @@ impl ShellView {
     }
 
     /// The app's own import or undo started writing in the background: no
-    /// check starts until it's done ([`Live::own_writes`]).
-    pub(super) fn own_write_started(&mut self) {
+    /// check starts until it's done ([`Live::own_writes`]). A Transactions
+    /// read already in flight may land with the write in it: it's no longer
+    /// another process's, and a row it finds gone went by the user's hand.
+    /// Only a read in flight is marked, so a write that fails leaves the
+    /// next read as it was.
+    pub(super) fn own_write_started(&mut self, cx: &mut Context<Self>) {
         if let Some(live) = self.live.as_mut() {
             live.own_writes += 1;
             live.epoch += 1;
         }
+        self.arrived.outside_transactions = false;
+        self.transactions.update(cx, |transactions, _| {
+            if transactions.reading() {
+                transactions.read_follows_own_write();
+            }
+        });
     }
 
     /// That write is done and changed `topics`: they're refreshed, and the
