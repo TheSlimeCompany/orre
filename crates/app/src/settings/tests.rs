@@ -800,6 +800,44 @@ fn reload_clients_reads_in_the_background(cx: &mut TestAppContext) {
     assert!(cx.update(|_, cx| settings.read(cx).clients_read.is_none()));
 }
 
+/// LU.6: a newer clients read replaces one in flight. The first read has
+/// already read a client that is then removed; it never lands, so the
+/// removed client never shows, at any step.
+#[gpui_kit::test]
+fn a_newer_clients_read_replaces_the_one_in_flight(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, settings, cx) = open(cx, &scratch);
+    let shows_aaa = |cx: &mut VisualTestContext| {
+        listed(&describe(&shell, &settings, cx))
+            .iter()
+            .any(|(client, ..)| client == "aaa-agent")
+    };
+    mcp_client::enable_at(
+        &mut scratch.db(),
+        &name("aaa-agent"),
+        AccessLevel::Aggregate,
+    )
+    .unwrap();
+
+    // The first read runs its background half only: it holds aaa-agent but
+    // hasn't landed.
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.reload_clients(cx)));
+    let dispatcher = cx.executor().dispatcher().clone();
+    let test = dispatcher.as_test().unwrap();
+    while test.tick(true) {}
+    assert!(!shows_aaa(cx), "the first read hasn't landed");
+
+    mcp_client::remove(&mut scratch.db(), &name("aaa-agent")).unwrap();
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.reload_clients(cx)));
+    while test.tick(false) {
+        assert!(!shows_aaa(cx), "the replaced read landed");
+    }
+
+    redraw(cx);
+    assert!(!shows_aaa(cx));
+    assert!(cx.update(|_, cx| settings.read(cx).clients_read.is_none()));
+}
+
 /// LU.6: the view's own write drops a clients read in flight, so the read
 /// can't land after it with older data.
 #[gpui_kit::test]
