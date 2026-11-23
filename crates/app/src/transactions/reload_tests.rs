@@ -248,7 +248,11 @@ fn a_selected_row_that_goes_elsewhere_is_let_go_and_nothing_else_is_selected(
     let after = describe(&view, cx);
     assert!(after.selected().is_empty());
     assert!(!after.listed().contains(&kept));
-    assert!(matches!(after.inspector, InspectorDescription::Nothing(_)));
+    // LU.5: and the inspector says it went (`arrival_tests`).
+    assert!(matches!(
+        after.inspector,
+        InspectorDescription::Removed { .. }
+    ));
     assert_eq!(after.toolbar.search, "shop");
     assert_eq!(after.listed().len(), ROWS - 2);
 }

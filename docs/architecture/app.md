@@ -149,8 +149,8 @@ clicked this way (`dev_driver::tests`).
 ### Live updates
 
 The watcher (LU.2), the shell wiring (LU.3) and keeping the user's place (LU.4) are
-built, and their cost is measured (LU.6); showing what arrived (LU.5) is not (ROADMAP →
-"Live updates"). The app notices a change made by another process (an MCP client filing
+built, their cost is measured (LU.6), and what arrived is shown (LU.5; ROADMAP →
+"Live updates", "Decision record: what arrived from another process (2026-11-23)"). The app notices a change made by another process (an MCP client filing
 suggestions, `orre import`, `undo-import`, `categorize`) by itself, because SQLite can't
 push one. `shell::live` holds it:
 
@@ -907,4 +907,33 @@ applies. Every point here was composed by the implementer and the lead from a pl
     with no database contents ("no transaction content in logs"); the next tick tries
     again.
 
-Still open: showing what arrived (LU.5).
+Showing what arrived (LU.5) is in "Decision record: what arrived from another process
+(2026-11-23)".
+
+## Decision record: what arrived from another process (2026-11-23)
+
+Composed while building LU.5 (`.scratch/lu5/spec.md`, `docs/DESIGN.md` → "Live
+updates: showing what arrived"), for the user to confirm.
+
+1. **A plain model.** `shell::arrivals` holds the arrival line, the Inbox badge's unseen
+   fill and the row marks, with time passed in: unseen has no limit, being seen (the
+   view on show in a focused window, or the line clicked) starts one 10 s hold, then a
+   100 ms fade. The shell keeps one timer to the next deadline, only in the app.
+2. **The views diff their own reads.** Transactions (`transactions::arrived`, a
+   `RegisterChanged` event) and the Inbox (`inbox::arrival`, `Arrived`) compare what a
+   read replaced with what it brought; the watcher still names only topics. No new query.
+3. **Only another process's change is shown.** The shell marks a view's read as outside
+   when a check started it, and a read for the app's own write clears the mark. A check
+   that overlapped an own write (an epoch bumped by every own write) reloads as the
+   app's own. The app's own import and its undo commit on a background thread, so they
+   announce themselves (`import::ImportWrite`): no check starts until the round that
+   reads them has rebased, as for a restore. When an outside change and an own write
+   overlap, the change is reloaded but not shown: unshown beats misattributed.
+4. **A removed row's note** ("This transaction was removed … outside this window") shows
+   only for a read that followed no own write; a write in another view of the shell
+   tells Transactions so (`read_follows_own_write`) before its read. Selecting an
+   account drops the note.
+5. **Caveat on point 1 of "live updates in the shell".** Naming fewer topics than a write
+   changed is no longer only a missed reload: a change to register rows that a write
+   didn't name would be read on the next check and shown as an arrival. Every own write
+   that changes rows names Ledger (or Rules).

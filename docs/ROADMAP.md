@@ -1350,9 +1350,16 @@ LU.6 alongside.
 
   Each view gets a test on its `describe()`: an outside change lands mid-task, and the
   view's state is unchanged apart from the new data.
-- ⬜ LU.5 Showing what arrived, designed in Paper first: for example the badge counting
+- ✅ LU.5 Showing what arrived, designed in Paper first: for example the badge counting
   up, new rows marked briefly, a quiet "3 suggestions from Claude Code" in the status
   bar. Never a toast that takes focus.
+
+  Designed on `JJY-0` and `JYE-0` (`docs/DESIGN.md` → "Live updates: showing what
+  arrived"); built from `.scratch/lu5/spec.md`: `shell::arrivals` (the line, the badge's
+  unseen fill, row marks and their timings), Transactions' and the Inbox's diffs of a
+  read, and the removed-row note. Only reads the shell started for a check count; a read
+  for the app's own write clears that, so an overlap is left unshown, never shown as
+  another process's.
 - ✅ LU.6 Cost: measure an idle tick and a fingerprint check at 100,000 transactions
   (`ledger_bench` or a new example) and record it in LU.1's record. Fingerprints use
   existing indexes, or a new migration adds them. Also the Settings clients read on the

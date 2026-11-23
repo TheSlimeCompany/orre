@@ -17,11 +17,12 @@
 //! changes, is always picked by the user; "Edit reason…" opens the same
 //! dialog filled in, titled "Change why “…” is excluded" with "Save".
 
+use gpui_kit::component::Disableable as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _,
-    Render, SharedString, Styled as _, Subscription, Window, div,
+    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, IntoElement,
+    ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
 };
 use orre_core::exclusion::ExclusionReason;
 use orre_core::id::TransactionId;
@@ -35,6 +36,7 @@ use crate::ui::menu::{MenuGroup, MenuOption, Select, SelectState};
 use crate::ui::text::TextRoleExt as _;
 
 use super::TransactionsView;
+use super::arrived::DIALOG_CAPTION;
 use super::linking;
 use super::source::reason_label;
 
@@ -116,14 +118,16 @@ impl ExcludeDialog {
             }
             input
         });
-        let subscriptions =
-            vec![
-                cx.subscribe_in(&details, window, |this, _, event: &InputEvent, _, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
-                        this.submit(cx);
-                    }
-                }),
-            ];
+        let subscriptions = vec![
+            cx.subscribe_in(&details, window, |this, _, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.submit(cx);
+                }
+            }),
+            // The row may go in a read from another process: the primary
+            // and the caption follow the view.
+            cx.observe(&transactions, |_, _, cx| cx.notify()),
+        ];
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         Self {
@@ -146,6 +150,12 @@ impl ExcludeDialog {
 
     pub fn error(&self) -> Option<&SharedString> {
         self.error.as_ref()
+    }
+
+    /// Whether the row went in a read from another process: the primary is
+    /// disabled and the caption says so; Cancel still closes.
+    pub fn removed(&self, cx: &App) -> bool {
+        self.transactions.read(cx).row_removed(self.transaction)
     }
 
     /// Picks `reason`, as the Reason select does.
@@ -178,6 +188,9 @@ impl ExcludeDialog {
 
     /// Excludes the row, or says why it can't.
     pub fn submit(&mut self, cx: &mut Context<Self>) {
+        if self.removed(cx) {
+            return;
+        }
         let typed = self.details.read(cx).value().to_string();
         let (reason, note) = match read(self.reason, &typed) {
             Ok(read) => read,
@@ -272,6 +285,7 @@ impl ExcludeDialog {
 
 impl Render for ExcludeDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let removed = self.removed(cx);
         let form = div()
             .flex()
             .flex_col()
@@ -288,6 +302,7 @@ impl Render for ExcludeDialog {
             .when_some(self.error.clone(), |this, error| {
                 this.body(error_caption(error))
             })
+            .when(removed, |this| this.body(caption(DIALOG_CAPTION)))
             .action(
                 Button::new("exclude-cancel", "Cancel")
                     .with_variant(ButtonVariant::Secondary)
@@ -301,6 +316,7 @@ impl Render for ExcludeDialog {
                 )
                 .with_variant(ButtonVariant::Primary)
                 .with_surface(color::FLOAT)
+                .disabled(removed)
                 .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
             )
             .on_cancel(move |_, cx| {

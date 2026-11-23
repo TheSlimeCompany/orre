@@ -981,6 +981,7 @@ fn the_description_reads_the_screen_in_full(cx: &mut TestAppContext) {
         original: None,
         selected,
         keyboard: selected,
+        marked: false,
     };
     let day = |heading: &str, row: RowDescription| DayDescription {
         heading: heading.to_owned(),

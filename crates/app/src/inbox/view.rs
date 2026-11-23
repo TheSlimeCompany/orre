@@ -24,9 +24,9 @@ use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, Entity, FocusHandle, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, Rgba, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Subscription, TestSupportExt as _, Window, div,
+    Animation, AnimationExt as _, AnyElement, App, ClickEvent, Context, Entity, FocusHandle,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, Rgba, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Subscription, TestSupportExt as _, Window, div,
 };
 use orre_core::category::assign::NoOwnCategory;
 use orre_core::inbox::preview::{
@@ -38,7 +38,7 @@ use orre_core::inbox::{
 use orre_core::link::LinkKind;
 use orre_core::reporting::palette::Palette;
 
-use crate::theme::tokens::{color, radius, shadow, size, spacing, typography, weight};
+use crate::theme::tokens::{color, motion, radius, shadow, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
 use crate::ui::empty_state::EmptyState;
 use crate::ui::icon::Glyph;
@@ -82,6 +82,41 @@ gpui_kit::actions!(
 
 /// The date lane: 48px (`spacing-6` × 2).
 const DATE_LANE: gpui_kit::Pixels = gpui_kit::px(48.);
+
+/// The row mark's dot: 6px, in the list's 8px left inset, 1px clear of the
+/// panel's edge and of the row.
+const MARK: gpui_kit::Pixels = gpui_kit::px(6.);
+
+/// The row mark of a marked row: a molten dot outside the row, centred on it,
+/// absolutely positioned so nothing reflows and no text or fill moves. It
+/// fades in over `motion::BASE` when first marked, and out over its exit
+/// when the marks fade ([`Inbox::set_marks`]); both are 0ms under
+/// `App::reduce_motion`, which `with_animation` honours.
+fn row_mark(id: SuggestionId, (since, fading): (u64, Option<u64>)) -> AnyElement {
+    let dot = div()
+        .absolute()
+        .left(-(spacing::S2 - (spacing::S2 - MARK) / 2.))
+        .top((size::CONTROL - MARK) / 2.)
+        .size(MARK)
+        .rounded(radius::LABEL)
+        .bg(color::MOLTEN);
+    match fading {
+        Some(fading) => dot
+            .with_animation(
+                SharedString::from(format!("inbox-mark-{id}-{since}-out-{fading}")),
+                Animation::new(motion::exit(motion::BASE)),
+                |dot, delta| dot.opacity(1. - delta),
+            )
+            .into_any_element(),
+        None => dot
+            .with_animation(
+                SharedString::from(format!("inbox-mark-{id}-{since}-in")),
+                Animation::new(motion::BASE),
+                |dot, delta| dot.opacity(delta),
+            )
+            .into_any_element(),
+    }
+}
 
 /// The action lane: two 24px icon buttons 4px apart.
 fn action_lane() -> gpui_kit::Pixels {
@@ -322,6 +357,7 @@ impl InboxView {
                 key,
                 selected,
                 pending,
+                inbox.mark(entry.id()),
                 &data.palette,
                 today,
                 me,
@@ -358,6 +394,7 @@ impl InboxView {
         key: &GroupKey,
         selected: bool,
         pending: bool,
+        mark: Option<(u64, Option<u64>)>,
         palette: &Palette,
         today: NaiveDate,
         me: &Entity<InboxView>,
@@ -423,6 +460,7 @@ impl InboxView {
             .id(SharedString::from(format!("inbox-row-{id}")))
             // Lets UI tests find the row; a no-op outside them.
             .test_support()
+            .relative()
             .flex()
             .flex_none()
             .items_center()
@@ -495,6 +533,7 @@ impl InboxView {
                     .children(cells.amount),
             )
             .child(lane(action_lane()).justify_end().child(actions))
+            .when_some(mark, |this, mark| this.child(row_mark(id, mark)))
             .into_any_element()
     }
 

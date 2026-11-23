@@ -27,6 +27,7 @@
 //! Rationales, patterns, names and bank text are untrusted text: shown as
 //! plain text, stripped ([`text::plain`]), never acted on.
 
+pub mod arrival;
 #[cfg(any(test, feature = "dev-driver"))]
 pub(crate) mod describe;
 pub mod fixture;
@@ -36,6 +37,8 @@ pub mod store;
 pub mod text;
 pub mod view;
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
 use orre_core::inbox::preview::Covered;
 use orre_core::inbox::{ORRE_SOURCE, SuggestionId, SuggestionKind, SuggestionStatus};
@@ -43,6 +46,7 @@ use orre_core::watch::Topic;
 
 use crate::shell::live::{Reloads, Wrote};
 use crate::ui::list::{self, Move};
+use arrival::{Arrived, arrived};
 use store::{Entry, InboxData, InboxStore};
 
 /// The order the kinds are listed in, widest reach first (`DESIGN.md` →
@@ -95,6 +99,21 @@ pub enum Scope {
     Group(GroupKey),
 }
 
+/// The rows marked as new in the suggestion list (ROADMAP LU.5, `DESIGN.md`
+/// → "Live updates: showing what arrived" → "Row mark"), as the shell last
+/// set them ([`Inbox::set_marks`]).
+#[derive(Clone, Debug, Default)]
+struct Marks {
+    /// Each marked suggestion, with the generation it was first marked in:
+    /// the key of its fade-in, so marks already shown don't fade in again
+    /// when more are added.
+    ids: BTreeMap<SuggestionId, u64>,
+    /// The generation the marks started fading out in, if they have: the
+    /// key of the fade-out.
+    fading: Option<u64>,
+    generation: u64,
+}
+
 /// The Inbox's state (module docs).
 pub struct Inbox {
     source: Source,
@@ -114,6 +133,11 @@ pub struct Inbox {
     loading: Option<Task<()>>,
     /// Who reads the suggestions again after a decision.
     reloads: Reloads,
+    /// The rows marked as new.
+    marks: Marks,
+    /// The highest suggestion id any read has listed: ids only grow, so a
+    /// pending suggestion above it arrived since ([`arrival::arrived`]).
+    newest_seen: Option<SuggestionId>,
     /// The panel row the keyboard cursor was last drawn on, for
     /// `describe()` (test-only).
     #[cfg(any(test, feature = "dev-driver"))]
@@ -121,6 +145,11 @@ pub struct Inbox {
 }
 
 impl EventEmitter<Wrote> for Inbox {}
+
+/// After a read that replaced loaded data and brought pending suggestions
+/// from an AI client: what arrived. The shell decides whether the read was
+/// unasked, and so news.
+impl EventEmitter<Arrived> for Inbox {}
 
 impl Inbox {
     /// The suggestions in `store`, read now, on this thread: for tests and
@@ -169,6 +198,8 @@ impl Inbox {
             loaded: true,
             loading: None,
             reloads: Reloads::Itself,
+            marks: Marks::default(),
+            newest_seen: None,
             #[cfg(any(test, feature = "dev-driver"))]
             panel_cursor: Default::default(),
         }
@@ -194,6 +225,51 @@ impl Inbox {
 
     pub fn source_filter(&self) -> Option<&str> {
         self.from.as_deref()
+    }
+
+    /// The suggestions marked as new ([`Inbox::set_marks`]), listed or not.
+    pub fn marked(&self) -> BTreeSet<SuggestionId> {
+        self.marks.ids.keys().copied().collect()
+    }
+
+    /// Whether the marks are fading out.
+    pub fn marks_fading(&self) -> bool {
+        self.marks.fading.is_some()
+    }
+
+    /// Marks `marks` as new in the suggestion list, from the shell: a 6px
+    /// molten dot beside each listed row. With `fading` the dots fade out
+    /// (100ms, `motion::exit(motion::BASE)`) and the shell sets none when
+    /// it's done; otherwise a mark fades in (150ms) when it first appears.
+    /// Fades are 0ms under `App::reduce_motion`. Only listed rows show a
+    /// mark. Marks touch no selection, open suggestion or scroll.
+    pub fn set_marks(
+        &mut self,
+        marks: BTreeSet<SuggestionId>,
+        fading: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.marked() == marks && self.marks_fading() == fading {
+            return;
+        }
+        self.marks.generation += 1;
+        let generation = self.marks.generation;
+        let mut kept = std::mem::take(&mut self.marks.ids);
+        self.marks.ids = marks
+            .into_iter()
+            .map(|id| (id, kept.remove(&id).unwrap_or(generation)))
+            .collect();
+        self.marks.fading = fading.then_some(generation);
+        cx.notify();
+    }
+
+    /// The generation `id`'s mark was first set in, and the one the marks
+    /// started fading out in: the keys of its animations.
+    pub(crate) fn mark(&self, id: SuggestionId) -> Option<(u64, Option<u64>)> {
+        self.marks
+            .ids
+            .get(&id)
+            .map(|since| (*since, self.marks.fading))
     }
 
     pub fn selected(&self) -> Option<SuggestionId> {
@@ -432,16 +508,27 @@ impl Inbox {
         cx: &mut Context<Self>,
     ) {
         // Showing another status has asked for its own read.
-        if status == self.status {
-            self.take(result);
-        }
+        let arrival = (status == self.status).then(|| self.take(result)).flatten();
         cx.notify();
+        if let Some(arrival) = arrival {
+            cx.emit(Arrived(arrival));
+        }
     }
 
-    fn take(&mut self, result: Result<InboxData, SharedString>) {
+    /// Shows what a read brought, and returns what it brought that's new
+    /// and pending: nothing for the first read or an error.
+    fn take(&mut self, result: Result<InboxData, SharedString>) -> Option<arrival::Arrival> {
         self.loaded = true;
+        let mut arrival = None;
         match result {
             Ok(data) => {
+                let brought = arrived(&self.data, &data, self.newest_seen);
+                arrival = (!brought.is_empty()).then_some(brought);
+                self.newest_seen = self
+                    .newest_seen
+                    .into_iter()
+                    .chain(data.entries.iter().map(Entry::id))
+                    .max();
                 self.data = data;
                 self.load_error = None;
             }
@@ -462,6 +549,7 @@ impl Inbox {
             self.selected = None;
         }
         self.lookup_covered();
+        arrival
     }
 
     fn store(&self) -> Result<&InboxStore, SharedString> {

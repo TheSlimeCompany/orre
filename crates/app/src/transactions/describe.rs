@@ -137,6 +137,9 @@ pub struct RowDescription {
     /// ⌘↑/⌘↓ move it without changing the selection and Space adds or
     /// removes it.
     pub keyboard: bool,
+    /// Wears the row mark: it arrived or changed in a read from another
+    /// process (LU.5). Drawn only on listed rows, so only listed rows say so.
+    pub marked: bool,
 }
 
 /// An open menu.
@@ -174,6 +177,12 @@ pub enum InspectorDescription {
     Nothing(&'static str),
     /// Nothing is selected and an account is: the account inspector.
     Account,
+    /// Every selected row went in a read from another process: the empty
+    /// state's title and body, until the next selection (LU.5).
+    Removed {
+        title: String,
+        body: String,
+    },
     One(Box<OneDescription>),
     Several(SeveralDescription),
 }
@@ -301,6 +310,7 @@ fn row(
         original,
         selected: view.selection.contains(row.id),
         keyboard: view.selection.current() == Some(row.id),
+        marked: view.marks.contains_key(&row.id),
     }
 }
 
@@ -517,9 +527,13 @@ impl TransactionsView {
     fn describe_inspector(&self, cx: &App) -> InspectorDescription {
         let selected = self.selected();
         match selected.as_slice() {
-            [] => match self.account_inspector(cx) {
-                Some(_) => InspectorDescription::Account,
-                None => InspectorDescription::Nothing(NOTHING_SELECTED),
+            [] => match (&self.removed, self.account_inspector(cx)) {
+                (Some(note), _) => InspectorDescription::Removed {
+                    title: note.title.clone(),
+                    body: note.body.clone(),
+                },
+                (None, Some(_)) => InspectorDescription::Account,
+                (None, None) => InspectorDescription::Nothing(NOTHING_SELECTED),
             },
             [row] => InspectorDescription::One(Box::new(self.describe_one(row, cx))),
             many => {
@@ -655,6 +669,14 @@ impl TransactionsDescription {
     /// The rows the table lists, in its order.
     pub fn listed(&self) -> Vec<TransactionId> {
         self.rows().map(|row| row.id).collect()
+    }
+
+    /// The listed rows that wear the row mark, in the table's order.
+    pub fn marked(&self) -> Vec<TransactionId> {
+        self.rows()
+            .filter(|row| row.marked)
+            .map(|row| row.id)
+            .collect()
     }
 
     /// The keyboard row, if listed.
