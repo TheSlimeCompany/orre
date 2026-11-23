@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use orre_core::clock;
 use orre_core::import::{BatchInfo, BatchStatus};
 
+use super::arrivals::{ArrivalLine, Channel, Lead, Phase, Span};
 use crate::accounts::data::AccountsData;
 use crate::format;
 use crate::transactions::Counts;
@@ -24,9 +25,10 @@ pub struct Status {
     pub import: Option<String>,
     /// "328 transactions · 2 excluded".
     pub transactions: String,
-    /// "3 new": Paper's sample only, until something defines what it
-    /// counts.
-    pub new: Option<String>,
+    /// What arrived from another process (LU.5, [`super::arrivals`]):
+    /// "9 new transactions", "3 suggestions from Claude Code". The sample
+    /// keeps Paper's "3 new transactions" (`JJY-0`).
+    pub arrival: Option<ArrivalLine>,
     /// "GBP": the one currency every open account is in.
     pub currency: Option<String>,
 }
@@ -64,6 +66,7 @@ pub struct Inputs<'a> {
     pub accounts: &'a AccountsData,
     pub counts: Counts,
     pub now: DateTime<Utc>,
+    pub arrival: Option<ArrivalLine>,
 }
 
 impl Status {
@@ -96,9 +99,26 @@ impl Status {
             checks,
             import,
             transactions: transactions_count(inputs.counts),
-            new: sample.then(|| "3 new".to_owned()),
+            arrival: if sample {
+                Some(sample_arrival())
+            } else {
+                inputs.arrival.clone()
+            },
             currency,
         }
+    }
+}
+
+/// Paper's arrival line on `JJY-0`: an import of three transactions.
+fn sample_arrival() -> ArrivalLine {
+    ArrivalLine {
+        lead: Lead::Dot,
+        spans: vec![Span {
+            text: "3 new transactions".to_owned(),
+            emphasis: false,
+        }],
+        opens: Some(Channel::Transactions),
+        phase: Phase::Shown,
     }
 }
 

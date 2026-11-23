@@ -27,6 +27,7 @@ fn read(accounts: &AccountsData, enabled_clients: usize, has_checks: bool) -> St
         accounts,
         counts: counts(0, 0, false),
         now: at("2026-11-09T08:14:30.000Z"),
+        arrival: None,
     })
 }
 
@@ -46,7 +47,7 @@ fn an_empty_database_shows_only_the_transactions_count() {
             checks: ChecksStatus::None,
             import: None,
             transactions: "0 transactions".to_owned(),
-            new: None,
+            arrival: None,
             currency: None,
         }
     );
@@ -66,6 +67,7 @@ fn the_ai_item_counts_enabled_clients_while_access_is_on() {
         accounts: &empty(),
         counts: counts(0, 0, false),
         now: at("2026-11-09T08:14:30.000Z"),
+        arrival: None,
     });
     assert_eq!(off.ai, Ai::Off);
 }
@@ -81,6 +83,7 @@ fn reconciled_needs_a_check_and_a_failure_replaces_it() {
         accounts: &empty(),
         counts: counts(0, 0, false),
         now: at("2026-11-09T08:14:30.000Z"),
+        arrival: None,
     });
     assert_eq!(failing.checks, ChecksStatus::Failing(2));
     assert_eq!(failing_text(1), "1 balance check failing");
@@ -139,6 +142,7 @@ fn the_sample_data_keeps_papers_status_bar() {
         accounts: &empty(),
         counts: counts(23, 0, true),
         now: at("2026-11-17T10:00:00.000Z"),
+        arrival: None,
     });
     assert_eq!(
         status,
@@ -147,7 +151,7 @@ fn the_sample_data_keeps_papers_status_bar() {
             checks: ChecksStatus::Reconciled,
             import: Some("Imported 2 min ago from monzo-november.csv".to_owned()),
             transactions: "328 transactions".to_owned(),
-            new: Some("3 new".to_owned()),
+            arrival: Some(sample_arrival()),
             currency: Some("GBP".to_owned()),
         }
     );

@@ -19,6 +19,10 @@ pub enum BadgeKind {
     Agent,
     /// Any other count: `hover` fill, `text-muted` text.
     Neutral,
+    /// An agent count that went up while its view wasn't on show (LU.5,
+    /// `docs/DESIGN.md` → "Live updates: showing what arrived"):
+    /// `moldavite` fill, `on-moldavite` text.
+    Unseen,
 }
 
 /// A count in a 16px pill: radius 8, 4px padding, 10/12 700.
@@ -56,6 +60,7 @@ impl RenderOnce for Badge {
         let (fill, text) = match self.kind {
             BadgeKind::Agent => (color::MOLDAVITE_SOFT, color::MOLDAVITE),
             BadgeKind::Neutral => (color::HOVER, color::TEXT_MUTED),
+            BadgeKind::Unseen => (color::MOLDAVITE, color::ON_MOLDAVITE),
         };
         div()
             .flex()

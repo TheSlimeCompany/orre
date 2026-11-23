@@ -752,12 +752,17 @@ impl ImportDialog {
         let file = preview.source_file().to_owned();
         self.busy = Some(Busy::Importing);
         self.problem = None;
+        self.imports.update(cx, |imports, cx| imports.writing(cx));
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move { store.commit(&preview, confirmed) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = None;
+                if !matches!(result, Ok(Committed::Batch(_))) {
+                    this.imports
+                        .update(cx, |imports, cx| imports.write_failed(cx));
+                }
                 match result {
                     Ok(Committed::Batch(summary)) => {
                         this.imports.update(cx, |imports, cx| {
@@ -789,7 +794,14 @@ impl ImportDialog {
         cx.notify();
     }
 
+    /// Closes the dialog, except while an import commits: closing then
+    /// would drop the commit's answer, and with it the import notice and
+    /// the end of the shell's hold on its live-update checks
+    /// ([`crate::import::ImportWrite`]).
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
+        if self.busy == Some(Busy::Importing) {
+            return;
+        }
         cx.emit(DialogClosed);
     }
 

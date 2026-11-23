@@ -28,16 +28,16 @@ use gpui_kit::base::actions::Confirm;
 use gpui_kit::component::list::ListItem;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, ClickEvent, Context, Div, ElementId, FocusHandle,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, RenderOnce, Rgba,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Transformation, Window, div,
-    radians,
+    Animation, AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, Context, Div,
+    ElementId, FocusHandle, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    RenderOnce, Rgba, SharedString, StatefulInteractiveElement as _, Styled as _, Transformation,
+    Window, div, radians,
 };
 
 use gpui_kit::base::TestSupportExt as _;
 
 use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
-use crate::theme::tokens::{color, radius, shadow, size, spacing, typography};
+use crate::theme::tokens::{color, motion, radius, shadow, size, spacing, typography};
 use crate::ui::PreviewState;
 use crate::ui::icon::Glyph;
 use crate::ui::marker::Marker;
@@ -1019,6 +1019,60 @@ impl RenderOnce for TransactionRow {
             .when(ring, |this| {
                 this.show_focus_ring(FocusRingPlacement::Inset, window)
             })
+    }
+}
+
+/// The mark's clearance from the panel's edge, and from the row (8px inset
+/// less the 6px dot, shared by both sides).
+const MARK_CLEARANCE: gpui_kit::Pixels = gpui_kit::px(1.);
+
+/// How a [`row_mark`] is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkFade {
+    /// Fading in over `--motion-base`: it just arrived.
+    In,
+    /// Drawn, not animating.
+    Steady,
+    /// Fading out over `--motion-base`'s exit (100ms), then invisible.
+    Out,
+}
+
+/// The row mark (`docs/DESIGN.md` → "Live updates: showing what arrived"):
+/// a 6px `molten` dot, radius `radius-label`, in the 8px inset to the left
+/// of a row, 1px from the panel's edge and from the row, centred on it.
+/// Absolutely positioned and with no mouse handlers: the owner puts it in
+/// the row's `relative` wrapper and it never moves text, changes the row's
+/// fill or takes a click. `animation` identifies the fade: an animation
+/// runs once for each id, so a new id is a new fade. Under
+/// `App::reduce_motion` a fade jumps to its end.
+pub fn row_mark(animation: impl Into<ElementId>, fade: MarkFade) -> AnyElement {
+    let mark = div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left(MARK_CLEARANCE)
+        .flex()
+        .items_center()
+        .child(
+            div()
+                .size(size::DOT)
+                .rounded(radius::LABEL)
+                .bg(color::MOLTEN),
+        );
+    match fade {
+        MarkFade::Steady => mark.into_any_element(),
+        MarkFade::In => mark
+            .with_animation(animation, Animation::new(motion::BASE), |mark, delta| {
+                mark.opacity(delta)
+            })
+            .into_any_element(),
+        MarkFade::Out => mark
+            .with_animation(
+                animation,
+                Animation::new(motion::exit(motion::BASE)),
+                |mark, delta| mark.opacity(1. - delta),
+            )
+            .into_any_element(),
     }
 }
 

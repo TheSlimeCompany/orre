@@ -30,6 +30,7 @@ use crate::format::{self, Sign};
 use crate::theme::focus::{FocusRingExt as _, FocusRingPlacement};
 use crate::theme::tokens::{color, font, radius, size, spacing, typography, weight};
 use crate::ui::button::{Button, ButtonVariant, IconButton, IconButtonSize};
+use crate::ui::empty_state::EmptyState;
 use crate::ui::field::{
     self as fields, FieldRow, LockedValue, SelectField, date_input, error_caption, text_input,
 };
@@ -881,6 +882,20 @@ fn empty() -> Vec<AnyElement> {
     ]
 }
 
+/// The empty state for rows that went in a read from another process
+/// (`DESIGN.md` → "Live updates: showing what arrived"). The inspector is
+/// 296px wide and the empty state 272px: 12px each side.
+fn removed(note: &super::arrived::RemovedNote) -> Vec<AnyElement> {
+    vec![
+        div()
+            .flex()
+            .flex_none()
+            .p(spacing::S3)
+            .child(EmptyState::new(note.title.clone()).body(note.body.clone()))
+            .into_any_element(),
+    ]
+}
+
 pub(super) fn render(
     view: &TransactionsView,
     window: &mut Window,
@@ -888,9 +903,10 @@ pub(super) fn render(
 ) -> impl IntoElement {
     let selected = view.selected();
     let sections = match selected.as_slice() {
-        [] => match view.account_inspector(cx) {
-            Some(account) => vec![account.into_any_element()],
-            None => empty(),
+        [] => match (view.removed_note(), view.account_inspector(cx)) {
+            (Some(note), _) => removed(note),
+            (None, Some(account)) => vec![account.into_any_element()],
+            (None, None) => empty(),
         },
         [row] => single(view, row, window, cx),
         many => multiple(view, many, cx),

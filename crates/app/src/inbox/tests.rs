@@ -621,6 +621,7 @@ fn a_filtered_group_is_described_in_full(cx: &mut TestAppContext) {
                     amount: "5".to_owned(),
                     decided: None,
                     selected: false,
+                    marked: false,
                 }],
                 footer: Some(FooterDescription {
                     actions: vec![button("Approve", true), button("Reject", true)],
@@ -629,6 +630,7 @@ fn a_filtered_group_is_described_in_full(cx: &mut TestAppContext) {
                     refused: None,
                 }),
             }],
+            marks_fading: false,
             selected: None,
             open: None,
             inspector: InspectorDescription::Nothing(
@@ -769,4 +771,108 @@ fn a_suggestion_decided_elsewhere_goes_and_nothing_else_is_selected(cx: &mut Tes
     assert!(after.open.is_none());
     assert!(!labels(&after).contains(&gone));
     assert_eq!(labels(&after).len(), labels(&before).len() - 1);
+}
+
+/// LU.5: a read that brings a suggestion from another connection reports
+/// it, by client and id, and leaves the selection and the open suggestion
+/// as they were.
+#[gpui_kit::test]
+fn a_reload_after_an_outside_filing_reports_the_arrival(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let uber = scratch.rule("UBER *EATS");
+    let (shell, inbox, cx) = open(cx, &scratch);
+    let arrivals = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let _subscription = cx.update(|_, cx| {
+        let arrivals = arrivals.clone();
+        cx.subscribe(&inbox, move |_, arrived: &arrival::Arrived, _| {
+            arrivals.borrow_mut().push(arrived.clone());
+        })
+    });
+    click(&format!("inbox-row-{uber}"), cx);
+    let before = describe(&shell, &inbox, cx);
+
+    // A read that finds nothing new reports nothing.
+    cx.update(|_, cx| inbox.update(cx, |inbox, cx| inbox.reload(cx)));
+    redraw(cx);
+    assert!(arrivals.borrow().is_empty());
+
+    let filed = file_outside(&scratch, "FROMOUTSIDE");
+    cx.update(|_, cx| inbox.update(cx, |inbox, cx| inbox.reload(cx)));
+    redraw(cx);
+
+    let arrivals = arrivals.borrow();
+    assert_eq!(arrivals.len(), 1);
+    let arrival::Arrived(arrival) = &arrivals[0];
+    assert_eq!(
+        arrival.by_client.iter().collect::<Vec<_>>(),
+        [(&fixture::AGENT.to_owned(), &1)]
+    );
+    assert_eq!(arrival.ids, BTreeSet::from([filed]));
+    let after = describe(&shell, &inbox, cx);
+    assert_eq!(after.selected, before.selected);
+    assert_eq!(after.open, before.open);
+    assert_eq!(after.inspector, before.inspector);
+}
+
+/// LU.5: the marks the shell sets show on listed rows only, fade as asked,
+/// and move nothing.
+#[gpui_kit::test]
+fn marks_show_on_listed_rows_only_and_move_nothing(cx: &mut TestAppContext) {
+    let scratch = Scratch::new(false);
+    let uber = scratch.rule("UBER *EATS");
+    let deliveroo = scratch.rule("DELIVEROO");
+    let (shell, inbox, cx) = open(cx, &scratch);
+    click(&format!("inbox-row-{uber}"), cx);
+    let before = describe(&shell, &inbox, cx);
+    let marked = |description: &InboxDescription| -> Vec<String> {
+        description
+            .groups
+            .iter()
+            .flat_map(|group| &group.rows)
+            .filter(|row| row.marked)
+            .map(|row| row.label.clone())
+            .collect()
+    };
+    assert!(marked(&before).is_empty());
+    assert!(!before.marks_fading);
+
+    // One listed row, the selected one, and one that isn't listed.
+    let unlisted = SuggestionId::new(9999);
+    cx.update(|_, cx| {
+        inbox.update(cx, |inbox, cx| {
+            inbox.set_marks(BTreeSet::from([uber, unlisted]), false, cx)
+        })
+    });
+    redraw(cx);
+    let marks = describe(&shell, &inbox, cx);
+    assert_eq!(marked(&marks), ["Merchant contains UBER *EATS"]);
+    assert!(!marks.marks_fading);
+    assert_eq!(marks.selected, before.selected);
+    assert_eq!(marks.open, before.open);
+    assert_eq!(marks.inspector, before.inspector);
+
+    // A second row, not selected, while they fade out.
+    cx.update(|_, cx| {
+        inbox.update(cx, |inbox, cx| {
+            inbox.set_marks(BTreeSet::from([uber, deliveroo]), true, cx)
+        })
+    });
+    redraw(cx);
+    let fading = describe(&shell, &inbox, cx);
+    let mut shown = marked(&fading);
+    shown.sort();
+    assert_eq!(
+        shown,
+        [
+            "Merchant contains DELIVEROO",
+            "Merchant contains UBER *EATS"
+        ]
+    );
+    assert!(fading.marks_fading);
+
+    cx.update(|_, cx| inbox.update(cx, |inbox, cx| inbox.set_marks(BTreeSet::new(), false, cx)));
+    redraw(cx);
+    let cleared = describe(&shell, &inbox, cx);
+    assert!(marked(&cleared).is_empty());
+    assert_eq!(cleared.selected, before.selected);
 }
