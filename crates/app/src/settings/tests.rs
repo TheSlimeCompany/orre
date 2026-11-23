@@ -768,6 +768,70 @@ fn an_unasked_reload_keeps_the_selected_client_and_an_open_dialog(cx: &mut TestA
     );
 }
 
+/// LU.6: the clients are read on a background thread: nothing changes until
+/// the executor runs, then a client added by another connection shows.
+#[gpui_kit::test]
+fn reload_clients_reads_in_the_background(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, settings, cx) = open(cx, &scratch);
+    mcp_client::enable_at(
+        &mut scratch.db(),
+        &name("aaa-agent"),
+        AccessLevel::Aggregate,
+    )
+    .unwrap();
+
+    cx.update(|_, cx| settings.update(cx, |settings, cx| settings.reload_clients(cx)));
+    let before = describe(&shell, &settings, cx);
+    assert!(
+        !listed(&before)
+            .iter()
+            .any(|(client, ..)| client == "aaa-agent"),
+        "what is shown stays until the read lands"
+    );
+
+    redraw(cx);
+    let after = describe(&shell, &settings, cx);
+    assert!(
+        listed(&after)
+            .iter()
+            .any(|(client, ..)| client == "aaa-agent")
+    );
+    assert!(cx.update(|_, cx| settings.read(cx).clients_read.is_none()));
+}
+
+/// LU.6: the view's own write drops a clients read in flight, so the read
+/// can't land after it with older data.
+#[gpui_kit::test]
+fn a_write_drops_the_clients_read_in_flight(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (shell, settings, cx) = open(cx, &scratch);
+
+    cx.update(|_, cx| {
+        settings.update(cx, |settings, cx| {
+            settings.reload_clients(cx);
+            assert!(settings.clients_read.is_some());
+            settings.turn_client(name("claude-code"), false, cx);
+            assert!(
+                settings.clients_read.is_none(),
+                "the write dropped the read"
+            );
+        })
+    });
+    redraw(cx);
+
+    assert!(cx.update(|_, cx| settings.read(cx).clients_read.is_none()));
+    assert_eq!(scratch.access("claude-code"), ClientAccess::Revoked);
+    let shown = describe(&shell, &settings, cx);
+    assert!(
+        listed(&shown)
+            .iter()
+            .any(|(client, _, on)| client == "claude-code" && !on),
+        "{:?}",
+        listed(&shown)
+    );
+}
+
 /// LU.4: a reload nobody asked for keeps the log's section and selected
 /// call, including one on a page loaded by scrolling.
 #[gpui_kit::test]
