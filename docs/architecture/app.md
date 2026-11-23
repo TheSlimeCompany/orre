@@ -105,9 +105,10 @@ transactions"; `crates/core/examples/ledger_bench.rs` measures it).
   depend on a read (`show`, `show_account`, Undo reopening a pair) when it lands;
   everything in the import dialog that touches the disk or database (`ImportStore`);
   backing up, checking a backup and restoring in Settings; the delayed window-state
-  save; the live-updates baseline, checks and rebases (`shell::live`).
-- **UI thread:** the Settings read, including the AI clients read again when the
-  Settings topic changes; every write (Accounts, Rules, Inbox decisions and the rest;
+  save; the live-updates baseline, checks and rebases (`shell::live`); the AI clients
+  read again when the Settings topic changes (`SettingsView::reload_clients`, LU.6).
+- **UI thread:** the Settings read when Settings is shown or reloaded whole, and after
+  its own client writes; every write (Accounts, Rules, Inbox decisions and the rest;
   the shell then has the views read in the background); Inbox `covered_by` on
   selection; the Rules view's other reads (an apply preview, the suggestions over a
   rule, a change's items, what undoing would do).
@@ -148,8 +149,8 @@ clicked this way (`dev_driver::tests`).
 ### Live updates
 
 The watcher (LU.2), the shell wiring (LU.3) and keeping the user's place (LU.4) are
-built; showing what arrived (LU.5) and the cost (LU.6) are not (ROADMAP → "Live
-updates"). The app notices a change made by another process (an MCP client filing
+built, and their cost is measured (LU.6); showing what arrived (LU.5) is not (ROADMAP →
+"Live updates"). The app notices a change made by another process (an MCP client filing
 suggestions, `orre import`, `undo-import`, `categorize`) by itself, because SQLite can't
 push one. `shell::live` holds it:
 
@@ -166,8 +167,8 @@ push one. `shell::live` holds it:
   reloads Transactions, the accounts and the review queues, and Rules only while it is
   the view on show; Rules reloads Rules and Transactions (merchant names); Settings
   reloads Settings' AI clients (`load_ai`: it flushes refused calls into the access log,
-  a write, and aggregates `mcp_access_log`, once with no time bound; on the UI thread on
-  every Settings-topic report, which LU.6 measures). The status bar follows the reloads.
+  a write, and aggregates `mcp_access_log`, once with no time bound; on a background
+  thread, LU.6). The status bar follows the reloads.
 - **The app's own writes** go through the shell: a view names the topics it changed
   (`live::Wrote`), and the shell's `refresh` rebases them on a background thread, then
   reloads every view of them. That is the only place the watcher is rebased. Imports
@@ -701,8 +702,8 @@ change reloads Rules only while it is on show (2).
      seen until the user moves around; that gap is accepted. **The rule:** every writer
      outside the app that changes a transaction records it as an import batch or a
      `change_batch`, or writes a table a fingerprint reads (every current one does;
-     the tables no topic sees are below). **No migration.** LU.6 says if its
-     measurement calls for an index.
+     the tables no topic sees are below). **No migration**: LU.6 measured the
+     fingerprints and found none needs an index (point 9).
    - **What no topic sees:** budgets, schedules, exchange rates, tags' links to
      transactions, and the MCP access log. Each is one more query when a view needs
      it (LU.3).
@@ -767,12 +768,51 @@ change reloads Rules only while it is on show (2).
    reading page after page on the UI thread. A chase that fails still keeps the page it
    read, one page more per failed chase; LU.3 truncates the log back to its length
    before the chase. Each view's test on its `describe()` shows it.
-9. **Cost: to be measured (LU.6).** An idle tick (two `stat` calls) and a fingerprint
-   check at 100,000 transactions, on `ledger_bench` or a new example. The numbers go
-   here, with the machine, when LU.6 is done. Not measured yet.
+9. **Cost, measured (LU.6).** **(composed)** The decisions in this point are the
+   lead's, for the user to confirm. `ledger_bench` ("performance at 100,000
+   transactions" has the ledger and how to run it) times the watcher on its ledger,
+   and `ledger_bench <dir> --only live` times just these rows. Release build, the same
+   machine as that record (AMD Ryzen 9 3900XT, 31 GiB, NVMe, ext4, Linux 6.18; rustc
+   1.99.1), SQLite built with `SQLITE_DEFAULT_MEMSTATUS=0` (`.cargo/config.toml`),
+   2026-11-22:
+
+   | Call (thread) | Median | Max | Runs |
+   |---|---|---|---|
+   | Idle tick: `check` on an unchanged stamp (background) | 3.0 µs | 27 µs | 2,000 |
+   | Fingerprint check, every topic: stamp, open, all queries, stamp (background) | 5.1 ms | 5.3 ms | 9 |
+   | Rebase of Inbox / Ledger / Rules / Settings, open included (background) | 4.2 / 4.6 / 4.5 / 4.2 ms | 4.9 ms | 9 each |
+   | The open alone (`gate::open` and the migration check) | 2.7 ms | 3.0 ms | 9 |
+   | Settings' AI clients read, `load_ai`, 5,000 access-log rows | 13.8 ms | 14.2 ms | 7 |
+   | The same, 100,000 access-log rows over a year | 129 ms | 130 ms | 5 |
+
+   - **Idle costs nothing measurable:** two `stat` calls a second while the window is
+     active. A change costs one or two checks of about 5 ms each, half of each the open
+     (a check whose own close checkpoints the `-wal` keeps the old stamp, so the next
+     tick compares again, point 1), then the reloads the views already had.
+   - **The fingerprints need no index, so no migration.** Every query reads a primary
+     key, a covering index (a `count(*)` reads the smallest one end to end) or a table
+     that stays small, but two: the status sums of
+     `transaction_link` and `transfer_group` scan the table. Those grow with the ledger,
+     but slowly: about 250 rows each at 100,000 transactions, 0.08 ms a query. A test
+     (`watch::tests::every_fingerprint_query_is_served_by_an_index_or_a_small_table`)
+     runs `EXPLAIN QUERY PLAN` on every query. It fails when a query reads the rows of
+     any other table that grows (a plain scan, or one through an index that doesn't
+     cover the query), and on either of these two once it stops scanning.
+   - **Settings' AI clients read moves to a background thread.** The
+     unbounded aggregate over `mcp_access_log` is 14 ms on the benchmark's log, but the
+     log keeps 12 months, and a year of heavy use (about 100,000 calls, made by a copy
+     of the ledger that the benchmark deletes afterwards) takes it to 129 ms, over the
+     50 ms budget. So `SettingsView::reload_clients`, what a Settings-topic report runs,
+     reads on a background thread ("live updates in the shell", point 9). A newer read
+     replaces one in flight, and every read of the clients on the UI thread drops it,
+     so a read started before the view's own write can't land after it. Still on the
+     UI thread, at the same cost: showing Settings, its whole reload, and the read after
+     its own client writes (the Enable dialog selects the client it enabled from it).
+     Moving those, or bounding the aggregate, is left for when the log is that large.
 
 Points 3 and 4 and the stamp come from the roadmap; the user confirmed every other point
-on 2026-11-22. Still open: the cost (9, LU.6). L.10 may revisit the Windows identity (1).
+on 2026-11-22. Point 9 was composed for LU.6, for the user to confirm. L.10 may revisit
+the Windows identity (1).
 
 ### Decision record: live updates in the shell (2026-11-22)
 
@@ -830,11 +870,13 @@ applies. Every point here was composed by the implementer and the lead from a pl
    selections that need data (`show`, `show_account`, Undo reopening a pair) made when
    the read lands. Its writes go through `Wrote` like the others.
 9. **Q2: the Settings topic reloads only Settings' AI clients**
-   (`SettingsView::reload_clients`), on the UI thread on every Settings-topic report.
+   (`SettingsView::reload_clients`), on every Settings-topic report: on the UI thread
+   until LU.6.
    `load_ai` reads the clients and the kill switch, flushes refused calls into the access
    log (a write) and aggregates `mcp_access_log` (the last 7 days, and once with no time
    bound), so its cost grows with the log, not with a few rows. Reports are rare, but
-   LU.6 measures it and moves it to a background thread if it exceeds the 50 ms budget.
+   LU.6 measured it over the budget with a year of heavy use, so `reload_clients` now reads
+   on a background thread ("live updates", point 9).
    Settings' own writes keep their read on the UI thread (the Enable dialog selects the
    client it enabled from it) and also name Settings, so the shell rebases and reads the
    clients once more.
@@ -865,4 +907,4 @@ applies. Every point here was composed by the implementer and the lead from a pl
     with no database contents ("no transaction content in logs"); the next tick tries
     again.
 
-Still open: the cost (LU.6), and showing what arrived (LU.5).
+Still open: showing what arrived (LU.5).

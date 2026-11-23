@@ -208,6 +208,10 @@ pub struct SettingsView {
     panel_focus: FocusHandle,
     list_focus: FocusHandle,
     _task: Option<Task<()>>,
+    /// The AI clients being read in the background (`reload_clients`). A
+    /// newer read replaces it, and any read of the clients on this thread
+    /// drops it, so a read that started before can't land after.
+    clients_read: Option<Task<()>>,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
@@ -309,6 +313,7 @@ impl SettingsView {
             panel_focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
             _task: None,
+            clients_read: None,
         }
     }
 
@@ -391,15 +396,48 @@ impl SettingsView {
     }
 
     /// Reads the AI clients again, for the shell after they changed
-    /// ([`crate::shell::live`]). On this thread, on every Settings-topic
-    /// report: it flushes refused calls into the access log (a write) and
-    /// aggregates `mcp_access_log`, once with no time bound, so LU.6 measures
-    /// it and moves it to the background if it exceeds the 50 ms budget. The
-    /// selections stay where their rows still are.
+    /// ([`crate::shell::live`]), on a background thread: it flushes refused
+    /// calls into the access log (a write) and aggregates `mcp_access_log`,
+    /// once with no time bound. LU.6 measured that at 100,000 transactions:
+    /// 14 ms with 5,000 log rows but 129 ms with 100,000 (a year of heavy
+    /// use), over the 50 ms budget. What is shown stays until the read lands;
+    /// a newer read replaces one in flight, and the view's own writes drop
+    /// it (`reload_section`). The selections stay where their rows still are.
     pub fn reload_clients(&mut self, cx: &mut Context<Self>) {
-        self.reload_section(Section::Clients);
-        self.select_defaults();
-        cx.notify();
+        let Source::Database(store) = &self.source else {
+            return;
+        };
+        let store = store.clone();
+        if let Ok(clock) = store::now() {
+            self.clock = clock;
+        }
+        let clock = self.clock;
+        let work = cx
+            .background_executor()
+            .spawn(async move { store.load_ai(&clock) });
+        self.clients_read = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.clients_read = None;
+                this.land_clients(result);
+                this.select_defaults();
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    fn land_clients(&mut self, result: Result<AiData, StoreError>) {
+        match result {
+            Ok(ai) => {
+                self.ai = ai;
+                self.ai_error = None;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "couldn't read the AI clients");
+                self.ai_error = Some(sentence(&error.to_string()));
+            }
+        }
     }
 
     /// The app's own write to the clients or the kill switch, after the
@@ -465,16 +503,10 @@ impl SettingsView {
         }
         let store = store.clone();
         match section {
-            Section::Clients => match store.load_ai(&self.clock) {
-                Ok(ai) => {
-                    self.ai = ai;
-                    self.ai_error = None;
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "couldn't read the AI clients");
-                    self.ai_error = Some(sentence(&error.to_string()));
-                }
-            },
+            Section::Clients => {
+                self.clients_read = None;
+                self.land_clients(store.load_ai(&self.clock));
+            }
             Section::Log => self.load_log(&store, None),
             Section::Backups => {
                 match store.load_backups() {

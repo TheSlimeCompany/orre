@@ -11,7 +11,10 @@
 //! behaviour; this shows nothing they don't (no result hash).
 //!
 //! Backing up, checking a backup and restoring run on a background thread
-//! (the store is `Send`); the rest is small and runs on the main thread.
+//! (the store is `Send`), and so does [`SettingsStore::load_ai`] when the
+//! live updates read the clients again (`SettingsView::reload_clients`: its
+//! cost grows with the access log, 129 ms with a year of heavy use, LU.6).
+//! The rest is small and runs on the main thread.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
