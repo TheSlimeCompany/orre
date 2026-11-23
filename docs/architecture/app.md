@@ -768,8 +768,8 @@ change reloads Rules only while it is on show (2).
    reading page after page on the UI thread. A chase that fails still keeps the page it
    read, one page more per failed chase; LU.3 truncates the log back to its length
    before the chase. Each view's test on its `describe()` shows it.
-9. **Cost, measured (LU.6).** **(composed)** The decisions in this point are the
-   lead's, for the user to confirm. `ledger_bench` ("performance at 100,000
+9. **Cost, measured (LU.6).** The decisions in this point are the lead's, confirmed
+   by the user on 2026-11-23. `ledger_bench` ("performance at 100,000
    transactions" has the ledger and how to run it) times the watcher on its ledger,
    and `ledger_bench <dir> --only live` times just these rows. Release build, the same
    machine as that record (AMD Ryzen 9 3900XT, 31 GiB, NVMe, ext4, Linux 6.18; rustc
@@ -811,14 +811,14 @@ change reloads Rules only while it is on show (2).
      Moving those, or bounding the aggregate, is left for when the log is that large.
 
 Points 3 and 4 and the stamp come from the roadmap; the user confirmed every other point
-on 2026-11-22. Point 9 was composed for LU.6, for the user to confirm. L.10 may revisit
+on 2026-11-22. Point 9 was composed for LU.6 and confirmed on 2026-11-23. L.10 may revisit
 the Windows identity (1).
 
 ### Decision record: live updates in the shell (2026-11-22)
 
 ROADMAP LU.3, built on "live updates" (2026-11-21), whose points 2, 6 and 7 it
 applies. Every point here was composed by the implementer and the lead from a plan,
-**to be confirmed by the user**. The lead decided Q1 to Q6 below.
+and confirmed by the user on 2026-11-23. The lead decided Q1 to Q6 below.
 
 1. **The soundness rule.** If the app rebases topic T at time r, every view of T must
    start a read after r. A rebase not followed by that is the only way to miss a
@@ -910,10 +910,10 @@ applies. Every point here was composed by the implementer and the lead from a pl
 Showing what arrived (LU.5) is in "Decision record: what arrived from another process
 (2026-11-23)".
 
-## Decision record: what arrived from another process (2026-11-23)
+### Decision record: what arrived from another process (2026-11-23)
 
 Composed while building LU.5 (`.scratch/lu5/spec.md`, `docs/DESIGN.md` → "Live
-updates: showing what arrived"), for the user to confirm.
+updates: showing what arrived"), and confirmed by the user on 2026-11-23.
 
 1. **A plain model.** `shell::arrivals` holds the arrival line, the Inbox badge's unseen
    fill and the row marks, with time passed in: unseen has no limit, being seen (the
