@@ -1336,7 +1336,7 @@ LU.6 alongside.
 
   Built in `shell::live`: the app's own writes go through the shell, which rebases and
   reloads in one place (`docs/architecture/app.md` → "Decision record: live updates in
-  the shell (2026-11-22)", composed, for the user to confirm).
+  the shell (2026-11-22)", confirmed 2026-11-23).
 - ✅ LU.4 Reloading keeps your place. A reload that arrives unasked must not lose what the
   user is doing. Per view:
   - **Transactions:** selection, scroll, filters, search, an inline edit or open dialog.
@@ -1366,7 +1366,7 @@ LU.6 alongside.
   UI thread (`reload_clients`: an access-log flush and aggregates over `mcp_access_log`).
 
   Measured (`docs/architecture/app.md` → "Decision record: live updates (2026-11-21)",
-  point 9, composed for the user to confirm): an idle tick is 3 µs, a fingerprint check
+  point 9, confirmed 2026-11-23): an idle tick is 3 µs, a fingerprint check
   5 ms, and no fingerprint needs an index, so no migration. The clients read is 129 ms
   with a year of heavy MCP use, so `reload_clients` reads in the background now.
 
