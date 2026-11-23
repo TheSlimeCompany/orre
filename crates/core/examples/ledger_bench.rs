@@ -4,6 +4,7 @@
 //!
 //! ```sh
 //! cargo run --release -p orre-core --example ledger_bench -- <dir>
+//! cargo run --release -p orre-core --example ledger_bench -- <dir> --only live
 //! ```
 //!
 //! `<dir>` is required and is never the platform data directory: the
@@ -14,6 +15,13 @@
 //! rows, rules, suggestions from two clients and access-log rows. A marker
 //! file (`ledger_bench.built`) records a finished build, so a second run in
 //! the same directory only measures. Delete the directory when done.
+//!
+//! `--only live` measures just the open and the rows for live updates
+//! (`orre_core::watch`: an idle tick, a fingerprint check, a rebase of each
+//! topic) and for the Settings AI clients read, skipping the slow rows. The
+//! last of those is also timed on a copy of the ledger (made next to it and
+//! deleted at the end) whose access log holds about 100,000 rows over the
+//! retention window, as a year of heavy MCP use would leave it.
 //!
 //! Everything is made up: merchants, amounts and descriptions. The
 //! generator is a small PRNG with a fixed seed.
@@ -28,6 +36,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use chrono::{Datelike, Days, NaiveDate};
+use orre_core::access_log::activity::{self, Query};
 use orre_core::access_log::{self, NewEntry, Outcome};
 use orre_core::account::{self, AccountKind, NewAccount};
 use orre_core::backup::gate;
@@ -52,9 +61,11 @@ use orre_core::rule::{
     self, AmountBounds, MatchField, MatchKind, Pattern, RuleAction, RuleDefinition,
 };
 use orre_core::schedule;
+use orre_core::setting;
 use orre_core::statement::{
     SourceFormat, SourceLocation, Statement, StatementLine, SubAccountKind, SubAccountRef,
 };
+use orre_core::watch::{Check, Topic, Watcher};
 use serde_json::{Value, json};
 
 const MARKER: &str = "ledger_bench.built";
@@ -62,17 +73,30 @@ const YEARS: u32 = 5;
 const CLIENTS: [&str; 2] = ["claude-code", "codex"];
 const SUGGESTIONS_PER_CLIENT: usize = 200;
 const ACCESS_LOG_ROWS: usize = 5_000;
+/// The access-log rows of the copy that stands for a year of heavy use.
+const YEAR_ACCESS_LOG_ROWS: usize = 100_000;
 const MERCHANTS: usize = 120;
 const RULES: usize = 100;
 /// The UI-thread budget.
 const BUDGET: Duration = Duration::from_millis(50);
 
 fn main() -> ExitCode {
-    let Some(dir) = std::env::args_os().nth(1).map(PathBuf::from) else {
-        eprintln!("usage: ledger_bench <dir>   (a scratch directory; never the data directory)");
+    let mut args = std::env::args_os().skip(1);
+    let Some(dir) = args.next().map(PathBuf::from) else {
+        eprintln!(
+            "usage: ledger_bench <dir> [--only live]   (a scratch directory; never the data directory)"
+        );
         return ExitCode::from(2);
     };
-    match run(&dir) {
+    let only_live = match (args.next(), args.next(), args.next()) {
+        (None, _, _) => false,
+        (Some(flag), Some(which), None) if flag == "--only" && which == "live" => true,
+        _ => {
+            eprintln!("usage: ledger_bench <dir> [--only live]");
+            return ExitCode::from(2);
+        }
+    };
+    match run(&dir, only_live) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("ledger_bench: {error}");
@@ -83,7 +107,7 @@ fn main() -> ExitCode {
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn run(dir: &Path) -> Result<()> {
+fn run(dir: &Path, only_live: bool) -> Result<()> {
     if let Some(data) = orre_core::paths::database_path()
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf))
@@ -107,7 +131,7 @@ fn run(dir: &Path) -> Result<()> {
         std::fs::write(dir.join(MARKER), "built\n")?;
         println!("built the ledger in {:.1?}", started.elapsed());
     }
-    measure(&database)
+    measure(&database, only_live)
 }
 
 // Random numbers ---------------------------------------------------------------
@@ -766,7 +790,7 @@ fn open(database: &Path) -> Result<Database> {
     Ok(gate::open(database, Database::open)?)
 }
 
-fn measure(database: &Path) -> Result<()> {
+fn measure(database: &Path, only_live: bool) -> Result<()> {
     let mut rows = Vec::new();
     let today = schedule::local_today()?;
     let db = open(database)?;
@@ -792,6 +816,12 @@ fn measure(database: &Path) -> Result<()> {
         9,
         || open(database),
     )?;
+
+    if only_live {
+        live_rows(&mut rows, database)?;
+        print_table(&rows);
+        return Ok(());
+    }
 
     // Accounts view: AccountStore::load.
     time(&mut rows, "  account_tree alone", true, 7, || {
@@ -1105,8 +1135,193 @@ fn measure(database: &Path) -> Result<()> {
         });
     }
 
+    live_rows(&mut rows, database)?;
     print_table(&rows);
     Ok(())
+}
+
+/// The rows for live updates and for the Settings AI clients read.
+fn live_rows(rows: &mut Vec<Row>, database: &Path) -> Result<()> {
+    // The app's watcher ticks off the UI thread (`orre_core::watch`).
+    let mut idle = Watcher::new(database);
+    idle.check()?;
+    // The baseline's own open can leave the files changed (the last
+    // connection closing checkpoints): the next check compares again, and
+    // the one after is the idle tick.
+    for _ in 0..5 {
+        if idle.check()? == Check::Unchanged {
+            break;
+        }
+    }
+    time(
+        rows,
+        "Live updates: idle tick (stamp unchanged)",
+        false,
+        2_000,
+        || match idle.check()? {
+            Check::Unchanged => Ok(()),
+            other => Err(format!("the idle tick found {other:?}").into()),
+        },
+    )?;
+
+    time(
+        rows,
+        "Live updates: fingerprint check, every topic",
+        false,
+        9,
+        || {
+            // A new watcher's first check is the baseline: stamp, one open
+            // through the gate, every topic's queries, stamp again. That is
+            // a check after a changed stamp.
+            let check = Watcher::new(database).check()?;
+            if check != Check::Changed(Default::default()) {
+                return Err(format!("the baseline reported {check:?}").into());
+            }
+            Ok(())
+        },
+    )?;
+
+    let mut rebased = Watcher::new(database);
+    rebased.check()?;
+    for topic in Topic::ALL {
+        time(
+            rows,
+            &format!("Live updates: rebase of {topic:?} (includes the open)"),
+            false,
+            9,
+            || Ok(rebased.rebase(&[topic])?),
+        )?;
+    }
+
+    time(rows, "Settings: AI clients read (load_ai)", true, 7, || {
+        load_ai(database)
+    })?;
+
+    let copy = YearCopy::make(database)?;
+    time(
+        rows,
+        &format!(
+            "Settings: AI clients read, access log of {YEAR_ACCESS_LOG_ROWS} rows over a year"
+        ),
+        true,
+        5,
+        || load_ai(&copy.path),
+    )?;
+    Ok(())
+}
+
+/// The tools that write to the Inbox, copied from the MCP server's registry
+/// (`orre_mcp::tools::registry`, where `writes` is not `Writes::Nothing`):
+/// core doesn't know them and an example can't depend on the mcp crate. Keep
+/// in step with the registry.
+fn writes(tool: &str) -> bool {
+    [
+        "propose_categorizations",
+        "propose_rule",
+        "propose_transfer_pair",
+        "propose_merchant_alias",
+        "propose_refund_link",
+        "save_report",
+    ]
+    .contains(&tool)
+}
+
+/// What the app's `SettingsStore::load_ai` reads, from core's calls
+/// (`crates/app/src/settings/store.rs`): it mirrors that function and must
+/// be kept in step with it.
+fn load_ai(database: &Path) -> Result<()> {
+    let mut db = open(database)?;
+    access_log::pending::flush(&mut db)?;
+    let reader = db.reader()?;
+    let week = activity::timestamp(orre_core::clock::now()? - chrono::Duration::days(7));
+    let _ = activity::activity(&reader, Some(&week), writes)?;
+    let _ = activity::activity(&reader, None, writes)?;
+    let _ = activity::written(&reader, &week)?;
+    let _ = activity::count(
+        &reader,
+        &Query {
+            since: Some(week),
+            ..Query::default()
+        },
+    )?;
+    let _ = mcp_client::list(&reader)?;
+    let _ = setting::mcp_enabled(&reader)?;
+    Ok(())
+}
+
+/// A copy of the built ledger beside it whose access log holds about
+/// [`YEAR_ACCESS_LOG_ROWS`] rows, spread over the retention window, deleted
+/// when dropped.
+struct YearCopy {
+    path: PathBuf,
+}
+
+impl YearCopy {
+    fn make(database: &Path) -> Result<YearCopy> {
+        let path = database.with_file_name("orre-year.db");
+        let copy = YearCopy { path };
+        copy.remove();
+        // `VACUUM INTO` writes a consistent copy of the database file alone,
+        // whatever the original's `-wal` holds, with no write to the original.
+        raw(database)?.execute(
+            "VACUUM INTO ?1",
+            [copy.path.to_str().ok_or("the path isn't UTF-8")?],
+        )?;
+
+        // The rows go in with a raw statement: `access_log::append` stamps
+        // each row with the current time, and the rows have to be spread
+        // over the year.
+        let mut conn = rusqlite::Connection::open(&copy.path)?;
+        let have: i64 =
+            conn.query_row("SELECT COUNT(*) FROM mcp_access_log", [], |row| row.get(0))?;
+        let now = orre_core::clock::now()?;
+        let span = i64::from(access_log::RETENTION_MONTHS) * 30 * 24 * 60 * 60 - 24 * 60 * 60;
+        let transaction = conn.transaction()?;
+        {
+            let mut insert = transaction.prepare(
+                "INSERT INTO mcp_access_log (at, client, tool, access_level, outcome, purpose, \
+                 args_redacted_json, row_count, result_hash, withheld_count) \
+                 VALUES (?1, ?2, ?3, 'standard', 'ok', 'monthly review', ?4, ?5, ?6, 0)",
+            )?;
+            let tools = [
+                "list_transactions",
+                "spending_by_category",
+                "monthly_summary",
+                "propose_categorizations",
+            ];
+            for index in 0..YEAR_ACCESS_LOG_ROWS.saturating_sub(have as usize) {
+                let seconds_ago = span - span * index as i64 / YEAR_ACCESS_LOG_ROWS as i64;
+                let at = (now - chrono::Duration::seconds(seconds_ago))
+                    .format("%Y-%m-%dT%H:%M:%S.000Z")
+                    .to_string();
+                insert.execute(rusqlite::params![
+                    at,
+                    CLIENTS[index % 2],
+                    tools[index % tools.len()],
+                    "{\"period\":\"2026-10\"}",
+                    (index % 50) as i64,
+                    format!("{index:064x}"),
+                ])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(copy)
+    }
+
+    /// The copy and its `-wal` and `-shm`, where they exist.
+    fn remove(&self) {
+        for suffix in ["", "-wal", "-shm"] {
+            let mut name = self.path.clone().into_os_string();
+            name.push(suffix);
+            let _ = std::fs::remove_file(name);
+        }
+    }
+}
+
+impl Drop for YearCopy {
+    fn drop(&mut self) {
+        self.remove();
+    }
 }
 
 /// `InboxStore::load` for pending suggestions, on an open database (the

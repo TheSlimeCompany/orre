@@ -467,3 +467,80 @@ fn a_database_that_cannot_be_opened_is_an_error_and_is_retried() {
     fs::write(&path, good).unwrap();
     assert!(matches!(watcher.check(), Ok(Check::Changed(_))));
 }
+
+/// Tables a fingerprint query may scan whole, because they stay small by
+/// nature (decision record "live updates (2026-11-21)", point 2): `account`,
+/// the rule tables, `category`, `merchant_alias`, `mcp_client` and `setting`
+/// hold tens to hundreds of rows ("a few dozen" accounts), and `import_batch`
+/// and `change_batch` hold one row per import or change ("a scan is small
+/// and needs no index"). Any other table grows with the ledger or with MCP
+/// use, so a query on it has to be served by an index.
+const SMALL_TABLES: [&str; 9] = [
+    "account",
+    "rule",
+    "rule_action",
+    "merchant_alias",
+    "category",
+    "mcp_client",
+    "setting",
+    "import_batch",
+    "change_batch",
+];
+
+/// Tables outside [`SMALL_TABLES`] that a fingerprint query scans whole,
+/// accepted by LU.6 (decision record "live updates (2026-11-21)", point 9):
+/// `transaction_link` and `transfer_group`, whose status sums read every row
+/// (no index starts with `status` and covers `id`). They grow with the
+/// ledger, but slowly: about 250 rows each at 100,000 transactions, 0.08 ms
+/// a query, off the UI thread and only on a changed stamp, so no migration
+/// adds an index. The test fails on a scan that isn't listed here and on an
+/// entry that no longer scans.
+const ACCEPTED_SCANS: [&str; 2] = ["transaction_link", "transfer_group"];
+
+/// The table an `EXPLAIN QUERY PLAN` line scans, if it reads the table's
+/// rows: a plain scan, or one through a non-covering index (`USING INDEX`
+/// visits every row as well). A scan of a covering index end to end reads
+/// only the index (a `count(*)` on the smallest one) and is allowed.
+fn full_scan(detail: &str) -> Option<String> {
+    let rest = detail.strip_prefix("SCAN ")?;
+    // `(subquery-1)` is the scan of a subquery's result, not of a table.
+    if rest.contains(" USING COVERING INDEX ") || rest.starts_with('(') {
+        return None;
+    }
+    let table = rest.split_whitespace().next()?;
+    Some(table.trim_matches('"').to_string())
+}
+
+#[test]
+fn every_fingerprint_query_is_served_by_an_index_or_a_small_table() {
+    let dir = TempDir::new().unwrap();
+    let db = Database::open(&db_path(&dir)).unwrap();
+    let mut found: BTreeSet<String> = BTreeSet::new();
+    for topic in Topic::ALL {
+        for query in queries(topic) {
+            println!("{topic:?}: {query}");
+            let mut statement = db
+                .conn()
+                .prepare(&format!("EXPLAIN QUERY PLAN {query}"))
+                .unwrap();
+            let details: Vec<String> = statement
+                .query_map([], |row| row.get::<_, String>(3))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            for detail in &details {
+                println!("    {detail}");
+                if let Some(table) = full_scan(detail)
+                    && !SMALL_TABLES.contains(&table.as_str())
+                {
+                    found.insert(table);
+                }
+            }
+        }
+    }
+    let expected: BTreeSet<String> = ACCEPTED_SCANS.iter().map(|t| t.to_string()).collect();
+    assert_eq!(
+        found, expected,
+        "a fingerprint query scans a table that grows"
+    );
+}
