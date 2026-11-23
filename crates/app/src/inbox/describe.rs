@@ -60,6 +60,9 @@ pub struct InboxDescription {
     pub groups: Vec<GroupDescription>,
     /// The selected row's label.
     pub selected: Option<String>,
+    /// Whether the row marks are fading out (LU.5). Which rows carry one:
+    /// [`RowDescription::marked`].
+    pub marks_fading: bool,
     /// The selected suggestion, open under its row.
     pub open: Option<OpenDescription>,
     pub inspector: InspectorDescription,
@@ -135,6 +138,8 @@ pub struct RowDescription {
     /// When it was decided, for an approved or rejected one.
     pub decided: Option<String>,
     pub selected: bool,
+    /// Whether the row carries the mark for a new suggestion (LU.5).
+    pub marked: bool,
 }
 
 /// A pending group's footer.
@@ -208,7 +213,7 @@ fn joined(parts: &[Part]) -> String {
     parts.iter().map(|part| part.text.as_str()).collect()
 }
 
-fn row(entry: &Entry, today: chrono::NaiveDate, selected: bool) -> RowDescription {
+fn row(entry: &Entry, today: chrono::NaiveDate, selected: bool, marked: bool) -> RowDescription {
     let RowText {
         item,
         now,
@@ -237,6 +242,7 @@ fn row(entry: &Entry, today: chrono::NaiveDate, selected: bool) -> RowDescriptio
         },
         decided: (!pending).then(|| super::text::decided_on(entry, today)),
         selected,
+        marked,
     }
 }
 
@@ -414,7 +420,14 @@ impl Inbox {
                 count: entries.len(),
                 rows: entries
                     .iter()
-                    .map(|entry| row(entry, today, self.selected() == Some(entry.id())))
+                    .map(|entry| {
+                        row(
+                            entry,
+                            today,
+                            self.selected() == Some(entry.id()),
+                            self.mark(entry.id()).is_some(),
+                        )
+                    })
                     .collect(),
                 footer: pending.then(|| {
                     let footer = FooterText::of(self, key, entries);
@@ -446,6 +459,7 @@ impl Inbox {
                 Vec::new()
             },
             empty,
+            marks_fading: self.marks_fading(),
             selected: groups
                 .iter()
                 .flat_map(|group| &group.rows)

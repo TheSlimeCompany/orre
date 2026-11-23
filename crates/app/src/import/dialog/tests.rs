@@ -160,7 +160,23 @@ fn a_monzo_export_is_imported_and_undone(cx: &mut TestAppContext) {
         Some(ImportNotice::Imported { .. })
     ));
 
-    click("import-undo", cx);
+    // Every write announced to the shell, once: a double click on Undo
+    // starts one undo (review of LU.5).
+    let writes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let _counting = cx.update(|_, cx| {
+        let writes = writes.clone();
+        cx.subscribe(&imports, move |_, write: &crate::import::ImportWrite, _| {
+            writes.borrow_mut().push(*write)
+        })
+    });
+    cx.update(|_, cx| {
+        imports.update(cx, |imports, cx| {
+            imports.undo(cx);
+            imports.undo(cx);
+        })
+    });
+    redraw(cx);
+    assert_eq!(*writes.borrow(), [crate::import::ImportWrite::Started]);
     assert_eq!(scratch.batches()[0].status, BatchStatus::Undone);
     assert!(matches!(
         cx.update(|_, cx| imports.read(cx).notice().cloned()),

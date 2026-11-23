@@ -208,7 +208,10 @@ per call through its own store and changes data only through core.
   `shell::live` (LU.3): live updates, the `orre_core::watch::Watcher` on a timer (only
   `shell::open` starts it), the topic map (`live::views`), and the views' own writes
   (`live::Wrote`) rebased and reloaded in coalesced rounds (`docs/architecture/app.md` →
-  "Live updates").
+  "Live updates"). What another process's change brought (LU.5): `shell::arrivals`, a
+  plain model of the status bar's arrival line, the Inbox badge's unseen fill and the row
+  marks (unseen → a 10s hold once seen → a 100ms fade), fed from the views'
+  `RegisterChanged` and `inbox::arrival::Arrived` by `live::Shown`.
 - `dev_driver` (U.5, `dev-driver` feature, debug builds only): the local socket an agent
   drives a dev build through (`orre dev`). `command` parses a line, `act` does it in the
   window with gpui-kit's test calls, `guard` refuses anything but a scratch
@@ -257,6 +260,9 @@ per call through its own store and changes data only through core.
 - `transactions/write.rs`, the edit pipeline: `TransactionsView::write`/`query`, a
   policy plus one core call (e.g. `inbox::own::recategorize`, `change::undo`). Every
   change goes through it.
+- `transactions/arrived.rs` (LU.5): what a read changed (new, changed, removed rows), the
+  inspector's "This transaction was removed" note and the dialogs' caption;
+  `TransactionsView::set_marks` draws the row marks.
 - `present` turns rows into cells and menu options; `fixture` keeps the Paper rows as a
   `Register` for snapshots and tests.
 - The inspector: `editor.rs` (Merchant, Tags with the tag menu, Note, the bank's note
@@ -300,7 +306,8 @@ per call through its own store and changes data only through core.
   `store::InboxStore`), `panel` (a Tab stop: ↑↓ move a keyboard cursor through INBOX,
   CHECKS, KIND and SOURCE, Enter and Space act), `view` (the grouped table, the selected suggestion open
   in place, A / R / ↑↓), `inspector` ("If you approve"), `text` (labels, untrusted text
-  made plain with `envelope::shown`), `fixture` (D6.6's samples, seeded through core into
+  made plain with `envelope::shown`), `arrival` (LU.5: the suggestions a read brought,
+  by client; `Inbox::set_marks` draws their row marks), `fixture` (D6.6's samples, seeded through core into
   a scratch database).
 - `checks/`: the review queues, opened from the Inbox panel's CHECKS rows (the status
   bar counts failing checks; the accounts panel's flagged dot opens them). `Checks` (the

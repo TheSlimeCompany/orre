@@ -1,6 +1,7 @@
 # LU.5 — showing what arrived
 
-Status: designed (2026-11-22), not built. Blocked by LU.3 (the shell wiring).
+Status: built (2026-11-23) on branch `lu5-show-what-arrived`. Fades are checked by
+compiling and the snapshot only; the running-app check (`orre dev`) is the user's.
 
 Source: `docs/ROADMAP.md` → "Live updates", LU.5. The design is `docs/DESIGN.md` →
 "Live updates: showing what arrived", drawn in the Orre Paper file on

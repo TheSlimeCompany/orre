@@ -35,6 +35,7 @@
 //! refusal is said under the form in caption type, `danger`.
 
 use gpui_kit::base::TestSupportExt as _;
+use gpui_kit::component::Disableable as _;
 use gpui_kit::component::input::{self, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -61,6 +62,7 @@ use crate::ui::segmented::Segmented;
 use crate::ui::text::TextRoleExt as _;
 
 use super::TransactionsView;
+use super::arrived::DIALOG_CAPTION;
 use super::linking;
 use super::links::LinkFrom;
 
@@ -122,6 +124,9 @@ impl LinkDialog {
                     cx.notify();
                 }
             }),
+            // The row may go in a read from another process: the primary
+            // and the caption follow the view.
+            cx.observe(&transactions, |_, _, cx| cx.notify()),
         ];
         let mut dialog = Self {
             transactions,
@@ -392,8 +397,21 @@ impl LinkDialog {
         ))
     }
 
+    /// Whether the row linked from went in a read from another process: the
+    /// primary is disabled and the caption says so; Cancel still closes.
+    /// Linking from a person has no row to lose.
+    pub fn removed(&self, cx: &App) -> bool {
+        match &self.from {
+            LinkFrom::Transaction(id) => self.transactions.read(cx).row_removed(*id),
+            LinkFrom::Person(..) => false,
+        }
+    }
+
     /// Links, or says why it can't.
     pub fn submit(&mut self, cx: &mut Context<Self>) {
+        if self.removed(cx) {
+            return;
+        }
         let (link, person) = match self.new_link(cx) {
             Ok(link) => link,
             Err(error) => {
@@ -738,10 +756,12 @@ impl Render for LinkDialog {
                 this.child(error_caption(error))
             });
         let on_cancel = cx.entity().downgrade();
+        let removed = self.removed(cx);
         Dialog::with_title(self.title(cx), &self.focus)
             .when_some(kinds, |this, kinds| this.body(kinds))
             .body(list)
             .body(form)
+            .when(removed, |this| this.body(fields::caption(DIALOG_CAPTION)))
             .action(
                 Button::new("link-cancel", "Cancel")
                     .with_variant(ButtonVariant::Secondary)
@@ -752,6 +772,7 @@ impl Render for LinkDialog {
                 Button::new("link-confirm", linking::link_button(self.kind))
                     .with_variant(ButtonVariant::Primary)
                     .with_surface(color::FLOAT)
+                    .disabled(removed)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
             )
             .on_cancel(move |_, cx| {

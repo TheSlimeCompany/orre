@@ -36,6 +36,11 @@ pub struct ShellDescription {
     /// What has keyboard focus: an observed control's label (or id), else
     /// "the window" when focus is on something unobserved, else `None`.
     pub focus: Option<String>,
+    /// The status bar's arrival line (LU.5): "3 suggestions from Claude
+    /// Code".
+    pub arrival: Option<String>,
+    /// The Inbox tab's badge: the count, and whether it's unseen (LU.5).
+    pub inbox_badge: Option<(usize, bool)>,
 }
 
 /// The open view's own description.
@@ -103,6 +108,14 @@ impl ShellView {
             screen,
             dialog: self.describe_dialog(window, cx),
             focus: focus(window, cx),
+            arrival: self.arrived.arrivals().line().map(|line| line.text()),
+            inbox_badge: {
+                let pending = self.inbox.read(cx).badge();
+                (pending > 0).then(|| {
+                    let unseen = self.arrived.arrivals().inbox_badge_unseen().is_some();
+                    (pending, unseen)
+                })
+            },
         }
     }
 

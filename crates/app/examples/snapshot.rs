@@ -188,8 +188,20 @@ fn main() -> Result<()> {
     });
 
     snapshot(&mut cx, &out, "transactions", |window, cx| {
-        cx.new(|cx| ShellView::new(View::Transactions, window, cx))
-            .into()
+        cx.new(|cx| {
+            let shell = ShellView::new(View::Transactions, window, cx);
+            // Paper's `JJY-0`: the sample's "3 new transactions" are marked.
+            shell.transactions().update(cx, |view, cx| {
+                view.show_marks_drawn(
+                    ["txn-pret-09", "txn-bluebottle-09", "txn-tfl-09"]
+                        .map(fixture::id)
+                        .into(),
+                    cx,
+                )
+            });
+            shell
+        })
+        .into()
     })?;
     snapshot(&mut cx, &out, "transactions-multi", |window, cx| {
         cx.new(|cx| {

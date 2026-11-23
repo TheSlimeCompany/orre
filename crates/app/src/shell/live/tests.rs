@@ -745,3 +745,348 @@ fn the_timer_checks_every_second_while_active_and_every_five_when_not(cx: &mut T
     advance(cx, Duration::from_millis(1100));
     assert!(listed(&shell, fourth, cx), "active again: every second");
 }
+
+// What arrived (LU.5) ---------------------------------------------------------------
+
+/// The arrival line's text, if there is one.
+fn line(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> Option<String> {
+    cx.update(|_, cx| shell.read(cx).status(cx).arrival.map(|line| line.text()))
+}
+
+fn badge_unseen(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> bool {
+    cx.update(|_, cx| {
+        shell
+            .read(cx)
+            .arrived
+            .arrivals()
+            .inbox_badge_unseen()
+            .is_some()
+    })
+}
+
+fn marked_suggestions(
+    shell: &Entity<ShellView>,
+    cx: &mut VisualTestContext,
+) -> BTreeSet<SuggestionId> {
+    cx.update(|_, cx| shell.read(cx).inbox().read(cx).marked())
+}
+
+fn marked_rows(
+    shell: &Entity<ShellView>,
+    cx: &mut VisualTestContext,
+) -> BTreeSet<orre_core::id::TransactionId> {
+    cx.update(|_, cx| shell.read(cx).transactions().read(cx).marked())
+}
+
+/// Sets the arrivals' clock to `now` and moves them along to it.
+fn at(shell: &Entity<ShellView>, now: std::time::Instant, cx: &mut VisualTestContext) {
+    cx.update(|_, cx| {
+        shell.update(cx, |shell, cx| {
+            shell.freeze_time(now);
+            shell.tick_arrivals(cx);
+        })
+    });
+    settle(cx);
+}
+
+fn show(shell: &Entity<ShellView>, view: View, cx: &mut VisualTestContext) {
+    cx.update(|window, cx| shell.update(cx, |shell, cx| shell.show(view, window, cx)));
+    settle(cx);
+}
+
+fn add_row_outside(
+    scratch: &Scratch,
+    shell: &Entity<ShellView>,
+    cx: &mut VisualTestContext,
+) -> orre_core::id::TransactionId {
+    let account = cx.update(|_, cx| {
+        shell.read(cx).accounts().read(cx).data().tree.accounts[0]
+            .account
+            .id
+    });
+    let entry = ManualTransaction::new(
+        account,
+        NaiveDate::from_ymd_opt(2026, 11, 12).unwrap(),
+        Money::new(-1234, Currency::GBP),
+        "OUTSIDE SHOP",
+    );
+    manual::create(&mut scratch.db(), &entry).unwrap()
+}
+
+/// Suggestions filed while the Inbox isn't on show: the line names the
+/// client, the badge turns unseen and the new row is marked. Nothing times
+/// out until the Inbox is shown; then one hold, a fade, and they're gone,
+/// while the count stays.
+#[gpui_kit::test]
+fn suggestions_filed_out_of_sight_wait_until_the_inbox_is_shown(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let start = std::time::Instant::now();
+    at(&shell, start, cx);
+    // The Inbox shows its pending list, so the new row's id is known.
+    show(&shell, View::Inbox, cx);
+    show(&shell, View::Transactions, cx);
+
+    let filed = scratch.file_outside("FROMOUTSIDE");
+    check(&shell, cx);
+    assert_eq!(
+        line(&shell, cx).as_deref(),
+        Some("1 suggestion from claude-code")
+    );
+    assert!(badge_unseen(&shell, cx));
+    assert_eq!(marked_suggestions(&shell, cx), BTreeSet::from([filed]));
+
+    // Unseen has no time limit.
+    at(&shell, start + Duration::from_secs(3600), cx);
+    assert!(badge_unseen(&shell, cx), "still unseen an hour later");
+    assert!(line(&shell, cx).is_some());
+
+    // More from the same client adds up.
+    let second = scratch.file_outside("FROMOUTSIDEAGAIN");
+    check(&shell, cx);
+    assert_eq!(
+        line(&shell, cx).as_deref(),
+        Some("2 suggestions from claude-code")
+    );
+
+    let seen = start + Duration::from_secs(3601);
+    cx.update(|_, cx| shell.update(cx, |shell, _| shell.freeze_time(seen)));
+    show(&shell, View::Inbox, cx);
+    assert_eq!(
+        marked_suggestions(&shell, cx),
+        BTreeSet::from([filed, second])
+    );
+    at(
+        &shell,
+        seen + crate::shell::arrivals::HOLD - Duration::from_millis(1),
+        cx,
+    );
+    assert!(line(&shell, cx).is_some(), "held for ten seconds");
+    at(
+        &shell,
+        seen + crate::shell::arrivals::HOLD + crate::shell::arrivals::FADE_OUT,
+        cx,
+    );
+    assert_eq!(line(&shell, cx), None);
+    assert!(!badge_unseen(&shell, cx));
+    assert!(marked_suggestions(&shell, cx).is_empty());
+    let pending = cx.update(|_, cx| shell.read(cx).inbox().read(cx).badge());
+    assert!(pending > 0, "the count is a fact, not news");
+}
+
+/// A row added in a terminal while Transactions is on show: marked, said
+/// in the line, seen at once, and the selection doesn't move.
+#[gpui_kit::test]
+fn a_row_added_outside_is_marked_and_said_once(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let start = std::time::Instant::now();
+    at(&shell, start, cx);
+    let transactions = cx.update(|_, cx| shell.read(cx).transactions().clone());
+    let first = cx.update(|_, cx| transactions.read(cx).register().rows()[0].id);
+    cx.update(|_, cx| transactions.update(cx, |view, cx| view.select([first], cx)));
+
+    let added = add_row_outside(&scratch, &shell, cx);
+    check(&shell, cx);
+    assert_eq!(line(&shell, cx).as_deref(), Some("1 new transaction"));
+    assert_eq!(marked_rows(&shell, cx), BTreeSet::from([added]));
+    assert!(!badge_unseen(&shell, cx), "no suggestion arrived");
+    let selected: Vec<_> = cx.update(|_, cx| {
+        transactions
+            .read(cx)
+            .selected()
+            .iter()
+            .map(|row| row.id)
+            .collect()
+    });
+    assert_eq!(selected, [first], "the mark takes nothing");
+
+    // On show in a focused window, so it was seen on arrival.
+    at(
+        &shell,
+        start + crate::shell::arrivals::HOLD + crate::shell::arrivals::FADE_OUT,
+        cx,
+    );
+    assert_eq!(line(&shell, cx), None);
+    assert!(marked_rows(&shell, cx).is_empty());
+}
+
+/// Deleted in a terminal: "removed", with no mark and nothing to open.
+#[gpui_kit::test]
+fn a_row_deleted_outside_is_said_removed(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Inbox);
+    let added = add_row_outside(&scratch, &shell, cx);
+    check(&shell, cx);
+    assert_eq!(line(&shell, cx).as_deref(), Some("1 new transaction"));
+
+    manual::delete(&mut scratch.db(), added).unwrap();
+    check(&shell, cx);
+    assert_eq!(line(&shell, cx).as_deref(), Some("1 transaction removed"));
+    let opens = cx.update(|_, cx| shell.read(cx).status(cx).arrival.unwrap().opens);
+    assert_eq!(opens, None);
+}
+
+/// Clicking the line opens its view on what it's about, and sees it.
+#[gpui_kit::test]
+fn clicking_the_line_opens_the_inbox_on_its_pending_list(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let inbox = cx.update(|_, cx| shell.read(cx).inbox().clone());
+    cx.update(|_, cx| {
+        inbox.update(cx, |inbox, cx| {
+            inbox.show_status(core_inbox::SuggestionStatus::Approved, cx)
+        })
+    });
+    settle(cx);
+    scratch.file_outside("FROMOUTSIDE");
+    check(&shell, cx);
+    assert!(badge_unseen(&shell, cx));
+
+    cx.update(|window, cx| shell.update(cx, |shell, cx| shell.arrival_clicked(window, cx)));
+    settle(cx);
+    assert_eq!(cx.update(|_, cx| shell.read(cx).view), View::Inbox);
+    assert_eq!(
+        cx.update(|_, cx| inbox.read(cx).status()),
+        core_inbox::SuggestionStatus::Pending
+    );
+    let held = cx.update(|_, cx| shell.read(cx).arrived.arrivals().next_deadline());
+    assert!(held.is_some(), "seen: the hold has started");
+}
+
+/// The app's own writes are never shown as arrivals: they have undo bars.
+#[gpui_kit::test]
+fn the_apps_own_writes_are_not_arrivals(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Inbox);
+    let inbox = cx.update(|_, cx| shell.read(cx).inbox().clone());
+    let pending = scratch.pending();
+    // Approving a rule changes the ledger too.
+    cx.update(|_, cx| inbox.update(cx, |inbox, cx| inbox.approve(pending[1], cx)));
+    settle(cx);
+    check(&shell, cx);
+    assert_eq!(line(&shell, cx), None);
+    assert!(marked_rows(&shell, cx).is_empty());
+    assert!(marked_suggestions(&shell, cx).is_empty());
+}
+
+/// What the window shows when an import lands mid-task: the line and the
+/// mark, with the search, the selection and the open view untouched.
+#[gpui_kit::test]
+fn the_window_shows_what_arrived_and_keeps_what_the_user_was_doing(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let transactions = cx.update(|_, cx| shell.read(cx).transactions().clone());
+    let first = cx.update(|_, cx| transactions.read(cx).register().rows()[0].id);
+    cx.update(|window, cx| {
+        transactions.update(cx, |view, cx| {
+            view.select([first], cx);
+            view.set_search("SHOP", window, cx);
+        })
+    });
+    settle(cx);
+    let describe =
+        |cx: &mut VisualTestContext| cx.update(|window, cx| shell.read(cx).describe(window, cx));
+    let before = describe(cx);
+    assert_eq!(before.arrival, None);
+
+    let added = add_row_outside(&scratch, &shell, cx);
+    scratch.file_outside("FROMOUTSIDE");
+    check(&shell, cx);
+    settle(cx);
+
+    let after = describe(cx);
+    assert_eq!(after.view, before.view);
+    assert_eq!(after.focus, before.focus);
+    // The ledger and the Inbox both arrived; the line says the later.
+    assert!(after.arrival.is_some());
+    let (_, unseen) = after.inbox_badge.expect("pending suggestions");
+    assert!(unseen, "filed while the Inbox wasn't on show");
+    let crate::shell::describe::Screen::Transactions { transactions, .. } = after.screen else {
+        panic!("still on Transactions");
+    };
+    assert_eq!(transactions.toolbar.search, "SHOP");
+    let rows: Vec<_> = transactions
+        .days
+        .iter()
+        .flat_map(|day| &day.rows)
+        .chain(&transactions.flat)
+        .collect();
+    let new_row = rows
+        .iter()
+        .find(|row| row.id == added)
+        .expect("listed: it matches");
+    assert!(new_row.marked);
+    assert!(
+        rows.iter()
+            .filter(|row| row.selected)
+            .all(|row| row.id == first)
+    );
+}
+
+/// The app's own import or undo writes on a background thread: no check
+/// starts meanwhile, and when it's done the checks resume after the round
+/// that reads it, so it's never shown as another process's (review of
+/// LU.5).
+#[gpui_kit::test]
+fn the_apps_own_background_import_is_not_an_arrival(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let imports = cx.update(|_, cx| shell.read(cx).imports().clone());
+    let reported = last_reported(&shell, cx);
+
+    cx.update(|_, cx| imports.update(cx, |imports, cx| imports.writing(cx)));
+    // What the import commits, on its background thread.
+    add_row_outside(&scratch, &shell, cx);
+    cx.update(|_, cx| shell.update(cx, |shell, cx| shell.check_changes(cx)));
+    settle(cx);
+    assert_eq!(
+        last_reported(&shell, cx),
+        reported,
+        "no check while it writes"
+    );
+
+    // Done: the shell hears of it as the import does.
+    cx.update(|_, cx| {
+        shell.update(cx, |shell, cx| {
+            shell.own_write_done(BTreeSet::from([Topic::Ledger]), cx)
+        })
+    });
+    settle(cx);
+    assert_eq!(check(&shell, cx), topics(&[]), "the round took it");
+    assert_eq!(line(&shell, cx), None);
+    assert!(marked_rows(&shell, cx).is_empty());
+}
+
+/// A failed import resumes the checks at once.
+#[gpui_kit::test]
+fn a_failed_own_import_resumes_the_checks(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let imports = cx.update(|_, cx| shell.read(cx).imports().clone());
+    cx.update(|_, cx| imports.update(cx, |imports, cx| imports.writing(cx)));
+    cx.update(|_, cx| imports.update(cx, |imports, cx| imports.write_failed(cx)));
+    settle(cx);
+    add_row_outside(&scratch, &shell, cx);
+    assert_eq!(check(&shell, cx), topics(&[Topic::Ledger]));
+    assert_eq!(line(&shell, cx).as_deref(), Some("1 new transaction"));
+}
+
+/// A check in flight when the app's own write lands may see that write:
+/// what it reports is reloaded, but not shown as an arrival.
+#[gpui_kit::test]
+fn a_check_overlapping_an_own_write_shows_nothing(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    add_row_outside(&scratch, &shell, cx);
+    cx.update(|_, cx| {
+        shell.update(cx, |shell, cx| {
+            shell.check_changes(cx);
+            // The app's own write, before the check's answer is in.
+            shell.refresh(BTreeSet::from([Topic::Ledger]), cx);
+        })
+    });
+    settle(cx);
+    assert_eq!(line(&shell, cx), None);
+    assert!(marked_rows(&shell, cx).is_empty());
+}

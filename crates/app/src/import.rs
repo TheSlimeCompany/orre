@@ -52,6 +52,18 @@ pub struct Imports {
 
 impl EventEmitter<ImportsChanged> for Imports {}
 
+/// The app's own import or undo is writing on a background thread: the
+/// shell holds its live-update checks from `Started` until
+/// [`ImportsChanged`] or `Failed`, so it never takes the write for another
+/// process's (LU.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImportWrite {
+    Started,
+    Failed,
+}
+
+impl EventEmitter<ImportWrite> for Imports {}
+
 impl Imports {
     /// Imports into the database `store` opens.
     pub fn from_store(store: ImportStore) -> Self {
@@ -108,13 +120,21 @@ impl Imports {
         else {
             return;
         };
+        // One undo at a time: a second click while the first writes would
+        // drop the first's answer, and the shell would hold its checks for
+        // good ([`ImportWrite`]).
+        if self.task.is_some() {
+            return;
+        }
         let batch = *batch;
+        cx.emit(ImportWrite::Started);
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move { store.undo(batch) })
                 .await
                 .map_err(|error| SharedString::from(session::sentence(&error.to_string())));
             let _ = this.update(cx, |this, cx| {
+                this.task = None;
                 this.notice = Some(match result {
                     Ok(()) => {
                         cx.emit(ImportsChanged);
@@ -122,11 +142,25 @@ impl Imports {
                             message: text::undone(&this.file),
                         }
                     }
-                    Err(error) => ImportNotice::Failed(error),
+                    Err(error) => {
+                        cx.emit(ImportWrite::Failed);
+                        ImportNotice::Failed(error)
+                    }
                 });
                 cx.notify();
             });
         }));
+    }
+
+    /// An import is about to commit, on a background thread
+    /// ([`ImportWrite`]).
+    pub fn writing(&mut self, cx: &mut Context<Self>) {
+        cx.emit(ImportWrite::Started);
+    }
+
+    /// The import that was [`Self::writing`] committed nothing.
+    pub fn write_failed(&mut self, cx: &mut Context<Self>) {
+        cx.emit(ImportWrite::Failed);
     }
 
     pub fn dismiss(&mut self, cx: &mut Context<Self>) {

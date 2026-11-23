@@ -21,10 +21,11 @@
 //!
 //! [`import::undo_preview`]: orre_core::import::undo_preview
 
+use gpui_kit::component::Disableable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _, Render,
-    SharedString, Styled as _, Window, div,
+    App, Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _, Render,
+    SharedString, Styled as _, Subscription, Window, div,
 };
 use orre_core::id::{BatchId, TransactionId};
 use orre_core::import::UndoPreview;
@@ -37,6 +38,7 @@ use crate::ui::field::{caption, error_caption};
 use crate::ui::text::TextRoleExt as _;
 
 use super::TransactionsView;
+use super::arrived::DIALOG_CAPTION;
 use super::linking;
 
 fn plural(count: usize, one: &str, many: &str) -> String {
@@ -276,6 +278,7 @@ pub struct DeleteTransactionDialog {
     body: String,
     focus: FocusHandle,
     error: Option<SharedString>,
+    _observing: Subscription,
 }
 
 impl EventEmitter<DialogClosed> for DeleteTransactionDialog {}
@@ -298,6 +301,9 @@ impl DeleteTransactionDialog {
             .map_or_else(|| "its account".to_owned(), |account| account.name.clone());
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        // The row may go in a read from another process: the primary and
+        // the caption follow the view.
+        let observing = cx.observe(&transactions, |_, _, cx| cx.notify());
         Self {
             transactions,
             transaction,
@@ -305,6 +311,7 @@ impl DeleteTransactionDialog {
             body: format!("It's removed from {account}. This can't be undone."),
             focus,
             error: None,
+            _observing: observing,
         }
     }
 
@@ -312,7 +319,16 @@ impl DeleteTransactionDialog {
         self.error.as_ref()
     }
 
+    /// Whether the row went in a read from another process: the primary is
+    /// disabled and the caption says so; Cancel still closes.
+    pub fn removed(&self, cx: &App) -> bool {
+        self.transactions.read(cx).row_removed(self.transaction)
+    }
+
     pub fn submit(&mut self, cx: &mut Context<Self>) {
+        if self.removed(cx) {
+            return;
+        }
         let transaction = self.transaction;
         match self
             .transactions
@@ -334,11 +350,13 @@ impl DeleteTransactionDialog {
 impl Render for DeleteTransactionDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let on_cancel = cx.entity().downgrade();
+        let removed = self.removed(cx);
         Dialog::new(self.title.clone(), &self.focus)
             .body(caption(self.body.clone()))
             .when_some(self.error.clone(), |this, error| {
                 this.body(error_caption(error))
             })
+            .when(removed, |this| this.body(caption(DIALOG_CAPTION)))
             .action(
                 Button::new("delete-transaction-cancel", "Cancel")
                     .with_variant(ButtonVariant::Secondary)
@@ -349,6 +367,7 @@ impl Render for DeleteTransactionDialog {
                 Button::new("delete-transaction-confirm", "Delete transaction")
                     .with_variant(ButtonVariant::DestructiveSolid)
                     .with_surface(color::FLOAT)
+                    .disabled(removed)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
             )
             .on_cancel(move |_, cx| {

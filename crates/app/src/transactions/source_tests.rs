@@ -33,7 +33,7 @@ fn setup(cx: &mut TestAppContext) {
     });
 }
 
-fn redraw(cx: &mut VisualTestContext) {
+pub(super) fn redraw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
 }
@@ -63,20 +63,20 @@ fn gbp(minor: i64) -> Money {
 
 /// A scratch database: Current account with three imported rows (one
 /// import, `test-november.csv`), and Cash with one manual row.
-struct Scratch {
+pub(super) struct Scratch {
     _dir: TempDir,
     path: std::path::PathBuf,
-    current: AccountId,
-    cash: AccountId,
-    batch: BatchId,
+    pub(super) current: AccountId,
+    pub(super) cash: AccountId,
+    pub(super) batch: BatchId,
     /// Odeon, Pret, Tesco: the imported rows, oldest first.
-    imported: Vec<TransactionId>,
+    pub(super) imported: Vec<TransactionId>,
     /// The manual row on Cash.
-    corner_shop: TransactionId,
+    pub(super) corner_shop: TransactionId,
 }
 
 impl Scratch {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("orre.db");
         let mut db = Database::open(&path).unwrap();
@@ -136,7 +136,7 @@ impl Scratch {
         }
     }
 
-    fn db(&self) -> Database {
+    pub(super) fn db(&self) -> Database {
         Database::open(&self.path).unwrap()
     }
 
@@ -144,12 +144,12 @@ impl Scratch {
         exclusion::get(&self.db(), id).unwrap()
     }
 
-    fn odeon(&self) -> TransactionId {
+    pub(super) fn odeon(&self) -> TransactionId {
         self.imported[0]
     }
 }
 
-fn open_database<'a>(
+pub(super) fn open_database<'a>(
     cx: &'a mut TestAppContext,
     scratch: &Scratch,
 ) -> (Entity<TransactionsView>, &'a mut VisualTestContext) {
@@ -188,7 +188,7 @@ fn inspector_error(
 }
 
 /// `build`'s dialog in a window of its own, beside the view's.
-fn open_dialog<D: 'static + gpui_kit::Render>(
+pub(super) fn open_dialog<D: 'static + gpui_kit::Render>(
     cx: &mut VisualTestContext,
     build: impl FnOnce(&mut Window, &mut Context<D>) -> D + 'static,
 ) -> (Entity<D>, &mut VisualTestContext) {
