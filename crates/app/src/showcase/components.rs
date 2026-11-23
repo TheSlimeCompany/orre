@@ -653,6 +653,7 @@ fn badges() -> Div {
         [
             ("Agent · pending suggestions", BadgeKind::Agent, "12"),
             ("Neutral · counts", BadgeKind::Neutral, "3"),
+            ("Unseen · went up out of sight", BadgeKind::Unseen, "3"),
         ]
         .map(|(name, kind, count)| {
             div()

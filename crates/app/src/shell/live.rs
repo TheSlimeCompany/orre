@@ -41,12 +41,16 @@ mod tests;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui_kit::{AppContext as _, Context, Subscription, Task, Window};
+use orre_core::inbox::SuggestionStatus;
 use orre_core::watch::{Check, Topic, Watcher};
 
+use super::arrivals::{Arrival, Arrivals, Channel, LedgerArrival, Phase, SuggestionArrival};
 use super::{ShellView, View};
+use crate::inbox::arrival::Arrived;
+use crate::transactions::{MarkPhase, RegisterChanged};
 
 /// How often the database is checked while the window is active.
 const ACTIVE_TICK: Duration = Duration::from_secs(1);
@@ -151,6 +155,18 @@ pub(super) struct Live {
     /// The next round that starts resumes the checks when its rebase is
     /// done: set by a restore, whose every topic that round holds.
     resume_with_next_round: bool,
+    /// The app's own background writes in flight (an import, its undo):
+    /// no check starts meanwhile, so the write isn't taken for another
+    /// process's (LU.5).
+    own_writes: usize,
+    /// Own writes whose round hasn't started: released when the next
+    /// round's rebase is done, like a restore's resume.
+    release_with_next_round: usize,
+    /// Bumped by every own write: a check that started before the bump
+    /// overlapped one, so what it reports is reloaded as the app's own.
+    epoch: u64,
+    /// [`Self::epoch`] when the check in flight started.
+    checking_epoch: u64,
     /// Topics named since the round in flight started.
     pending: BTreeSet<Topic>,
     /// The round in flight: a rebase, then the reloads. Never replaced
@@ -185,6 +201,10 @@ impl ShellView {
             active: true,
             paused: false,
             resume_with_next_round: false,
+            own_writes: 0,
+            release_with_next_round: 0,
+            epoch: 0,
+            checking_epoch: 0,
             pending: BTreeSet::new(),
             round: None,
             checking: None,
@@ -209,6 +229,7 @@ impl ShellView {
         live.active = window.is_window_active();
         live._activation = Some(activation);
         self.restart_timer(cx);
+        self.keep_arrivals_timed(cx);
     }
 
     /// The window became active or stopped being: the timer follows, and
@@ -226,6 +247,7 @@ impl ShellView {
         }
         if active {
             self.check_changes(cx);
+            self.see_on_show(cx);
         }
     }
 
@@ -251,9 +273,10 @@ impl ShellView {
         let Some(live) = self.live.as_mut() else {
             return;
         };
-        if live.paused || live.checking.is_some() {
+        if live.paused || live.own_writes > 0 || live.checking.is_some() {
             return;
         }
+        live.checking_epoch = live.epoch;
         let watcher = live.watcher.clone();
         live.checking = Some(cx.spawn(async move |this, cx| {
             let result = cx
@@ -286,12 +309,19 @@ impl ShellView {
             }
         };
         live.failing = false;
+        // An own write landed while the check ran: it may be what the check
+        // saw, so nothing it reports is shown as an arrival.
+        let reader = if live.checking_epoch == live.epoch {
+            Reader::Outside
+        } else {
+            Reader::Own
+        };
         #[cfg(test)]
         {
             live.last_reported = Some(topics.clone());
         }
         if !topics.is_empty() {
-            self.reload_views(&topics, cx);
+            self.reload_views(&topics, reader, cx);
         }
     }
 
@@ -300,10 +330,16 @@ impl ShellView {
     /// reload at once.
     pub(super) fn refresh(&mut self, topics: BTreeSet<Topic>, cx: &mut Context<Self>) {
         let Some(live) = self.live.as_mut() else {
-            self.reload_views(&topics, cx);
+            self.reload_views(&topics, Reader::Own, cx);
             return;
         };
-        live.pending.extend(topics);
+        live.epoch += 1;
+        live.pending.extend(topics.iter().copied());
+        if views(&topics, false).transactions {
+            // A read already in flight may land with this write in it.
+            self.transactions
+                .update(cx, |transactions, _| transactions.read_follows_own_write());
+        }
         self.start_round(cx);
     }
 
@@ -318,14 +354,17 @@ impl ShellView {
         }
         let topics = std::mem::take(&mut live.pending);
         let resumes = std::mem::take(&mut live.resume_with_next_round);
+        let releases = std::mem::take(&mut live.release_with_next_round);
         let watcher = live.watcher.clone();
         let rebased: Vec<Topic> = topics.iter().copied().collect();
         live.round = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move { lock(&watcher).rebase(&rebased) })
                 .await;
-            this.update(cx, |this, cx| this.end_round(&topics, resumes, result, cx))
-                .ok();
+            this.update(cx, |this, cx| {
+                this.end_round(&topics, Round { resumes, releases }, result, cx)
+            })
+            .ok();
         }));
     }
 
@@ -334,7 +373,7 @@ impl ShellView {
     fn end_round(
         &mut self,
         topics: &BTreeSet<Topic>,
-        resumes: bool,
+        round: Round,
         result: Result<(), orre_core::watch::Error>,
         cx: &mut Context<Self>,
     ) {
@@ -352,23 +391,35 @@ impl ShellView {
                     live.failing = true;
                 }
             }
-            if resumes {
+            if round.resumes {
                 live.paused = false;
             }
+            live.own_writes = live.own_writes.saturating_sub(round.releases);
         }
-        self.reload_views(topics, cx);
+        self.reload_views(topics, Reader::Own, cx);
         self.start_round(cx);
     }
 
-    /// Reloads the views of `topics` ([`views`]).
-    fn reload_views(&mut self, topics: &BTreeSet<Topic>, cx: &mut Context<Self>) {
+    /// Reloads the views of `topics` ([`views`]), for `reader`: what a
+    /// read for another process's change brings is shown as an arrival
+    /// (LU.5, [`Arrived`]); what one after the app's own write brings isn't.
+    fn reload_views(&mut self, topics: &BTreeSet<Topic>, reader: Reader, cx: &mut Context<Self>) {
         let views = views(topics, self.view == View::Rules);
+        let outside = reader == Reader::Outside;
         if views.inbox {
+            self.arrived.outside_inbox = outside;
             self.inbox.update(cx, |inbox, cx| inbox.reload(cx));
         }
         if views.transactions {
-            self.transactions
-                .update(cx, |transactions, cx| transactions.reload(cx));
+            self.arrived.outside_transactions = outside;
+            self.transactions.update(cx, |transactions, cx| {
+                if !outside {
+                    // A write in another view: a row it removed wasn't
+                    // removed "outside this window".
+                    transactions.read_follows_own_write();
+                }
+                transactions.reload(cx)
+            });
         }
         if views.accounts {
             self.accounts.update(cx, |accounts, cx| accounts.reload(cx));
@@ -402,11 +453,274 @@ impl ShellView {
         self.refresh(Topic::ALL.into_iter().collect(), cx);
     }
 
+    /// The app's own import or undo started writing in the background: no
+    /// check starts until it's done ([`Live::own_writes`]). A Transactions
+    /// read already in flight may land with the write in it: it's no longer
+    /// another process's, and a row it finds gone went by the user's hand.
+    /// Only a read in flight is marked, so a write that fails leaves the
+    /// next read as it was.
+    pub(super) fn own_write_started(&mut self, cx: &mut Context<Self>) {
+        if let Some(live) = self.live.as_mut() {
+            live.own_writes += 1;
+            live.epoch += 1;
+        }
+        self.arrived.outside_transactions = false;
+        self.transactions.update(cx, |transactions, _| {
+            if transactions.reading() {
+                transactions.read_follows_own_write();
+            }
+        });
+    }
+
+    /// That write is done and changed `topics`: they're refreshed, and the
+    /// checks resume when that round's rebase has finished.
+    pub(super) fn own_write_done(&mut self, topics: BTreeSet<Topic>, cx: &mut Context<Self>) {
+        if let Some(live) = self.live.as_mut()
+            && live.own_writes > live.release_with_next_round
+        {
+            live.release_with_next_round += 1;
+        }
+        self.refresh(topics, cx);
+    }
+
+    /// That write failed: the checks resume, with one at once.
+    pub(super) fn own_write_failed(&mut self, cx: &mut Context<Self>) {
+        if let Some(live) = self.live.as_mut() {
+            live.own_writes = live.own_writes.saturating_sub(1);
+        }
+        self.check_changes(cx);
+    }
+
     /// The app's own restore failed: the checks resume, with one at once.
     pub(super) fn restore_failed(&mut self, cx: &mut Context<Self>) {
         if let Some(live) = self.live.as_mut() {
             live.paused = false;
         }
         self.check_changes(cx);
+    }
+}
+
+/// What a round does when its rebase is done, besides the reloads.
+#[derive(Clone, Copy, Debug)]
+struct Round {
+    /// Resumes the checks a restore paused.
+    resumes: bool,
+    /// Releases this many own writes ([`Live::own_writes`]).
+    releases: usize,
+}
+
+/// Who a reload is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reader {
+    /// A check found another process's change.
+    Outside,
+    /// The app's own write.
+    Own,
+}
+
+/// What arrived from other processes, as the shell shows it (LU.5,
+/// [`super::arrivals`]): the arrival line, the Inbox badge's unseen fill
+/// and the row marks.
+///
+/// Only a read the shell started for a check counts: the views report
+/// every read that changed something ([`RegisterChanged`], [`Arrived`]),
+/// and the shell takes the one it marked as outside. A read for the app's
+/// own write clears the mark, so when the two overlap the change is left
+/// unshown rather than shown as another process's.
+#[derive(Default)]
+pub(super) struct Shown {
+    arrivals: Arrivals,
+    /// Bumped when a line appears where there was none: the key of its
+    /// fade-in. A line replacing another changes at once.
+    line_generation: u64,
+    /// Whether Transactions' read in flight is for another process.
+    outside_transactions: bool,
+    /// Whether the Inbox's read in flight is for another process.
+    outside_inbox: bool,
+    /// The one timer, to the next phase change ([`Arrivals::next_deadline`]);
+    /// only in the app ([`ShellView::keep_watching`]), like the checks.
+    timer: Option<Task<()>>,
+    timed: bool,
+    /// The time tests set.
+    #[cfg(test)]
+    frozen: Option<Instant>,
+}
+
+impl Shown {
+    pub(super) fn arrivals(&self) -> &Arrivals {
+        &self.arrivals
+    }
+
+    pub(super) fn line_generation(&self) -> u64 {
+        self.line_generation
+    }
+}
+
+/// The view an arrival is seen through.
+fn view_of(channel: Channel) -> View {
+    match channel {
+        Channel::Inbox => View::Inbox,
+        Channel::Transactions => View::Transactions,
+    }
+}
+
+impl ShellView {
+    /// The time arrivals are measured in.
+    fn instant(&self) -> Instant {
+        #[cfg(test)]
+        if let Some(frozen) = self.arrived.frozen {
+            return frozen;
+        }
+        Instant::now()
+    }
+
+    /// Sets the time arrivals are measured in (tests).
+    #[cfg(test)]
+    pub(super) fn freeze_time(&mut self, now: Instant) {
+        self.arrived.frozen = Some(now);
+    }
+
+    /// Whether the window is focused; without a watcher (tests), it is.
+    fn window_active(&self) -> bool {
+        self.live.as_ref().is_none_or(|live| live.active)
+    }
+
+    /// Whether `channel`'s view is on show in a focused window.
+    fn on_show(&self, channel: Channel) -> bool {
+        self.window_active() && self.view == view_of(channel)
+    }
+
+    /// Transactions read the register again: what an outside read brought
+    /// arrives.
+    pub(super) fn register_changed(&mut self, event: &RegisterChanged, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.arrived.outside_transactions) || event.after_own_write {
+            return;
+        }
+        let change = &event.change;
+        self.arrive(
+            Arrival::Ledger(LedgerArrival {
+                new: change.new.iter().copied().collect(),
+                changed: change.changed.iter().copied().collect(),
+                removed: change.removed.len(),
+                import_undone: change.import_undone,
+            }),
+            cx,
+        );
+    }
+
+    /// The Inbox read suggestions that weren't there: from an outside read,
+    /// they arrive.
+    pub(super) fn suggestions_arrived(&mut self, event: &Arrived, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.arrived.outside_inbox) {
+            return;
+        }
+        self.arrive(
+            Arrival::Suggestions(SuggestionArrival {
+                per_client: event.0.by_client.clone(),
+                new_ids: event.0.ids.clone(),
+            }),
+            cx,
+        );
+    }
+
+    fn arrive(&mut self, arrival: Arrival, cx: &mut Context<Self>) {
+        let now = self.instant();
+        let seen_now = self.on_show(arrival.channel());
+        let had_line = self.arrived.arrivals.line().is_some();
+        self.arrived.arrivals.arrive(arrival, seen_now, now);
+        if !had_line && self.arrived.arrivals.line().is_some() {
+            self.arrived.line_generation += 1;
+        }
+        self.sync_arrivals(cx);
+    }
+
+    /// The view on show, in a focused window, has seen what arrived through
+    /// it: called when a view is shown and when the window becomes active.
+    pub(super) fn see_on_show(&mut self, cx: &mut Context<Self>) {
+        if !self.window_active() {
+            return;
+        }
+        let channel = match self.view {
+            View::Inbox => Channel::Inbox,
+            View::Transactions => Channel::Transactions,
+            _ => return,
+        };
+        let now = self.instant();
+        self.arrived.arrivals.seen(channel, now);
+        self.sync_arrivals(cx);
+    }
+
+    /// The arrival line was clicked: it's seen, and its view opens with
+    /// nothing in it changed (the Inbox on its pending suggestions).
+    pub(super) fn arrival_clicked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(channel) = self.arrived.arrivals.line().and_then(|line| line.opens) else {
+            return;
+        };
+        let now = self.instant();
+        self.arrived.arrivals.clicked(now);
+        if channel == Channel::Inbox && self.inbox.read(cx).status() != SuggestionStatus::Pending {
+            self.inbox.update(cx, |inbox, cx| {
+                inbox.show_status(SuggestionStatus::Pending, cx)
+            });
+        }
+        self.show(view_of(channel), window, cx);
+        self.sync_arrivals(cx);
+    }
+
+    /// Moves what arrived along to now: a hold ends, a fade ends.
+    pub(super) fn tick_arrivals(&mut self, cx: &mut Context<Self>) {
+        let now = self.instant();
+        self.arrived.arrivals.tick(now);
+        // Re-armed even when nothing changed: a timer that fired a little
+        // early has the same deadline still to reach.
+        self.sync_arrivals(cx);
+    }
+
+    /// Starts the arrivals' timer from now on (only the app).
+    pub(super) fn keep_arrivals_timed(&mut self, cx: &mut Context<Self>) {
+        self.arrived.timed = true;
+        self.sync_arrivals(cx);
+    }
+
+    /// Hands the views their marks, and sets the timer to the next phase
+    /// change.
+    fn sync_arrivals(&mut self, cx: &mut Context<Self>) {
+        let (ids, phase) = match self.arrived.arrivals.transaction_marks() {
+            Some(marked) => (marked.ids.clone(), marked.phase),
+            None => (BTreeSet::new(), Phase::Shown),
+        };
+        let phase = match phase {
+            Phase::Shown => MarkPhase::Shown,
+            Phase::Fading { .. } => MarkPhase::FadingOut,
+        };
+        let transactions = self.transactions.read(cx);
+        if transactions.marked() != ids || transactions.mark_phase() != phase {
+            self.transactions.update(cx, |transactions, cx| {
+                transactions.set_marks(ids, phase, cx)
+            });
+        }
+        let (ids, fading) = match self.arrived.arrivals.suggestion_marks() {
+            Some(marked) => (
+                marked.ids.clone(),
+                matches!(marked.phase, Phase::Fading { .. }),
+            ),
+            None => (BTreeSet::new(), false),
+        };
+        let inbox = self.inbox.read(cx);
+        if inbox.marked() != ids || inbox.marks_fading() != fading {
+            self.inbox
+                .update(cx, |inbox, cx| inbox.set_marks(ids, fading, cx));
+        }
+        self.arrived.timer = None;
+        if self.arrived.timed
+            && let Some(deadline) = self.arrived.arrivals.next_deadline()
+        {
+            let wait = deadline.saturating_duration_since(self.instant());
+            self.arrived.timer = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                this.update(cx, |this, cx| this.tick_arrivals(cx)).ok();
+            }));
+        }
+        cx.notify();
     }
 }

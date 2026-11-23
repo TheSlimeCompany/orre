@@ -53,6 +53,7 @@
 //! view owns the selection (by transaction id, so it survives filtering)
 //! and the list's scroll state; rows only present (`ui::transaction_row`).
 
+pub mod arrived;
 mod bulk;
 pub mod confirm;
 #[cfg(any(test, feature = "dev-driver"))]
@@ -75,7 +76,9 @@ pub mod store;
 pub mod transfer;
 mod write;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
+use std::time::Instant;
 
 use chrono::NaiveDate;
 use gpui_kit::base::actions::{Cancel, Confirm};
@@ -108,7 +111,7 @@ use crate::accounts::store::StoreError;
 use crate::accounts::{Accounts, AccountsEvent};
 use crate::format::{self, Sign};
 use crate::shell::live::{Reloads, Wrote};
-use crate::theme::tokens::{color, size as token_size, spacing};
+use crate::theme::tokens::{color, motion, size as token_size, spacing};
 use crate::ui::bulk_action_bar::BulkActionBar;
 use crate::ui::button::{Button, ButtonVariant, Chip};
 use crate::ui::empty_state::EmptyState;
@@ -117,10 +120,12 @@ use crate::ui::list::{Keys, ListKeysExt as _, Move, Reveal as _};
 use crate::ui::menu::{self, MenuGroup, MenuList, SelectState, filter_groups};
 use crate::ui::notification::NotificationBar;
 use crate::ui::transaction_row::{
-    DayHeader, SortedBy, TITLE_CONTEXT, TransactionColumn, TransactionHeader, TransactionRow,
+    DayHeader, MarkFade, SortedBy, TITLE_CONTEXT, TransactionColumn, TransactionHeader,
+    TransactionRow,
 };
 use crate::ui::undo_bar::UndoBar;
 
+use arrived::{RegisterChange, RemovedNote};
 use selection::{ClickKind, Selection};
 use store::TransactionStore;
 use write::{Offer, Policy, Said};
@@ -246,6 +251,31 @@ pub enum TransactionsEvent {
 
 impl gpui_kit::EventEmitter<TransactionsEvent> for TransactionsView {}
 impl gpui_kit::EventEmitter<Wrote> for TransactionsView {}
+impl gpui_kit::EventEmitter<RegisterChanged> for TransactionsView {}
+
+/// What a read changed in a register that was already loaded (LU.5): sent
+/// after every such read that added, changed or removed a row, and never
+/// for the first read, a failed read or a read that found nothing different.
+///
+/// The view only reports. Whether a read was asked for (the app's own write)
+/// or came from another process is the shell's to judge, from the read it
+/// started; `after_own_write` says only that this view's own write came
+/// before the read, which is what the inspector's "removed" note uses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegisterChanged {
+    pub change: RegisterChange,
+    pub after_own_write: bool,
+}
+
+/// What the row marks are doing ([`TransactionsView::set_marks`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkPhase {
+    /// Drawn; a mark new to the set fades in over `--motion-base`.
+    Shown,
+    /// Fading out over 100ms and then invisible: the shell clears the set
+    /// once the fade is over.
+    FadingOut,
+}
 
 /// Which menu is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -607,6 +637,21 @@ pub struct TransactionsView {
     /// An edit typed on a row the user then left, which didn't save: the
     /// failure bar says so until it's dismissed or the selection moves.
     edit_failure: Option<EditFailure>,
+    /// Whether a register has been read without error: the next one is
+    /// compared with it ([`RegisterChange`]).
+    has_register: bool,
+    /// The view's own write came before the read now in flight: the rows
+    /// that go in it went by the user's own hand.
+    read_follows_own_write: bool,
+    /// Every selected row went in a read from another process: the
+    /// inspector says so until the next selection.
+    removed: Option<RemovedNote>,
+    /// The rows that wear the row mark, each with the moment it joined the
+    /// set and a number for its fade's animation.
+    marks: BTreeMap<TransactionId, (Instant, u64)>,
+    mark_phase: MarkPhase,
+    /// Counts the marks set, so a fade is a new animation.
+    marks_set: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -681,6 +726,12 @@ impl TransactionsView {
             reveal: None,
             search_stale: false,
             edit_failure: None,
+            has_register: false,
+            read_follows_own_write: false,
+            removed: None,
+            marks: BTreeMap::new(),
+            mark_phase: MarkPhase::Shown,
+            marks_set: 0,
             _subscriptions: subscriptions,
         };
         if fixture {
@@ -732,6 +783,9 @@ impl TransactionsView {
     /// Clears the selection, so the inspector shows the selected account.
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
         self.selection.clear();
+        // Selecting an account shows it in the inspector, over a removed
+        // row's note.
+        self.removed = None;
         self.undo = None;
         self.edit_failure = None;
         cx.notify();
@@ -740,7 +794,90 @@ impl TransactionsView {
     /// Selects exactly `ids`, as if clicked in turn with ⌘ held.
     pub fn select(&mut self, ids: impl IntoIterator<Item = TransactionId>, cx: &mut Context<Self>) {
         self.selection.set(ids);
+        if !self.selection.is_empty() {
+            self.removed = None;
+        }
         cx.notify();
+    }
+
+    /// Puts the row mark on `ids` (LU.5: rows that arrived or changed in a
+    /// read from another process), replacing the set. A mark new to the set
+    /// fades in over `--motion-base`; under `App::reduce_motion` fades jump
+    /// to their end. With `phase` [`MarkPhase::FadingOut`] the marks fade
+    /// out over 100ms and stay invisible: the shell sets an empty set after
+    /// that, so the view runs no timer. Only listed rows draw a mark, so a
+    /// row a filter hides has none (and the view's `describe()` lists only
+    /// the listed marked rows); the set itself keeps the id for when it's
+    /// listed again. Nothing here selects, scrolls or reloads.
+    pub fn set_marks(
+        &mut self,
+        ids: BTreeSet<TransactionId>,
+        phase: MarkPhase,
+        cx: &mut Context<Self>,
+    ) {
+        self.marks_set += 1;
+        let generation = self.marks_set;
+        let now = Instant::now();
+        let kept = std::mem::take(&mut self.marks);
+        self.marks = ids
+            .into_iter()
+            .map(|id| (id, kept.get(&id).copied().unwrap_or((now, generation))))
+            .collect();
+        // A fade-out is a new animation for every mark, kept or not.
+        if phase == MarkPhase::FadingOut && self.mark_phase != MarkPhase::FadingOut {
+            for mark in self.marks.values_mut() {
+                mark.1 = generation;
+            }
+        }
+        self.mark_phase = phase;
+        cx.notify();
+    }
+
+    /// Marks `ids` as already drawn, with no fade-in: Paper's sample on
+    /// `JJY-0`, for the snapshot, which draws one frame.
+    pub fn show_marks_drawn(&mut self, ids: BTreeSet<TransactionId>, cx: &mut Context<Self>) {
+        self.set_marks(ids, MarkPhase::Shown, cx);
+        if let Some(drawn) = Instant::now().checked_sub(motion::BASE) {
+            for mark in self.marks.values_mut() {
+                mark.0 = drawn;
+            }
+        }
+    }
+
+    /// The rows wearing the row mark.
+    pub fn marked(&self) -> BTreeSet<TransactionId> {
+        self.marks.keys().copied().collect()
+    }
+
+    /// Whether the row marks are shown or fading out.
+    pub fn mark_phase(&self) -> MarkPhase {
+        self.mark_phase
+    }
+
+    /// What the inspector says of the selected rows that went in a read from
+    /// another process, until the next selection.
+    pub fn removed_note(&self) -> Option<&RemovedNote> {
+        self.removed.as_ref()
+    }
+
+    /// Whether row `id` is no longer in the register read: a dialog about it
+    /// can't be confirmed (its primary is disabled, with
+    /// [`arrived::DIALOG_CAPTION`] above the footer).
+    pub fn row_removed(&self, id: TransactionId) -> bool {
+        self.has_register && self.register.row(id).is_none()
+    }
+
+    /// The next read follows a write the app made, in another view (the
+    /// shell's, say Accounts' undo import), not this one's: rows that go in
+    /// it went by the user's own hand, so the inspector doesn't say they were
+    /// removed outside the window.
+    pub fn read_follows_own_write(&mut self) {
+        self.read_follows_own_write = true;
+    }
+
+    /// Whether a read of the register is in flight.
+    pub fn reading(&self) -> bool {
+        self.loading.is_some()
     }
 
     /// The register the table shows.
@@ -780,6 +917,7 @@ impl TransactionsView {
     /// itself, or inside a shell drops the read in flight (it started
     /// before the write) and leaves the read to the shell.
     fn wrote_ledger(&mut self, cx: &mut Context<Self>) {
+        self.read_follows_own_write = true;
         match self.reloads {
             Reloads::Itself => self.reload(cx),
             Reloads::ByShell => {
@@ -812,11 +950,19 @@ impl TransactionsView {
     fn apply(&mut self, result: Result<Register, SharedString>, cx: &mut Context<Self>) {
         // Before the new register replaces the one the list's items index.
         let scrolled = self.scroll_anchor();
+        let after_own_write = std::mem::take(&mut self.read_follows_own_write);
+        let selected: Vec<TransactionId> = self.selection.in_order(&self.order).collect();
+        let mut change = RegisterChange::default();
         self.loading = None;
         self.loaded = true;
         self.generation += 1;
         match result {
             Ok(register) => {
+                change = RegisterChange::of_read(
+                    self.has_register.then(|| self.register.rows()),
+                    register.rows(),
+                );
+                self.has_register = true;
                 self.category_counts = register.category_counts();
                 self.register = register;
                 self.load_error = None;
@@ -837,6 +983,51 @@ impl TransactionsView {
         self.restore_scroll(scrolled);
         if let Some(id) = self.reveal.take() {
             self.show_row(id, cx);
+        }
+        if !change.is_empty() {
+            if !after_own_write {
+                self.note_removed_selection(&selected, &change);
+            }
+            cx.emit(RegisterChanged {
+                change,
+                after_own_write,
+            });
+        }
+    }
+
+    /// When every row that was selected went in a read the view didn't ask
+    /// for, the inspector says so, from the rows as they were.
+    fn note_removed_selection(&mut self, selected: &[TransactionId], change: &RegisterChange) {
+        if selected.is_empty() || !self.selection.is_empty() {
+            return;
+        }
+        let gone: Vec<_> = selected
+            .iter()
+            .filter_map(|id| change.removed.iter().find(|row| row.id == *id).cloned())
+            .collect();
+        if gone.len() == selected.len() {
+            self.removed = arrived::removed_note(&gone, self.today);
+        }
+    }
+
+    /// Closes a menu whose row went in a read from another process: an
+    /// inline category edit on it, or one of the inspector's, which has no
+    /// row left to change.
+    fn close_orphaned_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let orphaned = match self.menu {
+            Some(Menu::Row(id)) => self.row_removed(id),
+            Some(
+                Menu::Inspector
+                | Menu::Bulk
+                | Menu::Tags
+                | Menu::SplitLine(_)
+                | Menu::Person
+                | Menu::ManualAccount,
+            ) => self.removed.is_some() && self.selection.is_empty(),
+            _ => false,
+        };
+        if orphaned {
+            self.close(window, cx);
         }
     }
 
@@ -1845,13 +2036,31 @@ impl TransactionsView {
             }
             TableItem::Row(row) => self.render_row(row, window, cx),
         };
+        let mark = match self.items[index] {
+            TableItem::Row(row) => self.row_mark(self.register.rows()[row].id),
+            TableItem::Day { .. } => None,
+        };
         div()
+            .relative()
             .flex()
             .flex_col()
             .w_full()
             .px(spacing::S2)
             .child(item)
+            .children(mark)
             .into_any_element()
+    }
+
+    /// The row mark for row `id`, if it wears one.
+    fn row_mark(&self, id: TransactionId) -> Option<AnyElement> {
+        let (since, generation) = *self.marks.get(&id)?;
+        let fade = match self.mark_phase {
+            MarkPhase::FadingOut => MarkFade::Out,
+            MarkPhase::Shown if since.elapsed() < motion::BASE => MarkFade::In,
+            MarkPhase::Shown => MarkFade::Steady,
+        };
+        let animation = SharedString::from(format!("row-mark-{id}-{generation}"));
+        Some(crate::ui::transaction_row::row_mark(animation, fade))
     }
 
     fn render_row(&self, index: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -2213,6 +2422,10 @@ impl TransactionsView {
 
 impl Render for TransactionsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.selection.is_empty() {
+            self.removed = None;
+        }
+        self.close_orphaned_menu(window, cx);
         self.sync_search(window, cx);
         self.sync_editor(window, cx);
         #[cfg(any(test, feature = "dev-driver"))]
@@ -2236,6 +2449,8 @@ impl Render for TransactionsView {
     }
 }
 
+#[cfg(test)]
+mod arrival_tests;
 #[cfg(test)]
 mod bulk_tests;
 #[cfg(test)]

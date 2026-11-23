@@ -24,7 +24,7 @@ use gpui_kit::{
 
 use crate::theme::tokens::typography::TextRole;
 use crate::theme::tokens::{color, radius, size, spacing, typography, weight};
-use crate::ui::badge::Badge;
+use crate::ui::badge::{Badge, BadgeKind};
 use crate::ui::button::IconButton;
 use crate::ui::icon::Glyph;
 use crate::ui::kbd::Kbd;
@@ -72,6 +72,9 @@ pub struct ViewTab {
     label: SharedString,
     active: bool,
     badge: Option<SharedString>,
+    /// Whether the badge is [`BadgeKind::Unseen`]: its count went up while
+    /// the view wasn't on show (LU.5).
+    badge_unseen: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -83,6 +86,7 @@ impl ViewTab {
             label: label.into(),
             active: false,
             badge: None,
+            badge_unseen: false,
             on_click: None,
         }
     }
@@ -97,6 +101,13 @@ impl ViewTab {
     /// suggestions.
     pub fn badge(mut self, count: impl Into<SharedString>) -> Self {
         self.badge = Some(count.into());
+        self
+    }
+
+    /// Draws the badge unseen: `moldavite` fill, `on-moldavite` text
+    /// (`DESIGN.md` → **Badge**, LU.5).
+    pub fn badge_unseen(mut self, unseen: bool) -> Self {
+        self.badge_unseen = unseen;
         self
     }
 
@@ -139,7 +150,14 @@ impl ViewTab {
                     })
                     .child(self.label),
             )
-            .when_some(self.badge, |this, count| this.child(Badge::new(count)))
+            .when_some(self.badge, |this, count| {
+                let kind = if self.badge_unseen {
+                    BadgeKind::Unseen
+                } else {
+                    BadgeKind::Agent
+                };
+                this.child(Badge::new(count).with_kind(kind))
+            })
             .when_some(self.on_click, |this, handler| {
                 this.on_click(move |event, window, cx| handler(event, window, cx))
             })

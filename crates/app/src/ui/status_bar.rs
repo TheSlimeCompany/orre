@@ -6,11 +6,12 @@ use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, InteractiveElement as _, IntoElement, ParentElement as _, RenderOnce, Rgba, SharedString,
-    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
+    Animation, AnimationExt as _, App, HighlightStyle, InteractiveElement as _, IntoElement,
+    ParentElement as _, RenderOnce, Rgba, SharedString, StatefulInteractiveElement as _,
+    Styled as _, StyledText, TestSupportExt as _, Window, div,
 };
 
-use crate::theme::tokens::{color, radius, size, spacing, typography};
+use crate::theme::tokens::{color, motion, radius, size, spacing, typography};
 use crate::ui::icon::Glyph;
 use crate::ui::separator;
 use crate::ui::text::TextRoleExt as _;
@@ -24,16 +25,33 @@ enum Lead {
     Icon(Glyph),
     /// A 12px icon in `text-muted`: a state that's off ("AI access off").
     MutedIcon(Glyph),
+    /// A 10px sparkle in `moldavite`: an AI client's arrival (LU.5).
+    Sparkle,
 }
 
-/// One item in the status bar: caption text in `text-muted`, optionally in
-/// Geist Mono, optionally led by a status dot or an icon.
+/// One item in the status bar: caption text in `text-muted` (or
+/// `text-secondary`), optionally in Geist Mono, optionally led by a status
+/// dot or an icon, optionally with spans in `moldavite-text`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatusItem {
     text: SharedString,
+    /// The text after `text`, in order, each with whether it is drawn in
+    /// `moldavite-text`.
+    spans: Vec<(SharedString, bool)>,
+    secondary: bool,
     mono: bool,
     lead: Option<Lead>,
     action: Option<Action>,
+    fade: Option<Fade>,
+}
+
+/// An item fading in or out (LU.5's arrival line): `--motion-base` in, its
+/// exit out. GPUI skips both under reduced motion.
+#[derive(Clone, Debug, PartialEq)]
+struct Fade {
+    /// The animation's key: a new key starts the fade again.
+    id: SharedString,
+    out: bool,
 }
 
 /// A click handler.
@@ -63,10 +81,20 @@ impl StatusItem {
     pub fn text(text: impl Into<SharedString>) -> Self {
         Self {
             text: text.into(),
+            spans: Vec::new(),
+            secondary: false,
             mono: false,
             lead: None,
             action: None,
+            fade: None,
         }
+    }
+
+    /// Fades the item in over `--motion-base` (`out` false) or out at its
+    /// exit, keyed by `id`: the fade runs once per key.
+    pub fn fade(mut self, id: impl Into<SharedString>, out: bool) -> Self {
+        self.fade = Some(Fade { id: id.into(), out });
+        self
     }
 
     /// Runs `handler` when the item is clicked: "1 agent connected" and
@@ -90,6 +118,27 @@ impl StatusItem {
             mono: true,
             ..Self::text(text)
         }
+    }
+
+    /// Draws the text in `text-secondary`, one step above the other items:
+    /// the arrival line (LU.5).
+    pub fn secondary(mut self) -> Self {
+        self.secondary = true;
+        self
+    }
+
+    /// Adds `text` after the item's text, in `moldavite-text` when
+    /// `emphasis`: a client's name in the arrival line.
+    pub fn span(mut self, text: impl Into<SharedString>, emphasis: bool) -> Self {
+        self.spans.push((text.into(), emphasis));
+        self
+    }
+
+    /// Leads the text with a 10px `moldavite` sparkle: an AI client's
+    /// arrival.
+    pub fn sparkle(mut self) -> Self {
+        self.lead = Some(Lead::Sparkle);
+        self
     }
 
     /// Leads the text with a `moldavite` dot: an agent is connected over
@@ -139,7 +188,27 @@ impl StatusItem {
                 .render()
                 .text_color(color::TEXT_MUTED)
                 .into_any_element(),
+            Lead::Sparkle => Glyph::Sparkle
+                .render_at(size::ICON_XS)
+                .text_color(color::MOLDAVITE)
+                .into_any_element(),
         });
+        // One run of text, so a span in `moldavite-text` sits inline.
+        let mut full = self.text.to_string();
+        let mut highlights = Vec::new();
+        for (span, emphasis) in &self.spans {
+            let start = full.len();
+            full.push_str(span);
+            if *emphasis {
+                highlights.push((
+                    start..full.len(),
+                    HighlightStyle {
+                        color: Some(color::MOLDAVITE_TEXT.into()),
+                        ..HighlightStyle::default()
+                    },
+                ));
+            }
+        }
         let text = div()
             .flex_none()
             .whitespace_nowrap()
@@ -148,11 +217,23 @@ impl StatusItem {
             } else {
                 typography::CAPTION
             })
-            .text_color(color::TEXT_MUTED)
-            .child(self.text)
+            .text_color(if self.secondary {
+                color::TEXT_SECONDARY
+            } else {
+                color::TEXT_MUTED
+            })
+            .child(StyledText::new(full).with_highlights(highlights))
             .into_any_element();
         let parts: Vec<gpui_kit::AnyElement> =
             lead.into_iter().chain(std::iter::once(text)).collect();
+        let parts = match self.fade {
+            Some(fade) => parts
+                .into_iter()
+                .enumerate()
+                .map(|(index, part)| faded(part, &fade, index))
+                .collect(),
+            None => parts,
+        };
         match self.action {
             // One target for the lead and the text, spaced as the bar spaces
             // them.
@@ -172,6 +253,26 @@ impl StatusItem {
             ],
             None => parts,
         }
+    }
+}
+
+/// `part` of an item, fading as `fade` says; `index` keeps each part's
+/// animation apart.
+fn faded(part: gpui_kit::AnyElement, fade: &Fade, index: usize) -> gpui_kit::AnyElement {
+    let id = gpui_kit::ElementId::Name(format!("{}-{index}", fade.id).into());
+    let part = div().flex().flex_none().items_center().child(part);
+    if fade.out {
+        part.with_animation(
+            id,
+            Animation::new(motion::exit(motion::BASE)),
+            |part, delta| part.opacity(1. - delta),
+        )
+        .into_any_element()
+    } else {
+        part.with_animation(id, Animation::new(motion::BASE), |part, delta| {
+            part.opacity(delta)
+        })
+        .into_any_element()
     }
 }
 

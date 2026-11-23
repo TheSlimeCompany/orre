@@ -46,6 +46,7 @@
 //! changes the database, and after the app's own writes, which the views
 //! name to the shell rather than reloading themselves.
 
+pub mod arrivals;
 #[cfg(any(test, feature = "dev-driver"))]
 pub mod describe;
 pub mod live;
@@ -84,7 +85,8 @@ use crate::checks::view::ChecksView;
 use crate::checks::{self, Checks, ChecksEvent, Queue};
 use crate::import::dialog::ImportDialog;
 use crate::import::store::ImportStore;
-use crate::import::{self, Imports, ImportsChanged};
+use crate::import::{self, ImportWrite, Imports, ImportsChanged};
+use crate::inbox::arrival::Arrived;
 use crate::inbox::store::InboxStore;
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, Inbox};
@@ -106,7 +108,7 @@ use crate::transactions::link_dialog::LinkDialog;
 use crate::transactions::new_transaction::NewTransactionDialog;
 use crate::transactions::store::TransactionStore;
 use crate::transactions::{self, TransactionsView};
-use crate::transactions::{Counts, TransactionsEvent};
+use crate::transactions::{Counts, RegisterChanged, TransactionsEvent};
 use crate::ui::button::IconButton;
 use crate::ui::empty_state::EmptyState;
 use crate::ui::icon::Glyph;
@@ -114,7 +116,8 @@ use crate::ui::status_bar::{StatusBar, StatusItem};
 use crate::ui::text::TextRoleExt as _;
 use crate::ui::title_bar::{self, CommandBar, TitleBar, ViewTab};
 
-use live::{Live, Wrote};
+use arrivals::{ArrivalLine, Phase};
+use live::{Live, Shown, Wrote};
 use status::{Ai, ChecksStatus, Status};
 use window_state::WindowStore;
 
@@ -438,6 +441,8 @@ pub struct ShellView {
     /// that don't watch, where the app's own writes reload the views at
     /// once.
     live: Option<Live>,
+    /// What arrived from other processes (LU.5).
+    arrived: Shown,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -589,6 +594,13 @@ impl ShellView {
             cx.subscribe(&settings, |this, _, wrote: &Wrote, cx| {
                 this.refresh(wrote.0.clone(), cx)
             }),
+            // What another process changed, shown where it lands (LU.5).
+            cx.subscribe(&transactions, |this, _, event: &RegisterChanged, cx| {
+                this.register_changed(event, cx)
+            }),
+            cx.subscribe(&inbox, |this, _, event: &Arrived, cx| {
+                this.suggestions_arrived(event, cx)
+            }),
             cx.subscribe_in(
                 &accounts,
                 window,
@@ -629,6 +641,7 @@ impl ShellView {
         let imports = cx.new(|_| Imports::sample());
         let mut subscriptions = subscriptions;
         subscriptions.push(Self::watch_imports(&imports, cx));
+        subscriptions.push(Self::watch_import_writes(&imports, cx));
         let inbox_view = cx.new(|cx| InboxView::new(inbox.clone(), cx));
         if view == View::Inbox {
             inbox_view.read(cx).focus_handle().clone().focus(window, cx);
@@ -662,6 +675,7 @@ impl ShellView {
             now: clock::now().unwrap_or_default(),
             clock: None,
             live: None,
+            arrived: Shown::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -672,6 +686,8 @@ impl ShellView {
         self.imports = cx.new(|_| Imports::from_store(store));
         let subscription = Self::watch_imports(&self.imports, cx);
         self._subscriptions.push(subscription);
+        let subscription = Self::watch_import_writes(&self.imports, cx);
+        self._subscriptions.push(subscription);
     }
 
     /// After an import or its undo, the views of the ledger read the
@@ -679,12 +695,21 @@ impl ShellView {
     /// duplicates added or cleared, the balance checks changed).
     fn watch_imports(imports: &Entity<Imports>, cx: &mut Context<Self>) -> Subscription {
         cx.subscribe(imports, |this, _, _: &ImportsChanged, cx| {
-            this.refresh(BTreeSet::from([Topic::Ledger]), cx);
+            this.own_write_done(BTreeSet::from([Topic::Ledger]), cx);
             // "Imported just now", not the time last read.
             if let Ok(now) = clock::now() {
                 this.now = now;
             }
             cx.notify();
+        })
+    }
+
+    /// The checks wait while the app's own import or undo writes
+    /// ([`ImportWrite`]).
+    fn watch_import_writes(imports: &Entity<Imports>, cx: &mut Context<Self>) -> Subscription {
+        cx.subscribe(imports, |this, _, write: &ImportWrite, cx| match write {
+            ImportWrite::Started => this.own_write_started(cx),
+            ImportWrite::Failed => this.own_write_failed(cx),
         })
     }
 
@@ -726,6 +751,7 @@ impl ShellView {
             accounts: self.accounts.read(cx).data(),
             counts: self.transactions.read(cx).counts(),
             now: self.now,
+            arrival: self.arrived.arrivals().line(),
         })
     }
 
@@ -1307,6 +1333,7 @@ impl ShellView {
             self.settings.update(cx, |settings, cx| settings.reload(cx));
         }
         self.view = view;
+        self.see_on_show(cx);
         self.remember(window, cx);
         cx.notify();
     }
@@ -1408,7 +1435,11 @@ impl ShellView {
                     // don't count (`DESIGN.md` → "Inbox impact preview").
                     let pending = self.inbox.read(cx).badge();
                     if pending > 0 {
-                        tab = tab.badge(SharedString::from(pending.to_string()));
+                        // Unseen while it went up out of sight (LU.5).
+                        let unseen = self.arrived.arrivals().inbox_badge_unseen().is_some();
+                        tab = tab
+                            .badge(SharedString::from(pending.to_string()))
+                            .badge_unseen(unseen);
                     }
                 }
                 bar.tab(tab)
@@ -1449,7 +1480,7 @@ impl ShellView {
 /// say left out; the sample data keeps Paper's. The AI item ("N agents
 /// connected" or "AI access off") opens Settings → AI clients, and failing
 /// balance checks open Balance checks.
-fn status_bar(status: &Status, cx: &mut Context<ShellView>) -> StatusBar {
+fn status_bar(status: &Status, generation: u64, cx: &mut Context<ShellView>) -> StatusBar {
     let mut bar = StatusBar::new();
     let ai = match status.ai {
         Ai::Off => Some(StatusItem::text("AI access off").muted_icon(Glyph::Refused)),
@@ -1490,13 +1521,44 @@ fn status_bar(status: &Status, cx: &mut Context<ShellView>) -> StatusBar {
     bar = bar.start(StatusItem::mono(SharedString::from(
         status.transactions.clone(),
     )));
-    if let Some(new) = &status.new {
-        bar = bar.end(StatusItem::text(SharedString::from(new.clone())).new_dot());
+    if let Some(line) = &status.arrival {
+        bar = bar.end(arrival_item(line, generation, cx));
     }
     if let Some(currency) = &status.currency {
         bar = bar.end(StatusItem::mono(SharedString::from(currency.clone())));
     }
     bar
+}
+
+/// The arrival line (LU.5, `DESIGN.md` → "Live updates: showing what
+/// arrived"): its lead, the copy with a client's name in `moldavite-text`,
+/// and a click that opens its view, except for removed rows.
+fn arrival_item(line: &ArrivalLine, generation: u64, cx: &mut Context<ShellView>) -> StatusItem {
+    let mut item = line
+        .spans
+        .iter()
+        .fold(StatusItem::text(""), |item, span| {
+            item.span(SharedString::from(span.text.clone()), span.emphasis)
+        })
+        .secondary();
+    item = match line.lead {
+        arrivals::Lead::Sparkle => item.sparkle(),
+        arrivals::Lead::Dot => item.new_dot(),
+        arrivals::Lead::None => item,
+    };
+    // Generation 0 is the sample's line, which was always there.
+    item = match line.phase {
+        Phase::Shown if generation == 0 => item,
+        Phase::Shown => item.fade(format!("status-arrival-in-{generation}"), false),
+        Phase::Fading { .. } => item.fade(format!("status-arrival-out-{generation}"), true),
+    };
+    if line.opens.is_some() {
+        let shell = cx.entity().downgrade();
+        item = item.on_click("status-arrival", move |window, cx| {
+            let _ = shell.update(cx, |shell, cx| shell.arrival_clicked(window, cx));
+        });
+    }
+    item
 }
 
 impl Render for ShellView {
@@ -1593,7 +1655,11 @@ impl Render for ShellView {
                 .text_color(color::TEXT)
                 .child(self.render_title_bar(cx))
                 .child(body)
-                .child(status_bar(&self.status(cx), cx))
+                .child(status_bar(
+                    &self.status(cx),
+                    self.arrived.line_generation(),
+                    cx,
+                ))
                 .when_some(
                     self.dialog.as_ref().map(|(view, _)| view.clone()),
                     |this, dialog| this.child(dialog),
