@@ -153,6 +153,7 @@ Budgets, the forecast, and how spending is counted over the ledger.
 - Decision record: one spending rule over the ledger (2026-11-16)
 - Decision record: one net worth rule (2026-11-19)
 - Decision record: full-text search over bank text (2026-11-23)
+- Decision record: similar transactions (2026-11-24)
 
 ### [The app](architecture/app.md)
 
@@ -196,7 +197,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Currency | Multi-currency; one home currency for reporting. ECB reference rates fetched opt-in and cached (the app's only network call); manual rates as fallback |
 | Formats (v1) | CSV (generic mapping + presets), OFX/QFX. QIF, CAMT.053, MT940 later via `Importer` trait |
 | PDF | Deferred. Plan: local text extraction + per-layout templates; any model-based extraction opt-in only |
-| Categorization | Local rules engine first; AI-proposed categories/rules land in the Inbox for approval. Approving a categorisation sets those transactions' categories (an undoable `bulk_edit` batch, source `ai_approved`); only approving a `rule` suggestion creates a rule. The app also files `rule` suggestions itself (source `orre`) after repeated identical manual recategorisations: deterministic counting, no ML. Learned classifiers are not used |
+| Categorization | Local rules engine first; AI-proposed categories/rules land in the Inbox for approval. Approving a categorisation sets those transactions' categories (an undoable `bulk_edit` batch, source `ai_approved`); only approving a `rule` suggestion creates a rule. The app also files suggestions itself (source `orre`): a `rule` after repeated identical manual recategorisations, and a `categorization` for an imported row whose nearest look-alikes agree (FT.4, `bm25` over the full-text index): deterministic, no ML. Learned classifiers are not used |
 | Transfers | Auto-detect opposite-amount pairs across own accounts within 3 days (`TransferWindow::DEFAULT`); user confirms; a confirmed pair is excluded from income/spend and its legs take no category. A suggested pair counts by its own category until confirmed, and the table marks it. A category of kind `transfer` is for a single row whose other side Orre doesn't hold. See "Decision record: two kinds of transfer, and marking a suggested pair" |
 | Pots / sub-accounts | Monzo Pots, Starling Spaces, Revolut Vaults etc. are sub-accounts of their parent. A preset's `[sub_account_transfer]` identifies pot transfers; the import commit creates the pot when its key (the bank's ID for it, or its name where the export has no ID, as Monzo's doesn't) is new, mirrors the row onto it (`origin = mirrored`) and pairs the two as a confirmed transfer. Pots count toward net worth (opening balance entered once per pot). See "Decision record: sub-accounts" |
 | AI integration | `orre mcp` stdio MCP server (`rmcp`). Read-only query tools + inbox-only writes. No account numbers at any level; names and bank text only at `standard` (see "MCP surface") |
