@@ -5,6 +5,7 @@
 //! ```sh
 //! cargo run --release -p orre-core --example ledger_bench -- <dir>
 //! cargo run --release -p orre-core --example ledger_bench -- <dir> --only live
+//! cargo run --release -p orre-core --features bench --example ledger_bench -- <dir> --only search
 //! ```
 //!
 //! `<dir>` is required and is never the platform data directory: the
@@ -22,6 +23,20 @@
 //! last of those is also timed on a copy of the ledger (made next to it and
 //! deleted at the end) whose access log holds about 100,000 rows over the
 //! retention window, as a year of heavy MCP use would leave it.
+//!
+//! `--only search` measures what the full-text index over bank text costs
+//! (ROADMAP FT.6; decision record "full-text search over bank text" in
+//! `docs/architecture/reporting.md`). It needs `--features bench`, which
+//! makes `Ledger::like_only` reachable so `LIKE` can be timed alone. It
+//! migrates the ledger, then makes two copies of it with `VACUUM INTO`, as a
+//! backup is made, in new subdirectories of `<dir>`, deleted at the end: one
+//! as it is, one with the index and its triggers dropped and vacuumed. It
+//! prints their sizes (a copy's size is a backup's size), the 1,000-row import
+//! on each, V24's migration on a fresh copy without the index (what restoring
+//! an older backup costs), and `search_transactions`' query
+//! (`reporting::rows::search`, default limit, opened as `orre mcp` opens it)
+//! through the index against `LIKE` alone, for texts that match few, some and
+//! nearly all rows.
 //!
 //! Everything is made up: merchants, amounts and descriptions. The
 //! generator is a small PRNG with a fixed seed.
@@ -84,19 +99,20 @@ fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
     let Some(dir) = args.next().map(PathBuf::from) else {
         eprintln!(
-            "usage: ledger_bench <dir> [--only live]   (a scratch directory; never the data directory)"
+            "usage: ledger_bench <dir> [--only live|search]   (a scratch directory; never the data directory)"
         );
         return ExitCode::from(2);
     };
-    let only_live = match (args.next(), args.next(), args.next()) {
-        (None, _, _) => false,
-        (Some(flag), Some(which), None) if flag == "--only" && which == "live" => true,
+    let mode = match (args.next(), args.next(), args.next()) {
+        (None, _, _) => Mode::Everything,
+        (Some(flag), Some(which), None) if flag == "--only" && which == "live" => Mode::Live,
+        (Some(flag), Some(which), None) if flag == "--only" && which == "search" => Mode::Search,
         _ => {
-            eprintln!("usage: ledger_bench <dir> [--only live]");
+            eprintln!("usage: ledger_bench <dir> [--only live|search]");
             return ExitCode::from(2);
         }
     };
-    match run(&dir, only_live) {
+    match run(&dir, mode) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("ledger_bench: {error}");
@@ -107,7 +123,17 @@ fn main() -> ExitCode {
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn run(dir: &Path, only_live: bool) -> Result<()> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Everything,
+    Live,
+    Search,
+}
+
+fn run(dir: &Path, mode: Mode) -> Result<()> {
+    if mode == Mode::Search && !cfg!(feature = "bench") {
+        return Err("--only search needs `--features bench` (it times `LIKE` alone)".into());
+    }
     if let Some(data) = orre_core::paths::database_path()
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf))
@@ -131,7 +157,10 @@ fn run(dir: &Path, only_live: bool) -> Result<()> {
         std::fs::write(dir.join(MARKER), "built\n")?;
         println!("built the ledger in {:.1?}", started.elapsed());
     }
-    measure(&database, only_live)
+    match mode {
+        Mode::Search => search_cost(dir, &database),
+        Mode::Live | Mode::Everything => measure(&database, mode == Mode::Live),
+    }
 }
 
 // Random numbers ---------------------------------------------------------------
@@ -1048,94 +1077,352 @@ fn measure(database: &Path, only_live: bool) -> Result<()> {
         )?;
     }
 
-    // An import of 1,000 rows on the 100k ledger (a background thread in
-    // the app). Each run is undone, so the ledger is as it was.
-    {
-        let mut db = open(database)?;
-        let current = account::list(&db)?
-            .into_iter()
-            .find(|account| account.name == "Current")
-            .ok_or("no Current account")?
-            .id;
-        let mut serial = 0u64;
-        let mut statement = || {
-            serial += 1;
-            let mut statement = Statement::new(SourceFormat::Csv, Currency::GBP);
-            for row in 0..1_000u64 {
-                let mut line = StatementLine::new(
-                    today.checked_sub_days(Days::new(row % 25)).unwrap(),
-                    Money::new(-(150 + (row as i64 * 37) % 4_000), Currency::GBP),
-                    format!(
-                        "{} {} LONDON",
-                        PREFIXES[(row % 30) as usize].to_uppercase(),
-                        SUFFIXES[(row % 4) as usize].to_uppercase()
-                    ),
-                );
-                line.external_id = Some(format!("bench-import-{serial}-{row}"));
-                statement.push(SourceLocation::Line(row + 2), Ok(line));
-            }
-            statement
-        };
-        let confirmed = Confirmations::default();
-        let mut previews = Vec::new();
-        time(
-            &mut rows,
-            "import: preview of a 1,000-row file",
-            false,
-            5,
-            || {
-                let preview = import::preview(&db, current, "bench.csv", statement())?;
-                previews.push(preview);
-                Ok(())
-            },
-        )?;
-        let preview = import::preview(&db, current, "bench.csv", statement())?;
-        time(
-            &mut rows,
-            "import: rehearse (the Review step's After import)",
-            false,
-            3,
-            || Ok(import::rehearse(&db, &preview)?.is_some()),
-        )?;
-        time(
-            &mut rows,
-            "import: commit of 1,000 rows (incl. backup), then undo",
-            false,
-            3,
-            || {
-                let preview = import::preview(&db, current, "bench.csv", statement())?;
-                let started = Instant::now();
-                let Committed::Batch(summary) = import::commit(&mut db, &preview, confirmed)?
-                else {
-                    return Err("nothing was new".into());
-                };
-                let committed = started.elapsed();
-                import::undo(&mut db, summary.batch)?;
-                Ok(committed)
-            },
-        )?;
-        // The commit alone: `time` measured commit + undo; report the commit.
-        let mut commits = Vec::new();
-        for _ in 0..3 {
+    import_rows(&mut rows, database, today, "")?;
+
+    live_rows(&mut rows, database)?;
+    print_table(&rows);
+    Ok(())
+}
+
+/// An import of 1,000 rows on the 100k ledger (a background thread in the
+/// app). Each run is undone, so the ledger is as it was. `suffix` ends each
+/// row's name, to tell the ledgers apart.
+fn import_rows(rows: &mut Vec<Row>, database: &Path, today: NaiveDate, suffix: &str) -> Result<()> {
+    let mut db = open(database)?;
+    let current = account::list(&db)?
+        .into_iter()
+        .find(|account| account.name == "Current")
+        .ok_or("no Current account")?
+        .id;
+    let mut serial = 0u64;
+    let mut statement = || {
+        serial += 1;
+        let mut statement = Statement::new(SourceFormat::Csv, Currency::GBP);
+        for row in 0..1_000u64 {
+            let mut line = StatementLine::new(
+                today.checked_sub_days(Days::new(row % 25)).unwrap(),
+                Money::new(-(150 + (row as i64 * 37) % 4_000), Currency::GBP),
+                format!(
+                    "{} {} LONDON",
+                    PREFIXES[(row % 30) as usize].to_uppercase(),
+                    SUFFIXES[(row % 4) as usize].to_uppercase()
+                ),
+            );
+            line.external_id = Some(format!("bench-import-{serial}-{row}"));
+            statement.push(SourceLocation::Line(row + 2), Ok(line));
+        }
+        statement
+    };
+    let confirmed = Confirmations::default();
+    let mut previews = Vec::new();
+    time(
+        rows,
+        &format!("import: preview of a 1,000-row file{suffix}"),
+        false,
+        5,
+        || {
+            let preview = import::preview(&db, current, "bench.csv", statement())?;
+            previews.push(preview);
+            Ok(())
+        },
+    )?;
+    let preview = import::preview(&db, current, "bench.csv", statement())?;
+    time(
+        rows,
+        &format!("import: rehearse (the Review step's After import){suffix}"),
+        false,
+        3,
+        || Ok(import::rehearse(&db, &preview)?.is_some()),
+    )?;
+    time(
+        rows,
+        &format!("import: commit of 1,000 rows (incl. backup), then undo{suffix}"),
+        false,
+        3,
+        || {
             let preview = import::preview(&db, current, "bench.csv", statement())?;
             let started = Instant::now();
             let Committed::Batch(summary) = import::commit(&mut db, &preview, confirmed)? else {
                 return Err("nothing was new".into());
             };
-            commits.push(started.elapsed());
+            let committed = started.elapsed();
             import::undo(&mut db, summary.batch)?;
-        }
-        commits.sort();
-        rows.push(Row {
-            name: "import: commit alone".to_owned(),
-            median: commits[1],
-            max: commits[2],
-            runs: 3,
-            ui_thread: false,
-        });
+            Ok(committed)
+        },
+    )?;
+    // The commit alone: `time` measured commit + undo; report the commit.
+    let mut commits = Vec::new();
+    for _ in 0..3 {
+        let preview = import::preview(&db, current, "bench.csv", statement())?;
+        let started = Instant::now();
+        let Committed::Batch(summary) = import::commit(&mut db, &preview, confirmed)? else {
+            return Err("nothing was new".into());
+        };
+        commits.push(started.elapsed());
+        import::undo(&mut db, summary.batch)?;
+    }
+    commits.sort();
+    rows.push(Row {
+        name: format!("import: commit alone{suffix}"),
+        median: commits[1],
+        max: commits[2],
+        runs: 3,
+        ui_thread: false,
+    });
+    Ok(())
+}
+
+// The full-text index's cost --------------------------------------------------
+
+/// A ledger's directory (the database, its `-wal` and `-shm`, and the
+/// backups an import takes): a new directory in `<dir>`, never one already
+/// there, deleted when dropped.
+#[cfg(feature = "bench")]
+struct Scratch {
+    dir: tempfile::TempDir,
+}
+
+#[cfg(feature = "bench")]
+impl Scratch {
+    fn new(parent: &Path, prefix: &str) -> Result<Scratch> {
+        let dir = tempfile::Builder::new().prefix(prefix).tempdir_in(parent)?;
+        Ok(Scratch { dir })
     }
 
-    live_rows(&mut rows, database)?;
+    fn database(&self) -> PathBuf {
+        self.dir.path().join("orre.db")
+    }
+}
+
+#[cfg(feature = "bench")]
+fn mebibytes(bytes: u64) -> String {
+    format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0))
+}
+
+#[cfg(feature = "bench")]
+fn file_size(path: &Path) -> Result<u64> {
+    Ok(std::fs::metadata(path)?.len())
+}
+
+/// A `VACUUM INTO` copy of `database` at `to`, as a backup is made.
+#[cfg(feature = "bench")]
+fn vacuum_into(database: &Path, to: &Path) -> Result<()> {
+    raw(database)?.execute(
+        "VACUUM INTO ?1",
+        [to.to_str().ok_or("the path isn't UTF-8")?],
+    )?;
+    Ok(())
+}
+
+/// The bytes the `transaction_text` shadow tables hold, by `dbstat`, when
+/// this SQLite has it.
+#[cfg(feature = "bench")]
+fn index_bytes(database: &Path) -> Option<i64> {
+    raw(database)
+        .ok()?
+        .query_row(
+            "SELECT SUM(pgsize) FROM dbstat WHERE name LIKE 'transaction_text%'",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+}
+
+/// The V24 migration's SQL, timed by `--only search`.
+#[cfg(feature = "bench")]
+const V24: &str = include_str!("../migrations/V24__transaction_text.sql");
+
+/// The database and its reader, opened as `orre mcp` opens them for each
+/// call (`orre_mcp::server`): through the gate, with `open_existing`, which
+/// runs no migrations.
+#[cfg(feature = "bench")]
+fn open_as_mcp(database: &Path) -> Result<(Database, orre_core::db::Reader)> {
+    Ok(gate::open(database, |path| {
+        Database::open_existing(path).and_then(|db| db.reader().map(|reader| (db, reader)))
+    })?)
+}
+
+#[cfg(not(feature = "bench"))]
+fn search_cost(_dir: &Path, _database: &Path) -> Result<()> {
+    Err("--only search needs `--features bench` (it times `LIKE` alone)".into())
+}
+
+/// The texts timed, with what they stand for in the made-up ledger: shop
+/// rows read `<MERCHANT NAME> <reference> LONDON`, merchants are picked
+/// favouring the first few (`pick`), and a few fixed rows carry fixed text.
+#[cfg(feature = "bench")]
+const SEARCH_TEXTS: [(&str, &str); 4] = [
+    ("odd refund", "a handful of rows"),
+    ("Fallow Express", "the least picked merchant"),
+    ("Brightfield Stores", "the most picked merchant"),
+    ("LONDON", "every shop row"),
+];
+
+#[cfg(feature = "bench")]
+fn search_cost(dir: &Path, database: &Path) -> Result<()> {
+    use orre_core::reporting::rows::{self, Search};
+    use orre_core::reporting::{Ledger, Limit};
+
+    let today = schedule::local_today()?;
+    let with = Scratch::new(dir, "search-with-index-")?;
+    let without = Scratch::new(dir, "search-without-index-")?;
+    // A ledger saved before V24 has no index to drop: migrate it first.
+    drop(open(database)?);
+    vacuum_into(database, &with.database())?;
+    vacuum_into(database, &without.database())?;
+    {
+        let conn = rusqlite::Connection::open(without.database())?;
+        conn.execute_batch(
+            "DROP TRIGGER transaction_text_insert; \
+             DROP TRIGGER transaction_text_delete; \
+             DROP TRIGGER transaction_text_update; \
+             DROP TABLE transaction_text; \
+             VACUUM;",
+        )?;
+    }
+    // Nothing has the copies open, so their files are what a backup is.
+    let sizes = (
+        file_size(&with.database())?,
+        file_size(&without.database())?,
+    );
+
+    // The live file, after a checkpoint, for reference.
+    {
+        // Read-write: a read-only connection can't checkpoint a WAL with frames in it.
+        let conn = rusqlite::Connection::open(database)?;
+        let _: (i64, i64, i64) = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    }
+    let live = file_size(database)?;
+    let index = sizes.0.saturating_sub(sizes.1);
+    println!();
+    println!("size (VACUUM INTO copies: a copy's size is a backup's size)");
+    println!(
+        "  live ledger, after a WAL checkpoint   {:>12}",
+        mebibytes(live)
+    );
+    println!(
+        "  copy with the index                   {:>12}",
+        mebibytes(sizes.0)
+    );
+    println!(
+        "  copy without the index                {:>12}",
+        mebibytes(sizes.1)
+    );
+    println!(
+        "  the index (the difference)            {:>12}  {:.1}% of the copy with it, {:.1}% over the copy without it",
+        mebibytes(index),
+        index as f64 * 100.0 / sizes.0 as f64,
+        index as f64 * 100.0 / sizes.1 as f64
+    );
+    match index_bytes(&with.database()) {
+        Some(bytes) => println!(
+            "  transaction_text* pages (dbstat)      {:>12}",
+            mebibytes(bytes.max(0) as u64)
+        ),
+        None => println!("  transaction_text* pages (dbstat)      not available"),
+    }
+
+    let mut rows = Vec::new();
+
+    // The import on each copy, both opened the same way.
+    let transactions: i64 =
+        raw(&with.database())?
+            .query_row("SELECT COUNT(*) FROM \"transaction\"", [], |row| row.get(0))?;
+    println!("\ncopies: {transactions} transactions each");
+    import_rows(&mut rows, &with.database(), today, " [with index]")?;
+    import_rows(&mut rows, &without.database(), today, " [without index]")?;
+
+    // What the V24 migration costs when it runs on an older backup: its SQL
+    // on a fresh copy of the ledger without the index each run, so it
+    // creates the index and fills it for the first time, as V24 does.
+    let migrated = Scratch::new(dir, "search-v24-")?;
+    let mut runs = Vec::new();
+    for _ in 0..4 {
+        let _ = std::fs::remove_file(migrated.database());
+        vacuum_into(&without.database(), &migrated.database())?;
+        let mut conn = rusqlite::Connection::open(migrated.database())?;
+        let started = Instant::now();
+        let tx = conn.transaction()?;
+        tx.execute_batch(V24)?;
+        tx.commit()?;
+        runs.push(started.elapsed());
+        drop(conn);
+    }
+    // The first run is the warm-up.
+    runs.remove(0);
+    runs.sort();
+    rows.push(Row {
+        name: "V24's migration: create and fill the index (restoring an older backup)".to_owned(),
+        median: runs[1],
+        max: runs[2],
+        runs: 3,
+        ui_thread: false,
+    });
+    drop(migrated);
+
+    // The text query: `search_transactions`' call, through the index, and
+    // the same ledger on `LIKE` alone, on the ledger itself. Each timed run
+    // opens the database as an MCP call does (`open_as_mcp`), with no other
+    // connection open.
+    let limit = Limit::new(None);
+    println!();
+    println!(
+        "search_transactions' text query, {} rows a page",
+        limit.get()
+    );
+    for (text, stands_for) in SEARCH_TEXTS {
+        let search = Search {
+            text: Some(text.to_owned()),
+            ..Search::default()
+        };
+        let base = || Ledger::new().newest_first().with_bank_text().matching(text);
+        // The checks' connection is dropped before the timed runs.
+        let db = open(database)?;
+        let reader = db.reader()?;
+        let every = base().lines(&reader)?;
+        let every_like = base().like_only().lines(&reader)?;
+        let total = every.len();
+        if every != every_like {
+            return Err(format!(
+                "{text:?}: the index path found {total} lines and LIKE alone {}, or other lines",
+                every_like.len()
+            )
+            .into());
+        }
+        let through_index = rows::search(&reader, &search, limit)?;
+        let through_like = base().like_only().lines_capped(&reader, limit)?;
+        if through_index != through_like {
+            return Err(format!("{text:?}: the first page differs between the two paths").into());
+        }
+        drop(reader);
+        drop(db);
+        println!(
+            "  {text:?} ({stands_for}): {total} ledger lines, {:.2}% of {transactions} transactions",
+            total as f64 * 100.0 / transactions as f64
+        );
+        time(
+            &mut rows,
+            &format!("search {text:?} ({total} lines): index (production path)"),
+            false,
+            9,
+            || {
+                let (_db, reader) = open_as_mcp(database)?;
+                Ok(rows::search(&reader, &search, limit)?.len())
+            },
+        )?;
+        time(
+            &mut rows,
+            &format!("search {text:?} ({total} lines): LIKE alone"),
+            false,
+            9,
+            || {
+                let (_db, reader) = open_as_mcp(database)?;
+                Ok(base().like_only().lines_capped(&reader, limit)?.len())
+            },
+        )?;
+    }
     print_table(&rows);
     Ok(())
 }

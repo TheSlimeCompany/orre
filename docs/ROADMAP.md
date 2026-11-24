@@ -1433,7 +1433,7 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
   - **A read tool at `standard`** (later, with L.32), with its access-level test.
 - ⬜ FT.5 L.29's structured search syntax uses this as its text engine (noted in L.29);
   no work here until L.29 starts.
-- ⬜ FT.6 Cost: measure at 100,000 transactions and record in FT.1's record:
+- ✅ FT.6 Cost: measure at 100,000 transactions and record in FT.1's record:
   - the index's size on disk, and so the size of backups
   - the time an import adds
   - a text query through the index against `LIKE`
@@ -1442,6 +1442,12 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
   FT.4. Until then FT.3 reads through the index (user, 2026-11-24). A first look in
   FT.3's review is in FT.1's record, point 7: much faster for a rare text, slower for a
   text in every row, and the index nearly doubles the file.
+
+  Measured with `ledger_bench --only search` (FT.1's record, point 9): a backup grows
+  from 34.8 to 55.0 MiB, a 1,000-row import commits 67 to 105 ms later, and a search
+  for a merchant in 0.4% of rows takes 10 ms instead of 180 ms; a text in nearly
+  every row is 1.5 times slower. It pays, so FT.3 keeps the index (composed, for the
+  user to confirm).
 
 **Exit criteria:** `search_transactions` with a `query` returns the same rows as before
 and is measured faster at 100,000 transactions. An uncategorised row with categorised

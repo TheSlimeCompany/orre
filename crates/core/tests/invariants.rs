@@ -284,6 +284,74 @@ fn the_dev_driver_stays_out_of_release_and_mcp() {
     );
 }
 
+/// Whether a manifest line names the `bench` feature as a string, in either
+/// TOML quote style: `"bench"`, `'bench'`, or forwarded as `…/bench`.
+fn names_bench(line: &str) -> bool {
+    ["\"", "'"].iter().any(|quote| {
+        line.contains(&format!("{quote}bench{quote}")) || line.contains(&format!("/bench{quote}"))
+    })
+}
+
+#[test]
+fn names_bench_sees_both_quote_styles() {
+    for line in [
+        r#"default = ["bench"]"#,
+        "default = ['bench']",
+        r#"features = ["orre-core/bench"]"#,
+        "features = ['orre-core/bench']",
+    ] {
+        assert!(names_bench(line), "{line}");
+    }
+    assert!(!names_bench("bench = []"));
+    assert!(!names_bench(r#"name = "benchmark""#));
+}
+
+/// Decision record "full-text search over bank text", point 9: orre-core's
+/// `bench` feature exists only so `ledger_bench --only search` can time
+/// `LIKE` alone. No crate enables it, and nothing outside the ledger and its
+/// tests names `like_only`, so the app and `orre mcp` always read through
+/// the index.
+#[test]
+fn the_bench_feature_stays_out_of_the_app_and_mcp() {
+    let root = workspace_root();
+    let core = fs::read_to_string(root.join("crates/core/Cargo.toml")).unwrap();
+    assert!(
+        core.contains("\nbench = []"),
+        "orre-core's bench feature moved; update this check"
+    );
+    let mut found = Vec::new();
+    // In core's own manifest the definition is the only line that may name
+    // it: `default = ["bench"]` or another feature listing it turns it on.
+    for line in core.lines().filter(|line| names_bench(line)) {
+        found.push(format!("crates/core/Cargo.toml: {}", line.trim()));
+    }
+    // Elsewhere, neither `features = ["bench"]` on the dependency nor a
+    // feature forwarding `orre-core/bench`.
+    for name in ["app", "import", "mcp"] {
+        let manifest =
+            fs::read_to_string(root.join("crates").join(name).join("Cargo.toml")).unwrap();
+        for line in manifest.lines().filter(|line| names_bench(line)) {
+            found.push(format!("crates/{name}/Cargo.toml: {}", line.trim()));
+        }
+    }
+    let workspace = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    for line in workspace.lines().filter(|line| names_bench(line)) {
+        found.push(format!("Cargo.toml: {}", line.trim()));
+    }
+    for (path, text) in sources(&["core", "import", "mcp", "app"]) {
+        let allowed = path.ends_with("crates/core/src/reporting/ledger.rs")
+            || path.ends_with("crates/core/src/reporting/ledger/tests.rs");
+        if !allowed && text.contains("like_only") {
+            found.push(format!("{}: names like_only", path.display()));
+        }
+    }
+    fail_if_any(
+        "orre-core's bench feature or `Ledger::like_only` reachable outside the bench \
+         (decision record \"full-text search over bank text\", point 9).",
+        found,
+    );
+}
+
 #[test]
 fn the_scans_see_what_they_look_for() {
     // Guard against a scan that silently matches nothing (a moved directory,
