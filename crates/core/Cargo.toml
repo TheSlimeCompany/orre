@@ -25,5 +25,11 @@ serde_json.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 
+[features]
+# Exists only so `ledger_bench --only search` can time `LIKE` alone against the
+# full-text index (`reporting::Ledger::like_only`). Enabled by no other crate
+# or feature.
+bench = []
+
 [dev-dependencies]
 tempfile.workspace = true
