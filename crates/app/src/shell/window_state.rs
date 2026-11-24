@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn the_view_is_restored_when_this_build_has_it() {
-        assert_eq!(restored_view(None), View::default());
+        assert_eq!(restored_view(None), View::Overview, "a first launch");
         assert_eq!(
             restored_view(Some(&WindowState {
                 view: Some("net_worth".into()),

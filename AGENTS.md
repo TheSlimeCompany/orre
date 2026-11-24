@@ -22,7 +22,8 @@ charts, and exposes the data to AI clients through an MCP server.
 
 - **Status:** M0, the design track (D1–D6), M1 and M2 are done; every M3 item is built,
   and M3's exit check on real data is the user's. The UI review is done, U.5 (the dev
-  driver) included. Detail per item: `docs/ROADMAP.md`.
+  driver) included. M4 has started: M4.1 (the Overview) is built, ahead of M4.11 (the
+  user's call). Detail per item: `docs/ROADMAP.md`.
 - **Where things are:** [`docs/CODEMAP.md`](docs/CODEMAP.md), by crate and area. It
   lags the code: check the tree before assuming a module exists, and update the map
   when you add or move a module.

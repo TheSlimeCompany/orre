@@ -90,6 +90,8 @@ use crate::inbox::arrival::Arrived;
 use crate::inbox::store::InboxStore;
 use crate::inbox::view::InboxView;
 use crate::inbox::{self, Inbox};
+use crate::overview::store::OverviewStore;
+use crate::overview::{OverviewEvent, OverviewView};
 use crate::rules::dialogs::{DeleteNameDialog, DeleteRuleDialog, UndoChangeDialog};
 use crate::rules::store::RulesStore;
 use crate::rules::view::RulesView;
@@ -162,9 +164,9 @@ gpui_kit::actions!(
 /// One of Orre's views: a tab in the title bar, or Settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum View {
-    Overview,
-    /// The view a first launch opens: the only one built so far.
+    /// The view a first launch opens, the first tab: how the month is going.
     #[default]
+    Overview,
     Transactions,
     Trends,
     Budgets,
@@ -267,7 +269,7 @@ impl View {
     pub fn is_built(self) -> bool {
         matches!(
             self,
-            View::Transactions | View::Inbox | View::Rules | View::Settings
+            View::Overview | View::Transactions | View::Inbox | View::Rules | View::Settings
         )
     }
 }
@@ -401,6 +403,10 @@ pub struct ShellView {
     /// one open before Settings.
     before_settings: View,
     transactions: Entity<TransactionsView>,
+    /// The Overview (M4.1): the month's figures, the chart, categories and
+    /// recurring payments, filtered by the accounts panel's selection.
+    overview: Entity<OverviewView>,
+    overview_subscriptions: Vec<Subscription>,
     accounts: Entity<Accounts>,
     /// The suggestions (M3.6), which the Inbox's panel, canvas and the
     /// tab's badge share.
@@ -490,6 +496,16 @@ impl ShellView {
         shell.install_checks(checks, window, cx);
         let rules = cx.new(|_| rules);
         shell.install_rules(rules, window, cx);
+        if let Ok(database) = &database {
+            // The Overview reads the ledger in the background, as of today
+            // (the sample data's day if the clock can't be read).
+            let today = orre_core::schedule::local_today()
+                .unwrap_or_else(|_| crate::overview::fixture::today());
+            let store = OverviewStore::new(database.clone());
+            let overview = cx.new(|_| OverviewView::unloaded(store, today));
+            shell.install_overview(overview.clone(), window, cx);
+            overview.update(cx, |overview, cx| overview.reload(cx));
+        }
         shell
     }
 
@@ -650,10 +666,14 @@ impl ShellView {
         let checks_view = cx.new(|cx| ChecksView::new(checks.clone(), cx));
         let rules = cx.new(|_| Rules::empty());
         let rules_view = cx.new(|cx| RulesView::new(rules.clone(), window, cx));
-        Self {
+        // The sample data until the shell is given the database's.
+        let overview = cx.new(|_| OverviewView::fixture());
+        let mut shell = Self {
             view,
             before_settings: View::default(),
             transactions,
+            overview: overview.clone(),
+            overview_subscriptions: Vec::new(),
             accounts,
             inbox,
             inbox_view,
@@ -677,7 +697,9 @@ impl ShellView {
             live: None,
             arrived: Shown::default(),
             _subscriptions: subscriptions,
-        }
+        };
+        shell.install_overview(overview, window, cx);
+        shell
     }
 
     /// Imports go into the database `store` opens from now on (without
@@ -868,6 +890,39 @@ impl ShellView {
         self.checks_view = cx.new(|cx| ChecksView::new(checks.clone(), cx));
         self.checks = checks;
         cx.notify();
+    }
+
+    /// Shows `overview` as the Overview: filtered by the accounts panel's
+    /// selection, counting the Inbox's pending suggestions, its Review
+    /// opening the Inbox (the shell starts with the sample data).
+    pub fn install_overview(
+        &mut self,
+        overview: Entity<OverviewView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (accounts, inbox) = (self.accounts.clone(), self.inbox.clone());
+        overview.update(cx, |overview, cx| {
+            overview.show_accounts(accounts, cx);
+            overview.show_inbox(inbox, cx);
+        });
+        self.overview_subscriptions = vec![
+            cx.subscribe_in(
+                &overview,
+                window,
+                |this, _, event: &OverviewEvent, window, cx| match event {
+                    OverviewEvent::ReviewRequested => this.show(View::Inbox, window, cx),
+                },
+            ),
+            cx.observe(&overview, |_, _, cx| cx.notify()),
+        ];
+        self.overview = overview;
+        cx.notify();
+    }
+
+    /// The Overview's state.
+    pub fn overview(&self) -> &Entity<OverviewView> {
+        &self.overview
     }
 
     /// Uses `rules` for the Rules view (the shell starts with an empty one
@@ -1316,6 +1371,10 @@ impl ShellView {
         } else {
             self.focus.focus(window, cx);
         }
+        if view == View::Overview {
+            // The day may have moved on since the last read (a new month).
+            self.overview.update(cx, |overview, cx| overview.reload(cx));
+        }
         if view == View::Rules {
             // What each rule decides and the history change while it's
             // closed.
@@ -1591,6 +1650,7 @@ impl Render for ShellView {
                 this.child(rules::panel::render(&self.rules, cx))
             })
             .map(|this| match view {
+                View::Overview => this.child(self.overview.clone()),
                 View::Transactions => this.child(self.transactions.clone()),
                 View::Inbox if self.checks.read(cx).queue().is_some() => {
                     this.child(self.checks_view.clone())
