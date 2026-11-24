@@ -21,7 +21,7 @@ is no sidebar: the five views of the money share the accounts panel, and Inbox,
 Reviews, Rules and Settings have their own lists. ⌘1–⌘8 open the views in tab order,
 ⌘, opens Settings, ⌘I imports and ⌘N adds a transaction on Transactions (Ctrl on Linux
 and Windows). The Settings button toggles back to the view it was opened from.
-Transactions, Inbox, Rules and Settings are built (`View::is_built`); the others show
+Overview (M4.1), Transactions, Inbox, Rules and Settings are built (`View::is_built`); the others show
 the shell around an empty state ("{View} isn't built yet") with ⌘2 to Transactions.
 The shell opens every dialog over everything when a view asks.
 

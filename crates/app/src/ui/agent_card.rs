@@ -439,6 +439,117 @@ impl RenderOnce for AgentCard {
     }
 }
 
+/// The compact agent card (`docs/DESIGN.md` → "Overview", Paper `2LQ-0`):
+/// what the agent has pending, in one line, with the action that opens it.
+///
+/// Dressed as [`AgentCard`] (`moldavite-surface`, 1px `moldavite-border`,
+/// radius 10), 12px padding with 14px on the left. The header is the sparkle,
+/// the agent's name and the count badge; the summary ("9 categorisations ·
+/// 2 rules") sits under the name in `text-strong`, its separators in
+/// `moldavite-text-muted`; the action is 24px to the right, the card
+/// centred on its row.
+#[derive(IntoElement)]
+pub struct CompactAgentCard {
+    agent: SharedString,
+    pending: Option<SharedString>,
+    summary: Vec<SharedString>,
+    action: Option<AnyElement>,
+}
+
+impl CompactAgentCard {
+    /// A card from `agent`, the name the MCP client gave.
+    pub fn new(agent: impl Into<SharedString>) -> Self {
+        Self {
+            agent: agent.into(),
+            pending: None,
+            summary: Vec::new(),
+            action: None,
+        }
+    }
+
+    /// The number of pending changes, formatted, in the header's badge.
+    pub fn pending(mut self, count: impl Into<SharedString>) -> Self {
+        self.pending = Some(count.into());
+        self
+    }
+
+    /// What is pending, one part per kind ("9 categorisations"), set apart
+    /// by separators.
+    pub fn summary(mut self, parts: impl IntoIterator<Item = SharedString>) -> Self {
+        self.summary = parts.into_iter().collect();
+        self
+    }
+
+    /// The control on the right: an agent primary button.
+    pub fn action(mut self, action: impl IntoElement) -> Self {
+        self.action = Some(action.into_any_element());
+        self
+    }
+}
+
+impl RenderOnce for CompactAgentCard {
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        let header = div()
+            .flex()
+            .items_center()
+            .gap(spacing::S2)
+            .child(Glyph::Sparkle.render().text_color(color::MOLDAVITE))
+            .child(
+                div()
+                    .flex_none()
+                    .text_role(AGENT_NAME)
+                    .text_color(color::MOLDAVITE)
+                    .child(self.agent),
+            )
+            .when_some(self.pending, |this, count| this.child(Badge::new(count)));
+        let last = self.summary.len().saturating_sub(1);
+        let summary = div()
+            .flex()
+            .items_center()
+            .gap(spacing::S1_5)
+            // Under the name: the sparkle's width and the header's gap.
+            .pl(Glyph::Sparkle.size() + spacing::S2)
+            .children(self.summary.into_iter().enumerate().flat_map(|(at, part)| {
+                let part = div()
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .text_role(typography::BODY)
+                    .text_color(color::TEXT_STRONG)
+                    .child(part);
+                let separator = (at < last).then(|| {
+                    div()
+                        .flex_none()
+                        .text_role(typography::BODY)
+                        .text_color(color::MOLDAVITE_TEXT_MUTED)
+                        .child("·")
+                });
+                std::iter::once(part.into_any_element())
+                    .chain(separator.map(IntoElement::into_any_element))
+            }));
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(spacing::S6)
+            .py(spacing::S3)
+            .pl(spacing::S3_5)
+            .pr(spacing::S3)
+            .bg(color::MOLDAVITE_SURFACE)
+            .border(size::HAIRLINE)
+            .border_color(color::MOLDAVITE_BORDER)
+            .rounded(radius::LG)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(spacing::S1)
+                    .child(header)
+                    .child(summary),
+            )
+            .children(self.action)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;

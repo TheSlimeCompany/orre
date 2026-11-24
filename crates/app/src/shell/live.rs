@@ -85,6 +85,8 @@ pub struct Views {
     /// The Inbox, and with it the tab's badge.
     pub inbox: bool,
     pub transactions: bool,
+    /// The Overview: the figures, chart, categories and recurring payments.
+    pub overview: bool,
     /// The accounts panel, and the status bar's balance and import line.
     pub accounts: bool,
     /// The review queues, and the status bar's failing checks.
@@ -96,7 +98,8 @@ pub struct Views {
 
 /// Which views reload when `topics` changed (decision record "live
 /// updates", point 2): the Inbox on Inbox; Transactions on Ledger, and on
-/// Rules for its merchant names; Accounts and Checks on Ledger; Rules on
+/// Rules for its merchant names; the Overview on Ledger, and on Rules for
+/// the categories; Accounts and Checks on Ledger; Rules on
 /// Rules, and on Ledger (its counts) only while it's the view on show
 /// (`rules_on_show`), since showing it reloads it; Settings' AI clients on
 /// Settings.
@@ -106,6 +109,7 @@ pub fn views(topics: &BTreeSet<Topic>, rules_on_show: bool) -> Views {
     Views {
         inbox: topics.contains(&Topic::Inbox),
         transactions: ledger || rules,
+        overview: ledger || rules,
         accounts: ledger,
         checks: ledger,
         rules: rules || (ledger && rules_on_show),
@@ -420,6 +424,9 @@ impl ShellView {
                 }
                 transactions.reload(cx)
             });
+        }
+        if views.overview {
+            self.overview.update(cx, |overview, cx| overview.reload(cx));
         }
         if views.accounts {
             self.accounts.update(cx, |accounts, cx| accounts.reload(cx));

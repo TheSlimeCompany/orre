@@ -18,6 +18,7 @@ use gpui_kit::{AnyView, App, ElementId, EntityId, Window};
 use crate::accounts::describe::AccountsDescription;
 use crate::checks::describe::ChecksDescription;
 use crate::inbox::describe::InboxDescription;
+use crate::overview::describe::OverviewDescription;
 use crate::rules::describe::{DialogDescription, RulesDescription};
 use crate::settings::describe::SettingsDescription;
 use crate::transactions::describe::TransactionsDescription;
@@ -46,6 +47,8 @@ pub struct ShellDescription {
 /// The open view's own description.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Screen {
+    /// The Overview.
+    Overview(Box<OverviewDescription>),
     /// Transactions, with the accounts panel and the account inspector.
     Transactions {
         transactions: Box<TransactionsDescription>,
@@ -77,6 +80,7 @@ impl ShellView {
     /// shell's, with a frame drawn since the last change.
     pub fn describe(&self, window: &Window, cx: &App) -> ShellDescription {
         let screen = match self.view {
+            View::Overview => Screen::Overview(Box::new(self.overview.read(cx).describe(cx))),
             View::Transactions => {
                 let transactions = self.transactions.read(cx);
                 let inspector = transactions

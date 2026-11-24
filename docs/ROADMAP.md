@@ -1463,7 +1463,13 @@ meaning.
 
 ## M4 — Analytics ⬜
 
-- ⬜ M4.1 Monthly overview: income vs spending vs net (bar/line), category breakdown, MoM change
+- ✅ M4.1 Monthly overview: income vs spending vs net (bar/line), category breakdown, MoM change.
+  Built before M4.11 on calendar months (user, 2026-11-24): core's
+  `reporting::overview` and the Overview screen (`crates/app/src/overview`), with the
+  chart elements in `ui::income_chart` and `ui::ranked_bars`. Decision record "the
+  Overview" in `docs/architecture/reporting.md`. Deferred: storing category colours
+  (waits for the user's decision), the recurring price-rise flag and scheduled series
+  (M4.3, M4.8), the chart's growth animation and round line joins.
 - ⬜ M4.2 Trends: category and merchant over time, top merchants
 - ⬜ M4.3 Recurring payments / subscriptions view
 - ⬜ M4.4 Budgets: per-category monthly targets with progress

@@ -164,6 +164,9 @@ pub enum Glyph {
     /// Back from a preview to its list: a chevron left (D6.7, Paper
     /// `EV0-0`). 12px.
     Back,
+    /// Forward, to the next month on Overview: a chevron right, [`Glyph::Back`]
+    /// mirrored (D4.1, Paper `2H2-0`). 12px.
+    Forward,
     /// No rules yet: [`Glyph::Arrow`] at 16px (D6.7 states board, Paper
     /// `HFL-0`). 16px.
     ArrowLarge,
@@ -220,6 +223,7 @@ impl Glyph {
             | Self::Asterisk
             | Self::Lines
             | Self::Back
+            | Self::Forward
             | Self::Owed => size::ICON_SM,
             Self::Close | Self::Minimize | Self::Maximize | Self::Lock | Self::YouSet => {
                 size::ICON_XS
@@ -488,6 +492,10 @@ impl Glyph {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">"#,
                 r#"<path d="M7.5 2.5L4 6L7.5 9.5"/></svg>"#
             ),
+            Self::Forward => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M4.5 2.5L8 6L4.5 9.5"/></svg>"#
+            ),
             Self::ArrowLarge => concat!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
                 r#"<path d="M2.667 8H12.667M9.333 4.667L12.667 8L9.333 11.333"/></svg>"#
@@ -523,7 +531,7 @@ mod tests {
 
     use super::*;
 
-    const ALL: [Glyph; 61] = [
+    const ALL: [Glyph; 62] = [
         Glyph::Account,
         Glyph::Pot,
         Glyph::Plus,
@@ -583,6 +591,7 @@ mod tests {
         Glyph::Lines,
         Glyph::ArrowLarge,
         Glyph::Back,
+        Glyph::Forward,
         Glyph::Owed,
         Glyph::OwedLarge,
     ];
