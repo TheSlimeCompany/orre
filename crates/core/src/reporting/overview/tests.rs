@@ -637,3 +637,89 @@ fn the_landing_month_is_the_latest_month_with_a_counted_line() {
     assert_eq!(landing(&ledger, Some(current)), period("2026-10"));
     assert_eq!(landing(&ledger, Some(card)), period("2026-11"));
 }
+
+#[test]
+fn the_landing_month_has_lines_in_the_displayed_currency() {
+    let mut ledger = TestLedger::new();
+    let sterling = ledger.account("Current", Currency::GBP);
+    let euros = ledger.account("Euros", Currency::EUR);
+    for day in ["2026-10-02", "2026-10-09", "2026-10-16"] {
+        ledger.row(sterling, day, -1_000, None);
+    }
+    ledger.row(euros, "2026-11-03", -700, None);
+    let today = date("2026-11-20");
+    assert_eq!(
+        landing_month(&ledger.reader(), None, today).unwrap(),
+        period("2026-10")
+    );
+
+    let opened = opening_overview(&ledger.reader(), &query("2026-11")).unwrap();
+    assert_eq!(opened.currency, Currency::GBP);
+    assert_eq!(opened.selected.period, period("2026-10"));
+    assert_eq!(opened.selected.spent, gbp(3_000));
+}
+
+#[test]
+fn an_older_landing_month_is_in_the_busiest_currency_of_its_window() {
+    let mut ledger = TestLedger::new();
+    let sterling = ledger.account("Current", Currency::GBP);
+    let euros = ledger.account("Euros", Currency::EUR);
+    // The latest month has only a euro line; the 12 months to it are mostly
+    // sterling, last in March.
+    ledger.row(euros, "2024-06-05", -700, None);
+    ledger.row(sterling, "2024-03-05", -1_000, None);
+    ledger.row(sterling, "2024-02-05", -1_000, None);
+    ledger.row(sterling, "2023-12-05", -1_000, None);
+    let landed = landing_month(&ledger.reader(), None, date("2026-11-20")).unwrap();
+    assert_eq!(landed, period("2024-03"));
+
+    let opened = opening_overview(&ledger.reader(), &query("2026-11")).unwrap();
+    assert_eq!(opened.selected.period, period("2024-03"));
+    assert_eq!(opened.currency, Currency::GBP);
+    assert_eq!(opened.selected.spent, gbp(1_000));
+}
+
+#[test]
+fn an_older_landing_month_is_the_latest_whose_own_window_shows_it() {
+    let mut ledger = TestLedger::new();
+    let sterling = ledger.account("Current", Currency::GBP);
+    let euros = ledger.account("Euros", Currency::EUR);
+    // June 2024's window is mostly sterling, but May's (June 2023 to May
+    // 2024) is mostly euros, and May has a euro line: May, not a month the
+    // sterling majority skips to.
+    ledger.row(euros, "2024-06-05", -100, None);
+    ledger.row(euros, "2024-05-05", -200, None);
+    for day in ["2024-04-03", "2024-04-04", "2024-04-05"] {
+        ledger.row(sterling, day, -1_000, None);
+    }
+    for day in [
+        "2023-06-01",
+        "2023-06-02",
+        "2023-06-03",
+        "2023-06-04",
+        "2023-06-05",
+    ] {
+        ledger.row(euros, day, -500, None);
+    }
+    let landed = landing_month(&ledger.reader(), None, date("2026-11-20")).unwrap();
+    assert_eq!(landed, period("2024-05"));
+    let opened = opening_overview(&ledger.reader(), &query("2026-11")).unwrap();
+    assert_eq!(opened.selected.period, period("2024-05"));
+    assert_eq!(opened.currency, Currency::EUR);
+    assert!(!opened.selected.spent.is_zero());
+}
+
+#[test]
+fn the_opening_overview_is_the_overview_at_the_landing_month() {
+    let mut ledger = TestLedger::new();
+    let account = ledger.account("Current", Currency::GBP);
+    ledger.row(account, "2026-09-10", -2_000, None);
+    ledger.row(account, "2026-10-10", -3_000, None);
+    ledger.row(account, "2026-10-11", 5_000, None);
+    let reader = ledger.reader();
+    let today = date("2026-11-20");
+    let landed = landing_month(&reader, None, today).unwrap();
+    assert_eq!(landed, period("2026-10"));
+    let opened = opening_overview(&reader, &query("2026-11")).unwrap();
+    assert_eq!(opened, overview(&reader, &query("2026-10")).unwrap());
+}

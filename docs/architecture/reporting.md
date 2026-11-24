@@ -563,7 +563,12 @@ the spec in `.scratch/m4-1-overview/spec.md`. No migration, and MCP is unchanged
     The screen keeps landing so on each read (a reload, the account filter changing)
     until the user picks a month; the switcher still reaches today's month. This
     replaces the spec's "the selected month starts at today's month". It reads the
-    12 months to today first, and older lines only when those have none.
+    12 months to today first, and older lines only when those have none. The month is
+    chosen with the display currency (point 3): it has lines in the currency the
+    overview for it displays, so a lone EUR payment in November doesn't open a
+    November of £0 over a GBP October. The landing month and its overview are read in
+    one read transaction (`opening_overview`), as is every overview read, so an import
+    committing mid-read can't leave the figures and the empty state disagreeing.
 11. **The chart with little data.** The net line starts at the first month with a
     counted line, so months before any import don't read as months of breaking even;
     hovering one still shows its tooltip, without the net point. A selected month with

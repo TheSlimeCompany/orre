@@ -34,15 +34,10 @@ impl OverviewStore {
     }
 
     /// What the screen shows for `query` with its month replaced by the
-    /// month the screen opens on ([`overview::landing_month`]); the result's
-    /// `selected.period` says which it was.
+    /// month the screen opens on ([`overview::opening_overview`], one read
+    /// transaction); the result's `selected.period` says which it was.
     pub fn land(&self, query: &OverviewQuery) -> Result<Overview, StoreError> {
         let db = gate::open(&self.database, Database::open)?;
-        let reader = db.reader()?;
-        let month = overview::landing_month(&reader, query.account, query.today)?;
-        Ok(overview::overview(
-            &reader,
-            &OverviewQuery { month, ..*query },
-        )?)
+        Ok(overview::opening_overview(&db.reader()?, query)?)
     }
 }

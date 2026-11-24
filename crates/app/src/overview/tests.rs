@@ -294,8 +294,11 @@ impl Scratch {
         NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()
     }
 
+    /// Not read yet, on [`Scratch::today`] whatever the clock says.
     fn view(&self) -> OverviewView {
-        OverviewView::unloaded(OverviewStore::new(self.path.clone()), Self::today())
+        let mut view = OverviewView::unloaded(OverviewStore::new(self.path.clone()), Self::today());
+        view.hold_day(Self::today());
+        view
     }
 
     /// What core says for `account`.
@@ -381,6 +384,23 @@ fn a_month_picked_while_a_read_is_in_flight_wins(cx: &mut TestAppContext) {
     redraw(cx);
     let data = overview.read_with(cx, |o, _| o.data().cloned().unwrap());
     assert_eq!(data.selected.period, month(2026, 9));
+}
+
+#[gpui_kit::test]
+fn picking_the_shown_month_while_a_landing_read_is_in_flight_wins(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let store = OverviewStore::new(scratch.path.clone());
+    let (_, overview, cx) = open(cx, OverviewView::from_store(store, Scratch::today()));
+    // October is what was shown before a new statement (November's) arrived.
+    overview.update(cx, |overview, cx| {
+        overview.month = month(2026, 10);
+        overview.reload(cx);
+        overview.select_month(month(2026, 10), cx);
+    });
+    redraw(cx);
+    assert_eq!(overview.read_with(cx, |o, _| o.month()), month(2026, 10));
+    let data = overview.read_with(cx, |o, _| o.data().cloned().unwrap());
+    assert_eq!(data.selected.period, month(2026, 10));
 }
 
 #[gpui_kit::test]
