@@ -41,6 +41,7 @@
 //! | [`summary`] | `monthly_summary` |
 //! | [`spending`] | `spending_by_category` |
 //! | [`net_worth`] | `net_worth_history` |
+//! | [`overview`] | `overview`: the app's Overview screen for one month |
 //! | [`budget_status`] | `budget_status` |
 //! | [`rows`] | `search_transactions`, `uncategorized_transactions`, `merchant_history` |
 //! | [`catalog`] | `list_accounts`, `list_rules`, `list_reports` |
@@ -55,6 +56,7 @@ pub mod catalog;
 pub mod ledger;
 pub mod linking;
 pub mod net_worth;
+pub mod overview;
 pub mod pairing;
 pub mod palette;
 pub mod period;
@@ -118,6 +120,10 @@ pub enum Error {
     /// the problem, never its pattern or action text.
     #[error(transparent)]
     Rule(#[from] crate::rule::StoreError),
+
+    /// Reading the recurring payments failed.
+    #[error(transparent)]
+    Recurring(#[from] crate::recurring::Error),
 }
 
 impl Error {
@@ -134,7 +140,7 @@ impl Error {
             | Error::UnknownTag
             | Error::InvalidAmountRange => true,
             Error::Money(_) | Error::Database(_) => false,
-            Error::Rule(_) => false,
+            Error::Rule(_) | Error::Recurring(_) => false,
         }
     }
 }
