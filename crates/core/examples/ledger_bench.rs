@@ -1172,6 +1172,86 @@ fn import_rows(rows: &mut Vec<Row>, database: &Path, today: NaiveDate, suffix: &
     Ok(())
 }
 
+/// An import of 1,000 rows of the most picked merchant, none of them
+/// categorised on the way in: the commit's suggestion step
+/// (`inbox::similar`) then has 1,000 candidates whose stem matches thousands
+/// of categorised rows. It runs on a scratch copy of `database` with its
+/// rules deleted (the rules would categorise the rows), and each run is
+/// undone and its suggestions cleared, so the runs are alike.
+#[cfg(feature = "bench")]
+fn import_known_merchant(
+    rows: &mut Vec<Row>,
+    dir: &Path,
+    database: &Path,
+    today: NaiveDate,
+) -> Result<()> {
+    let copy = Scratch::new(dir, "search-known-merchant-")?;
+    vacuum_into(database, &copy.database())?;
+    let writer = rusqlite::Connection::open(copy.database())?;
+    writer.execute_batch(
+        "UPDATE rule SET match_kind = 'is', match_field = 'merchant', pattern = 'no merchant is named this';",
+    )?;
+    let name = format!("{} {}", PREFIXES[0], SUFFIXES[0]);
+    let categorised: i64 = writer.query_row(
+        "SELECT COUNT(*) FROM \"transaction\" WHERE merchant = ?1 AND category_id IS NOT NULL",
+        [&name],
+        |row| row.get(0),
+    )?;
+    println!("\nknown merchant {name:?}: {categorised} categorised rows already in the copy");
+
+    let mut db = open(&copy.database())?;
+    let current = account::list(&db)?
+        .into_iter()
+        .find(|account| account.name == "Current")
+        .ok_or("no Current account")?
+        .id;
+    let mut serial = 0u64;
+    let mut commits = Vec::new();
+    for _ in 0..3 {
+        serial += 1;
+        let mut statement = Statement::new(SourceFormat::Csv, Currency::GBP);
+        for row in 0..1_000u64 {
+            let mut line = StatementLine::new(
+                today.checked_sub_days(Days::new(row % 25)).unwrap(),
+                Money::new(-(150 + (row as i64 * 37) % 4_000), Currency::GBP),
+                format!("{} KNOWN{row} LONDON", name.to_uppercase()),
+            );
+            line.external_id = Some(format!("bench-known-{serial}-{row}"));
+            line.merchant = Some(name.clone());
+            statement.push(SourceLocation::Line(row + 2), Ok(line));
+        }
+        let preview = import::preview(&db, current, "bench.csv", statement)?;
+        let started = Instant::now();
+        let Committed::Batch(summary) =
+            import::commit(&mut db, &preview, Confirmations::default())?
+        else {
+            return Err("nothing was new".into());
+        };
+        commits.push(started.elapsed());
+        let filed: i64 = writer.query_row(
+            "SELECT COUNT(*) FROM suggestion WHERE kind = 'categorization'",
+            [],
+            |row| row.get(0),
+        )?;
+        println!(
+            "  run {serial}: {} uncategorised rows, {filed} categorization suggestions filed",
+            summary.uncategorized
+        );
+        import::undo(&mut db, summary.batch)?;
+        writer.execute_batch("DELETE FROM suggestion;")?;
+    }
+    commits.sort();
+    rows.push(Row {
+        name: "import: commit alone, 1,000 uncategorised rows of a known merchant [with index]"
+            .to_owned(),
+        median: commits[1],
+        max: commits[2],
+        runs: 3,
+        ui_thread: false,
+    });
+    Ok(())
+}
+
 // The full-text index's cost --------------------------------------------------
 
 /// A ledger's directory (the database, its `-wal` and `-shm`, and the
@@ -1333,6 +1413,7 @@ fn search_cost(dir: &Path, database: &Path) -> Result<()> {
     println!("\ncopies: {transactions} transactions each");
     import_rows(&mut rows, &with.database(), today, " [with index]")?;
     import_rows(&mut rows, &without.database(), today, " [without index]")?;
+    import_known_merchant(&mut rows, dir, &with.database(), today)?;
 
     // What the V24 migration costs when it runs on an older backup: its SQL
     // on a fresh copy of the ledger without the index each run, so it
