@@ -386,3 +386,232 @@ fn capped_lines_say_when_more_matched() {
     assert!(!all.truncated);
     assert_eq!(all.len(), 5);
 }
+
+/// Rows for the text-filter tests: `(display merchant, bank text)`.
+const TEXTS: &[(Option<&str>, &str)] = &[
+    (Some("Bean There"), "CARD BEAN THERE LONDON"),
+    (Some("Noodle Bar"), "NOODLE_BAR 100% FRESH"),
+    (None, "Back\\slash \"Quoted\" shop"),
+    (Some("Éclair Café"), "ÉCLAIR CAFÉ PARIS"),
+    (Some("eclair cafe"), "plain ascii"),
+    (None, "COFFEE OR TEA NEAR(a b) STAR*"),
+    (None, "merchant:foo (x) -y +z ^w"),
+    (Some("ÄÖÜ Werk"), "straße ÄÖÜ"),
+    (None, "ab"),
+    (Some("Straße"), "STRASSE ß"),
+];
+
+/// A ledger of [`TEXTS`], and each row's ID. Every kind of ledger line is
+/// there: the last row is split, and refunded in part by a row of its own;
+/// the one before it is refunded whole. A line's display merchant is its own
+/// transaction's, so the index, keyed by transaction, finds every line.
+fn text_ledger() -> (TestLedger, Vec<TransactionId>) {
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current", Currency::GBP);
+    let ids: Vec<TransactionId> = TEXTS
+        .iter()
+        .enumerate()
+        .map(|(index, (merchant, text))| {
+            let day = format!("2026-11-{:02}", index + 1);
+            ledger.row_at(current, &day, -100 - index as i64, None, *merchant, text)
+        })
+        .collect();
+    let werk = ids[TEXTS.len() - 3];
+    let strasse = ids[TEXTS.len() - 1];
+    ledger.split(strasse, &[(-60, Some("food.groceries")), (-49, None)]);
+    let back = ledger.row_at(
+        current,
+        "2026-11-20",
+        30,
+        None,
+        Some("Straße Refund"),
+        "REFUND STRASSE ß",
+    );
+    ledger.refund(back, strasse, 30);
+    let whole = ledger.row_at(
+        current,
+        "2026-11-21",
+        107,
+        None,
+        Some("ÄÖÜ Werk"),
+        "RETURN ÄÖÜ WERK",
+    );
+    ledger.refund(whole, werk, 107);
+    (ledger, ids)
+}
+
+/// The text filter reads the full-text index and then `LIKE`: the
+/// index narrows, `LIKE` decides, so the rows are exactly what `LIKE` alone
+/// returns, whatever the text (FT.3).
+#[test]
+fn matching_through_the_index_returns_the_rows_like_alone_does() {
+    let (ledger, ids) = text_ledger();
+    let reader = ledger.reader();
+    let lines = |query: Ledger| -> Vec<TransactionId> {
+        query
+            .lines(&reader)
+            .unwrap()
+            .iter()
+            .map(|line| line.transaction_id)
+            .collect()
+    };
+    let every_line = |query: Ledger| -> Vec<Summary> { summarize(&query.lines(&reader).unwrap()) };
+    let queries = [
+        // A NUL can't reach FTS5 (`search::phrase`).
+        "abc\0def",
+        "bean\0there",
+        "bean there\0",
+        "\0",
+        // Lines of splits and refunds.
+        "refund",
+        "werk",
+        // ASCII case variants and word boundaries.
+        "bean there",
+        "BEAN THERE",
+        "BeAn ThErE",
+        "n there lon",
+        "bean  there",
+        " bean there ",
+        "e",
+        "be",
+        "bea",
+        // `LIKE` wildcards and escapes are literal.
+        "%",
+        "_",
+        "100%",
+        "100",
+        "n_t",
+        "noodle_bar",
+        "noodle%bar",
+        "\\",
+        "k\\s",
+        "\\s",
+        // Quotes and FTS5 syntax are literal.
+        "\"",
+        "\"Quoted\"",
+        "k\\slash \"Quoted\" sh",
+        "\" OR \"",
+        "COFFEE OR TEA",
+        "coffee tea",
+        "NEAR(a b)",
+        "NEAR",
+        "STAR*",
+        "ST*",
+        "*",
+        "merchant:foo",
+        "(x)",
+        "-y +z",
+        "+z ^w",
+        "^w",
+        // Non-ASCII: `LIKE` folds ASCII only and the index folds Unicode.
+        "éclair",
+        "ÉCLAIR",
+        "éclair café",
+        "Éclair Café",
+        "café",
+        "CAFÉ",
+        "cafe",
+        "eclair",
+        "ÄÖÜ",
+        "äöü",
+        "straße",
+        "STRASSE",
+        "ß",
+        "é",
+        "ÉC",
+        "ab",
+        "abc",
+        "a",
+        "zzz",
+        "",
+        "   ",
+    ];
+    for query in queries {
+        let through_index = every_line(Ledger::new().matching(query));
+        let like_alone = every_line(Ledger::new().like_only().matching(query));
+        assert_eq!(through_index, like_alone, "matching({query:?})");
+    }
+
+    // Spot checks, so the two can't agree by both being wrong.
+    let at =
+        |indexes: &[usize]| -> Vec<TransactionId> { indexes.iter().map(|&i| ids[i]).collect() };
+    assert_eq!(lines(Ledger::new().matching("n there lon")), at(&[0]));
+    assert_eq!(lines(Ledger::new().matching("100%")), at(&[1]));
+    assert_eq!(
+        lines(Ledger::new().matching("k\\slash \"Quoted\" sh")),
+        at(&[2])
+    );
+    assert_eq!(lines(Ledger::new().matching("coffee or tea")), at(&[5]));
+    assert_eq!(lines(Ledger::new().matching("merchant:foo")), at(&[6]));
+    assert_eq!(lines(Ledger::new().matching("ab")), at(&[8]));
+    assert_eq!(lines(Ledger::new().matching("ÉCLAIR")), at(&[3]));
+    assert_eq!(lines(Ledger::new().matching("eclair")), at(&[4]));
+    // The index finds "éclair" in the rows with "É", which `LIKE` doesn't:
+    // `LIKE` decides, so they aren't returned.
+    assert_eq!(lines(Ledger::new().matching("éclair")), at(&[]));
+    assert_eq!(
+        every_line(Ledger::new().matching("   ")),
+        every_line(Ledger::new()),
+        "blank text matches everything"
+    );
+    // Split lines and refund parts are found by their own transaction's text.
+    let strasse = ids[TEXTS.len() - 1];
+    let werk = ids[TEXTS.len() - 3];
+    let found = every_line(Ledger::new().matching("refund"));
+    assert!(
+        found.iter().any(|line| line.2 == Some(LinkKind::Refund)),
+        "{found:?}"
+    );
+    let found = every_line(Ledger::new().matching("straße"));
+    assert_eq!(
+        found
+            .iter()
+            .filter(|line| line.0 == strasse && line.1.is_some())
+            .count(),
+        2,
+        "both split lines: {found:?}"
+    );
+    let found = every_line(Ledger::new().matching("return ÄÖÜ"));
+    assert!(
+        found
+            .iter()
+            .all(|line| line.0 != werk && line.2 == Some(LinkKind::Refund)),
+        "only the whole refund's part: {found:?}"
+    );
+    assert!(!found.is_empty());
+}
+
+/// The text filter runs the full-text query once, as a list subquery. SQLite
+/// writes a full-text lookup as `SCAN transaction_text VIRTUAL TABLE INDEX
+/// 0:M<column>`: the `M` is the `MATCH`, and without it the plan would read
+/// every row of the index.
+#[test]
+fn the_text_filter_looks_the_index_up_instead_of_scanning() {
+    let (ledger, _) = text_ledger();
+    let reader = ledger.reader();
+    let plan = |query: &Ledger| -> Vec<String> {
+        let (sql, values) = query.statement(reader.conn(), None).unwrap();
+        let mut statement = reader
+            .conn()
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap();
+        statement
+            .query_map(params_from_iter(values), |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+
+    let indexed = plan(&Ledger::new().matching("bean there"));
+    assert!(
+        indexed
+            .iter()
+            .any(|step| step.contains("transaction_text VIRTUAL TABLE INDEX 0:M")),
+        "{indexed:#?}"
+    );
+    let short = plan(&Ledger::new().matching("be"));
+    assert!(
+        short.iter().all(|step| !step.contains("transaction_text")),
+        "{short:#?}"
+    );
+}

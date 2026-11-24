@@ -128,6 +128,9 @@ M1.20–M1.27 have no CLI commands yet.
   `RowSource` and exclusion details; M3.3), `palette` (category colours ranked at read
   time), `linking` (how a row counts, the link dialog's candidates, why a refund was
   suggested), `pairing` over `RegisterRow::pair`.
+- `search` (FT.2): text as a literal FTS5 phrase for the `transaction_text` trigram index
+  over transaction text (`V24__transaction_text.sql`, kept in step by triggers on
+  `"transaction"`); `Ledger::matching` reads through it and confirms with `LIKE` (FT.3).
 - `budget`; `recurring`: recurring detection (M2.6); `schedule`: confirm, match at
   import, skips, missed and late (M2.10, `V12__schedule.sql`).
 

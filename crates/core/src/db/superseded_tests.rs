@@ -47,6 +47,15 @@ const ADDED_LATER: &[&str] = &[
     "account_source_identity",
     "account_source_identity_account",
     "account_source_identity_hash",
+    // V24, FT.2: the full-text index, its shadow tables and its triggers.
+    "transaction_text",
+    "transaction_text_config",
+    "transaction_text_data",
+    "transaction_text_docsize",
+    "transaction_text_idx",
+    "transaction_text_insert",
+    "transaction_text_delete",
+    "transaction_text_update",
 ];
 
 #[track_caller]
