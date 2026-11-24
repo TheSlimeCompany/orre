@@ -181,8 +181,9 @@ pub struct Ledger {
     merchant: Option<String>,
     newest_first: bool,
     bank_text: bool,
-    /// Tests only: match text with `LIKE` alone, to compare it with the index.
-    #[cfg(test)]
+    /// Match text with `LIKE` alone, to compare it with the index. Only tests
+    /// and the bench can set it (`Ledger::like_only`); it is
+    /// false everywhere else, so every build compiles the one code path.
     like_only: bool,
 }
 
@@ -263,9 +264,11 @@ impl Ledger {
     }
 
     /// Matches [`matching`](Ledger::matching) text with `LIKE` alone, as
-    /// before the index, so a test can compare the two.
-    #[cfg(test)]
-    fn like_only(mut self) -> Ledger {
+    /// before the index, so a test or the bench can compare the two. For
+    /// tests and `ledger_bench` only.
+    #[cfg(any(test, feature = "bench"))]
+    #[doc(hidden)]
+    pub fn like_only(mut self) -> Ledger {
         self.like_only = true;
         self
     }
@@ -397,11 +400,9 @@ impl Ledger {
             values.push(SqlValue::Integer(max));
         }
         if let Some(text) = &self.text {
-            #[cfg(test)]
-            let use_index = !self.like_only;
-            #[cfg(not(test))]
-            let use_index = true;
-            if use_index && let Some(phrase) = search::phrase(text) {
+            if !self.like_only
+                && let Some(phrase) = search::phrase(text)
+            {
                 sql.push_str(
                     " AND l.transaction_id IN \
                        (SELECT rowid FROM transaction_text WHERE transaction_text MATCH ?)",
