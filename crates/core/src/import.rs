@@ -73,6 +73,7 @@ use crate::change;
 use crate::db::Database;
 use crate::duplicate::{self, DuplicateWindow};
 use crate::id::{AccountId, BalanceId, BatchId, TransactionId};
+use crate::inbox;
 use crate::link;
 use crate::merchant;
 use crate::money::{Currency, Money};
@@ -634,6 +635,11 @@ pub fn preview(
 ///
 /// A failure in any step rolls the whole import back.
 ///
+/// Once the import has committed, a DB transaction of its own files Orre's
+/// category suggestions for the batch's uncategorised rows
+/// (`inbox::similar`). It isn't part of the import: if it fails, the
+/// import stands, and the failure is logged. [`rehearse`] files nothing.
+///
 /// Before its DB transaction (`VACUUM INTO` can't run inside one), the
 /// commit takes a backup of the database (reason `import`,
 /// [`backup::create`]), unless the preview has nothing new or lacks a
@@ -688,7 +694,31 @@ pub fn commit(
         corrections = summary.corrections.len(),
         "committed an import"
     );
+    suggest_categories(db, summary.batch);
     Ok(Committed::Batch(summary))
+}
+
+/// Files Orre's category suggestions for the committed batch, in a DB
+/// transaction of its own. A failure is logged and otherwise ignored: the
+/// import has already succeeded.
+fn suggest_categories(db: &mut Database, batch: BatchId) {
+    let filed = db
+        .conn_mut()
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .and_then(|tx| {
+            let filed = inbox::similar::suggest_for_batch(&tx, batch)?;
+            tx.commit()?;
+            Ok(filed)
+        });
+    match filed {
+        Ok(filed) => tracing::debug!(batch = %batch, filed, "filed category suggestions"),
+        Err(error) => {
+            // The warning names the batch only: an SQLite error can quote
+            // the query, and with it bank text.
+            tracing::warn!(batch = %batch, "an import's category suggestions weren't filed");
+            tracing::debug!(batch = %batch, %error, "category suggestion failure");
+        }
+    }
 }
 
 /// What committing `preview` would do after the rows are stored: the

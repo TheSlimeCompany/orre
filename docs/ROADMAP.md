@@ -1431,6 +1431,11 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
     made after an import commits, never inside it.
   - **"Similar" in the transaction inspector.**
   - **A read tool at `standard`** (later, with L.32), with its access-level test.
+
+  Built (2026-11-24): `search::similar` and the category suggestion after an import
+  (`inbox::similar`), as decided in `reporting.md` → "Decision record: similar
+  transactions". Waiting: "Similar" in the inspector (Paper first) and the read tool
+  (L.32).
 - ⬜ FT.5 L.29's structured search syntax uses this as its text engine (noted in L.29);
   no work here until L.29 starts.
 - ✅ FT.6 Cost: measure at 100,000 transactions and record in FT.1's record:

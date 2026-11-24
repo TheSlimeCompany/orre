@@ -148,6 +148,16 @@ merchant text. It files nothing when an identical suggestion is pending or was e
 decided, a stored rule has that definition, or the source is at its cap; the user's edit
 never fails for it.
 
+`inbox::similar` (FT.4): after an import commits, in a DB transaction of its own
+(`import::commit`; `rehearse` files nothing), each imported row that takes a category of
+its own and has none, isn't split and isn't in a suggested or confirmed transfer gets its
+5 nearest categorised neighbours (`search::similar`; a confirmed transfer leg or refund's
+money in doesn't vote). When 3 hold one category, it files a `categorization` from
+`orre`, one per category, with a fixed rationale. A row named in any categorisation
+suggestion, of any status or source, is skipped, and it stops at 150 pending from `orre`
+(`MAX_PENDING_CATEGORY_SUGGESTIONS`), leaving the rest of the cap to rule suggestions. If
+it fails, the import stands (`reporting.md` → "Decision record: similar transactions").
+
 ## Decision records
 
 Oldest first.

@@ -131,6 +131,7 @@ M1.20–M1.27 have no CLI commands yet.
 - `search` (FT.2): text as a literal FTS5 phrase for the `transaction_text` trigram index
   over transaction text (`V24__transaction_text.sql`, kept in step by triggers on
   `"transaction"`); `Ledger::matching` reads through it and confirms with `LIKE` (FT.3).
+  `search::similar` (FT.4): a transaction's nearest neighbours by `bm25` over its stem.
 - `budget`; `recurring`: recurring detection (M2.6); `schedule`: confirm, match at
   import, skips, missed and late (M2.10, `V12__schedule.sql`).
 
@@ -139,7 +140,8 @@ M1.20–M1.27 have no CLI commands yet.
 - `inbox` (M2.3, M2.14, `V13__inbox.sql`): typed payloads, filing with dedupe and caps,
   `approve`/`approve_all`/`reject`, `impact`, `counts`, `reject_all`,
   `decide_transfer` (settles an agent's pending suggestion for a pair), and `own`,
-  Orre's own rule suggestions (`inbox::own::recategorize`). The Inbox view's read model
+  Orre's own rule suggestions (`inbox::own::recategorize`) and category suggestions after
+  an import (`inbox::similar`, FT.4). The Inbox view's read model
   is `inbox::preview` (`describe`, `preview`, `covered_by`).
 - `envelope`: the untrusted-text envelope, `sanitize`, `strip_invisible`,
   `reads_like_instructions`, merchant pseudonyms (M2.13); `envelope::shown`.
