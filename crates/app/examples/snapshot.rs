@@ -12,6 +12,11 @@
 //!
 //! - `transactions`: Paper `18E-0`, one AI-suggested transaction selected;
 //! - `transactions-multi`: Paper `1NP-0`, three uncategorised rows selected;
+//! - `overview`: Paper `22V-0`, October 2026 on the sample data (M4.1), with
+//!   no pending suggestions, so no agent card;
+//! - `overview-empty`: the Overview with no transactions (the empty state);
+//! - `overview-agent`: the Overview with the Inbox's sample suggestions
+//!   pending, so the compact agent card shows (Paper `2LQ-0`);
 //! - `transactions-category-menu`: the in-place category select open on the
 //!   Blue Bottle row (composed for M3.3, no Paper drawing);
 //! - `transactions-date-menu`: the Date chip's menu (composed for M3.3);
@@ -149,6 +154,7 @@ use orre_app::import::store::ImportStore;
 use orre_app::import::{ImportNotice, fixture as import_fixture};
 use orre_app::inbox::store::{Entry, InboxStore};
 use orre_app::inbox::{Inbox, fixture as inbox_fixture};
+use orre_app::overview::{OverviewView, fixture as overview_fixture};
 use orre_app::rules::store::RulesStore;
 use orre_app::rules::view::{Input, Menu as RulesMenu};
 use orre_app::rules::{Rules, Section as RulesSection, fixture as rules_fixture};
@@ -212,6 +218,43 @@ fn main() -> Result<()> {
                     cx,
                 )
             });
+            shell
+        })
+        .into()
+    })?;
+    snapshot(&mut cx, &out, "overview", |window, cx| {
+        cx.new(|cx| {
+            let shell = ShellView::new(View::Overview, window, cx);
+            shell.overview().update(cx, |view, cx| {
+                view.select_month(overview_fixture::october(), cx)
+            });
+            shell
+        })
+        .into()
+    })?;
+    {
+        let dir = tempfile::TempDir::new()?;
+        let database = dir.path().join("orre.db");
+        inbox_fixture::seed(&mut Database::open(&database)?);
+        snapshot(&mut cx, &out, "overview-agent", move |window, cx| {
+            let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+            let inbox = cx.new(|_| Inbox::from_store(InboxStore::new(database)));
+            cx.new(|cx| {
+                let shell = ShellView::with_data(View::Overview, accounts, inbox, window, cx);
+                shell.overview().update(cx, |view, cx| {
+                    view.select_month(overview_fixture::october(), cx)
+                });
+                shell
+            })
+            .into()
+        })?;
+        drop(dir);
+    }
+    snapshot(&mut cx, &out, "overview-empty", |window, cx| {
+        cx.new(|cx| {
+            let mut shell = ShellView::new(View::Overview, window, cx);
+            let overview = cx.new(|_| OverviewView::sample(overview_fixture::empty));
+            shell.install_overview(overview, window, cx);
             shell
         })
         .into()

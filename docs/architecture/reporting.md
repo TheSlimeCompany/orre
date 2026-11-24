@@ -494,3 +494,79 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    on 20 Dec") is the answer to holidays and early pay (point 2). It is a list of dates
    in the same setting, no migration, so it can follow without changing this record's
    rule; it waits until the fixed rule is in use.
+
+### Decision record: the Overview (2026-11-24)
+
+ROADMAP M4.1, the monthly overview (`DESIGN.md` → "Overview", Paper `22V-0`). Point 1 was
+decided by the user on 2026-11-24; the rest were decided by the agent in the build, under
+the spec in `.scratch/m4-1-overview/spec.md`. No migration, and MCP is unchanged.
+
+1. **Built before M4.11, on calendar months (user).** The roadmap put the month start
+   first; the user chose the Overview first. Every month the Overview reads comes from
+   `Period` (`containing`, `range`, `next`, `previous`, `through`, `DateRange::months`),
+   so when M4.11 lands, the Overview follows the month start without its own change.
+2. **One read model, in core.** `reporting::overview::overview` reads everything the
+   screen shows for one month and one account or all, as of today: the chart's months,
+   the selected and previous month, the changes, spending by category and the recurring
+   payments due. The app formats it and draws it. Lines are classified as
+   `monthly_summary` classifies them (the user's share, `Side`), and for all accounts
+   the months agree with it.
+3. **One currency on screen.** Amounts in different currencies are never added, so the
+   Overview shows the currency with the most counted lines in the chart's 12 months
+   (ties by code), and says which other currencies it leaves out ("Amounts in EUR
+   aren't included"). M4.6 replaces this with conversion to the home currency.
+4. **The chart's window.** The 12 months ending at today's month, unless the selected
+   month is before them; then the 12 months ending at the selected month. So clicking
+   a month in the window that ends today selects it without moving the window, while a
+   window already moved back follows the selection, which is then its last month. The caption is "Last
+   12 months", or "12 months to Mar 2025" when the window doesn't end at today's month.
+   The switcher stops at the earliest month with a counted line and at today's month.
+5. **Changes vs last month.** Spent and Income as a whole-number percentage of the
+   previous month, rounded half away from zero in integer arithmetic, and "None in Sep"
+   when the previous month had none. Net as the signed amount ("+£212.40 vs Sep"), not
+   the percentage Paper shows: a percentage of a net that changes sign, or is near zero,
+   misleads. To be confirmed in Paper.
+6. **Categories.** One entry per top-level group. The groups with a colour slot (the
+   six ranked by `reporting::palette`) are named; every other group adds into "Other";
+   uncategorised spending is its own entry. Named entries by amount, then Other, then
+   Uncategorised, as `DESIGN.md` orders them. A group whose refunds outweigh its
+   purchases is listed with no bar.
+7. **Category colours stay ranked at read time.** The Transactions view record (point
+   2) said M4.1 would store the colours on `category`. `reporting::palette` already
+   gives every screen the same ranking, so the Overview, Transactions and the Inbox
+   agree without it. Storing needs a migration and a rule for when a stored colour
+   changes (a category that falls out of the top six, a new one that rises), so it waits
+   for the user's decision.
+8. **Recurring · Next 30 days** lists detected series of money out
+   (`recurring::find_with_reader`) that haven't lapsed, on the account filter and in
+   the screen's currency, due from today through 30 days on, whatever month is
+   selected, with their total unsigned. Recurring income, such as a salary, isn't a
+   payment and isn't listed. Two gaps until M4.3 and M4.8:
+   there is no price-rise flag (detection doesn't report one), and a series the user
+   has turned into a schedule leaves detection, so it isn't listed. A series whose
+   expected date passed with no import showing it (the statements lag) rolls forward
+   along its cadence to its first date on or after today, but only when it is at most
+   30 days overdue: longer, and the account has more likely stopped being imported (an
+   old card) than lags, and detection never calls such a series lapsed, since the
+   account has no later rows. Each series is one row with its next date, so a weekly
+   payment counts once in the 30-day total.
+9. **Cost.** Each read reads the window and the month before it, every older line once
+   for the earliest month with data, and runs recurring detection over the ledger. It
+   runs on a background thread, on each month step and reload. Not yet measured at
+   100,000 transactions; if it's slow, the earliest month is the first thing to cache
+   or read with a bounded query.
+10. **The month it opens on.** Today's month, unless it has no counted line yet; then
+    the latest earlier month that has one (`reporting::overview::landing_month`).
+    Statements lag: the first run in the app (the Monzo sample fixture, imported on 21
+    November, whose rows stop on 13 October) opened on a November of zeros and "−100%
+    vs Oct".
+    The screen keeps landing so on each read (a reload, the account filter changing)
+    until the user picks a month; the switcher still reaches today's month. This
+    replaces the spec's "the selected month starts at today's month". It reads the
+    12 months to today first, and older lines only when those have none.
+11. **The chart with little data.** The net line starts at the first month with a
+    counted line, so months before any import don't read as months of breaking even;
+    hovering one still shows its tooltip, without the net point. A selected month with
+    no bars (or tiny ones) is still framed a bar's width tall (16px from the zero
+    line), so its outline and handles aren't flattened onto the axis. Neither case is
+    drawn in Paper; to be confirmed there.

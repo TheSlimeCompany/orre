@@ -10,6 +10,7 @@ pub mod dev_driver;
 pub mod format;
 pub mod import;
 pub mod inbox;
+pub mod overview;
 pub mod rules;
 pub mod settings;
 pub mod shell;
