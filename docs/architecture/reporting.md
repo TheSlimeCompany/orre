@@ -53,6 +53,11 @@ is below; the records under "Decision records" are the history.
 - `rows`, `catalog` and `register` list rows, accounts, rules and reports, and the
   Transactions table. `palette::category_palette` ranks category colours with the
   register's ranking (`inbox.md`, decision record "Inbox", point 6).
+- **Months** are calendar months today (`Period`). Decided but not built (M4.11): a
+  month runs from the user's month start, a day of the month or its last day, optionally
+  moved back off weekends, and is named after the calendar month it mostly covers;
+  every report, budget and MCP tool that says "month" follows it (decision record "the
+  month start").
 
 ### Previews of a change
 
@@ -410,3 +415,82 @@ FT.1's record. No migration.
    **(user)** Accepted. If real files show the
    same shape, the next step is to leave out of the query a stem word that the index
    says is in most rows.
+
+### Decision record: the month start (2026-11-24)
+
+ROADMAP L.15, decided before M4.1 because every report reads months. Decided by the user
+on 2026-11-24 on the agent's recommendation, without a Paper pass: where the setting
+lives in Settings is for Paper (point 9). No migration: the setting is a row in
+`setting`.
+
+1. **One rule for the whole database.** A *month* in Orre is the period from one month
+   start to the day before the next. The rule is one setting, not per account or per
+   budget, so every report, budget and MCP tool cuts the same months. The default is
+   the 1st, which is today's calendar months: nothing changes until the user sets it.
+2. **The start is a day of the month, or its last day, optionally moved off weekends.**
+   - **Day 1 to 28,** or **the last day of the month.** Not 29 to 31, which some months
+     lack; "the last day" covers the employers who pay at month end.
+   - **Weekends:** off, or **the Friday before.** With it on, a start that falls on a
+     Saturday or Sunday moves back to the Friday, as UK payroll does. Only weekends:
+     Orre knows no bank holidays (a calendar would be regional data to maintain, and a
+     fetch would be a second network call), so a payday moved early by a holiday, such
+     as the 25th in December, lands in the month before. The fix is point 10's
+     per-month override, not a holiday table.
+3. **A month is named by its nominal start.** Days 1 to 15 use the calendar month of
+   that start. Days 16 to 28 and the last day use the next calendar month. With the
+   25th, 25 Oct to 24 Nov is November, which is the month that pay is for. This is a
+   fixed rule, not a count of days: with the 16th, 16 Mar to 15 Apr has more days in
+   March but is named April. The name uses the nominal start, not the weekend-moved
+   one, so a Friday move never renames a month. The `YYYY-MM` key (`Period`) stays
+   what it is now, the name; only its dates come from the rule. So `budget.month`, one-month budget
+   overrides and every tool's `month` argument keep their meaning, and stored data
+   needs nothing rewritten.
+4. **History is cut by the rule in force, never stored.** Changing the setting re-cuts
+   every month, past ones included, as editing a past transaction already flows into
+   rollover (record "budgets and the forecast", point 3). Nothing stores which rule cut
+   a month. Rejected: a dated history of rules (the new start from a date on), since
+   reports across the change would mix two kinds of month for the sake of a setting
+   most people set once. A budget keyed `2026-12` stays December's under any rule.
+5. **What follows it.** Everything that says "month":
+   - `monthly_summary`, `spending_by_category`, `budget_status`, and the
+     `monthly_review` prompt.
+   - `net_worth_history`: one point per month, at its last day.
+   - Inbox impact previews: the month labels on transfer and refund effects ("less in
+     Nov"), so a preview names the month a report will count the money in.
+   - Budgets: rollover from month to month, pace as *d*/*n* with *n* the month's days
+     (point 4 of the budgets record), the non-monthly 1/12 accrual per month.
+   - The forecast's Flex remainder, spread over the rest of the month (M4.8).
+   - Transactions' This month, Last month and Last 3 months presets: the register is
+     where a budget's spending is checked, so it cuts the same months. Whenever a
+     preset covers a different range than the calendar month would, the Date chip's
+     menu shows its dates: any start but the 1st, and the 1st with the Friday move when
+     the 1st falls on a weekend (1 Aug 2026 is a Saturday, so August starts 31 Jul).
+   - Not weeks (ISO, Monday to Sunday, as M3.P12 decided), not This year (calendar), and
+     not dated things: schedules, the forecast's payday horizon, exports.
+6. **`Period` becomes a month under a rule.** `Period::containing`, `first_day`,
+   `last_day`, `next` and `previous` take the rule, read once per report from
+   `setting`. A month is never empty and months never overlap or leave a gap, which
+   tests check for every start and weekend choice across leap years. Callers that mean
+   a calendar month (none today) say so.
+7. **MCP reads it, says it, and can't change it.** Live month queries return each
+   month's `from` and `to` dates, so a client never assumes the 1st; their
+   descriptions say months follow the user's month start. Saved reviews keep the
+   author's period label (`list_reports` returns it as written, and `save_report`
+   takes labels such as `2026-Q3`): Orre never gives a saved report dates from the
+   current rule, which may not be the one it was written under. Instead
+   `monthly_review` asks the client to include the dates it reviewed in the saved
+   text. The rule is not personal data and is returned at every level. MCP can't
+   write it ("MCP writes go to the inbox only").
+8. **Rejected: months that start on payday as it happened.** Periods anchored to the
+   salary itself, found by matching income or a schedule's matched occurrences, would
+   handle holidays and late pay. But a month's dates would move when an import or a
+   match changes, so a report already read could change without any edit to the
+   months it covers, and a month would have no dates before its salary arrives.
+   Four-weekly and fortnightly periods are left out too: budgets are monthly (13
+   periods a year would need a different budget model).
+9. **Where it's set.** Settings in the app, designed in Paper first. No CLI command in
+   the first cut; `orre budgets` and every report follow the setting.
+10. **Later: one month's start moved by hand.** A per-month override ("December starts
+   on 20 Dec") is the answer to holidays and early pay (point 2). It is a list of dates
+   in the same setting, no migration, so it can follow without changing this record's
+   rule; it waits until the fixed rule is in use.
