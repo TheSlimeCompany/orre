@@ -1477,6 +1477,18 @@ meaning.
   schedules seeding the non-monthly amounts; a spending-pace line
 - ⬜ M4.10 Safe report rendering: a markdown subset with no HTML or images, and links shown
   as plain text; reports are marked `ai_authored` when read back
+- ⬜ M4.11 Month start (L.15, decision record "the month start" in
+  `docs/architecture/reporting.md`). Built first in M4, before M4.1:
+  - **Core:** the rule as a typed `setting` value (day 1–28 or the last day; weekends off
+    or the Friday before; default the 1st). `Period` cuts months under it and keeps its
+    `YYYY-MM` name. Tests: no gaps or overlaps for every start and weekend choice across
+    leap years, the naming at day 15/16, and a budget keyed `2026-12` staying December's
+    when the rule changes.
+  - **Reports and MCP:** `monthly_summary`, `spending_by_category`, `budget_status`,
+    `net_worth_history` and `monthly_review` follow it; month results gain `from` and
+    `to`, and the tool descriptions say so. Access-level tests unchanged.
+  - **App:** the setting in Settings and the Date chip's month presets, drawn in Paper
+    first.
 
 **Exit criteria:** the dashboard answers "how am I doing?" at a glance, including what's
 due before payday.
@@ -1524,8 +1536,9 @@ Good candidates for contributors are marked 🙋.
   global report exclusions, CSV export of any view
 - L.14 Investments and holdings with manual or imported prices (an online price fetch would
   need its own decision, like the ECB one)
-- L.15 Configurable month start (payday-aligned periods). Every report depends on it, so
-  decide before M4.1 ships
+- L.15 Configurable month start (payday-aligned periods). Decided (user, 2026-11-24):
+  `docs/architecture/reporting.md` → "Decision record: the month start"; built as M4.11.
+  Its point 10, a per-month override for holidays and early pay, stays here for later
 - L.16 Anomaly and spike insights (median/MAD), with a read tool
 - L.17 Runway, Age of Money and an in-app weekly recap
 - L.18 Personal inflation index from your own recurring prices
