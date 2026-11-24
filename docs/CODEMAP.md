@@ -18,7 +18,7 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
   `-- orre: foreign_keys=off` and checks them before it commits (R.4);
   `db/superseded_tests.rs` covers V21.
 - Migrations in `crates/core/migrations/`: `V1__initial_schema.sql` (M1.4) to
-  `V23__account_source_identity.sql`. Each feature below names the migration it added.
+  `V24__transaction_text.sql`. Each feature below names the migration it added.
 - `money`: `Currency`, `Money`, exact decimal parsing (M1.5).
 - `statement`: the normalized import output, `Statement`, `StatementLine`, flagged rows
   (M1.6).
