@@ -21,7 +21,7 @@ is no sidebar: the five views of the money share the accounts panel, and Inbox,
 Reviews, Rules and Settings have their own lists. ⌘1–⌘8 open the views in tab order,
 ⌘, opens Settings, ⌘I imports and ⌘N adds a transaction on Transactions (Ctrl on Linux
 and Windows). The Settings button toggles back to the view it was opened from.
-Transactions, Inbox, Rules and Settings are built (`View::is_built`); the others show
+Overview (M4.1), Transactions, Inbox, Rules and Settings are built (`View::is_built`); the others show
 the shell around an empty state ("{View} isn't built yet") with ⌘2 to Transactions.
 The shell opens every dialog over everything when a view asks.
 
@@ -200,8 +200,8 @@ Everything else follows `DESIGN.md` or an earlier record.
    ⌘, opens Settings (Ctrl on Linux and Windows). Paper draws no view shortcuts; these are
    keyboard paths, not visual values. The tabs are `gpui-base` `Tab`s (tab role, selected
    state, position in the list), not Tab stops. Clicking the Settings button while
-   Settings is open goes back to the view it was opened from (Transactions if the window
-   opened on Settings); ⌘, only opens it, as the platform shortcut does elsewhere (user).
+   Settings is open goes back to the view it was opened from (the default view, the
+   Overview, if the window opened on Settings; Transactions until M4.1); ⌘, only opens it, as the platform shortcut does elsewhere (user).
 2. **Window state lives in the `setting` table (user).** Key `app.window`, a JSON
    `WindowState` (`orre_core::setting`): mode (windowed, maximised, full screen), the
    restore bounds in whole logical pixels, and the open view's key. Core checks the range
@@ -225,8 +225,9 @@ Everything else follows `DESIGN.md` or an earlier record.
 5. **How it's restored.** A saved window whose title bar wouldn't show at least 40×40px
    on any display (a display unplugged since) opens centred at 1440×900 instead; one smaller
    than the 1280×800 minimum grows to it; with no displays reported, the saved bounds are
-   used. An unknown view key (from a newer build) opens the default view, Transactions,
-   the only screen built so far. Maximised and full-screen windows reopen so, with their
+   used. An unknown view key (from a newer build) opens the default view, the
+   Overview, which a first launch (no saved state) opens too; until M4.1 it was
+   Transactions, then the only screen built. Maximised and full-screen windows reopen so, with their
    restore bounds.
 6. **Views not built yet show the shell and an empty state (user).** Every tab works.
    Until its roadmap item lands, a view shows its shell (the accounts panel on the money

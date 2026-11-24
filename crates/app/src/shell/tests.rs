@@ -185,6 +185,43 @@ fn clicking_settings_again_goes_back(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn a_first_launch_opens_the_overview(cx: &mut TestAppContext) {
+    // A new database: no window state saved yet.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("orre.db");
+    orre_core::db::Database::open(&path).unwrap();
+    let saved = window_state::WindowStore::new(path.clone()).load();
+    assert_eq!(saved, None);
+    let launched = window_state::restored_view(saved.as_ref());
+    assert_eq!(launched, View::Overview);
+
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        init(cx);
+    });
+    let (shell, cx) = cx.add_window_view(move |window, cx| {
+        ShellView::from_database(launched, Ok(path), window, cx)
+    });
+    cx.run_until_parked();
+    redraw(cx);
+    assert_eq!(view(&shell, cx), View::Overview);
+    // The Overview's own empty state, read from the database, not a
+    // placeholder or the sample data.
+    let shown = cx.update(|_, cx| shell.read(cx).overview().read(cx).describe(cx).shown);
+    assert!(
+        matches!(
+            shown,
+            crate::overview::describe::Shown::Empty {
+                title: "No transactions yet",
+                ..
+            }
+        ),
+        "{shown:?}"
+    );
+}
+
+#[gpui_kit::test]
 fn a_window_opened_on_settings_goes_back_to_the_default(cx: &mut TestAppContext) {
     let (shell, cx) = open_shell(cx, View::Settings);
     cx.update(|window, cx| window.click("open-settings", cx));

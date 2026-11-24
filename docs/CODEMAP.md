@@ -126,7 +126,9 @@ M1.20–M1.27 have no CLI commands yet.
   Transactions table: every transaction, filtered, grouped by day and sorted in memory,
   category colours ranked at read time, or one flat list when sorted by a column, M3.P13; rows carry tags, notes, links, share, `pair`,
   `RowSource` and exclusion details; M3.3), `palette` (category colours ranked at read
-  time), `linking` (how a row counts, the link dialog's candidates, why a refund was
+  time), `overview` (the Overview screen's month: the chart's 12 months, the changes vs
+  last month, spending by category and recurring payments due, in one currency, M4.1),
+  `linking` (how a row counts, the link dialog's candidates, why a refund was
   suggested), `pairing` over `RegisterRow::pair`.
 - `search` (FT.2): text as a literal FTS5 phrase for the `transaction_text` trigram index
   over transaction text (`V24__transaction_text.sql`, kept in step by triggers on
@@ -250,12 +252,27 @@ per call through its own store and changes data only through core.
 - `ui::describe` (U.1–U.3, tests and `dev-driver` only): what the views' `describe()`
   share (`Action`, `PanelRow`, `Header`, `Section`, `Inspector`, `Dialog`). Each view's
   own is a `mod describe` beside it under `#[cfg(any(test, feature = "dev-driver"))]`
-  (`inbox`, `transactions`, `checks`, `rules`, `settings`, `accounts`), built from the
+  (`inbox`, `transactions`, `checks`, `rules`, `settings`, `accounts`, `overview`), built from the
   text the view draws; the tests assert on it and the dev driver prints it. Never in a
   release build or reachable from `orre mcp` (`docs/architecture/app.md`, 2026-11-18 and
   2026-11-21).
+- `ui::chart`, `ui::income_chart`, `ui::ranked_bars` (M4.1): the chart elements. `chart`
+  is the pure arithmetic (axis steps, compact labels, bar extents); `IncomeChart` draws
+  the income and spending bars with the net line, hover tooltip and selected month
+  (`chart-month-{i}` hit areas); `RankedBars` is the ranked bar list.
 - `format`: writes and reads money and dates.
 - `showcase`: the component showcase, `orre --showcase`.
+
+### Overview (M4.1)
+
+- `overview.rs`: `OverviewView`, the selected month, the account filter (the accounts
+  panel's selection) and core's `reporting::overview` read for them, on a background
+  thread; reloaded by `shell::live` on Ledger and Rules. `overview::store` opens the
+  database per call; `overview::text` formats every figure and caption; `overview::view`
+  draws the screen (month switcher, figures, compact agent card, chart, ranked bars,
+  recurring); `overview::fixture` is the sample data (DESIGN.md's Overview fixture);
+  `overview::describe` (tests and `dev-driver` only). `ui::agent_card::CompactAgentCard`
+  is the card's compact form.
 
 ### Transactions (M3.3)
 

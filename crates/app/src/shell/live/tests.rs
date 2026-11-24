@@ -189,6 +189,41 @@ fn rows(shell: &Entity<ShellView>, cx: &mut VisualTestContext) -> usize {
     })
 }
 
+/// The Overview reads the ledger again when another process changes it.
+#[gpui_kit::test]
+fn the_overview_reloads_on_a_ledger_change(cx: &mut TestAppContext) {
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Overview);
+    let overview = cx.update(|_, cx| shell.read(cx).overview().clone());
+    let november = orre_core::reporting::Period::new(2026, 11).unwrap();
+    // The row added below is on 12 November: read as of the 14th, not the
+    // clock's day.
+    let day = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
+    cx.update(|_, cx| {
+        overview.update(cx, |overview, cx| {
+            overview.hold_day(day);
+            overview.select_month(november, cx);
+            // Read again on the held day: the shell's first read was on the
+            // clock's, and picking the shown month starts none.
+            overview.reload(cx);
+        })
+    });
+    settle(cx);
+    let spent = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            overview
+                .read(cx)
+                .data()
+                .map(|data| data.selected.spent.minor())
+        })
+    };
+    let before = spent(cx).expect("the first read landed");
+    add_row_outside(&scratch, &shell, cx);
+    assert!(check(&shell, cx).contains(&Topic::Ledger));
+    // The row is £12.34 out on 12 November.
+    assert_eq!(spent(cx), Some(before + 1234));
+}
+
 // The topic map ------------------------------------------------------------------
 
 #[test]
@@ -203,6 +238,7 @@ fn each_topic_reloads_its_views() {
     );
     let ledger = Views {
         transactions: true,
+        overview: true,
         accounts: true,
         checks: true,
         ..none
@@ -218,6 +254,7 @@ fn each_topic_reloads_its_views() {
     );
     let rules = Views {
         transactions: true,
+        overview: true,
         rules: true,
         ..none
     };
@@ -233,6 +270,7 @@ fn each_topic_reloads_its_views() {
     let every = Views {
         inbox: true,
         transactions: true,
+        overview: true,
         accounts: true,
         checks: true,
         rules: true,

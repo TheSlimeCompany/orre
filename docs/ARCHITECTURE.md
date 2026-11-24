@@ -155,6 +155,7 @@ Budgets, the forecast, and how spending is counted over the ledger.
 - Decision record: full-text search over bank text (2026-11-23)
 - Decision record: similar transactions (2026-11-24)
 - Decision record: the month start (2026-11-24)
+- Decision record: the Overview (2026-11-24)
 
 ### [The app](architecture/app.md)
 
