@@ -229,7 +229,7 @@ totals and only marked it `unanchored`.
 
 ROADMAP FT.1, before FT.2 and FT.3. The roadmap's proposals, composed by the lead from
 reading `reporting::ledger` and the `ledger_line` view, and confirmed by the user on
-2026-11-24 with point 7's interim choice. Measurements (FT.6) will be added here.
+2026-11-24 with point 7's interim choice. FT.6's measurements are point 9.
 
 1. **What's indexed.** A transaction's display merchant, bank merchant and raw
    description: the three columns `Ledger::matching` searches today. Notes stay out:
@@ -274,8 +274,47 @@ reading `reporting::ledger` and the `ledger_line` view, and confirmed by the use
    decides. Until then FT.3 reads through the index (user, 2026-11-24): a search is
    usually for one merchant, where the gain is large, and a text in every row costs
    about a tenth of a second more. The size of the index, and so of backups, is the
-   cost FT.6 weighs most.
+   cost FT.6 weighs most. FT.6 measured it (point 9).
 8. **Rejected.** A table holding its own copy of the text: the text twice on disk and
    in every backup, on top of the index. The index alone as the matcher: it would
    change which rows a search returns, and FT.3 promises the same rows. Diacritic
    removal: it would widen matches further, for the same reason.
+9. **Measured (FT.6, 2026-11-24).** `ledger_bench --only search` (release, with
+   `--features bench`, which makes `Ledger::like_only` reachable; `app.md`, "performance
+   at 100,000 transactions", has the ledger and the machine). It builds the 100,606
+   transaction ledger afresh, so its triggers fill the index as rows are imported. For
+   the sizes and the imports it copies the ledger with `VACUUM INTO`, as a backup is
+   made, once as it is and once with the index and its triggers dropped. The searches
+   run on the ledger itself, as `search_transactions` makes them: each opens the
+   database as `orre mcp` does (through the gate, with `open_existing`, which runs no
+   migrations), then `rows::search` with the default page of 50, against
+   the same ledger on `LIKE` alone. Both paths return the same lines; the bench checks
+   every one. Medians; the size and import rows span four runs of the bench, the
+   searches are the last run's:
+
+   | | With the index | `LIKE` alone / without it |
+   |---|---|---|
+   | A backup (a `VACUUM INTO` copy) | 55.0 MiB | 34.8 MiB |
+   | Import: commit of 1,000 rows, backup included | 456–501 ms | 372–396 ms |
+   | Import: the Review step's "After import" | 309–310 ms | 253–267 ms |
+   | `search_transactions`, a text in 30 lines | 5.7 ms | 182 ms |
+   | … a merchant in 438 lines (0.4%) | 10 ms | 178 ms |
+   | … a merchant in 9,086 lines (9%) | 71 ms | 181 ms |
+   | … a text in 97,254 lines (97%) | 339 ms | 227 ms |
+
+   The open is 4 to 6 ms of each search. V24's migration, which runs once when an
+   older backup is restored, took 0.46 to 0.48 s: its SQL on a fresh copy of the
+   ledger without the index, creating the index and filling it for the first time.
+   (Rebuilding an index that already exists took 0.53 to 0.56 s.)
+
+   **(composed)** It pays, and FT.3 keeps reading through the index. Most merchants in
+   the bench ledger are in under 1% of its lines. A search for the rarest of them (0.4%
+   of lines), or for rarer text, is 17 to 32 times faster: about 180 ms down to 6 to
+   10 ms. The busiest merchant (9% of lines) is 2.5 times faster. A text in nearly
+   every row is 1.5 times slower, about a tenth of a second more, as point 7 found. The costs: the index is
+   20.2 MiB, 37% of a backup, and with up to 22 automatic backups kept
+   (`backup::KEEP_RECENT` and `KEEP_MONTHS`) that's at most about 0.43 GiB more on disk
+   at this size, less in practice since older backups hold fewer rows. A 1,000-row
+   import commits 67 to 105 ms later (17 to 26%), its larger backup included. Neither
+   cost changes with FT.3's choice: FT.4 ranks by `bm25` over the same index, so going
+   back to `LIKE` would give up the speed and keep the costs.
