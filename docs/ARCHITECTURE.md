@@ -154,6 +154,7 @@ Budgets, the forecast, and how spending is counted over the ledger.
 - Decision record: one net worth rule (2026-11-19)
 - Decision record: full-text search over bank text (2026-11-23)
 - Decision record: similar transactions (2026-11-24)
+- Decision record: the month start (2026-11-24)
 
 ### [The app](architecture/app.md)
 
@@ -332,8 +333,6 @@ Research and candidates per roadmap item: [`research/crates.md`](research/crates
 - Encrypted DB.
 - Streamable-HTTP MCP inside the GUI (live "jump to transaction").
 - i18n of UI strings beyond category labels.
-- Budget period start (payday-aligned months, ROADMAP L.15): every report depends on it,
-  so decide before M4.1 ships.
 - Investment holdings and prices, goals, attachments (ROADMAP L.11–L.14). Any online price
   fetch would be a second network call and needs its own decision.
 - Feature research and the list of rejected ideas: [`research/feature-ideas.md`](research/feature-ideas.md).
