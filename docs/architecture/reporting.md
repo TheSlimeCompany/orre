@@ -436,12 +436,13 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
      fetch would be a second network call), so a payday moved early by a holiday, such
      as the 25th in December, lands in the month before. The fix is point 10's
      per-month override, not a holiday table.
-3. **A month is named after the calendar month it mostly covers.** A start on day 1 to
-   15 names the month after the one it starts in; day 16 to 28, or the last day, after
-   the one that follows. With the 25th, 25 Oct to 24 Nov is November, which is the
-   month that pay is for. The name uses the nominal start, not the weekend-moved one, so
-   a Friday move never renames a month. The `YYYY-MM` key (`Period`) stays what it is
-   now, the name; only its dates come from the rule. So `budget.month`, one-month budget
+3. **A month is named by its nominal start.** Days 1 to 15 use the calendar month of
+   that start. Days 16 to 28 and the last day use the next calendar month. With the
+   25th, 25 Oct to 24 Nov is November, which is the month that pay is for. This is a
+   fixed rule, not a count of days: with the 16th, 16 Mar to 15 Apr has more days in
+   March but is named April. The name uses the nominal start, not the weekend-moved
+   one, so a Friday move never renames a month. The `YYYY-MM` key (`Period`) stays
+   what it is now, the name; only its dates come from the rule. So `budget.month`, one-month budget
    overrides and every tool's `month` argument keep their meaning, and stored data
    needs nothing rewritten.
 4. **History is cut by the rule in force, never stored.** Changing the setting re-cuts
@@ -454,12 +455,16 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    - `monthly_summary`, `spending_by_category`, `budget_status`, and the
      `monthly_review` prompt.
    - `net_worth_history`: one point per month, at its last day.
+   - Inbox impact previews: the month labels on transfer and refund effects ("less in
+     Nov"), so a preview names the month a report will count the money in.
    - Budgets: rollover from month to month, pace as *d*/*n* with *n* the month's days
      (point 4 of the budgets record), the non-monthly 1/12 accrual per month.
    - The forecast's Flex remainder, spread over the rest of the month (M4.8).
    - Transactions' This month, Last month and Last 3 months presets: the register is
-     where a budget's spending is checked, so it cuts the same months. When the start
-     isn't the 1st, the Date chip's menu shows each preset's dates.
+     where a budget's spending is checked, so it cuts the same months. Whenever a
+     preset covers a different range than the calendar month would, the Date chip's
+     menu shows its dates: any start but the 1st, and the 1st with the Friday move when
+     the 1st falls on a weekend (1 Aug 2026 is a Saturday, so August starts 31 Jul).
    - Not weeks (ISO, Monday to Sunday, as M3.P12 decided), not This year (calendar), and
      not dated things: schedules, the forecast's payday horizon, exports.
 6. **`Period` becomes a month under a rule.** `Period::containing`, `first_day`,
@@ -467,11 +472,15 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    `setting`. A month is never empty and months never overlap or leave a gap, which
    tests check for every start and weekend choice across leap years. Callers that mean
    a calendar month (none today) say so.
-7. **MCP reads it, says it, and can't change it.** Tools that take or return a month
-   also return its `from` and `to` dates, so a client never assumes the 1st; their
-   descriptions say months follow the user's month start. The rule is not personal
-   data and is returned at every level. MCP can't write it ("MCP writes go to the inbox
-   only").
+7. **MCP reads it, says it, and can't change it.** Live month queries return each
+   month's `from` and `to` dates, so a client never assumes the 1st; their
+   descriptions say months follow the user's month start. Saved reviews keep the
+   author's period label (`list_reports` returns it as written, and `save_report`
+   takes labels such as `2026-Q3`): Orre never gives a saved report dates from the
+   current rule, which may not be the one it was written under. Instead
+   `monthly_review` asks the client to include the dates it reviewed in the saved
+   text. The rule is not personal data and is returned at every level. MCP can't
+   write it ("MCP writes go to the inbox only").
 8. **Rejected: months that start on payday as it happened.** Periods anchored to the
    salary itself, found by matching income or a schedule's matched occurrences, would
    handle holidays and late pay. But a month's dates would move when an import or a
