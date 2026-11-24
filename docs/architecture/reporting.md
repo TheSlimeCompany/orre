@@ -39,6 +39,9 @@ is below; the records under "Decision records" are the history.
   description. From 3 characters it reads candidates from the `transaction_text` FTS5
   index and confirms them with `LIKE`; under 3, or with a NUL, it uses `LIKE` alone
   (decision record "full-text search over bank text").
+- **Similar transactions.** `search::similar` ranks a transaction's neighbours through
+  the same index: its stem's words as literal phrases, same currency and sign, by
+  `bm25` then the nearest amount (decision record "similar transactions").
 
 ### Reports
 
@@ -318,3 +321,88 @@ reading `reporting::ledger` and the `ledger_line` view, and confirmed by the use
    import commits 67 to 105 ms later (17 to 26%), its larger backup included. Neither
    cost changes with FT.3's choice: FT.4 ranks by `bm25` over the same index, so going
    back to `LIKE` would give up the speed and keep the costs.
+
+### Decision record: similar transactions (2026-11-24)
+
+ROADMAP FT.4, over FT.1's index. Points 2, 3 and 4, the cap in point 4, the word check
+in point 1 and the cost in point 8 decided by the user on 2026-11-24 on the lead's
+recommendation; the rest composed by the lead from `rule::proposal`, `inbox::own` and
+FT.1's record. No migration.
+
+1. **What a neighbour is.** `search::similar` finds a transaction's nearest neighbours
+   through `transaction_text`. Its text is the row's stem as `rule::proposal` cuts it
+   (`rule::stem` of the cleaned bank merchant); a row with no bank merchant uses its
+   cleaned description's stem, against the description column. The index holds the raw
+   column, and cleaning collapses whitespace, so the stem isn't one phrase: each of its
+   words of 3 characters or more is a literal phrase (`search::phrase`), ANDed, under a
+   column filter for that one column (`{merchant} : ("AMAZON" AND "PRIME")`). No stem,
+   or no word of 3 characters, means no neighbours. The index narrows and the words
+   decide (user, from the review): trigrams match substrings and skip short words, so
+   `EE LIMITED` would match every `LIMITED` and `WH SMITH` would match `SMITHSON`. A
+   match is kept only when its column, cleaned and case-folded as the stem is, holds
+   every stem word, short ones too, as a word of its own. A neighbour has the same
+   currency and the same sign (a zero amount has none), isn't the row itself, and isn't
+   excluded as `duplicate` or `superseded`, which are copies of other rows.
+2. **Ranked by `bm25`, then amount (user).** Best `bm25` first, then the amount closest
+   to the row's (`abs` of the difference in minor units), then the newest, then the
+   highest ID. The amount orders; it doesn't filter. `bm25` weighs a row's whole indexed
+   text, its description included, so the amount mostly orders rows whose text is the
+   same, such as one merchant's repeated payments. No float reaches Rust: one query per
+   column, words, currency, sign and filter (a pool) ranks its matches with an integer
+   `dense_rank()` of `bm25`, and each row orders the pool by that rank, then amount.
+   Rows that share a stem share a pool, so an import runs one query per merchant, not
+   per row.
+3. **Orre suggests a category when 3 of the 5 nearest agree (user).** After an import,
+   each imported row of the batch that takes a category of its own and has none, isn't
+   split and isn't in a suggested or confirmed transfer gets its 5 nearest categorised
+   neighbours (any category source; a split row is not categorised). When at least 3
+   hold one category, Orre proposes it for the row: a `categorization` suggestion from
+   `orre` (`ORRE_SOURCE`), never an AI one. A confirmed transfer's legs and a confirmed
+   refund's money in don't vote: they keep a category they no longer use. One
+   suggestion per category per import, its items in ID order, at most
+   `payload::MAX_ITEMS` each; the rationale is a fixed sentence with no bank text.
+   Approving one sets the category with source `ai_approved`, as any approved
+   categorisation does (`inbox.md` → "Approving and rejecting").
+4. **Once per row (user).** A row named in any `categorization` suggestion, pending or
+   decided, from any source, isn't proposed again: the user's no stands, and an AI
+   client's proposal isn't doubled. **(user)** Orre's rule suggestions
+   (`inbox::own`) share its cap of 200 pending, so category suggestions stop at 150
+   pending from `orre` (`MAX_PENDING_CATEGORY_SUGGESTIONS`), leaving room for rules.
+5. **After the commit, never inside it.** `import::commit` files the suggestions in a
+   DB transaction of its own once the import has committed. If that fails, the import
+   still stands: the warning names the batch's ID only (an SQLite error can quote the
+   query), the error itself is logged at `debug`, and the commit returns as before. `import::rehearse` files nothing, and the import stays
+   deterministic: no model, no network, the same database gives the same suggestions.
+   Undoing the import leaves a pending suggestion naming its rows, which the Inbox
+   already shows as gone, as for an AI client's.
+6. **Untrusted text.** The stem is bank text, used only as literal phrases to match,
+   as FT.1 point 6. A match's column is read from `"transaction"` only to compare its
+   words with the stem's (point 1), never kept or logged; nothing is read out of the
+   index, and the suggestion names IDs and a category key.
+7. **Left for later.** "Similar" in the transaction inspector waits for its Paper
+   design (Paper wasn't reachable on 2026-11-24). The read tool at `standard` waits for
+   L.32. The Inbox labels every suggestion from `orre` "from your edits"
+   (`inbox.md` → "The Inbox screen"), which doesn't fit this one; its copy is for the
+   Paper design too.
+8. **Measured (2026-11-24).** `ledger_bench --only search` (FT.1's record, point 9) at
+   100,606 transactions; medians of 3. The new case is 1,000 uncategorised rows of a
+   merchant with 8,862 categorised rows.
+
+   | A 1,000-row import | Before FT.4 (two runs) | With FT.4 |
+   |---|---|---|
+   | Commit alone, with the index | 489–541 ms | 851 ms |
+   | Commit, then undo, with the index | 517–581 ms | 825 ms |
+   | Commit alone, 1,000 uncategorised rows of one categorised merchant | | 470 ms |
+
+   With point 1's word check; runs vary by about 15% (the commit without the index
+   took 354 to 425 ms across them).
+
+   The step costs one query per pool, not per row. The bench's own import file is
+   close to the worst shape: no merchant column, so each row's stem is its whole
+   description, `<NAME> <NAME> LONDON` with no reference to cut at. That gives 120
+   pools, and each ANDs `LONDON`, which is in 97% of rows, so most likely every query
+   reads that word's whole list. About 370 ms more on a commit that runs off the UI
+   thread.
+   **(user)** Accepted. If real files show the
+   same shape, the next step is to leave out of the query a stem word that the index
+   says is in most rows.
