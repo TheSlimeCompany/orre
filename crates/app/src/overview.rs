@@ -148,6 +148,14 @@ impl OverviewView {
         }
     }
 
+    /// Pins the view to `today` and stops it following the clock, so a test
+    /// reads as of a fixed day whatever the real date is.
+    #[cfg(test)]
+    pub(crate) fn hold_day(&mut self, today: NaiveDate) {
+        self.follows_clock = false;
+        self.follow(today);
+    }
+
     /// Moves `today` to `now`, keeping the current month selected if it was.
     fn follow(&mut self, now: NaiveDate) {
         if now != self.today {
@@ -276,9 +284,14 @@ impl OverviewView {
         // The day first, so a pick of last month's "current" month after
         // midnight on the 1st isn't moved on by the read's own follow.
         self.follow_clock();
+        // Until a month is picked each read lands on the latest month with
+        // data, which may not be the one shown. A pick of the shown month
+        // while such a read is in flight still replaces it, else it would
+        // land on another month under a switcher that has stopped following.
+        let landing = !self.browsed && self.loading.is_some();
         self.browsed = true;
         let month = month.min(Period::containing(self.today));
-        if month == self.month {
+        if month == self.month && !landing {
             return;
         }
         self.month = month;

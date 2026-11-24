@@ -26,7 +26,14 @@
 //! `previous`, `through`), so the month's cut is defined in one place.
 //!
 //! The screen opens on [`landing_month`]: today's month, or the latest
-//! month with data when today's has none yet (the statements lag).
+//! month with data when today's has none yet (the statements lag). The
+//! month is chosen together with the display currency: it has counted lines
+//! in the currency the overview for that month displays, so it never opens
+//! on a month of zeros because its only lines are in a minority currency.
+//! [`opening_overview`] reads the landing month and its overview together.
+//!
+//! Each public read runs in one read transaction, so its statements agree
+//! even when an import commits meanwhile.
 //!
 //! # Changes
 //!
@@ -64,6 +71,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::{Days, NaiveDate};
+use rusqlite::{Transaction, TransactionBehavior};
 
 use crate::account::Account;
 use crate::category::{CategoryKey, CategoryTree};
@@ -187,6 +195,25 @@ pub struct Overview {
 /// month before it (0001-01) is [`Error::InvalidPeriod`]; an unknown
 /// account is [`Error::UnknownAccount`].
 pub fn overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
+    let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
+    let overview = overview_in_transaction(reader, query)?;
+    drop(tx);
+    Ok(overview)
+}
+
+/// The overview for `query` with its month replaced by the
+/// [landing month](landing_month) for its account and `today`, both read in
+/// one read transaction, so the month always matches the figures.
+pub fn opening_overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
+    let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
+    let month = landing_month_in_transaction(reader, query.account, query.today)?;
+    let overview = overview_in_transaction(reader, &OverviewQuery { month, ..*query })?;
+    drop(tx);
+    Ok(overview)
+}
+
+/// [`overview`], inside a read transaction the caller holds.
+fn overview_in_transaction(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
     let selected = query.month;
     let previous = selected.previous().ok_or(Error::InvalidPeriod)?;
     let account = query
@@ -302,6 +329,30 @@ fn add(left: i64, right: i64) -> Result<i64, Error> {
         .ok_or(Error::Money(MoneyError::Overflow))
 }
 
+/// How many counted lines each currency has among `lines`.
+fn counted_by_currency<'a>(
+    lines: impl Iterator<Item = &'a LedgerLine>,
+) -> BTreeMap<Currency, usize> {
+    let mut counted = BTreeMap::new();
+    for line in lines.filter(|line| counts(line, None)) {
+        *counted
+            .entry(line.counted(Basis::Personal).currency())
+            .or_default() += 1;
+    }
+    counted
+}
+
+/// The currency with the most lines; the map's order (by code) breaks ties.
+fn busiest_currency(counted: &BTreeMap<Currency, usize>) -> Option<Currency> {
+    let mut busiest: Option<(Currency, usize)> = None;
+    for (&currency, &lines) in counted {
+        if busiest.is_none_or(|(_, most)| lines > most) {
+            busiest = Some((currency, lines));
+        }
+    }
+    busiest.map(|(currency, _)| currency)
+}
+
 /// The display currency and the other currencies counted in `window`.
 fn display_currency(
     reader: &Reader,
@@ -309,24 +360,10 @@ fn display_currency(
     window: DateRange,
     account: Option<&Account>,
 ) -> Result<(Currency, Vec<Currency>), Error> {
-    let mut counted: BTreeMap<Currency, usize> = BTreeMap::new();
-    for line in lines
-        .iter()
-        .filter(|line| window.contains(line.date) && counts(line, None))
-    {
-        *counted
-            .entry(line.counted(Basis::Personal).currency())
-            .or_default() += 1;
-    }
-    // The most lines; the map's order (by code) breaks ties.
-    let mut busiest: Option<(Currency, usize)> = None;
-    for (&currency, &lines) in &counted {
-        if busiest.is_none_or(|(_, most)| lines > most) {
-            busiest = Some((currency, lines));
-        }
-    }
+    let counted = counted_by_currency(lines.iter().filter(|line| window.contains(line.date)));
+    let busiest = busiest_currency(&counted);
     let currency = match (busiest, account) {
-        (Some((currency, _)), _) => currency,
+        (Some(currency), _) => currency,
         (None, Some(account)) => account.currency,
         (None, None) => balance::accounts(reader)?
             .first()
@@ -363,38 +400,88 @@ fn earliest_month(
         .min())
 }
 
-/// The month the Overview opens on: the month of `today` when it has a
-/// counted line on the account filter (in any currency), else the latest
-/// earlier month that has one, else the month of `today`.
+/// The month the Overview opens on, chosen with its display currency.
+///
+/// Today's month, or the latest earlier month, that has a counted line on
+/// the account filter in the busiest currency of its chart window (the
+/// currency [`overview`] will display for it); the month of `today` when
+/// there is no counted line at all.
 ///
 /// Statements lag: an export made on the 21st may stop at the end of the
 /// month before, and a screen that opens on a month of zeros says nothing.
 /// The 12 months ending at `today`'s month are read first; older lines
-/// only when those have none.
+/// only when those have none. A month older than today's window ends its
+/// own chart window, so it is the latest month whose window's busiest
+/// currency has a line in it.
 pub fn landing_month(
+    reader: &Reader,
+    account: Option<AccountId>,
+    today: NaiveDate,
+) -> Result<Period, Error> {
+    let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
+    let month = landing_month_in_transaction(reader, account, today)?;
+    drop(tx);
+    Ok(month)
+}
+
+/// [`landing_month`], inside a read transaction the caller holds.
+fn landing_month_in_transaction(
     reader: &Reader,
     account: Option<AccountId>,
     today: NaiveDate,
 ) -> Result<Period, Error> {
     let current = Period::containing(today);
     let start = window_start(current);
-    let latest = |range: DateRange| -> Result<Option<Period>, Error> {
+    let read = |range: DateRange| -> Result<Vec<LedgerLine>, Error> {
         Ok(Ledger::new()
             .within(range)
             .accounts(account)
             .lines(reader)?
-            .iter()
+            .into_iter()
             .filter(|line| counts(line, None))
-            .map(|line| Period::containing(line.date))
-            .max())
+            .collect())
     };
-    let mut found = latest(DateRange::months(start, current)?)?;
-    if found.is_none()
-        && let Some(last) = start.previous()
-    {
-        found = latest(DateRange::months(Period::new(1, 1)?, last)?)?;
+    let recent = read(DateRange::months(start, current)?)?;
+    if !recent.is_empty() {
+        return Ok(latest_in_busiest_currency(&recent, start, current).unwrap_or(current));
     }
-    Ok(found.unwrap_or(current))
+    let Some(last) = start.previous() else {
+        return Ok(current);
+    };
+    let older = read(DateRange::months(Period::new(1, 1)?, last)?)?;
+    let mut months: Vec<Period> = older
+        .iter()
+        .map(|line| Period::containing(line.date))
+        .collect();
+    months.sort_unstable();
+    months.dedup();
+    // A month before today's window ends its own chart window, so it lands
+    // when its window's busiest currency has a line in it. The latest such
+    // month; the earliest month with data always is one (its window has no
+    // other month's lines).
+    Ok(months
+        .iter()
+        .rev()
+        .copied()
+        .find(|&month| {
+            latest_in_busiest_currency(&older, window_start(month), month) == Some(month)
+        })
+        .unwrap_or(current))
+}
+
+/// The latest month in `first..=last` with a line in the busiest currency
+/// of the lines in those months. `lines` are all counted.
+fn latest_in_busiest_currency(lines: &[LedgerLine], first: Period, last: Period) -> Option<Period> {
+    let in_window = || {
+        lines
+            .iter()
+            .filter(move |line| (first..=last).contains(&Period::containing(line.date)))
+    };
+    let currency = busiest_currency(&counted_by_currency(in_window()))?;
+    in_window()
+        .filter(|line| counts(line, Some(currency)))
+        .map(|line| Period::containing(line.date))
+        .max()
 }
 
 /// The selected month's spending by category (module docs); `total` is the

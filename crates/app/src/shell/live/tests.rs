@@ -196,7 +196,18 @@ fn the_overview_reloads_on_a_ledger_change(cx: &mut TestAppContext) {
     let (shell, cx) = open(cx, &scratch, View::Overview);
     let overview = cx.update(|_, cx| shell.read(cx).overview().clone());
     let november = orre_core::reporting::Period::new(2026, 11).unwrap();
-    cx.update(|_, cx| overview.update(cx, |overview, cx| overview.select_month(november, cx)));
+    // The row added below is on 12 November: read as of the 14th, not the
+    // clock's day.
+    let day = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
+    cx.update(|_, cx| {
+        overview.update(cx, |overview, cx| {
+            overview.hold_day(day);
+            overview.select_month(november, cx);
+            // Read again on the held day: the shell's first read was on the
+            // clock's, and picking the shown month starts none.
+            overview.reload(cx);
+        })
+    });
     settle(cx);
     let spent = |cx: &mut VisualTestContext| {
         cx.update(|_, cx| {
