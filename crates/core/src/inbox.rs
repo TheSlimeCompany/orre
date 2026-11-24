@@ -50,6 +50,7 @@ pub mod payload;
 pub mod preview;
 mod reports;
 mod shared;
+pub(crate) mod similar;
 
 use std::fmt;
 use std::str::FromStr;

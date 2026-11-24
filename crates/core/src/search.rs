@@ -17,6 +17,8 @@
 //! of Unicode and `LIKE`'s only ASCII, so a caller that needs `LIKE`'s answer
 //! keeps `LIKE` as the final check (`reporting::ledger`).
 
+pub mod similar;
+
 /// The fewest characters (Unicode scalar values) the trigram tokenizer can
 /// match.
 const MIN_CHARS: usize = 3;
