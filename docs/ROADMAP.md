@@ -686,7 +686,7 @@ Every tool call appears in the access log.
 
 ---
 
-## M3 — GUI foundation 🚧
+## M3 — GUI foundation ✅
 
 - ✅ M3.1 App shell: sidebar navigation, window state, built on the D2 theme. Every screen in
   M3–M4 follows its Paper design from the design track; no stock component styling.
@@ -1027,6 +1027,9 @@ Every tool call appears in the access log.
 **Exit criteria:** day-to-day use (import, categorize, split, link refunds, review the inbox
 and duplicates) without the CLI.
 
+Every task and punch-list item is done; only the user's sign-off on this exit check, on
+real data, remains.
+
 ---
 
 ## Architecture review — findings ✅
@@ -1288,15 +1291,15 @@ done or closed by a note saying why not; every drag in the app has a keyboard pa
 
 ---
 
-## Live updates ⬜
+## Live updates ✅
 
-What SurrealDB's live queries give, built on SQLite. Today a view reloads after the
-app's own changes and when it's shown (`ShellView::show`), so a change made by another
-process is seen only when the user moves around: an MCP client filing suggestions,
-`orre import`, `undo-import` or `categorize` in a terminal. The Inbox badge and
-Transactions stay stale meanwhile. SQLite can't push a change to another process, so the
-app notices it itself. Not a milestone. Order: LU.1, LU.2, LU.4, then LU.3 and LU.5;
-LU.6 alongside.
+What SurrealDB's live queries give, built on SQLite. Before this work a view reloaded
+only after the app's own changes and when it was shown (`ShellView::show`), so a change
+made by another process was seen only when the user moved around: an MCP client filing
+suggestions, `orre import`, `undo-import` or `categorize` in a terminal. The Inbox badge
+and Transactions stayed stale meanwhile. SQLite can't push a change to another process,
+so the app now notices it itself and reloads without a click (LU.3). Not a milestone.
+Order: LU.1, LU.2, LU.4, then LU.3 and LU.5; LU.6 alongside.
 
 - ✅ LU.1 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`)
   before code. To decide:
@@ -1375,9 +1378,11 @@ LU.6 alongside.
 Nothing typed, selected or scrolled is lost. The idle cost is measured and recorded.
 Checked by tests, and in the real window by the user.
 
+Every task is done and the tests pass; only the user's check in the real window remains.
+
 ---
 
-## Full-text search (FTS5) ⬜
+## Full-text search (FTS5) 🚧
 
 Ranked, fuzzy matching over bank text, with SQLite's FTS5 in place of a vector index:
 deterministic, no model and no new dependency. The bundled SQLite is built with
@@ -1422,7 +1427,7 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
   they return the same rows; the MCP access-level tests are unchanged.
   (Built over a synthetic test ledger with every kind of ledger line, not `fixtures/`,
   which `orre-core` can't parse.)
-- ⬜ FT.4 Similar transactions: a core function returning a transaction's nearest
+- 🚧 FT.4 Similar transactions: a core function returning a transaction's nearest
   neighbours, ranked by `bm25` over its cleaned merchant stem (as `rule::proposal` cuts
   it), the same sign and a similar amount. Uses, each drawn in Paper first where it
   shows:
@@ -1461,7 +1466,7 @@ meaning.
 
 ---
 
-## M4 — Analytics ⬜
+## M4 — Analytics 🚧
 
 - ✅ M4.1 Monthly overview: income vs spending vs net (bar/line), category breakdown, MoM change.
   Built before M4.11 on calendar months (user, 2026-11-24): core's
@@ -1484,7 +1489,8 @@ meaning.
 - ⬜ M4.10 Safe report rendering: a markdown subset with no HTML or images, and links shown
   as plain text; reports are marked `ai_authored` when read back
 - ⬜ M4.11 Month start (L.15, decision record "the month start" in
-  `docs/architecture/reporting.md`). Built first in M4, before M4.1:
+  `docs/architecture/reporting.md`). Decided, not built. Planned first in M4, but M4.1
+  was built before it, on calendar months (user, 2026-11-24):
   - **Core:** the rule as a typed `setting` value (day 1–28 or the last day; weekends off
     or the Friday before; default the 1st). `Period` cuts months under it and keeps its
     `YYYY-MM` name. Tests: no gaps or overlaps for every start and weekend choice across
@@ -1543,7 +1549,7 @@ Good candidates for contributors are marked 🙋.
 - L.14 Investments and holdings with manual or imported prices (an online price fetch would
   need its own decision, like the ECB one)
 - L.15 Configurable month start (payday-aligned periods). Decided (user, 2026-11-24):
-  `docs/architecture/reporting.md` → "Decision record: the month start"; built as M4.11.
+  `docs/architecture/reporting.md` → "Decision record: the month start"; to be built as M4.11.
   Its point 10, a per-month override for holidays and early pay, stays here for later
 - L.16 Anomaly and spike insights (median/MAD), with a read tool
 - L.17 Runway, Age of Money and an in-app weekly recap
