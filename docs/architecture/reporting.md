@@ -35,6 +35,10 @@ is below; the records under "Decision records" are the history.
 - **Transfers.** A confirmed pair is out of reports whatever its legs' categories; a
   suggested pair counts by its own category until confirmed (`transactions.md` → "two
   kinds of transfer, and marking a suggested pair", point 1).
+- **Text.** `Ledger::matching` finds a text in the display merchant, bank merchant or raw
+  description. From 3 characters it reads candidates from the `transaction_text` FTS5
+  index and confirms them with `LIKE`; under 3, or with a NUL, it uses `LIKE` alone
+  (decision record "full-text search over bank text").
 
 ### Reports
 
@@ -220,3 +224,58 @@ totals and only marked it `unanchored`.
 3. **Rejected: count it from zero and mark it everywhere.** An account opened
    mid-history with money already in it would understate or overstate net worth without
    the user seeing a number to doubt.
+
+### Decision record: full-text search over bank text (2026-11-23)
+
+ROADMAP FT.1, before FT.2 and FT.3. The roadmap's proposals, composed by the lead from
+reading `reporting::ledger` and the `ledger_line` view, and confirmed by the user on
+2026-11-24 with point 7's interim choice. Measurements (FT.6) will be added here.
+
+1. **What's indexed.** A transaction's display merchant, bank merchant and raw
+   description: the three columns `Ledger::matching` searches today. Notes stay out:
+   they never reach MCP at any level. Every row of `"transaction"` is indexed, excluded
+   and superseded rows too; the ledger already decides which lines count. One entry
+   per transaction covers every ledger line, because each line's display merchant is
+   its own transaction's, refund, reimbursement and settlement parts included
+   (`ledger_line`, V21).
+2. **The table.** `transaction_text`, an external-content FTS5 table over
+   `"transaction"` (`content_rowid` is the transaction ID), so the text isn't stored
+   twice. It uses the `trigram` tokenizer with `case_sensitive 0` and no diacritic
+   removal. The bundled SQLite is built with FTS5.
+3. **How it stays in sync.** Three triggers on `"transaction"`: after an insert, after a
+   delete, and after an update of one of the three columns. The display merchant is
+   stored on that row (V7), so no other table needs a trigger. Imports, undo, edits,
+   rules, merges and supersedes all reach the index through those triggers. The
+   migration builds the index for the rows already there, so restoring an older backup
+   builds it too. A migration that rebuilds `"transaction"` (the 12-step procedure)
+   drops the triggers and must recreate them; the IDs carry over, so the index stays
+   valid. A schema test checks the triggers exist and that FTS5's integrity check
+   passes against the table. MCP never writes `"transaction"`, so "MCP writes go to the
+   inbox only" is untouched.
+4. **Query text is a literal.** Text from the user or an MCP client becomes one FTS5
+   string (a double-quoted phrase with its quotes doubled), never FTS5 syntax: `OR`,
+   `NEAR`, `*`, column filters and quotes can't change what a search means.
+5. **The index narrows, `LIKE` decides.** The trigram tokenizer folds case over all of
+   Unicode; SQLite's `LIKE` folds ASCII only. On its own the index would match more
+   than today (`É` finding `é`). So a query of 3 characters or more keeps the rows
+   whose transaction the index matches, then applies today's `LIKE` test to them: the
+   same rows as before, read from the index rather than a scan of every row. A query
+   under 3 characters, which trigrams can't index, uses `LIKE` alone, and so does one
+   holding a NUL: FTS5 reads a query as a C string, so the phrase would end at the NUL
+   and be refused as a syntax error.
+6. **Untrusted text.** The index holds bank text, which is untrusted, and it's only
+   matched against, as now. Nothing reads text back out of it.
+7. **Access levels unchanged.** Text search stays at `standard` only (`mcp.md`, "Text
+   search"); `search_transactions`' reach is unchanged. Whether it's faster is FT.6's
+   to measure: a first look at 100,000 synthetic rows (the review of FT.3) found a rare
+   text 300 times faster than `LIKE`, a text in 1 row in 15 four times faster, and a
+   text in every row about 1.7 times slower. The index was 47% of the file, and raw
+   inserts took about twice as long. FT.6 measures these on the import path and
+   decides. Until then FT.3 reads through the index (user, 2026-11-24): a search is
+   usually for one merchant, where the gain is large, and a text in every row costs
+   about a tenth of a second more. The size of the index, and so of backups, is the
+   cost FT.6 weighs most.
+8. **Rejected.** A table holding its own copy of the text: the text twice on disk and
+   in every backup, on top of the index. The index alone as the matcher: it would
+   change which rows a search returns, and FT.3 promises the same rows. Diacritic
+   removal: it would widen matches further, for the same reason.
