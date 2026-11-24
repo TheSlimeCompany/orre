@@ -29,16 +29,21 @@ async fn a_call_refused_with_migrations_pending_is_logged_after_migrating() {
     // As an older Orre left it: the last migration not applied. Only its
     // history row is removed, so the server sees it as pending; applying it
     // again must work on its own result, so its effect is undone here too
-    // (V23 creates `account_source_identity`). A later migration needs the
-    // same.
+    // (V24 creates `transaction_text` and its three triggers). A later
+    // migration needs the same.
     let conn = rusqlite::Connection::open(fixture.path()).unwrap();
     conn.execute(
         "DELETE FROM refinery_schema_history WHERE version = ?1",
         [Database::supported_schema_version()],
     )
     .unwrap();
-    conn.execute("DROP TABLE account_source_identity", [])
-        .unwrap();
+    conn.execute_batch(
+        "DROP TRIGGER transaction_text_insert; \
+         DROP TRIGGER transaction_text_delete; \
+         DROP TRIGGER transaction_text_update; \
+         DROP TABLE transaction_text;",
+    )
+    .unwrap();
     drop(conn);
     assert!(matches!(
         Database::open_existing(fixture.path()),

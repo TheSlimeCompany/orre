@@ -51,6 +51,18 @@ const TABLES: &[&str] = &[
     "transfer_group",
 ];
 
+/// The full-text index (V24) and the shadow tables FTS5 keeps for it. A
+/// virtual table isn't `STRICT` and has no foreign keys, so these are not in
+/// [`TABLES`], whose checks (strictness, indexed foreign keys) would be
+/// meaningless for them; `creates_every_table` lists both.
+const FULL_TEXT_TABLES: &[&str] = &[
+    "transaction_text",
+    "transaction_text_config",
+    "transaction_text_data",
+    "transaction_text_docsize",
+    "transaction_text_idx",
+];
+
 /// The views the migrations create.
 const VIEWS: &[&str] = &["ledger_line"];
 
@@ -250,7 +262,103 @@ fn creates_every_table() {
         .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_eq!(tables, TABLES);
+    let mut expected: Vec<&str> = TABLES.iter().chain(FULL_TEXT_TABLES).copied().collect();
+    expected.sort_unstable();
+    assert_eq!(tables, expected);
+}
+
+/// The triggers that keep `transaction_text` in step with `"transaction"`:
+/// a 12-step rebuild of the table drops them (`migrations/README.md`).
+#[test]
+fn the_full_text_index_has_its_three_triggers() {
+    let fixture = Fixture::new();
+    let mut statement = fixture
+        .conn()
+        .prepare(
+            "SELECT name FROM sqlite_schema WHERE type = 'trigger' \
+             AND tbl_name = 'transaction' AND name LIKE 'transaction_text_%' ORDER BY name",
+        )
+        .unwrap();
+    let triggers: Vec<String> = statement
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+
+    assert_eq!(
+        triggers,
+        [
+            "transaction_text_delete",
+            "transaction_text_insert",
+            "transaction_text_update"
+        ]
+    );
+}
+
+/// FTS5's `integrity-check` with `rank = 1` compares the index with the
+/// `"transaction"` rows it indexes; an index that has drifted fails it.
+#[test]
+fn the_full_text_index_matches_its_transactions() {
+    let fixture = Fixture::new();
+    let account = fixture.account("Current");
+    let batch = fixture.batch(account);
+    let imported = fixture.imported(account, batch, Some("tx-1"), "fp-1");
+    let manual = fixture.manual(account);
+    fixture
+        .conn()
+        .execute(
+            "UPDATE \"transaction\" SET merchant_display = 'Coffee Shop', \
+             merchant_display_source = 'user' WHERE id = ?1",
+            [imported],
+        )
+        .unwrap();
+    fixture
+        .conn()
+        .execute("DELETE FROM \"transaction\" WHERE id = ?1", [manual])
+        .unwrap();
+
+    fixture
+        .conn()
+        .execute(
+            "INSERT INTO transaction_text (transaction_text, rank) VALUES ('integrity-check', 1)",
+            [],
+        )
+        .unwrap();
+    let found: Vec<i64> = fixture
+        .conn()
+        .prepare(
+            "SELECT rowid FROM transaction_text WHERE transaction_text MATCH '\"coffee shop\"'",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(found, [imported]);
+
+    // A change the triggers didn't see is caught: this is what a rebuilt
+    // `"transaction"` without them would leave.
+    fixture
+        .conn()
+        .execute_batch("DROP TRIGGER transaction_text_update")
+        .unwrap();
+    fixture
+        .conn()
+        .execute(
+            "UPDATE \"transaction\" SET merchant_display = 'Tea Shop' WHERE id = ?1",
+            [imported],
+        )
+        .unwrap();
+    assert!(
+        fixture
+            .conn()
+            .execute(
+                "INSERT INTO transaction_text (transaction_text, rank) \
+                 VALUES ('integrity-check', 1)",
+                [],
+            )
+            .is_err()
+    );
 }
 
 #[test]
