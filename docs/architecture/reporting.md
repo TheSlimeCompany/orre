@@ -286,7 +286,8 @@ reading `reporting::ledger` and the `ledger_line` view, and confirmed by the use
    the sizes and the imports it copies the ledger with `VACUUM INTO`, as a backup is
    made, once as it is and once with the index and its triggers dropped. The searches
    run on the ledger itself, as `search_transactions` makes them: each opens the
-   database through the gate, then `rows::search` with the default page of 50, against
+   database as `orre mcp` does (through the gate, with `open_existing`, which runs no
+   migrations), then `rows::search` with the default page of 50, against
    the same ledger on `LIKE` alone. Both paths return the same lines; the bench checks
    every one. Medians; the size and import rows span four runs of the bench, the
    searches are the last run's:
@@ -301,8 +302,10 @@ reading `reporting::ledger` and the `ledger_line` view, and confirmed by the use
    | … a merchant in 9,086 lines (9%) | 71 ms | 181 ms |
    | … a text in 97,254 lines (97%) | 339 ms | 227 ms |
 
-   The open is 4 to 6 ms of each search. Rebuilding the index over every row, which
-   V24 does once when an older backup is restored, took 0.53 to 0.56 s.
+   The open is 4 to 6 ms of each search. V24's migration, which runs once when an
+   older backup is restored, took 0.46 to 0.48 s: its SQL on a fresh copy of the
+   ledger without the index, creating the index and filling it for the first time.
+   (Rebuilding an index that already exists took 0.53 to 0.56 s.)
 
    **(composed)** It pays, and FT.3 keeps reading through the index. Most merchants in
    the bench ledger are in under 1% of its lines. A search for the rarest of them (0.4%

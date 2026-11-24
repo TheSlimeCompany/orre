@@ -28,13 +28,15 @@
 //! (ROADMAP FT.6; decision record "full-text search over bank text" in
 //! `docs/architecture/reporting.md`). It needs `--features bench`, which
 //! makes `Ledger::like_only` reachable so `LIKE` can be timed alone. It
-//! makes two copies of the ledger with `VACUUM INTO`, as a backup is made, in
-//! subdirectories of `<dir>`, deleted at the end: one as it is, one with the
-//! index and its triggers dropped and vacuumed. It prints their sizes (a
-//! copy's size is a backup's size), the 1,000-row import on each, a rebuild of
-//! the index (what migrating an older backup costs), and `search_transactions`'
-//! query (`reporting::rows::search`, default limit) through the index against
-//! `LIKE` alone, for texts that match few, some and nearly all rows.
+//! migrates the ledger, then makes two copies of it with `VACUUM INTO`, as a
+//! backup is made, in new subdirectories of `<dir>`, deleted at the end: one
+//! as it is, one with the index and its triggers dropped and vacuumed. It
+//! prints their sizes (a copy's size is a backup's size), the 1,000-row import
+//! on each, V24's migration on a fresh copy without the index (what restoring
+//! an older backup costs), and `search_transactions`' query
+//! (`reporting::rows::search`, default limit, opened as `orre mcp` opens it)
+//! through the index against `LIKE` alone, for texts that match few, some and
+//! nearly all rows.
 //!
 //! Everything is made up: merchants, amounts and descriptions. The
 //! generator is a small PRNG with a fixed seed.
@@ -1173,29 +1175,22 @@ fn import_rows(rows: &mut Vec<Row>, database: &Path, today: NaiveDate, suffix: &
 // The full-text index's cost --------------------------------------------------
 
 /// A ledger's directory (the database, its `-wal` and `-shm`, and the
-/// backups an import takes), deleted when dropped.
+/// backups an import takes): a new directory in `<dir>`, never one already
+/// there, deleted when dropped.
 #[cfg(feature = "bench")]
 struct Scratch {
-    dir: PathBuf,
+    dir: tempfile::TempDir,
 }
 
 #[cfg(feature = "bench")]
 impl Scratch {
-    fn new(dir: PathBuf) -> Result<Scratch> {
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir)?;
+    fn new(parent: &Path, prefix: &str) -> Result<Scratch> {
+        let dir = tempfile::Builder::new().prefix(prefix).tempdir_in(parent)?;
         Ok(Scratch { dir })
     }
 
     fn database(&self) -> PathBuf {
-        self.dir.join("orre.db")
-    }
-}
-
-#[cfg(feature = "bench")]
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        self.dir.path().join("orre.db")
     }
 }
 
@@ -1233,6 +1228,20 @@ fn index_bytes(database: &Path) -> Option<i64> {
         .ok()
 }
 
+/// The V24 migration's SQL, timed by `--only search`.
+#[cfg(feature = "bench")]
+const V24: &str = include_str!("../migrations/V24__transaction_text.sql");
+
+/// The database and its reader, opened as `orre mcp` opens them for each
+/// call (`orre_mcp::server`): through the gate, with `open_existing`, which
+/// runs no migrations.
+#[cfg(feature = "bench")]
+fn open_as_mcp(database: &Path) -> Result<(Database, orre_core::db::Reader)> {
+    Ok(gate::open(database, |path| {
+        Database::open_existing(path).and_then(|db| db.reader().map(|reader| (db, reader)))
+    })?)
+}
+
 #[cfg(not(feature = "bench"))]
 fn search_cost(_dir: &Path, _database: &Path) -> Result<()> {
     Err("--only search needs `--features bench` (it times `LIKE` alone)".into())
@@ -1255,8 +1264,10 @@ fn search_cost(dir: &Path, database: &Path) -> Result<()> {
     use orre_core::reporting::{Ledger, Limit};
 
     let today = schedule::local_today()?;
-    let with = Scratch::new(dir.join("search-with-index"))?;
-    let without = Scratch::new(dir.join("search-without-index"))?;
+    let with = Scratch::new(dir, "search-with-index-")?;
+    let without = Scratch::new(dir, "search-without-index-")?;
+    // A ledger saved before V24 has no index to drop: migrate it first.
+    drop(open(database)?);
     vacuum_into(database, &with.database())?;
     vacuum_into(database, &without.database())?;
     {
@@ -1323,26 +1334,38 @@ fn search_cost(dir: &Path, database: &Path) -> Result<()> {
     import_rows(&mut rows, &with.database(), today, " [with index]")?;
     import_rows(&mut rows, &without.database(), today, " [without index]")?;
 
-    // What the V24 migration costs when it runs on an older backup.
-    time(
-        &mut rows,
-        "index rebuild of every row (V24's migration, on restoring an older backup)",
-        false,
-        3,
-        || {
-            let conn = rusqlite::Connection::open(with.database())?;
-            conn.execute(
-                "INSERT INTO transaction_text(transaction_text) VALUES('rebuild')",
-                [],
-            )?;
-            Ok(())
-        },
-    )?;
+    // What the V24 migration costs when it runs on an older backup: its SQL
+    // on a fresh copy of the ledger without the index each run, so it
+    // creates the index and fills it for the first time, as V24 does.
+    let migrated = Scratch::new(dir, "search-v24-")?;
+    let mut runs = Vec::new();
+    for _ in 0..4 {
+        let _ = std::fs::remove_file(migrated.database());
+        vacuum_into(&without.database(), &migrated.database())?;
+        let mut conn = rusqlite::Connection::open(migrated.database())?;
+        let started = Instant::now();
+        let tx = conn.transaction()?;
+        tx.execute_batch(V24)?;
+        tx.commit()?;
+        runs.push(started.elapsed());
+        drop(conn);
+    }
+    // The first run is the warm-up.
+    runs.remove(0);
+    runs.sort();
+    rows.push(Row {
+        name: "V24's migration: create and fill the index (restoring an older backup)".to_owned(),
+        median: runs[1],
+        max: runs[2],
+        runs: 3,
+        ui_thread: false,
+    });
+    drop(migrated);
 
     // The text query: `search_transactions`' call, through the index, and
     // the same ledger on `LIKE` alone, on the ledger itself. Each timed run
-    // opens the database through the gate, as the other rows and an MCP call
-    // do, with no other connection open.
+    // opens the database as an MCP call does (`open_as_mcp`), with no other
+    // connection open.
     let limit = Limit::new(None);
     println!();
     println!(
@@ -1385,8 +1408,8 @@ fn search_cost(dir: &Path, database: &Path) -> Result<()> {
             false,
             9,
             || {
-                let db = open(database)?;
-                Ok(rows::search(&db.reader()?, &search, limit)?.len())
+                let (_db, reader) = open_as_mcp(database)?;
+                Ok(rows::search(&reader, &search, limit)?.len())
             },
         )?;
         time(
@@ -1395,8 +1418,8 @@ fn search_cost(dir: &Path, database: &Path) -> Result<()> {
             false,
             9,
             || {
-                let db = open(database)?;
-                Ok(base().like_only().lines_capped(&db.reader()?, limit)?.len())
+                let (_db, reader) = open_as_mcp(database)?;
+                Ok(base().like_only().lines_capped(&reader, limit)?.len())
             },
         )?;
     }
