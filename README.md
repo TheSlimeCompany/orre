@@ -29,33 +29,40 @@ MCP server.
   `ai-access`, `budgets`, `schedules`, `inbox` and `categorize` work without the GUI.
 - **MCP server.** `orre mcp` gives AI clients read tools over your data, limited by the
   access level you give each client (`aggregate`, `pseudonymous` or `standard`), and
-  off until you enable a client. The only thing a client can write is suggestions and
-  reports, which wait in an approval inbox until you approve or reject them in Orre.
-  Every call is recorded in an access log. Setup: [`docs/mcp-setup.md`](docs/mcp-setup.md).
+  off until you enable a client. A client can only file suggestions and save reports.
+  Suggestions wait in an approval inbox until you approve or reject them in Orre;
+  reports are saved straight away (`orre inbox report <ID>` shows one). Calls to
+  registered tools are recorded in an access log.
+  Setup: [`docs/mcp-setup.md`](docs/mcp-setup.md).
 
 ## Principles
 
 - **Local-first.** Your data stays in a SQLite file on your machine. The only network
-  call will be an opt-in exchange-rate fetch (ECB, not built yet). No telemetry.
+  call Orre plans to make is an opt-in exchange-rate fetch (ECB, not built yet). No
+  telemetry. An AI client you connect may send Orre's tool results to its model
+  provider.
 - **Deterministic import.** Imports are previewed, deduplicated, reconciled against
   balances where possible, committed atomically, and undoable as a batch.
 - **Nothing silently dropped.** Unparseable rows and failed reconciliations are
   flagged, not skipped.
-- **Safe AI access.** MCP tools are read-only apart from an inbox of suggestions and
-  reports. Account numbers, notes and addresses never appear at any level, and names
-  only at `standard`, the full-access level.
+- **Safe AI access.** MCP tools are read-only apart from filing suggestions and
+  saving reports. Account number and note fields are never returned, and bank descriptions
+  are checked for common account identifiers, but Orre doesn't remove every personal
+  detail from free text. At `standard`, the full-access level, clients see account and
+  merchant names and can ask for bank descriptions, which may contain details such as
+  addresses.
 - **Exact money.** Amounts are integer minor units plus an ISO 4217 currency code.
 
 ## Usage
 
 ```sh
-orre                 # open the dashboard
-orre import <file>   # import a bank export
-orre accounts        # list accounts
-orre undo-import     # undo an import batch
-orre inbox           # review MCP suggestions
-orre mcp             # run the MCP server over stdio
-orre --help          # every command
+orre                             # open the dashboard
+orre import <file>               # import a bank export
+orre accounts                    # list accounts
+orre undo-import <batch>         # preview undoing an import; add --yes to undo it
+orre inbox                       # review MCP suggestions
+orre mcp --client <name>         # run the MCP server over stdio for one AI client
+orre --help                      # every command
 ```
 
 ## Development

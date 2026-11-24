@@ -1293,13 +1293,13 @@ done or closed by a note saying why not; every drag in the app has a keyboard pa
 
 ## Live updates ✅
 
-What SurrealDB's live queries give, built on SQLite. Today a view reloads after the
-app's own changes and when it's shown (`ShellView::show`), so a change made by another
-process is seen only when the user moves around: an MCP client filing suggestions,
-`orre import`, `undo-import` or `categorize` in a terminal. The Inbox badge and
-Transactions stay stale meanwhile. SQLite can't push a change to another process, so the
-app notices it itself. Not a milestone. Order: LU.1, LU.2, LU.4, then LU.3 and LU.5;
-LU.6 alongside.
+What SurrealDB's live queries give, built on SQLite. Before this work a view reloaded
+only after the app's own changes and when it was shown (`ShellView::show`), so a change
+made by another process was seen only when the user moved around: an MCP client filing
+suggestions, `orre import`, `undo-import` or `categorize` in a terminal. The Inbox badge
+and Transactions stayed stale meanwhile. SQLite can't push a change to another process,
+so the app now notices it itself and reloads without a click (LU.3). Not a milestone.
+Order: LU.1, LU.2, LU.4, then LU.3 and LU.5; LU.6 alongside.
 
 - ✅ LU.1 Decision record in `docs/architecture/app.md` (listed in `ARCHITECTURE.md`)
   before code. To decide:
