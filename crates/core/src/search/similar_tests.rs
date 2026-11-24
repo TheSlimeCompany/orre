@@ -297,3 +297,50 @@ fn every_stem_word_must_be_a_word_of_the_match_short_ones_too() {
     assert_eq!(ids(&f, ee, Neighbours::Any), [ee_again]);
     assert_eq!(ids(&f, smith, Neighbours::Any), [smith_again]);
 }
+
+#[test]
+fn the_word_check_never_accepts_a_match_the_index_cant_return() {
+    use super::{Subject, has_words};
+    // (subject, other row, whether they are the same words).
+    let pairs = [
+        ("CAFÉ ROUGE", "café rouge", true),
+        ("STRAßE CAFE", "straße cafe", true),
+        ("STRAẞE CAFE", "straße cafe", true),
+        ("ΟΔΟΣ ΚΑΦΕ", "οδος καφε", true),
+        // `rule::fold` calls these the same; the index can't.
+        ("STRASSE CAFE", "Straße Cafe", false),
+        ("Straße Cafe", "STRASSE CAFE", false),
+        ("KIZILAY SHOP", "kızılay shop", false),
+        ("kızılay shop", "KIZILAY SHOP", false),
+        ("FINANCE SHOP", "ﬁnance shop", false),
+        ("ﬁnance shop", "FINANCE SHOP", false),
+    ];
+    for (subject, other, same) in pairs {
+        let f = Fixture::new();
+        let subject_row = f.row(day(1), -500, subject, None);
+        let other_row = f.row(day(2), -500, other, None);
+        let key = Subject::load(f.conn(), subject_row, Neighbours::Any)
+            .unwrap()
+            .unwrap()
+            .key;
+        let index: bool = f
+            .conn()
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM transaction_text \
+                 WHERE transaction_text MATCH ?1 AND rowid = ?2)",
+                params![key.query, other_row],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let words = has_words(other, &key.words);
+        assert!(
+            !words || index,
+            "{subject:?} -> {other:?}: words accept, index misses"
+        );
+        assert_eq!(words, same, "{subject:?} -> {other:?}");
+        assert_eq!(
+            ids(&f, subject_row, Neighbours::Any).contains(&other_row),
+            same
+        );
+    }
+}

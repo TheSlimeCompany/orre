@@ -340,7 +340,11 @@ FT.1's record. No migration.
    decide (user, from the review): trigrams match substrings and skip short words, so
    `EE LIMITED` would match every `LIMITED` and `WH SMITH` would match `SMITHSON`. A
    match is kept only when its column, cleaned and case-folded as the stem is, holds
-   every stem word, short ones too, as a word of its own. A neighbour has the same
+   every stem word, short ones too, as a word of its own. The words are case-folded as
+   the index folds them, one character to one character, not with `rule::fold`
+   (review, 2026-11-24): the trigram index can't find `Straße` from `STRASSE`, so the
+   words don't call them the same either, and neither spelling votes for the other.
+   Matching them would take a different tokenizer, a migration. A neighbour has the same
    currency and the same sign (a zero amount has none), isn't the row itself, and isn't
    excluded as `duplicate` or `superseded`, which are copies of other rows.
 2. **Ranked by `bm25`, then amount (user).** Best `bm25` first, then the amount closest
