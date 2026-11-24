@@ -14,7 +14,9 @@ if ! git rev-parse --verify --quiet "$base" >/dev/null; then
   exit 0
 fi
 
-changed=$(git diff --name-status --find-renames "$base" HEAD -- "$dir" | grep -v '^A' || true)
+# Only the `.sql` files are migrations (refinery checksums them); the README
+# beside them is documentation and may change.
+changed=$(git diff --name-status --find-renames "$base" HEAD -- "$dir/*.sql" | grep -v '^A' || true)
 
 if [[ -n $changed ]]; then
   echo "Refusing to push edits to migrations that have shipped ($base):" >&2
