@@ -152,6 +152,7 @@ Budgets, the forecast, and how spending is counted over the ledger.
 - Decision record: budgets and the forecast (2026-11-10)
 - Decision record: one spending rule over the ledger (2026-11-16)
 - Decision record: one net worth rule (2026-11-19)
+- Decision record: full-text search over bank text (2026-11-23)
 
 ### [The app](architecture/app.md)
 

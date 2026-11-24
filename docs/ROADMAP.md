@@ -1393,8 +1393,9 @@ FTS5's `trigram` tokenizer answers the same substring question from an index, an
 by `bm25`, which "similar transactions" builds on. Not a milestone. Order: FT.1, FT.2,
 FT.3, then FT.4 and FT.5; FT.6 alongside.
 
-- ⬜ FT.1 Decision record in `docs/architecture/reporting.md` (listed in
-  `ARCHITECTURE.md`) before code. To decide:
+- ✅ FT.1 Decision record in `docs/architecture/reporting.md` (listed in
+  `ARCHITECTURE.md`) before code ("Decision record: full-text search over bank text
+  (2026-11-23)", confirmed 2026-11-24). To decide:
   - **What's indexed:** the display merchant, the bank merchant and the raw description.
     Notes stay out, since they never reach MCP at any level.
   - **The table:** an external-content FTS5 table (no second copy of the text) with the
@@ -1407,7 +1408,7 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
   - **Access levels unchanged:** text search stays at `standard` only (`mcp.md`, "Text
     search").
   - **Queries under three characters,** which trigrams can't index, fall back to `LIKE`.
-- ⬜ FT.2 The migration and a core search module:
+- ✅ FT.2 The migration and a core search module:
   - The migration creates the table and its triggers, and builds the index for existing
     rows.
   - The module turns user or MCP text into an FTS5 query that is always a literal
@@ -1416,9 +1417,11 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
 
   Tests: the index follows an import, an undo, an edit to the display merchant, a
   supersede and a restore of an older backup (its migration rebuilds the index).
-- ⬜ FT.3 `reporting::ledger`'s text filter, and so `search_transactions`, read through
+- ✅ FT.3 `reporting::ledger`'s text filter, and so `search_transactions`, read through
   the index. A test runs both the `LIKE` path and the index on the fixtures and checks
   they return the same rows; the MCP access-level tests are unchanged.
+  (Built over a synthetic test ledger with every kind of ledger line, not `fixtures/`,
+  which `orre-core` can't parse.)
 - ⬜ FT.4 Similar transactions: a core function returning a transaction's nearest
   neighbours, ranked by `bm25` over its cleaned merchant stem (as `rule::proposal` cuts
   it), the same sign and a similar amount. Uses, each drawn in Paper first where it
@@ -1435,7 +1438,10 @@ FT.3, then FT.4 and FT.5; FT.6 alongside.
   - the time an import adds
   - a text query through the index against `LIKE`
 
-  If it doesn't pay at that size, FT.3 stays on `LIKE`, and the index serves only FT.4.
+  If it doesn't pay at that size, FT.3 goes back to `LIKE`, and the index serves only
+  FT.4. Until then FT.3 reads through the index (user, 2026-11-24). A first look in
+  FT.3's review is in FT.1's record, point 7: much faster for a rare text, slower for a
+  text in every row, and the index nearly doubles the file.
 
 **Exit criteria:** `search_transactions` with a `query` returns the same rows as before
 and is measured faster at 100,000 transactions. An uncategorised row with categorised
