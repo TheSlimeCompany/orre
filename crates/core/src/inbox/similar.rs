@@ -11,8 +11,10 @@
 //! # Which rows
 //!
 //! Rows of the batch (`origin = 'imported'`) that take a category of their
-//! own ([`CategoryFacts::no_own_category`]) and have none, and are not in a
-//! `suggested` or `confirmed` transfer. A row already named in any
+//! own ([`CategoryFacts::no_own_category`]) and have none, are not excluded
+//! as a `duplicate` or `superseded` copy of another row (a rule can exclude
+//! one as it is imported), and are not in a `suggested` or `confirmed`
+//! transfer. A row already named in any
 //! `categorization` suggestion, whatever its status or source, is left
 //! alone: the user or a client has already been asked. The named IDs are read
 //! once per call.
@@ -33,7 +35,8 @@
 //! fixed sentence, never a merchant or bank text. Orre's rule suggestions
 //! (`inbox::own`) share its pending cap ([`super::MAX_PENDING_PER_SOURCE`]), so
 //! filing stops once Orre has `MAX_PENDING_CATEGORY_SUGGESTIONS` pending
-//! suggestions of any kind, leaving room for them; a payload that doesn't
+//! suggestions of any kind, leaving room for them. When it already has that
+//! many, no neighbour is read at all. A payload that doesn't
 //! check is skipped. Only
 //! database errors propagate. Logs name IDs and counts, never text.
 //!
@@ -72,6 +75,11 @@ const RATIONALE: &str = "Similar transactions have this category.";
 /// Files Orre's category suggestions for the imported rows of `batch` (module
 /// docs); returns how many suggestions it filed.
 pub(crate) fn suggest_for_batch(conn: &Connection, batch: BatchId) -> rusqlite::Result<usize> {
+    // Nothing can be filed: don't read the neighbours under the write lock.
+    if pending(conn)? >= MAX_PENDING_CATEGORY_SUGGESTIONS {
+        tracing::debug!(batch = %batch, "Orre's category suggestions stopped at their pending cap");
+        return Ok(0);
+    }
     let named = already_named(conn)?;
     let mut pools: HashMap<PoolKey, Pool> = HashMap::new();
     let mut by_category: BTreeMap<CategoryKey, Vec<TransactionId>> = BTreeMap::new();
@@ -127,13 +135,15 @@ pub(crate) fn suggest_for_batch(conn: &Connection, batch: BatchId) -> rusqlite::
     Ok(filed)
 }
 
-/// The batch's imported rows that need a category of their own and aren't
+/// The batch's imported rows that need a category of their own, aren't
+/// excluded as a `duplicate` or `superseded` copy of another row and aren't
 /// in a suggested or confirmed transfer, by ID.
 fn candidates(conn: &Connection, batch: BatchId) -> rusqlite::Result<Vec<TransactionId>> {
     let mut statement = conn.prepare_cached(
         "SELECT t.id FROM \"transaction\" t \
          LEFT JOIN transfer_group g ON g.id = t.transfer_group_id \
          WHERE t.batch_id = ?1 AND t.origin = 'imported' AND t.category_id IS NULL \
+           AND (t.excluded_reason IS NULL OR t.excluded_reason NOT IN ('duplicate', 'superseded')) \
            AND coalesce(g.status IN ('suggested', 'confirmed'), 0) = 0 \
            AND NOT EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id) \
          ORDER BY t.id",

@@ -225,6 +225,45 @@ fn split_transfer_and_categorised_rows_get_nothing() {
 }
 
 #[test]
+fn rows_excluded_as_copies_get_nothing() {
+    let mut f = Fixture::new();
+    history(&f, CAFE, "food.eating_out", 5, "food.eating_out");
+    let (batch, rows) = import(
+        &mut f,
+        &[
+            (10, -450, "n1", CAFE),
+            (11, -450, "n2", CAFE),
+            (12, -450, "n3", CAFE),
+        ],
+    );
+    f.conn().execute("DELETE FROM suggestion", []).unwrap();
+    // As a rule's `exclude: duplicate` leaves a row it matches on import.
+    f.conn()
+        .execute(
+            "UPDATE \"transaction\" SET excluded_reason = 'duplicate', \
+             excluded_at = '2026-11-20T00:00:00.000Z' WHERE id = ?1",
+            [rows[0]],
+        )
+        .unwrap();
+    f.conn()
+        .execute(
+            "UPDATE \"transaction\" SET excluded_reason = 'disputed', \
+             excluded_at = '2026-11-20T00:00:00.000Z' WHERE id = ?1",
+            [rows[1]],
+        )
+        .unwrap();
+
+    assert_eq!(suggest_for_batch(f.conn(), batch).unwrap(), 1);
+    assert_eq!(
+        filed(&f)[0].3,
+        [
+            (rows[1].get(), "food.eating_out".to_owned()),
+            (rows[2].get(), "food.eating_out".to_owned())
+        ]
+    );
+}
+
+#[test]
 fn a_row_named_in_a_decided_suggestion_isnt_suggested_again() {
     let mut f = Fixture::new();
     history(&f, CAFE, "food.eating_out", 5, "food.eating_out");
@@ -366,6 +405,21 @@ fn filing_stops_at_the_category_suggestions_pending_cap() {
 
     import(&mut f, &[(10, -450, "n1", CAFE)]);
     assert!(filed(&f).is_empty());
+}
+
+#[test]
+fn at_the_cap_no_neighbour_is_read() {
+    let mut f = Fixture::new();
+    history(&f, CAFE, "food.eating_out", 5, "food.eating_out");
+    let (batch, _) = import(&mut f, &[(10, -450, "n1", CAFE)]);
+    f.conn().execute("DELETE FROM suggestion", []).unwrap();
+    pending_from_orre(&f, MAX_PENDING_CATEGORY_SUGGESTIONS);
+    // Reading a neighbour now fails: the cap must be checked first.
+    f.conn()
+        .execute_batch("DROP TABLE transaction_text")
+        .unwrap();
+
+    assert_eq!(suggest_for_batch(f.conn(), batch).unwrap(), 0);
 }
 
 #[test]

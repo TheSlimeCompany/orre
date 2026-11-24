@@ -22,6 +22,11 @@
 //! as a word of its own: `WH SMITH` doesn't find `SMITHSON`, nor `EE LIMITED`
 //! every other `LIMITED`. The text is only compared, never kept or logged.
 //!
+//! Words are case-folded as the index folds them (`fold_as_index`), one
+//! character to one character, not with `rule::fold`: the index can't find
+//! `Straße` from `STRASSE`, nor `kızılay` from `KIZILAY`, so the words don't
+//! count them as the same either, whichever row is asked about.
+//!
 //! # Who counts
 //!
 //! A neighbour is another row of the same currency and the same sign (both
@@ -86,8 +91,8 @@ pub(crate) struct PoolKey {
     currency: String,
     negative: bool,
     categorised: bool,
-    /// Every word of the stem, short ones too, case-folded: a match must
-    /// hold each as a word of its own ([`has_words`]).
+    /// Every word of the stem, short ones too, folded by [`fold_as_index`]:
+    /// a match must hold each as a word of its own ([`has_words`]).
     words: Vec<String>,
 }
 
@@ -150,7 +155,7 @@ impl Subject {
                 currency,
                 negative: amount_minor < 0,
                 categorised: filter == Neighbours::Categorised,
-                words: stem.split_whitespace().map(rule::fold).collect(),
+                words: stem.split_whitespace().map(fold_as_index).collect(),
             },
         }))
     }
@@ -253,19 +258,43 @@ impl Pool {
     }
 }
 
-/// Whether `text`, cleaned and case-folded as a stem is, holds every one of
-/// `words` (folded) as a word of its own. Words are split at whitespace and
-/// at `*`, where a stem is cut, so `NEAR*` holds `near`. The index matches
-/// substrings and leaves out words under three characters; this is what
-/// makes `WH SMITH` miss `SMITHSON` and `EE LIMITED` miss `THAMES WATER
-/// LIMITED`. The text is only compared, never kept or logged.
+/// Whether `text`, cleaned and folded as a stem is ([`fold_as_index`]),
+/// holds every one of `words` (folded) as a word of its own. Words are split
+/// at whitespace and at `*`, where a stem is cut, so `NEAR*` holds `near`.
+/// The index matches substrings and leaves out words under three characters;
+/// this is what makes `WH SMITH` miss `SMITHSON` and `EE LIMITED` miss
+/// `THAMES WATER LIMITED`. The text is only compared, never kept or logged.
 fn has_words(text: &str, words: &[String]) -> bool {
-    let folded = rule::fold(&merchant::clean(text));
+    let folded = fold_as_index(&merchant::clean(text));
     let held: Vec<&str> = folded
         .split(|c: char| c.is_whitespace() || c == '*')
         .filter(|word| !word.is_empty())
         .collect();
     words.iter().all(|word| held.contains(&word.as_str()))
+}
+
+/// Text case-folded as the index's `trigram case_sensitive 0` tokenizer
+/// folds it (V24): each character to its lowercase when that is one
+/// character, else left as it is, and final `ς` to `σ`. Unlike `rule::fold`
+/// it never expands a character (`ß` to `ss`) or folds one the index keeps
+/// apart (`ı` to `i`), since a match the word check would accept but the
+/// index can't return makes neighbours depend on the spelling of the row
+/// asked about. Where the index folds a character this leaves alone, the word
+/// check is the stricter of the two, which only leaves a match out.
+fn fold_as_index(text: &str) -> String {
+    if text.is_ascii() {
+        return text.to_ascii_lowercase();
+    }
+    text.chars()
+        .map(|c| {
+            let mut lower = c.to_lowercase();
+            match (lower.next(), lower.next()) {
+                (Some('\u{3C2}'), None) => '\u{3C3}',
+                (Some(one), None) => one,
+                _ => c,
+            }
+        })
+        .collect()
 }
 
 /// The order of matches for a subject of `amount_minor`: smaller is nearer.
