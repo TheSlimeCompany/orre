@@ -164,9 +164,9 @@ gpui_kit::actions!(
 /// One of Orre's views: a tab in the title bar, or Settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum View {
-    Overview,
-    /// The view a first launch opens.
+    /// The view a first launch opens, the first tab: how the month is going.
     #[default]
+    Overview,
     Transactions,
     Trends,
     Budgets,
