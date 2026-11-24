@@ -39,6 +39,7 @@ use crate::db::Reader;
 use crate::id::{AccountId, LinkId, SplitId, TransactionId};
 use crate::link::LinkKind;
 use crate::money::{Currency, Money};
+use crate::search;
 use crate::tag::TagName;
 
 use super::totals::{Capped, Limit};
@@ -180,6 +181,9 @@ pub struct Ledger {
     merchant: Option<String>,
     newest_first: bool,
     bank_text: bool,
+    /// Tests only: match text with `LIKE` alone, to compare it with the index.
+    #[cfg(test)]
+    like_only: bool,
 }
 
 impl Ledger {
@@ -245,9 +249,24 @@ impl Ledger {
     /// Lines whose display merchant, bank merchant or raw description
     /// contains `text`, ignoring ASCII case. The text is only ever a
     /// parameter: it's matched, never run. Blank text matches everything.
+    ///
+    /// Text of three or more characters is looked up in the full-text index
+    /// first ([`crate::search`]), which narrows the rows, and `LIKE` then
+    /// decides, so the answer is `LIKE`'s: the index folds case over all of
+    /// Unicode and `LIKE` over ASCII, and a row the index finds that `LIKE`
+    /// doesn't is dropped. Shorter text, and text with a NUL, is matched by
+    /// `LIKE` alone.
     pub fn matching(mut self, text: &str) -> Ledger {
         let text = text.trim();
         self.text = (!text.is_empty()).then(|| text.to_owned());
+        self
+    }
+
+    /// Matches [`matching`](Ledger::matching) text with `LIKE` alone, as
+    /// before the index, so a test can compare the two.
+    #[cfg(test)]
+    fn like_only(mut self) -> Ledger {
+        self.like_only = true;
         self
     }
 
@@ -288,7 +307,12 @@ impl Ledger {
         self.run(conn, None)
     }
 
-    fn run(&self, conn: &Connection, limit: Option<usize>) -> Result<Vec<LedgerLine>, Error> {
+    /// The SQL of the query and its parameters.
+    fn statement(
+        &self,
+        conn: &Connection,
+        limit: Option<usize>,
+    ) -> Result<(String, Vec<SqlValue>), Error> {
         if let (Some(min), Some(max)) = (self.amount_min, self.amount_max)
             && min > max
         {
@@ -373,6 +397,17 @@ impl Ledger {
             values.push(SqlValue::Integer(max));
         }
         if let Some(text) = &self.text {
+            #[cfg(test)]
+            let use_index = !self.like_only;
+            #[cfg(not(test))]
+            let use_index = true;
+            if use_index && let Some(phrase) = search::phrase(text) {
+                sql.push_str(
+                    " AND l.transaction_id IN \
+                       (SELECT rowid FROM transaction_text WHERE transaction_text MATCH ?)",
+                );
+                values.push(SqlValue::Text(phrase));
+            }
             sql.push_str(
                 " AND (l.merchant_display LIKE ? ESCAPE '\\' \
                    OR t.merchant LIKE ? ESCAPE '\\' \
@@ -404,6 +439,11 @@ impl Ledger {
             values.push(SqlValue::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         }
 
+        Ok((sql, values))
+    }
+
+    fn run(&self, conn: &Connection, limit: Option<usize>) -> Result<Vec<LedgerLine>, Error> {
+        let (sql, values) = self.statement(conn, limit)?;
         let mut statement = conn.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(values), |row| self.read(row))?;
         Ok(rows.collect::<Result<_, _>>()?)
