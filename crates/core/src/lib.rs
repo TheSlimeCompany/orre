@@ -36,6 +36,7 @@ mod removal;
 pub mod reporting;
 pub mod rule;
 pub mod schedule;
+pub mod search;
 pub mod setting;
 pub mod split;
 pub mod statement;

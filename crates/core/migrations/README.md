@@ -52,3 +52,9 @@ refuses a database with pending migrations.
   re-parses every trigger and view that names the table, so drop those of other tables
   first and recreate them afterwards, exactly as they were (copy their SQL from
   `sqlite_schema` of a database at the previous version).
+  `"transaction"` also carries three triggers that keep its full-text index
+  (`transaction_text`, `V24__transaction_text.sql`) in step, and dropping the table
+  drops them: recreate `transaction_text_insert`, `transaction_text_delete` and
+  `transaction_text_update` exactly as in V24 (copy them from `sqlite_schema`). The
+  rebuild keeps every row's ID and the index is keyed by it, so the index stays valid and
+  needs no `rebuild`; without the triggers it silently goes stale.
