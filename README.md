@@ -85,6 +85,7 @@ or databases outside `fixtures/`. Run it by hand with `lefthook run pre-push --f
 
 ## Documentation
 
+- [`SECURITY.md`](SECURITY.md): what Orre protects, what it doesn't, and how to report a vulnerability
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design overview and decisions; the
   data model, import pipeline, MCP surface and each topic's decision records are in
   [`docs/architecture/`](docs/architecture/)
