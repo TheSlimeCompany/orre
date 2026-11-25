@@ -1,7 +1,8 @@
 use crate::budget::NewBudget;
 use crate::money::Currency;
 
-use super::super::test_ledger::TestLedger;
+use super::super::test_ledger::{TestLedger, date};
+use super::super::{MonthStart, StartDay, Weekends};
 use super::*;
 
 fn key(text: &str) -> CategoryKey {
@@ -176,4 +177,52 @@ fn no_budgets_no_lines() {
     let ledger = TestLedger::new();
     let status = budget_status(&ledger.reader(), "2026-11".parse().unwrap()).unwrap();
     assert!(status.budgets.is_empty());
+}
+
+#[test]
+fn a_months_budget_keeps_its_name_when_the_month_start_changes() {
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current", Currency::GBP);
+    // November's under the 1st, December's under the 25th.
+    ledger.row(current, "2026-11-26", -1_000, Some("food.groceries"));
+    // December's under both.
+    ledger.row(current, "2026-12-10", -2_000, Some("food.groceries"));
+    // December's under the 1st, January's under the 25th.
+    ledger.row(current, "2026-12-28", -4_000, Some("food.groceries"));
+    set(&mut ledger, "food", None, gbp(50_000), BudgetGroup::Flex);
+    set(
+        &mut ledger,
+        "food",
+        Some("2026-12"),
+        gbp(30_000),
+        BudgetGroup::Flex,
+    );
+    let december: Period = "2026-12".parse().unwrap();
+
+    let read = |ledger: &TestLedger| {
+        let status = budget_status(&ledger.reader(), december).unwrap();
+        assert_eq!(status.period.key(), "2026-12");
+        assert_eq!(status.budgets.len(), 1);
+        let line = &status.budgets[0];
+        assert!(
+            line.for_month,
+            "December's own budget, not the standing one"
+        );
+        assert_eq!(line.budget, gbp(30_000));
+        (status.range.from(), status.range.to(), line.spent)
+    };
+
+    assert_eq!(
+        read(&ledger),
+        (date("2026-12-01"), date("2026-12-31"), gbp(6_000))
+    );
+    setting::set_month_start(
+        &mut ledger.db,
+        MonthStart::new(StartDay::day(25).unwrap(), Weekends::Keep),
+    )
+    .unwrap();
+    assert_eq!(
+        read(&ledger),
+        (date("2026-11-25"), date("2026-12-24"), gbp(3_000))
+    );
 }

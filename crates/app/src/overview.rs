@@ -40,6 +40,7 @@ use gpui_kit::{AppContext as _, Context, Entity, EventEmitter, SharedString, Sub
 use orre_core::id::AccountId;
 use orre_core::reporting::Period;
 use orre_core::reporting::overview::{Overview, OverviewQuery};
+use orre_core::reporting::period::MonthStart;
 
 use crate::accounts::{Accounts, AccountsEvent};
 use crate::inbox::Inbox;
@@ -96,7 +97,7 @@ impl OverviewView {
             source,
             today,
             follows_clock: false,
-            month: Period::containing(today),
+            month: Period::containing(today, MonthStart::CALENDAR),
             browsed: false,
             account: None,
             data: None,
@@ -159,8 +160,9 @@ impl OverviewView {
     /// Moves `today` to `now`, keeping the current month selected if it was.
     fn follow(&mut self, now: NaiveDate) {
         if now != self.today {
-            if self.month == Period::containing(self.today) {
-                self.month = Period::containing(now);
+            let start = self.month_start();
+            if self.month == Period::containing(self.today, start) {
+                self.month = Period::containing(now, start);
             }
             self.today = now;
         }
@@ -274,6 +276,14 @@ impl OverviewView {
         self.load_error.as_ref()
     }
 
+    /// The user's month start as of the last read; calendar months until
+    /// the first one lands.
+    pub fn month_start(&self) -> MonthStart {
+        self.data
+            .as_ref()
+            .map_or(MonthStart::CALENDAR, |overview| overview.month_start)
+    }
+
     /// The day the screen is as of.
     pub fn today(&self) -> NaiveDate {
         self.today
@@ -290,7 +300,7 @@ impl OverviewView {
         // land on another month under a switcher that has stopped following.
         let landing = !self.browsed && self.loading.is_some();
         self.browsed = true;
-        let month = month.min(Period::containing(self.today));
+        let month = month.min(Period::containing(self.today, self.month_start()));
         if month == self.month && !landing {
             return;
         }
@@ -310,7 +320,7 @@ impl OverviewView {
     pub fn next_month(&self) -> Option<Period> {
         self.month
             .next()
-            .filter(|&month| month <= Period::containing(self.today))
+            .filter(|&month| month <= Period::containing(self.today, self.month_start()))
     }
 
     pub fn show_previous(&mut self, cx: &mut Context<Self>) {

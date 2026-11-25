@@ -20,6 +20,7 @@ use orre_core::reporting::overview::{
     CategorySpend, MonthFigures, Overview, OverviewQuery, SpendingGroup, UpcomingPayment,
     WINDOW_MONTHS,
 };
+use orre_core::reporting::period::MonthStart;
 
 const GBP: Currency = Currency::GBP;
 
@@ -63,6 +64,7 @@ fn month_figures(period: Period) -> MonthFigures {
     let (spent, income) = figures_in(period);
     MonthFigures {
         period,
+        range: period.range(MonthStart::CALENDAR),
         income: gbp(income),
         spent: gbp(spent),
         net: gbp(income - spent),
@@ -190,7 +192,7 @@ fn recurring(today: NaiveDate) -> Vec<UpcomingPayment> {
 fn build(query: &OverviewQuery, has_transactions: bool, other: Vec<Currency>) -> Overview {
     let selected = query.month;
     let previous = selected.previous().expect("a month before");
-    let current = Period::containing(query.today);
+    let current = Period::containing(query.today, MonthStart::CALENDAR);
     let earliest = *window(current).first().expect("12 months");
     let end = if selected < earliest {
         selected
@@ -203,6 +205,7 @@ fn build(query: &OverviewQuery, has_transactions: bool, other: Vec<Currency>) ->
         } else {
             MonthFigures {
                 period,
+                range: period.range(MonthStart::CALENDAR),
                 income: gbp(0),
                 spent: gbp(0),
                 net: gbp(0),
@@ -217,6 +220,7 @@ fn build(query: &OverviewQuery, has_transactions: bool, other: Vec<Currency>) ->
     };
     let total = upcoming.iter().map(|payment| payment.amount.minor()).sum();
     Overview {
+        month_start: MonthStart::CALENDAR,
         currency: GBP,
         other_currencies: other,
         has_transactions,

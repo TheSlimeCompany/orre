@@ -1,7 +1,8 @@
 use crate::exclusion::ExclusionReason;
 use crate::money::Currency;
 
-use super::super::test_ledger::TestLedger;
+use super::super::test_ledger::{TestLedger, date};
+use super::super::{MonthStart, StartDay, Weekends};
 use super::*;
 
 fn period(text: &str) -> Period {
@@ -135,4 +136,81 @@ fn refuses_a_backwards_range_and_caps_long_ones() {
     assert_eq!(long.len(), Limit::MAX.get());
     assert_eq!(long.items[0].period, period("2010-01"));
     assert_eq!(long.items.last().unwrap().period, period("2026-08"));
+}
+
+#[test]
+fn months_follow_the_month_start() {
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current", Currency::GBP);
+    ledger.row(current, "2026-11-24", -1_000, Some("food.groceries"));
+    ledger.row(current, "2026-11-25", 200_000, Some("income.salary"));
+    ledger.row(current, "2026-11-25", -2_000, Some("food.groceries"));
+    let read = |ledger: &TestLedger| {
+        monthly_summary(&ledger.reader(), period("2026-11"), period("2026-12")).unwrap()
+    };
+    let ranges = |summary: &Capped<MonthSummary>| -> Vec<_> {
+        summary
+            .items
+            .iter()
+            .map(|month| (month.range.from(), month.range.to()))
+            .collect()
+    };
+
+    let summary = read(&ledger);
+    assert_eq!(
+        rows(&summary),
+        [
+            ("2026-11".into(), gbp(200_000), gbp(3_000), gbp(197_000)),
+            ("2026-12".into(), vec![], vec![], vec![]),
+        ]
+    );
+    assert_eq!(
+        ranges(&summary),
+        [
+            (date("2026-11-01"), date("2026-11-30")),
+            (date("2026-12-01"), date("2026-12-31")),
+        ]
+    );
+
+    // Paid on the 25th: 24 Nov is November's last day, 25 Nov December's
+    // first.
+    setting::set_month_start(
+        &mut ledger.db,
+        MonthStart::new(StartDay::day(25).unwrap(), Weekends::Keep),
+    )
+    .unwrap();
+    let summary = read(&ledger);
+    assert_eq!(
+        rows(&summary),
+        [
+            ("2026-11".into(), vec![], gbp(1_000), gbp(-1_000)),
+            ("2026-12".into(), gbp(200_000), gbp(2_000), gbp(198_000)),
+        ]
+    );
+    assert_eq!(
+        ranges(&summary),
+        [
+            (date("2026-10-25"), date("2026-11-24")),
+            (date("2026-11-25"), date("2026-12-24")),
+        ]
+    );
+}
+
+#[test]
+fn an_unreadable_month_start_reports_calendar_months() {
+    let ledger = TestLedger::new();
+    ledger
+        .db
+        .conn()
+        .execute(
+            "INSERT INTO setting (key, value) VALUES (?1, 'the 25th')",
+            [setting::MONTH_START],
+        )
+        .unwrap();
+    let summary = monthly_summary(&ledger.reader(), period("2026-11"), period("2026-11")).unwrap();
+    let range = summary.items[0].range;
+    assert_eq!(
+        (range.from(), range.to()),
+        (date("2026-11-01"), date("2026-11-30"))
+    );
 }
