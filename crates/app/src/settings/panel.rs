@@ -1,9 +1,10 @@
 //! Settings' left panel (Paper `AYL-0`): AI ACCESS, with Clients (count of
 //! clients) and Access log (calls in the last 7 days); DATA, with Backups
-//! (count) and Export… (opens the export dialog, so it's never selected).
-//! At the foot, above a `hairline`, where the data lives.
+//! (count) and Export… (opens the export dialog, so it's never selected);
+//! CALENDAR, with Month start (its day in mono, M4.11, Paper `KC1-0`). At
+//! the foot, above a `hairline`, where the data lives.
 //!
-//! A Tab stop: the arrow keys move between the three screens.
+//! A Tab stop: the arrow keys move between the four screens.
 
 use gpui_kit::{
     AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement as _, Styled as _,
@@ -18,7 +19,7 @@ use crate::ui::section_label::SectionLabelRow;
 use crate::ui::text::TextRoleExt as _;
 
 use super::table::count;
-use super::{Section, SettingsView};
+use super::{Section, SettingsView, month_start};
 
 /// The panel's key context.
 pub const CONTEXT: &str = "OrreSettingsPanel";
@@ -43,12 +44,14 @@ fn list_section(label: &'static str) -> gpui_kit::Div {
 pub const EXPORT: &str = "Export…";
 
 impl SettingsView {
-    /// The count after a section's row: clients, calls in 7 days, backups.
+    /// The value after a section's row: clients, calls in 7 days, backups,
+    /// the month's start day.
     pub(super) fn panel_count(&self, section: Section) -> String {
         match section {
             Section::Clients => self.ai.clients.len().to_string(),
             Section::Log => count(self.ai.calls_week),
             Section::Backups => self.backups.rows.len().to_string(),
+            Section::MonthStart => month_start::panel_value(self.month_start),
         }
     }
 
@@ -65,6 +68,7 @@ impl SettingsView {
             Section::Clients => "settings-clients",
             Section::Log => "settings-log",
             Section::Backups => "settings-backups",
+            Section::MonthStart => "settings-month-start",
         };
         ListRow::new(id, section.label())
             .icon(glyph)
@@ -100,6 +104,12 @@ impl SettingsView {
                     .icon(Glyph::Export)
                     .on_click(cx.listener(|this, _, _, cx| this.request_export(cx))),
             );
+        let calendar = list_section(month_start::PANEL_SECTION).child(self.section_row(
+            Section::MonthStart,
+            Glyph::Calendar,
+            ring,
+            cx,
+        ));
         let foot = div()
             .flex()
             .flex_col()
@@ -138,6 +148,7 @@ impl SettingsView {
             .border_color(color::HAIRLINE)
             .child(ai)
             .child(data)
+            .child(calendar)
             .child(div().flex_1())
             .child(foot)
             .into_any_element()

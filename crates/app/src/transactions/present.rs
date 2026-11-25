@@ -9,6 +9,7 @@ use gpui_kit::SharedString;
 use orre_core::account::AccountKind;
 use orre_core::id::{AccountId, TagId};
 use orre_core::money::Money;
+use orre_core::reporting::period::MonthStart;
 use orre_core::reporting::register::{
     Colour, DatePreset, Register, RegisterCategory, RegisterRow, RowCategory,
 };
@@ -317,13 +318,38 @@ pub fn date_key(preset: DatePreset) -> &'static str {
     }
 }
 
-/// The Date filter's menu.
-pub fn date_groups() -> Vec<MenuGroup> {
+/// A preset's dates as of `today` under the user's month start, when they
+/// aren't what calendar months would give: "23 Oct – 24 Nov" for This month
+/// on the 25th, nothing on the 1st (M4.11; decision record "the month
+/// start", point 5). Weeks, This year and All time never differ.
+pub fn date_dates(preset: DatePreset, today: NaiveDate, start: MonthStart) -> Option<String> {
+    format::dates_if_moved(
+        preset.range(today, start),
+        preset.range(today, MonthStart::CALENDAR),
+    )
+}
+
+/// The Date chip's label: the preset, and its dates when they differ from
+/// the calendar month's ("This month · 23 Oct – 24 Nov", decided by the
+/// user, 2026-11-25); nothing for All time, which leaves the chip unset.
+pub fn date_chip(preset: DatePreset, today: NaiveDate, start: MonthStart) -> Option<String> {
+    (preset != DatePreset::AllTime).then(|| match date_dates(preset, today, start) {
+        Some(dates) => format!("{} · {dates}", date_label(preset)),
+        None => date_label(preset).to_owned(),
+    })
+}
+
+/// The Date filter's menu: each preset, with its dates in a mono lane when
+/// the month start moves them off the calendar month (Paper `KEQ-0`).
+pub fn date_groups(today: NaiveDate, start: MonthStart) -> Vec<MenuGroup> {
     vec![MenuGroup::new(
         None,
         DatePreset::ALL
             .into_iter()
-            .map(|preset| MenuOption::new(date_key(preset), date_label(preset)))
+            .map(|preset| {
+                MenuOption::new(date_key(preset), date_label(preset))
+                    .detail(date_dates(preset, today, start))
+            })
             .collect(),
     )]
 }
@@ -606,7 +632,82 @@ mod tests {
         for preset in DatePreset::ALL {
             assert_eq!(date_preset(date_key(preset)), Some(preset));
         }
-        assert_eq!(date_groups()[0].options.len(), 7);
+        let today = NaiveDate::from_ymd_opt(2026, 11, 10).unwrap();
+        assert_eq!(date_groups(today, MonthStart::CALENDAR)[0].options.len(), 7);
+    }
+
+    /// The dates of each preset in the Date chip's menu, as of Tue 10 Nov
+    /// 2026: `None` where it says nothing.
+    fn details(start: MonthStart) -> Vec<Option<String>> {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 10).unwrap();
+        date_groups(today, start)[0]
+            .options
+            .iter()
+            .map(|option| option.detail.as_ref().map(ToString::to_string))
+            .collect()
+    }
+
+    #[test]
+    fn month_presets_show_their_dates_only_when_they_arent_the_calendar_months() {
+        use orre_core::reporting::period::{StartDay, Weekends};
+
+        let some = |text: &str| Some(text.to_owned());
+        // Calendar months: no dates anywhere (Paper `KI2-0`).
+        assert_eq!(details(MonthStart::CALENDAR), vec![None; 7]);
+        // The 25th, Friday before: 25 Oct is a Sunday (Paper `KJ5-0`).
+        let the_25th = MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore);
+        assert_eq!(
+            details(the_25th),
+            vec![
+                None,
+                None,
+                some("23 Oct – 24 Nov"),
+                some("25 Sep – 22 Oct"),
+                some("25 Aug – 24 Nov"),
+                None,
+                None,
+            ]
+        );
+        // The 1st, Friday before: 1 Nov is a Sunday, so November and
+        // October move, but Sep to Nov is still 1 Sep to 30 Nov, the
+        // calendar's three months, and says nothing.
+        let first = MonthStart::new(StartDay::FIRST, Weekends::FridayBefore);
+        assert_eq!(
+            details(first),
+            vec![
+                None,
+                None,
+                some("30 Oct – 30 Nov"),
+                some("1 Oct – 29 Oct"),
+                None,
+                None,
+                None,
+            ]
+        );
+        // The last day, Friday before: 31 Oct is a Saturday.
+        let last = MonthStart::new(StartDay::LAST, Weekends::FridayBefore);
+        assert_eq!(details(last)[2], some("30 Oct – 29 Nov"));
+    }
+
+    #[test]
+    fn the_date_chip_says_its_dates_when_they_differ() {
+        use orre_core::reporting::period::{StartDay, Weekends};
+
+        let today = NaiveDate::from_ymd_opt(2026, 11, 10).unwrap();
+        let the_25th = MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore);
+        assert_eq!(
+            date_chip(DatePreset::ThisMonth, today, the_25th).as_deref(),
+            Some("This month · 23 Oct – 24 Nov")
+        );
+        assert_eq!(
+            date_chip(DatePreset::ThisMonth, today, MonthStart::CALENDAR).as_deref(),
+            Some("This month")
+        );
+        assert_eq!(
+            date_chip(DatePreset::ThisWeek, today, the_25th).as_deref(),
+            Some("This week")
+        );
+        assert_eq!(date_chip(DatePreset::AllTime, today, the_25th), None);
     }
 
     #[test]

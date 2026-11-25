@@ -16,6 +16,7 @@ use orre_core::db::Database;
 use orre_core::export::Counts;
 use orre_core::id::AccountId;
 use orre_core::mcp_client::{AccessLevel, ClientName};
+use orre_core::reporting::period::{MonthStart, StartDay, Weekends};
 
 use super::data::{
     AiData, BackupRow, BackupsData, ClientRow, Clock, ExportChoices, LogRow, RequestRow,
@@ -25,6 +26,15 @@ use super::data::{
 pub const DATA_FILE: &str = "~/.local/share/orre/orre.db";
 
 /// Tuesday 10 November 2026, 10:42:07.
+/// The sample month start: the 25th, moved to the Friday before a
+/// weekend (Paper `K57-0`).
+pub fn month_start() -> MonthStart {
+    MonthStart::new(
+        StartDay::day(25).expect("the 25th is a start day"),
+        Weekends::FridayBefore,
+    )
+}
+
 pub fn clock() -> Clock {
     Clock {
         now: Utc.with_ymd_and_hms(2026, 11, 10, 10, 42, 7).unwrap(),
