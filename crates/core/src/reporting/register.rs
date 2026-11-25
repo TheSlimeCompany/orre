@@ -61,7 +61,7 @@ use crate::manual::Origin;
 use crate::money::{Currency, Money};
 use crate::transfer::TransferStatus;
 
-use super::{DateRange, Error, Ledger};
+use super::{DateRange, Error, Ledger, MonthStart, Period};
 
 /// The most category groups that get a colour of their own (`DESIGN.md` →
 /// "Data visualisation": at most six named series).
@@ -396,10 +396,13 @@ pub enum DatePreset {
     ThisWeek,
     /// The Monday to Sunday before this week.
     LastWeek,
+    /// Today's month under the user's month start.
     ThisMonth,
+    /// The month before it.
     LastMonth,
     /// This month and the two before it.
     LastThreeMonths,
+    /// The calendar year, whatever the month start.
     ThisYear,
     #[default]
     AllTime,
@@ -419,10 +422,12 @@ impl DatePreset {
 
     /// The days it covers as of `today`; `None` for all time. Ranges run to
     /// the end of the period, so a row dated later this month (or this week)
-    /// still shows. Weeks start on Monday.
-    pub fn range(self, today: NaiveDate) -> Option<DateRange> {
-        let month_start = today.with_day(1)?;
-        let month_end = month_start.checked_add_months(Months::new(1))?.pred_opt()?;
+    /// still shows. Months are cut by `start`, the user's month start
+    /// ([`crate::setting::month_start`]), as every report cuts them, so the
+    /// register shows a budget's month; weeks are ISO (Monday to Sunday) and
+    /// the year is the calendar year.
+    pub fn range(self, today: NaiveDate, start: MonthStart) -> Option<DateRange> {
+        let month = Period::containing(today, start);
         let week = today.week(Weekday::Mon);
         let (from, to) = match self {
             DatePreset::ThisWeek => (week.first_day(), week.last_day()),
@@ -430,13 +435,11 @@ impl DatePreset {
                 week.first_day().checked_sub_days(Days::new(7))?,
                 week.first_day().pred_opt()?,
             ),
-            DatePreset::ThisMonth => (month_start, month_end),
-            DatePreset::LastMonth => (
-                month_start.checked_sub_months(Months::new(1))?,
-                month_start.pred_opt()?,
-            ),
+            DatePreset::ThisMonth => return Some(month.range(start)),
+            DatePreset::LastMonth => return Some(month.previous()?.range(start)),
             DatePreset::LastThreeMonths => {
-                (month_start.checked_sub_months(Months::new(2))?, month_end)
+                let first = month.previous()?.previous()?;
+                return DateRange::months(first, month, start).ok();
             }
             DatePreset::ThisYear => (
                 NaiveDate::from_ymd_opt(today.year(), 1, 1)?,

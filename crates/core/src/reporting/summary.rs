@@ -27,6 +27,7 @@
 use std::collections::BTreeMap;
 
 use crate::db::Reader;
+use crate::setting;
 
 use super::{Basis, Capped, DateRange, Error, Ledger, Limit, Period, Side, Totals};
 
@@ -34,6 +35,8 @@ use super::{Basis, Capped, DateRange, Error, Ledger, Limit, Period, Side, Totals
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MonthSummary {
     pub period: Period,
+    /// The month's days under the month start the summary was read with.
+    pub range: DateRange,
     /// Money earned or received, positive.
     pub income: Totals,
     /// Money spent, positive; refunds reduce it.
@@ -43,7 +46,8 @@ pub struct MonthSummary {
 }
 
 /// Income, spending and net for every month from `first` through `last`
-/// (module docs). A range that ends before it starts is
+/// (module docs), months cut by the user's month start
+/// ([`setting::month_start`]). A range that ends before it starts is
 /// [`Error::EmptyRange`]; one longer than [`Limit::MAX`] months is cut
 /// there, with `truncated` set.
 pub fn monthly_summary(
@@ -51,11 +55,15 @@ pub fn monthly_summary(
     first: Period,
     last: Period,
 ) -> Result<Capped<MonthSummary>, Error> {
-    let periods = Capped::new(DateRange::months(first, last)?.periods(), Limit::MAX);
+    let start = setting::month_start(reader)?;
+    let periods = Capped::new(
+        DateRange::months(first, last, start)?.periods(start),
+        Limit::MAX,
+    );
     // A valid range has at least one month.
     let cut = periods.items.last().copied().unwrap_or(last);
     let lines = Ledger::new()
-        .within(DateRange::months(first, cut)?)
+        .within(DateRange::months(first, cut, start)?)
         .lines(reader)?;
 
     // Income, and spending as the signed sum (below zero), per month.
@@ -65,7 +73,9 @@ pub fn monthly_summary(
         if counted.is_zero() {
             continue;
         }
-        let (income, spending) = months.entry(Period::containing(line.date)).or_default();
+        let (income, spending) = months
+            .entry(Period::containing(line.date, start))
+            .or_default();
         match line.side(Basis::Personal) {
             Side::Income => income.add(counted)?,
             Side::Spending => spending.add(counted)?,
@@ -81,6 +91,7 @@ pub fn monthly_summary(
         net.add_all(&signed_spending)?;
         summaries.push(MonthSummary {
             period,
+            range: period.range(start),
             income,
             spending: signed_spending.negated()?,
             net,

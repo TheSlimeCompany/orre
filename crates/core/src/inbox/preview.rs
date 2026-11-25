@@ -24,7 +24,8 @@
 //!   [`crate::category::assign`]), is listed as [`After::NoOwnCategory`],
 //!   as a rule's rows of that kind are.
 //! - **transfer_pair** and **refund_link**: how income and spending change
-//!   in the month of the money.
+//!   in the month of the money, cut by the user's month start as reports
+//!   cut it ([`crate::setting::month_start`]).
 //!
 //! Spending, income and their changes are the reports' own: the ledger lines
 //! of the rows the suggestion touches (and the link parts that net against
@@ -67,8 +68,9 @@ use crate::db::Database;
 use crate::id::{AccountId, RuleId, SplitId, TransactionId};
 use crate::merchant::{self, AliasDefinition, AliasSet};
 use crate::money::{Currency, Money};
-use crate::reporting::{Basis, Ledger, Period, Side, Tally};
+use crate::reporting::{self, Basis, Ledger, Period, Side, Tally};
 use crate::rule::{self, MatchField, MatchInput, MatchKind, Pattern, RuleDefinition};
+use crate::setting;
 
 #[cfg(test)]
 #[path = "preview_tests.rs"]
@@ -495,7 +497,7 @@ pub struct ByMerchant {
 /// approving would be refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransferEffect {
-    /// The month of the money out.
+    /// The month of the money out, under the user's month start.
     pub month: Period,
     /// The money in counts as income now, and wouldn't.
     pub income_less: Option<Money>,
@@ -508,7 +510,7 @@ pub struct TransferEffect {
 /// no change, also when approving would be refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinkEffect {
-    /// The month the money came back.
+    /// The month the money came back, under the user's month start.
     pub month: Period,
     /// How much of the purchase would be paid back, this link included.
     pub refunded: Money,
@@ -1104,7 +1106,7 @@ fn transfer_effect(
         .total(Side::Spending, outflow.amount.currency())
         .map_err(ApproveError::from)?;
     Ok(Some(TransferEffect {
-        month: Period::containing(outflow.date),
+        month: month_of(db, outflow.date)?,
         income_less: fall(income),
         // Spending is signed below zero: a rise is less spent.
         spending_less: spending.is_positive().then_some(spending),
@@ -1147,7 +1149,7 @@ fn link_effect(db: &Database, id: SuggestionId, preview: &mut Preview) -> Result
         });
     let bought = -purchase.amount.minor();
     let effect = LinkEffect {
-        month: Period::containing(refund.date),
+        month: month_of(db, refund.date)?,
         refunded: Money::new(bought - link.purchase_left.minor(), link.amount.currency()),
         income_less: fall(income),
         spending_less,
@@ -1155,6 +1157,13 @@ fn link_effect(db: &Database, id: SuggestionId, preview: &mut Preview) -> Result
     preview.link = Some(effect);
     preview.spending = spending;
     Ok(())
+}
+
+/// The month `date` is in under the user's month start: the month a report
+/// counts money on that date in.
+fn month_of(db: &Database, date: NaiveDate) -> Result<Period, ApproveError> {
+    let start = setting::month_start_on(db.conn()).map_err(reporting::Error::from)?;
+    Ok(Period::containing(date, start))
 }
 
 /// How much a signed change lowers a total, when it does.

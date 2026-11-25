@@ -998,8 +998,12 @@ fn measure(database: &Path, only_live: bool) -> Result<()> {
     )?;
 
     // Reporting reads (MCP tools and the Overview's figures).
-    let this_month = Period::containing(today);
-    let year_ago = Period::containing(today.checked_sub_months(chrono::Months::new(11)).unwrap());
+    let month_start = setting::month_start(&open(database)?.reader()?)?;
+    let this_month = Period::containing(today, month_start);
+    let year_ago = Period::containing(
+        today.checked_sub_months(chrono::Months::new(11)).unwrap(),
+        month_start,
+    );
     time(
         &mut rows,
         "report: monthly_summary, 12 months",

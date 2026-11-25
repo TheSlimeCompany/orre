@@ -788,3 +788,31 @@ fn a_superseded_row_is_labelled_and_has_nothing_to_change(cx: &mut TestAppContex
     assert!(shows("undo-import", cx));
     assert!(!shows("exclude", cx));
 }
+
+#[gpui_kit::test]
+fn the_month_presets_follow_the_users_month_start(cx: &mut TestAppContext) {
+    use orre_core::reporting::period::{DateRange, StartDay, Weekends};
+
+    let scratch = Scratch::new();
+    let the_25th = MonthStart::new(StartDay::day(25).unwrap(), Weekends::Keep);
+    setting::set_month_start(&mut scratch.db(), the_25th).unwrap();
+    let (view, cx) = open_database(cx, &scratch);
+    assert_eq!(view.read_with(cx, |view, _| view.month_start), the_25th);
+
+    // On 26 November the month began on the 25th, so "Last month" is
+    // 25 October to 24 November, which holds every row (7 to 9 November);
+    // calendar months would give October alone, with none.
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.today = NaiveDate::from_ymd_opt(2026, 11, 26).unwrap();
+            view.menu = Some(Menu::Date);
+            view.choose(&"last_month".into(), window, cx);
+        })
+    });
+    redraw(cx);
+    assert_eq!(
+        view.read_with(cx, |view, _| view.filter.dates),
+        DateRange::parse("2026-10-25", "2026-11-24").ok()
+    );
+    assert_eq!(listed(&view, cx).len(), 4);
+}

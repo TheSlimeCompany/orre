@@ -1488,9 +1488,12 @@ meaning.
   schedules seeding the non-monthly amounts; a spending-pace line
 - ⬜ M4.10 Safe report rendering: a markdown subset with no HTML or images, and links shown
   as plain text; reports are marked `ai_authored` when read back
-- ⬜ M4.11 Month start (L.15, decision record "the month start" in
-  `docs/architecture/reporting.md`). Decided, not built. Planned first in M4, but M4.1
-  was built before it, on calendar months (user, 2026-11-24):
+- 🚧 M4.11 Month start (L.15, decision record "the month start" in
+  `docs/architecture/reporting.md`). Planned first in M4, but M4.1 was built before it,
+  on calendar months (user, 2026-11-24). Core and MCP built (2026-11-25), and the
+  Overview, Transactions' month presets and Inbox labels follow the rule; the Settings
+  control and the Date chip's dates wait for Paper, so the rule can't be set in the app
+  yet:
   - **Core:** the rule as a typed `setting` value (day 1–28 or the last day; weekends off
     or the Friday before; default the 1st). `Period` cuts months under it and keeps its
     `YYYY-MM` name. Tests: no gaps or overlaps for every start and weekend choice across
