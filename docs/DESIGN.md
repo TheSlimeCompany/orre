@@ -2862,8 +2862,8 @@ artboard shows the 25th with the Friday before.
   - the panel section is "Calendar", not "Reports".
 - **Built in M4.11** (`crates/app/src/settings/month_start.rs`, the Date chip in
   `transactions/present.rs`, the switcher in `overview/view.rs`), checked by eye against
-  `K57-0` and `KEZ-0` in the `settings-month-start*` snapshots. Composed while building
-  (review): one wording for a moved start on every row ("31 Oct is a Saturday, so
+  `K57-0` and `KEZ-0` in the `settings-month-start*` snapshots. Composed while building,
+  then accepted by the user (2026-11-25): one wording for a moved start on every row ("31 Oct is a Saturday, so
   November starts on the Friday before"; the states board's last-day preview says "so
   it starts on the Friday"); and dates per preset, so with the 1st and the Friday before
   Last 3 months shows none (1 Sep – 30 Nov is the calendar's), where `KK6-0` draws them.
