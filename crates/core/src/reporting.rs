@@ -128,8 +128,9 @@ pub enum Error {
     #[error(transparent)]
     Recurring(#[from] crate::recurring::Error),
 
-    /// Reading the month start ([`crate::setting::month_start`]) failed:
-    /// the stored rule is unreadable, which is no fault of the caller's.
+    /// Reading the month start ([`crate::setting::month_start`]) failed: a
+    /// database error, which is no fault of the caller's. (An unreadable
+    /// stored rule reads as calendar months instead.)
     #[error(transparent)]
     Setting(#[from] crate::setting::Error),
 }

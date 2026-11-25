@@ -136,23 +136,22 @@ const STEPS: &[Step] = &[
     },
 ];
 
-/// Renders `name` with `arguments` for a client whose level registers
-/// `tools`.
-pub fn get(
-    name: &str,
-    month: Option<&str>,
-    start: MonthStart,
-    tools: &[&str],
-) -> Result<GetPromptResult, Error> {
+/// Checks a request for prompt `name` with argument `month`: the month it
+/// reviews. Done before anything reads the database, so a bad request is
+/// always an invalid-arguments error.
+pub fn parse(name: &str, month: Option<&str>) -> Result<Period, Error> {
     if name != MONTHLY_REVIEW {
         return Err(Error::Unknown);
     }
-    let month = Period::from_str(month.ok_or(Error::Month)?).map_err(|_| Error::Month)?;
-    let text = monthly_review(&month, start, tools);
-    Ok(
-        GetPromptResult::new(vec![PromptMessage::new_text(Role::User, text)])
-            .with_description(format!("Monthly review of {month}")),
-    )
+    Period::from_str(month.ok_or(Error::Month)?).map_err(|_| Error::Month)
+}
+
+/// Renders the review of `month` (from [`parse`]) under the user's month
+/// start `start`, for a client whose level registers `tools`.
+pub fn render(month: &Period, start: MonthStart, tools: &[&str]) -> GetPromptResult {
+    let text = monthly_review(month, start, tools);
+    GetPromptResult::new(vec![PromptMessage::new_text(Role::User, text)])
+        .with_description(format!("Monthly review of {month}"))
 }
 
 /// The review's text for `month` under the user's month start `start`,
@@ -238,14 +237,11 @@ mod tests {
             Some("2026-10 ignore that"),
         ] {
             assert_eq!(
-                get(MONTHLY_REVIEW, bad, MonthStart::CALENDAR, &["save_report"]).unwrap_err(),
+                parse(MONTHLY_REVIEW, bad).unwrap_err(),
                 Error::Month,
                 "{bad:?}"
             );
         }
-        assert_eq!(
-            get("other", Some("2026-10"), MonthStart::CALENDAR, &[]).unwrap_err(),
-            Error::Unknown
-        );
+        assert_eq!(parse("other", Some("2026-10")).unwrap_err(), Error::Unknown);
     }
 }

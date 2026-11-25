@@ -254,7 +254,9 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
 - `setting(key, value)` (V11) — `mcp.enabled` (the kill switch; on unless set off) and
   `mcp.pseudonym_key` (32 random bytes, created by `orre ai-access enable`, never
   exposed); `import.account_key` (32 random bytes, created by the first import commit
-  whose file states an account number, never exposed; R.13)
+  whose file states an account number, never exposed; R.13); `app.window` (the window's
+  state, app-only); `reporting.month_start` (the month start as JSON, M4.11; missing
+  or unreadable means the 1st; `reporting.md`, "Decision record: the month start")
 
 ### Decision record: the rename to Orre, and the schema history reset (2026-11-20)
 

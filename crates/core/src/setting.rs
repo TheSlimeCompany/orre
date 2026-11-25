@@ -27,10 +27,14 @@
 //!   ([`MonthStart`]; `docs/architecture/reporting.md` → "Decision record:
 //!   the month start"), as JSON: `{"day":25,"weekends":"friday_before"}`,
 //!   `{"day":"last","weekends":"keep"}`. `day` is 1 to 28 or `"last"`;
-//!   `weekends` is `"keep"` or `"friday_before"`; both are required and
-//!   nothing else is allowed. Missing means [`MonthStart::CALENDAR`], the
-//!   1st. Every report reads it; only the app writes it (its Settings control,
-//!   M4.11, waits for Paper; no CLI command in the first cut).
+//!   `weekends` is `"keep"` or `"friday_before"`; both are required, and
+//!   other fields are ignored, so a later build can add some (such as the
+//!   per-month overrides of the decision record's point 10) without this
+//!   one failing to read the rule. Missing means [`MonthStart::CALENDAR`],
+//!   the 1st, and so does a value that can't be read (logged at `warn`,
+//!   without the value): a bad row never stops a report. Every report
+//!   reads it; only the app writes it (its Settings control, M4.11, waits
+//!   for Paper; no CLI command in the first cut).
 
 use std::fmt;
 
@@ -285,7 +289,6 @@ pub fn set_window_state(db: &mut Database, state: &WindowState) -> Result<(), Er
 
 /// The month start as stored: `day` a number or `"last"`.
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct StoredMonthStart {
     day: StoredStartDay,
     weekends: StoredWeekends,
@@ -337,8 +340,9 @@ impl StoredMonthStart {
 }
 
 /// The month start every report cuts months by; [`MonthStart::CALENDAR`]
-/// when it was never set. A stored value that isn't the JSON the module
-/// docs describe, or names a day outside 1 to 28, is [`Error::Invalid`].
+/// when it was never set, or when the stored value isn't the JSON the
+/// module docs describe or names a day outside 1 to 28 (logged at `warn`).
+/// Only a database error is an error.
 pub fn month_start(reader: &Reader) -> Result<MonthStart, Error> {
     month_start_on(reader.conn())
 }
@@ -349,10 +353,16 @@ pub(crate) fn month_start_on(conn: &rusqlite::Connection) -> Result<MonthStart, 
     let Some(json) = get(conn, MONTH_START)? else {
         return Ok(MonthStart::CALENDAR);
     };
-    serde_json::from_str::<StoredMonthStart>(&json)
+    let rule = serde_json::from_str::<StoredMonthStart>(&json)
         .ok()
-        .and_then(|stored| stored.rule())
-        .ok_or(Error::Invalid { key: MONTH_START })
+        .and_then(|stored| stored.rule());
+    Ok(rule.unwrap_or_else(|| {
+        tracing::warn!(
+            key = MONTH_START,
+            "the stored month start isn't valid; using calendar months"
+        );
+        MonthStart::CALENDAR
+    }))
 }
 
 /// Saves the month start, replacing the last one. Every report cuts its
@@ -576,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_month_start_is_an_error() {
+    fn an_unreadable_month_start_reads_as_calendar_months() {
         let (_dir, db) = db();
         let reader = db.reader().unwrap();
         for stored in [
@@ -595,17 +605,30 @@ mod tests {
             r#"{"day":25}"#,
             r#"{"weekends":"keep"}"#,
             r#"{"day":25,"weekends":"monday_after"}"#,
-            r#"{"day":25,"weekends":"keep","holidays":[]}"#,
         ] {
             set(db.conn(), MONTH_START, stored).unwrap();
-            assert!(
-                matches!(
-                    month_start(&reader),
-                    Err(Error::Invalid { key: MONTH_START })
-                ),
+            assert_eq!(
+                month_start(&reader).unwrap(),
+                MonthStart::CALENDAR,
                 "{stored}"
             );
         }
+    }
+
+    #[test]
+    fn a_month_start_with_fields_from_a_later_build_still_reads() {
+        let (_dir, db) = db();
+        let reader = db.reader().unwrap();
+        set(
+            db.conn(),
+            MONTH_START,
+            r#"{"day":25,"weekends":"friday_before","overrides":["2026-12-20"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            month_start(&reader).unwrap(),
+            MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore)
+        );
     }
 
     #[test]

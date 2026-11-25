@@ -582,10 +582,12 @@ impl ServerHandler for Server {
             .as_ref()
             .and_then(|arguments| arguments.get("month"))
             .and_then(|month| month.as_str());
+        let month = prompts::parse(&request.name, month)
+            .map_err(|error| ErrorData::invalid_params(error.to_string(), None))?;
         let start = self.month_start_now()?;
-        prompts::get(&request.name, month, start, &tools)
-            .map(GetPromptResponse::from)
-            .map_err(|error| ErrorData::invalid_params(error.to_string(), None))
+        Ok(GetPromptResponse::from(prompts::render(
+            &month, start, &tools,
+        )))
     }
 
     async fn call_tool(

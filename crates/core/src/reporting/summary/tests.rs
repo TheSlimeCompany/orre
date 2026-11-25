@@ -197,7 +197,7 @@ fn months_follow_the_month_start() {
 }
 
 #[test]
-fn an_unreadable_month_start_fails_the_report() {
+fn an_unreadable_month_start_reports_calendar_months() {
     let ledger = TestLedger::new();
     ledger
         .db
@@ -207,8 +207,10 @@ fn an_unreadable_month_start_fails_the_report() {
             [setting::MONTH_START],
         )
         .unwrap();
-    let error =
-        monthly_summary(&ledger.reader(), period("2026-11"), period("2026-11")).unwrap_err();
-    assert!(matches!(error, Error::Setting(_)), "{error:?}");
-    assert!(!error.is_invalid_input());
+    let summary = monthly_summary(&ledger.reader(), period("2026-11"), period("2026-11")).unwrap();
+    let range = summary.items[0].range;
+    assert_eq!(
+        (range.from(), range.to()),
+        (date("2026-11-01"), date("2026-11-30"))
+    );
 }
