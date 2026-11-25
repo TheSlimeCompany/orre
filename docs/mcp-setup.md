@@ -16,7 +16,7 @@ What a client can do:
 - Use the **`monthly_review` prompt**, which walks a month and saves the review as a
   report.
 
-Every call is recorded in Orre's access log.
+Every tool call is recorded in Orre's access log.
 
 ## Before you start
 
