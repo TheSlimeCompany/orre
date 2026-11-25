@@ -46,11 +46,12 @@ MCP server.
 - **Nothing silently dropped.** Unparseable rows and failed reconciliations are
   flagged, not skipped.
 - **Safe AI access.** MCP tools are read-only apart from filing suggestions and
-  saving reports. Notes are never returned, Orre stores no account numbers from your
-  files, and bank text is checked for common account identifiers (sort codes, IBANs,
-  long digit runs), but Orre doesn't remove every personal detail from free text. At `standard`, the full-access level, clients see account and
-  merchant names and can ask for bank descriptions, which may contain details such as
-  addresses.
+  saving reports. Notes are never returned, and bank text is checked for common account
+  identifiers (sort codes, IBANs, long digit runs) before it's returned, but Orre doesn't
+  remove every personal detail from free text. Descriptions are stored as the bank wrote
+  them; only a statement's own account number is kept as a keyed hash instead. At
+  `standard`, the full-access level, clients see account and merchant names and can ask
+  for bank descriptions, which may contain details such as addresses.
 - **Exact money.** Amounts are integer minor units plus an ISO 4217 currency code.
 
 ## Usage
