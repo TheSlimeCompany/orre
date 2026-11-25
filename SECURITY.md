@@ -40,8 +40,11 @@ effort.
 - **AI clients can't change your data.** MCP tools only read, apart from filing
   suggestions, which wait in an inbox for your approval, and saving reports.
 - **Some data never leaves through MCP:** notes, share labels, private tags, merchant
-  addresses and attachments. Orre stores no account numbers from your files (only a
-  keyed hash), and bank text holding a sort code, IBAN or 8+ digit number is withheld.
+  addresses and attachments. Bank text holding a sort code, IBAN or 8+ digit number is
+  withheld too. That limits what MCP returns, not what Orre stores: descriptions are
+  kept as your bank wrote them, account numbers included, in the database and its
+  backups. Only the account number a statement gives for its own account is stored
+  as a keyed hash instead.
 - **Bank text is treated as untrusted.** Descriptions and merchant names are labelled
   untrusted, stripped of invisible characters, have domains made inert
   (`example[.]com`), and are withheld when they read like instructions to an AI.
