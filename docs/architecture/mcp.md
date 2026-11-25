@@ -96,7 +96,7 @@ the database can't be opened (a restore holds its lock: `refused_restoring`; mig
 pending or the lock unreadable: `refused_unavailable`) can't be written there: it waits
 in `<database>-access-pending` and goes into the log, at its own time, the next time the
 database is opened to write (decision record "M2: MCP server", F.8). The one exception,
-returning no data: getting a prompt.
+returning no data but the month's dates under the user's month start: getting a prompt.
 
 **Restores.** The server opens the database for each call and keeps no connection
 between calls. `orre restore` holds the file lock on `<database>-restoring` while it
@@ -374,6 +374,9 @@ as built). Everything else follows an earlier decision record or invariant.
 2. **`monthly_review`** is listed only to enabled clients; its text is built from the
    tools at the client's level, so it never names one the client can't call; getting it
    isn't logged, since it returns no data (user).
+   *Amended 2026-11-25 (M4.11): it states the month's dates under the user's month
+   start, a setting that isn't personal data (`reporting.md`, "Decision record: the
+   month start", point 7), and no other data.*
 3. **Saved reports are capped at 500 per client**; the 501st is refused with a clear
    error, counted and inserted in one transaction (user). The error tells the client
    that the user can make room with `orre inbox delete-report`, and names nothing of

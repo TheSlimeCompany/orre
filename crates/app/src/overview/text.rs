@@ -10,6 +10,7 @@ use orre_core::money::{Currency, Money};
 use orre_core::recurring::Cadence;
 use orre_core::reporting::Period;
 use orre_core::reporting::overview::{Overview, SpendingGroup};
+use orre_core::reporting::period::MonthStart;
 
 use crate::format::{self, Sign};
 use crate::inbox::Inbox;
@@ -17,28 +18,34 @@ use crate::inbox::text::{NAME_SHOWN, plain};
 use crate::ui::marker::Marker;
 use crate::ui::ranked_bars::slot_marker;
 
+/// A day in `month`'s calendar month, to format its name from: a month is
+/// named by its year and month, whatever days the user's month start gives it.
+fn name_day(month: Period) -> NaiveDate {
+    month.first_day(MonthStart::CALENDAR)
+}
+
 /// "October 2026": the switcher's title and the chart's tooltips.
 pub fn month_title(month: Period) -> String {
-    month.first_day().format("%B %Y").to_string()
+    name_day(month).format("%B %Y").to_string()
 }
 
 /// "October": the spending section's caption.
 pub fn month_name(month: Period) -> String {
-    month.first_day().format("%B").to_string()
+    name_day(month).format("%B").to_string()
 }
 
 /// "Oct": a month's label on the chart and in the changes.
 pub fn month_short(month: Period) -> String {
-    month.first_day().format("%b").to_string()
+    name_day(month).format("%b").to_string()
 }
 
 /// The chart's caption: "Last 12 months" while its window ends at the
 /// current month, else "12 months to Mar 2025".
-pub fn chart_caption(last: Period, today: NaiveDate) -> String {
-    if last == Period::containing(today) {
+pub fn chart_caption(last: Period, today: NaiveDate, start: MonthStart) -> String {
+    if last == Period::containing(today, start) {
         "Last 12 months".to_owned()
     } else {
-        format!("12 months to {}", last.first_day().format("%b %Y"))
+        format!("12 months to {}", name_day(last).format("%b %Y"))
     }
 }
 
@@ -262,10 +269,9 @@ pub fn screen_text(overview: &Overview, month: Period, today: NaiveDate) -> Scre
         title: month_title(month),
         figures,
         other_currencies: other_currencies_note(&overview.other_currencies),
-        chart_caption: overview
-            .months
-            .last()
-            .map_or_else(String::new, |last| chart_caption(last.period, today)),
+        chart_caption: overview.months.last().map_or_else(String::new, |last| {
+            chart_caption(last.period, today, overview.month_start)
+        }),
         selected_month: overview
             .months
             .iter()
@@ -350,9 +356,12 @@ mod tests {
     #[test]
     fn the_chart_says_where_its_window_ends() {
         let today = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
-        assert_eq!(chart_caption(month(2026, 11), today), "Last 12 months");
         assert_eq!(
-            chart_caption(month(2025, 3), today),
+            chart_caption(month(2026, 11), today, MonthStart::CALENDAR),
+            "Last 12 months"
+        );
+        assert_eq!(
+            chart_caption(month(2025, 3), today, MonthStart::CALENDAR),
             "12 months to Mar 2025"
         );
     }

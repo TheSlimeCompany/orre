@@ -10,6 +10,7 @@ use super::super::{ApproveOptions, SuggestionKind, approve, counts, reject, reje
 use super::*;
 use crate::merchant::DisplayName;
 use crate::money::Currency;
+use crate::reporting::MonthStart;
 
 fn gbp(minor: i64) -> Money {
     Money::new(minor, Currency::GBP)
@@ -417,7 +418,10 @@ fn a_transfer_leaves_income_and_spending() {
     );
     let p = checked(&f, id);
     let effect = p.transfer.unwrap();
-    assert_eq!(effect.month, Period::containing(day(4)));
+    assert_eq!(
+        effect.month,
+        Period::containing(day(4), MonthStart::CALENDAR)
+    );
     assert_eq!(effect.income_less, Some(gbp(25_000)));
     assert_eq!(effect.spending_less, Some(gbp(25_000)));
     let Subject::TransferPair {
@@ -429,6 +433,38 @@ fn a_transfer_leaves_income_and_spending() {
     };
     assert_eq!(outflow.account_name, "Savings");
     assert_eq!(inflow.account_name, "Current");
+}
+
+#[test]
+fn effects_name_the_month_under_the_month_start() {
+    use crate::reporting::{StartDay, Weekends};
+
+    let mut f = Fixture::new();
+    let out = f.row_on(f.savings, day(20), -25_000, "To current", None);
+    let back = f.row(day(20), 25_000, "From savings", None);
+    let transfer = f.file(
+        SuggestionKind::TransferPair,
+        json!({"outflow_id": out.get(), "inflow_id": back.get()}),
+    );
+    let shirt = f.row(day(1), -5980, "Uniqlo", Some("shopping.clothing"));
+    let refund = f.row(day(20), 2990, "Uniqlo", None);
+    let link = f.file(
+        SuggestionKind::RefundLink,
+        json!({"refund_id": refund.get(), "purchase_id": shirt.get(), "link_kind": "refund"}),
+    );
+    let october: Period = "2026-10".parse().unwrap();
+    assert_eq!(checked(&f, transfer).transfer.unwrap().month, october);
+    assert_eq!(checked(&f, link).link.unwrap().month, october);
+
+    // From the 16th, 16 Oct to 15 Nov is November.
+    crate::setting::set_month_start(
+        &mut f.db,
+        MonthStart::new(StartDay::day(16).unwrap(), Weekends::Keep),
+    )
+    .unwrap();
+    let november: Period = "2026-11".parse().unwrap();
+    assert_eq!(checked(&f, transfer).transfer.unwrap().month, november);
+    assert_eq!(checked(&f, link).link.unwrap().month, november);
 }
 
 #[test]
@@ -846,9 +882,11 @@ fn a_suggestion_approving_would_refuse_changes_no_spending() {
 /// numbers (`None`: uncategorised).
 fn spent_by_category(f: &Fixture) -> BTreeMap<Option<String>, i64> {
     let reader = f.db.reader().unwrap();
-    let report =
-        crate::reporting::spending::spending_by_category(&reader, Period::containing(day(1)))
-            .unwrap();
+    let report = crate::reporting::spending::spending_by_category(
+        &reader,
+        Period::containing(day(1), MonthStart::CALENDAR),
+    )
+    .unwrap();
     let minor = |totals: &crate::reporting::Totals| {
         totals.get(Currency::GBP).map_or(0, |money| money.minor())
     };

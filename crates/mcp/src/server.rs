@@ -69,6 +69,7 @@ use orre_core::access_log::{self, NewEntry, Outcome, pending};
 use orre_core::backup::{self, gate};
 use orre_core::db::{self, Database, Reader};
 use orre_core::mcp_client::{AccessLevel, ClientName};
+use orre_core::reporting::period::MonthStart;
 use orre_core::setting;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, GetPromptRequestParams,
@@ -185,6 +186,19 @@ impl Server {
                 ErrorData::internal_error("Orre couldn't read this client's access", None)
             })?
             .level())
+    }
+
+    /// The user's month start, which cuts the months a prompt names.
+    fn month_start_now(&self) -> Result<MonthStart, ErrorData> {
+        let inner = &*self.inner;
+        let _busy = inner.busy.lock().map_err(|_| unusable())?;
+        let session = inner
+            .open()
+            .map_err(|unavailable| ErrorData::internal_error(unavailable.message(), None))?;
+        setting::month_start(&session.reader).map_err(|error| {
+            tracing::debug!(%error, "couldn't read the month start");
+            ErrorData::internal_error("Orre couldn't read the user's month start", None)
+        })
     }
 
     /// The tools the client sees now. An unknown client is recorded as
@@ -568,9 +582,12 @@ impl ServerHandler for Server {
             .as_ref()
             .and_then(|arguments| arguments.get("month"))
             .and_then(|month| month.as_str());
-        prompts::get(&request.name, month, &tools)
-            .map(GetPromptResponse::from)
-            .map_err(|error| ErrorData::invalid_params(error.to_string(), None))
+        let month = prompts::parse(&request.name, month)
+            .map_err(|error| ErrorData::invalid_params(error.to_string(), None))?;
+        let start = self.month_start_now()?;
+        Ok(GetPromptResponse::from(prompts::render(
+            &month, start, &tools,
+        )))
     }
 
     async fn call_tool(

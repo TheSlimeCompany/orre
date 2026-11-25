@@ -23,7 +23,11 @@
 //! The previous month's figures are read whether or not the window has it.
 //!
 //! Months come from [`Period`] only (`containing`, `range`, `next`,
-//! `previous`, `through`), so the month's cut is defined in one place.
+//! `previous`, `through`), so the month's cut is defined in one place:
+//! the user's month start ([`setting::month_start`]), read once per call
+//! inside its read transaction and returned as [`Overview::month_start`],
+//! so the app cuts the same months without reading it again. Each month's
+//! figures carry its dates ([`MonthFigures::range`]).
 //!
 //! The screen opens on [`landing_month`]: today's month, or the latest
 //! month with data when today's has none yet (the statements lag). The
@@ -79,9 +83,10 @@ use crate::db::Reader;
 use crate::id::AccountId;
 use crate::money::{Currency, Money, MoneyError};
 use crate::recurring::{self, Cadence, Direction};
+use crate::setting;
 
 use super::palette::{Palette, category_palette};
-use super::{Basis, DateRange, Error, Ledger, LedgerLine, Period, Side, balance};
+use super::{Basis, DateRange, Error, Ledger, LedgerLine, MonthStart, Period, Side, balance};
 
 /// How many months the chart shows.
 pub const WINDOW_MONTHS: usize = 12;
@@ -105,6 +110,8 @@ pub struct OverviewQuery {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MonthFigures {
     pub period: Period,
+    /// The month's days under [`Overview::month_start`].
+    pub range: DateRange,
     /// Money earned or received, positive.
     pub income: Money,
     /// Money spent, positive; refunds reduce it, so it can go below zero.
@@ -159,6 +166,8 @@ pub struct UpcomingPayment {
 /// Everything the Overview screen shows (module docs).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Overview {
+    /// The month start every month here is cut by, read with the figures.
+    pub month_start: MonthStart,
     /// The one currency every amount is in.
     pub currency: Currency,
     /// Other currencies with counted lines in the window, by code. Their
@@ -196,7 +205,8 @@ pub struct Overview {
 /// account is [`Error::UnknownAccount`].
 pub fn overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
     let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
-    let overview = overview_in_transaction(reader, query)?;
+    let start = setting::month_start(reader)?;
+    let overview = overview_in_transaction(reader, query, start)?;
     drop(tx);
     Ok(overview)
 }
@@ -206,14 +216,19 @@ pub fn overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Erro
 /// one read transaction, so the month always matches the figures.
 pub fn opening_overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
     let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
-    let month = landing_month_in_transaction(reader, query.account, query.today)?;
-    let overview = overview_in_transaction(reader, &OverviewQuery { month, ..*query })?;
+    let start = setting::month_start(reader)?;
+    let month = landing_month_in_transaction(reader, query.account, query.today, start)?;
+    let overview = overview_in_transaction(reader, &OverviewQuery { month, ..*query }, start)?;
     drop(tx);
     Ok(overview)
 }
 
 /// [`overview`], inside a read transaction the caller holds.
-fn overview_in_transaction(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
+fn overview_in_transaction(
+    reader: &Reader,
+    query: &OverviewQuery,
+    start: MonthStart,
+) -> Result<Overview, Error> {
     let selected = query.month;
     let previous = selected.previous().ok_or(Error::InvalidPeriod)?;
     let account = query
@@ -221,23 +236,25 @@ fn overview_in_transaction(reader: &Reader, query: &OverviewQuery) -> Result<Ove
         .map(|id| balance::account(reader, id))
         .transpose()?;
 
-    let window_end = window_end(selected, query.today);
+    let window_end = window_end(selected, query.today, start);
     let window_start = window_start(window_end);
     let first = window_start.min(previous);
     let last = window_end.max(selected);
     let accounts: Vec<AccountId> = query.account.into_iter().collect();
     let lines = Ledger::new()
-        .within(DateRange::months(first, last)?)
+        .within(DateRange::months(first, last, start)?)
         .accounts(accounts.iter().copied())
         .lines(reader)?;
 
-    let window = DateRange::months(window_start, window_end)?;
+    let window = DateRange::months(window_start, window_end, start)?;
     let (currency, other_currencies) = display_currency(reader, &lines, window, account.as_ref())?;
 
     // Per month: income, and spending as the signed sum (below zero).
     let mut sums: BTreeMap<Period, (i64, i64)> = BTreeMap::new();
     for line in lines.iter().filter(|line| counts(line, Some(currency))) {
-        let (income, spending) = sums.entry(Period::containing(line.date)).or_default();
+        let (income, spending) = sums
+            .entry(Period::containing(line.date, start))
+            .or_default();
         let counted = line.counted(Basis::Personal).minor();
         match line.side(Basis::Personal) {
             Side::Income => *income = add(*income, counted)?,
@@ -251,6 +268,7 @@ fn overview_in_transaction(reader: &Reader, query: &OverviewQuery) -> Result<Ove
         let income = Money::new(income, currency);
         Ok(MonthFigures {
             period,
+            range: period.range(start),
             income,
             spent,
             net: income.checked_sub(spent)?,
@@ -263,7 +281,7 @@ fn overview_in_transaction(reader: &Reader, query: &OverviewQuery) -> Result<Ove
     let selected_figures = figures(selected)?;
     let previous_figures = figures(previous)?;
 
-    let earliest_month = earliest_month(reader, &lines, first, &accounts)?;
+    let earliest_month = earliest_month(reader, &lines, first, &accounts, start)?;
     let has_transactions: bool =
         reader
             .conn()
@@ -272,10 +290,17 @@ fn overview_in_transaction(reader: &Reader, query: &OverviewQuery) -> Result<Ove
             })?;
 
     let palette = category_palette(reader, query.today)?;
-    let categories = category_spending(reader, &lines, selected, &palette, selected_figures.spent)?;
+    let categories = category_spending(
+        reader,
+        &lines,
+        selected_figures.range,
+        &palette,
+        selected_figures.spent,
+    )?;
     let (recurring, recurring_total) = upcoming_payments(reader, query, currency, &palette)?;
 
     Ok(Overview {
+        month_start: start,
         currency,
         other_currencies,
         has_transactions,
@@ -293,8 +318,8 @@ fn overview_in_transaction(reader: &Reader, query: &OverviewQuery) -> Result<Ove
 }
 
 /// The window's last month (module docs).
-fn window_end(selected: Period, today: NaiveDate) -> Period {
-    let current = Period::containing(today);
+fn window_end(selected: Period, today: NaiveDate, start: MonthStart) -> Period {
+    let current = Period::containing(today, start);
     if selected < window_start(current) {
         selected
     } else {
@@ -384,10 +409,11 @@ fn earliest_month(
     lines: &[LedgerLine],
     first: Period,
     accounts: &[AccountId],
+    start: MonthStart,
 ) -> Result<Option<Period>, Error> {
     let older = match first.previous() {
         Some(last) => Ledger::new()
-            .within(DateRange::months(Period::new(1, 1)?, last)?)
+            .within(DateRange::months(Period::MIN, last, start)?)
             .accounts(accounts.iter().copied())
             .lines(reader)?,
         None => Vec::new(),
@@ -396,7 +422,7 @@ fn earliest_month(
         .iter()
         .chain(lines)
         .filter(|line| counts(line, None))
-        .map(|line| Period::containing(line.date))
+        .map(|line| Period::containing(line.date, start))
         .min())
 }
 
@@ -419,7 +445,8 @@ pub fn landing_month(
     today: NaiveDate,
 ) -> Result<Period, Error> {
     let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
-    let month = landing_month_in_transaction(reader, account, today)?;
+    let start = setting::month_start(reader)?;
+    let month = landing_month_in_transaction(reader, account, today, start)?;
     drop(tx);
     Ok(month)
 }
@@ -429,9 +456,10 @@ fn landing_month_in_transaction(
     reader: &Reader,
     account: Option<AccountId>,
     today: NaiveDate,
+    start: MonthStart,
 ) -> Result<Period, Error> {
-    let current = Period::containing(today);
-    let start = window_start(current);
+    let current = Period::containing(today, start);
+    let window = window_start(current);
     let read = |range: DateRange| -> Result<Vec<LedgerLine>, Error> {
         Ok(Ledger::new()
             .within(range)
@@ -441,17 +469,17 @@ fn landing_month_in_transaction(
             .filter(|line| counts(line, None))
             .collect())
     };
-    let recent = read(DateRange::months(start, current)?)?;
+    let recent = read(DateRange::months(window, current, start)?)?;
     if !recent.is_empty() {
-        return Ok(latest_in_busiest_currency(&recent, start, current).unwrap_or(current));
+        return Ok(latest_in_busiest_currency(&recent, window, current, start).unwrap_or(current));
     }
-    let Some(last) = start.previous() else {
+    let Some(last) = window.previous() else {
         return Ok(current);
     };
-    let older = read(DateRange::months(Period::new(1, 1)?, last)?)?;
+    let older = read(DateRange::months(Period::MIN, last, start)?)?;
     let mut months: Vec<Period> = older
         .iter()
-        .map(|line| Period::containing(line.date))
+        .map(|line| Period::containing(line.date, start))
         .collect();
     months.sort_unstable();
     months.dedup();
@@ -464,38 +492,42 @@ fn landing_month_in_transaction(
         .rev()
         .copied()
         .find(|&month| {
-            latest_in_busiest_currency(&older, window_start(month), month) == Some(month)
+            latest_in_busiest_currency(&older, window_start(month), month, start) == Some(month)
         })
         .unwrap_or(current))
 }
 
 /// The latest month in `first..=last` with a line in the busiest currency
 /// of the lines in those months. `lines` are all counted.
-fn latest_in_busiest_currency(lines: &[LedgerLine], first: Period, last: Period) -> Option<Period> {
+fn latest_in_busiest_currency(
+    lines: &[LedgerLine],
+    first: Period,
+    last: Period,
+    start: MonthStart,
+) -> Option<Period> {
     let in_window = || {
         lines
             .iter()
-            .filter(move |line| (first..=last).contains(&Period::containing(line.date)))
+            .filter(move |line| (first..=last).contains(&Period::containing(line.date, start)))
     };
     let currency = busiest_currency(&counted_by_currency(in_window()))?;
     in_window()
         .filter(|line| counts(line, Some(currency)))
-        .map(|line| Period::containing(line.date))
+        .map(|line| Period::containing(line.date, start))
         .max()
 }
 
-/// The selected month's spending by category (module docs); `total` is the
-/// month's spending, the base of the shares.
+/// The selected month's spending by category (module docs), over its days
+/// `range`; `total` is the month's spending, the base of the shares.
 fn category_spending(
     reader: &Reader,
     lines: &[LedgerLine],
-    month: Period,
+    range: DateRange,
     palette: &Palette,
     total: Money,
 ) -> Result<Vec<CategorySpend>, Error> {
     let tree = CategoryTree::load(reader.conn())?;
     let currency = total.currency();
-    let range = month.range();
     // Signed sums (money out below zero); present once a line is added.
     let mut named: HashMap<CategoryKey, i64> = HashMap::new();
     let mut other: Option<i64> = None;

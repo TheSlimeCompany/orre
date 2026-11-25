@@ -116,4 +116,7 @@ matrix runs the checks above for every tool at every level.
 
 `src/prompts.rs` has `monthly_review(month)`. A prompt's text is built from the tools
 registered at the client's level, so a step naming a tool above it is left out; mention
-tools as `` `name` `` so `tests/monthly_review.rs` can check that.
+tools as `` `name` `` so `tests/monthly_review.rs` can check that. A month follows the
+user's month start (`reporting.month_start`, which may not be the 1st): the month tools
+return each month's `from` and `to`, and the prompt reads the setting to name the month's
+dates. The server never writes the setting.

@@ -18,13 +18,16 @@ use crate::budget::{self, BudgetGroup};
 use crate::category::{CategoryKey, CategoryTree};
 use crate::db::Reader;
 use crate::money::Money;
+use crate::setting;
 
-use super::{Basis, Error, Ledger, Period, Side, Totals};
+use super::{Basis, DateRange, Error, Ledger, Period, Side, Totals};
 
 /// Every budget's status in one month.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BudgetStatus {
     pub period: Period,
+    /// The month's days under the month start it was read with.
+    pub range: DateRange,
     /// In category tree order.
     pub budgets: Vec<BudgetLine>,
 }
@@ -49,7 +52,10 @@ pub struct BudgetLine {
     pub spent_other_currencies: Totals,
 }
 
-/// How each budget stands in `month` (module docs).
+/// How each budget stands in `month` (module docs), the month cut by the
+/// user's month start ([`setting::month_start`]). Which budget applies
+/// goes by the month's name, never its dates: a budget keyed `2026-12`
+/// is December's under any month start.
 pub fn budget_status(reader: &Reader, month: Period) -> Result<BudgetStatus, Error> {
     let conn = reader.conn();
     let tree = CategoryTree::load(conn)?;
@@ -74,7 +80,8 @@ pub fn budget_status(reader: &Reader, month: Period) -> Result<BudgetStatus, Err
 
     // Spending per category ID, signed (money out below zero).
     let mut by_category: HashMap<i64, Totals> = HashMap::new();
-    for line in Ledger::new().within(month.range()).lines(reader)? {
+    let range = month.range(setting::month_start(reader)?);
+    for line in Ledger::new().within(range).lines(reader)? {
         let counted = line.counted(Basis::Personal);
         if counted.is_zero() || line.side(Basis::Personal) != Side::Spending {
             continue;
@@ -131,6 +138,7 @@ pub fn budget_status(reader: &Reader, month: Period) -> Result<BudgetStatus, Err
     }
     Ok(BudgetStatus {
         period: month,
+        range,
         budgets,
     })
 }

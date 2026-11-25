@@ -23,6 +23,18 @@
 //! - [`WINDOW_STATE`]: where the app's window was and which view it showed
 //!   ([`WindowState`]), as JSON. Only the app reads and writes it; it isn't
 //!   exported and no MCP tool reads it. Missing means the app's defaults.
+//! - [`MONTH_START`]: the rule that cuts every report's months
+//!   ([`MonthStart`]; `docs/architecture/reporting.md` → "Decision record:
+//!   the month start"), as JSON: `{"day":25,"weekends":"friday_before"}`,
+//!   `{"day":"last","weekends":"keep"}`. `day` is 1 to 28 or `"last"`;
+//!   `weekends` is `"keep"` or `"friday_before"`; both are required, and
+//!   other fields are ignored, so a later build can add some (such as the
+//!   per-month overrides of the decision record's point 10) without this
+//!   one failing to read the rule. Missing means [`MonthStart::CALENDAR`],
+//!   the 1st, and so does a value that can't be read (logged at `warn`,
+//!   without the value): a bad row never stops a report. Every report
+//!   reads it; only the app writes it (its Settings control, M4.11, waits
+//!   for Paper; no CLI command in the first cut).
 
 use std::fmt;
 
@@ -30,6 +42,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::db::{Database, Reader};
+use crate::reporting::{MonthStart, StartDay, Weekends};
 
 /// The kill switch: `"on"` or `"off"`. Missing means on.
 pub const MCP_ENABLED: &str = "mcp.enabled";
@@ -46,6 +59,9 @@ pub const IMPORT_ACCOUNT_KEY: &str = "import.account_key";
 
 /// The app window's state: a [`WindowState`] as JSON.
 pub const WINDOW_STATE: &str = "app.window";
+
+/// The month start: a [`MonthStart`] as JSON (module docs).
+pub const MONTH_START: &str = "reporting.month_start";
 
 /// Why reading or writing a setting failed.
 #[derive(Debug, thiserror::Error)]
@@ -271,6 +287,92 @@ pub fn set_window_state(db: &mut Database, state: &WindowState) -> Result<(), Er
     set(db.conn(), WINDOW_STATE, &json)
 }
 
+/// The month start as stored: `day` a number or `"last"`.
+#[derive(Serialize, Deserialize)]
+struct StoredMonthStart {
+    day: StoredStartDay,
+    weekends: StoredWeekends,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum StoredStartDay {
+    Day(u32),
+    Named(String),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredWeekends {
+    Keep,
+    FridayBefore,
+}
+
+/// The `day` text for [`StartDay::LAST`].
+const LAST_DAY: &str = "last";
+
+impl StoredMonthStart {
+    fn from_rule(start: MonthStart) -> StoredMonthStart {
+        StoredMonthStart {
+            day: match start.day().day_of_month() {
+                Some(day) => StoredStartDay::Day(day),
+                None => StoredStartDay::Named(LAST_DAY.to_owned()),
+            },
+            weekends: match start.weekends() {
+                Weekends::Keep => StoredWeekends::Keep,
+                Weekends::FridayBefore => StoredWeekends::FridayBefore,
+            },
+        }
+    }
+
+    fn rule(&self) -> Option<MonthStart> {
+        let day = match &self.day {
+            StoredStartDay::Day(day) => StartDay::day(*day)?,
+            StoredStartDay::Named(name) if name == LAST_DAY => StartDay::LAST,
+            StoredStartDay::Named(_) => return None,
+        };
+        let weekends = match self.weekends {
+            StoredWeekends::Keep => Weekends::Keep,
+            StoredWeekends::FridayBefore => Weekends::FridayBefore,
+        };
+        Some(MonthStart::new(day, weekends))
+    }
+}
+
+/// The month start every report cuts months by; [`MonthStart::CALENDAR`]
+/// when it was never set, or when the stored value isn't the JSON the
+/// module docs describe or names a day outside 1 to 28 (logged at `warn`).
+/// Only a database error is an error.
+pub fn month_start(reader: &Reader) -> Result<MonthStart, Error> {
+    month_start_on(reader.conn())
+}
+
+/// [`month_start`] on any connection: the Inbox's previews read it through
+/// the database they write in.
+pub(crate) fn month_start_on(conn: &rusqlite::Connection) -> Result<MonthStart, Error> {
+    let Some(json) = get(conn, MONTH_START)? else {
+        return Ok(MonthStart::CALENDAR);
+    };
+    let rule = serde_json::from_str::<StoredMonthStart>(&json)
+        .ok()
+        .and_then(|stored| stored.rule());
+    Ok(rule.unwrap_or_else(|| {
+        tracing::warn!(
+            key = MONTH_START,
+            "the stored month start isn't valid; using calendar months"
+        );
+        MonthStart::CALENDAR
+    }))
+}
+
+/// Saves the month start, replacing the last one. Every report cuts its
+/// months by it from the next read on, past months included.
+pub fn set_month_start(db: &mut Database, start: MonthStart) -> Result<(), Error> {
+    let json = serde_json::to_string(&StoredMonthStart::from_rule(start))
+        .map_err(|_| Error::Rejected { key: MONTH_START })?;
+    set(db.conn(), MONTH_START, &json)
+}
+
 fn get(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>, Error> {
     Ok(conn
         .query_row("SELECT value FROM setting WHERE key = ?1", [key], |row| {
@@ -444,6 +546,89 @@ mod tests {
             );
         }
         assert_eq!(window_state(&reader).unwrap(), None);
+    }
+
+    #[test]
+    fn the_month_start_defaults_to_the_1st_and_round_trips() {
+        let (_dir, mut db) = db();
+        let reader = db.reader().unwrap();
+        assert_eq!(month_start(&reader).unwrap(), MonthStart::CALENDAR);
+        for start in [
+            MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore),
+            MonthStart::new(StartDay::LAST, Weekends::Keep),
+            MonthStart::new(StartDay::LAST, Weekends::FridayBefore),
+            MonthStart::new(StartDay::day(28).unwrap(), Weekends::Keep),
+            MonthStart::CALENDAR,
+        ] {
+            set_month_start(&mut db, start).unwrap();
+            assert_eq!(month_start(&reader).unwrap(), start);
+        }
+    }
+
+    #[test]
+    fn the_month_start_is_stored_as_json() {
+        let (_dir, mut db) = db();
+        let stored = |db: &Database| get(db.conn(), MONTH_START).unwrap();
+        set_month_start(
+            &mut db,
+            MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore),
+        )
+        .unwrap();
+        assert_eq!(
+            stored(&db).as_deref(),
+            Some(r#"{"day":25,"weekends":"friday_before"}"#)
+        );
+        set_month_start(&mut db, MonthStart::new(StartDay::LAST, Weekends::Keep)).unwrap();
+        assert_eq!(
+            stored(&db).as_deref(),
+            Some(r#"{"day":"last","weekends":"keep"}"#)
+        );
+    }
+
+    #[test]
+    fn an_unreadable_month_start_reads_as_calendar_months() {
+        let (_dir, db) = db();
+        let reader = db.reader().unwrap();
+        for stored in [
+            "",
+            "25",
+            "not json",
+            r#"{"day":0,"weekends":"keep"}"#,
+            r#"{"day":29,"weekends":"keep"}"#,
+            r#"{"day":31,"weekends":"keep"}"#,
+            r#"{"day":-1,"weekends":"keep"}"#,
+            r#"{"day":25.5,"weekends":"keep"}"#,
+            r#"{"day":"25","weekends":"keep"}"#,
+            r#"{"day":"Last","weekends":"keep"}"#,
+            r#"{"day":"first","weekends":"keep"}"#,
+            r#"{"day":null,"weekends":"keep"}"#,
+            r#"{"day":25}"#,
+            r#"{"weekends":"keep"}"#,
+            r#"{"day":25,"weekends":"monday_after"}"#,
+        ] {
+            set(db.conn(), MONTH_START, stored).unwrap();
+            assert_eq!(
+                month_start(&reader).unwrap(),
+                MonthStart::CALENDAR,
+                "{stored}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_month_start_with_fields_from_a_later_build_still_reads() {
+        let (_dir, db) = db();
+        let reader = db.reader().unwrap();
+        set(
+            db.conn(),
+            MONTH_START,
+            r#"{"day":25,"weekends":"friday_before","overrides":["2026-12-20"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            month_start(&reader).unwrap(),
+            MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore)
+        );
     }
 
     #[test]

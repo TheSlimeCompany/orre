@@ -99,9 +99,11 @@ use orre_core::import::{self, UndoPreview};
 use orre_core::inbox::own;
 use orre_core::manual::{self, ManualTransaction};
 use orre_core::note::UserNote;
+use orre_core::reporting::period::MonthStart;
 use orre_core::reporting::register::{
     CategoryCounts, DatePreset, Filter, Listing, Register, RegisterRow, Sort, SortColumn,
 };
+use orre_core::setting;
 use orre_core::transfer as core_transfer;
 
 use crate::accounts::CategoryPick;
@@ -595,6 +597,9 @@ pub struct TransactionsView {
     /// its fields when it moves.
     generation: u64,
     today: NaiveDate,
+    /// The user's month start as of the last read (calendar months until
+    /// one lands): what the month presets of the Date chip cut by.
+    month_start: MonthStart,
     filter: Filter,
     date: DatePreset,
     sort: Sort,
@@ -700,6 +705,7 @@ impl TransactionsView {
             reloads: Reloads::Itself,
             generation: 0,
             today,
+            month_start: MonthStart::CALENDAR,
             filter: Filter::default(),
             date: DatePreset::AllTime,
             sort: Sort::Default,
@@ -735,7 +741,7 @@ impl TransactionsView {
             _subscriptions: subscriptions,
         };
         if fixture {
-            view.apply(Ok(fixture::register()), cx);
+            view.apply(Ok((fixture::register(), MonthStart::CALENDAR)), cx);
             view.selection.set([fixture::id("txn-amazon-09")]);
         } else {
             view.reload(cx);
@@ -937,9 +943,13 @@ impl TransactionsView {
         self.loading = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    store
-                        .open()
-                        .and_then(|db| Ok(Register::load(&db.reader()?, today)?))
+                    let db = store.open()?;
+                    let reader = db.reader()?;
+                    let register = Register::load(&reader, today)?;
+                    Ok::<_, crate::accounts::store::StoreError>((
+                        register,
+                        setting::month_start(&reader)?,
+                    ))
                 })
                 .await
                 .map_err(|error| SharedString::from(error.to_string()));
@@ -947,7 +957,11 @@ impl TransactionsView {
         }));
     }
 
-    fn apply(&mut self, result: Result<Register, SharedString>, cx: &mut Context<Self>) {
+    fn apply(
+        &mut self,
+        result: Result<(Register, MonthStart), SharedString>,
+        cx: &mut Context<Self>,
+    ) {
         // Before the new register replaces the one the list's items index.
         let scrolled = self.scroll_anchor();
         let after_own_write = std::mem::take(&mut self.read_follows_own_write);
@@ -957,7 +971,12 @@ impl TransactionsView {
         self.loaded = true;
         self.generation += 1;
         match result {
-            Ok(register) => {
+            Ok((register, month_start)) => {
+                if month_start != self.month_start {
+                    // A month preset still on show follows the new rule.
+                    self.month_start = month_start;
+                    self.filter.dates = self.date.range(self.today, month_start);
+                }
                 change = RegisterChange::of_read(
                     self.has_register.then(|| self.register.rows()),
                     register.rows(),
@@ -1465,7 +1484,7 @@ impl TransactionsView {
     /// rows (snapshots). Does nothing over the database.
     pub fn show_fixture(&mut self, register: Register, cx: &mut Context<Self>) {
         if matches!(self.source, Source::Fixture) {
-            self.apply(Ok(register), cx);
+            self.apply(Ok((register, MonthStart::CALENDAR)), cx);
         }
     }
 
@@ -1655,7 +1674,7 @@ impl TransactionsView {
             Menu::Date => {
                 if let Some(preset) = present::date_preset(key) {
                     self.date = preset;
-                    self.filter.dates = preset.range(self.today);
+                    self.filter.dates = preset.range(self.today, self.month_start);
                     self.refilter(cx);
                 }
             }

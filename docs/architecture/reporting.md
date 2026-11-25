@@ -53,11 +53,14 @@ is below; the records under "Decision records" are the history.
 - `rows`, `catalog` and `register` list rows, accounts, rules and reports, and the
   Transactions table. `palette::category_palette` ranks category colours with the
   register's ranking (`inbox.md`, decision record "Inbox", point 6).
-- **Months** are calendar months today (`Period`). Decided but not built (M4.11): a
-  month runs from the user's month start, a day of the month or its last day, optionally
-  moved back off weekends, and is named after the calendar month it mostly covers;
-  every report, budget and MCP tool that says "month" follows it (decision record "the
-  month start").
+- **Months** run from the user's month start (M4.11, `reporting::MonthStart` in the
+  `reporting.month_start` setting; the default, the 1st, is calendar months): a day of
+  the month or its last day, optionally moved back off weekends, named by the nominal
+  start (`Period`, `YYYY-MM`). `Period`'s dates (`containing`, `first_day`, `last_day`,
+  `range`, `DateRange::months`) take the rule; every report, budget, Inbox month label,
+  the register's month presets and every MCP tool that says "month" follows it, and
+  month results carry their `range` (MCP: `from` and `to`). Decision record "the month
+  start".
 
 ### Previews of a change
 
@@ -427,6 +430,11 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    start to the day before the next. The rule is one setting, not per account or per
    budget, so every report, budget and MCP tool cuts the same months. The default is
    the 1st, which is today's calendar months: nothing changes until the user sets it.
+   *Amended 2026-11-25 (M4.11): a stored value that can't be read also means the 1st,
+   logged at `warn` without the value, so a bad row never stops a report; only a
+   database error does. Fields the rule doesn't know are ignored, so point 10's
+   overrides can be added to the same value without an older build failing to read
+   it.*
 2. **The start is a day of the month, or its last day, optionally moved off weekends.**
    - **Day 1 to 28,** or **the last day of the month.** Not 29 to 31, which some months
      lack; "the last day" covers the employers who pay at month end.
@@ -472,6 +480,12 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    `setting`. A month is never empty and months never overlap or leave a gap, which
    tests check for every start and weekend choice across leap years. Callers that mean
    a calendar month (none today) say so.
+   *Amended 2026-11-25 (M4.11): `next`, `previous` and `through` step names, so they
+   take no rule; only a month's dates do (`containing`, `first_day`, `last_day`,
+   `range`, `DateRange::months` and `periods`). A caller meaning calendar months passes
+   `MonthStart::CALENDAR`. The first and last names are held to the dates a
+   `YYYY-MM-DD` can hold: `0001-01` starts on 0001-01-01 and `9999-12` ends on
+   9999-12-31.*
 7. **MCP reads it, says it, and can't change it.** Live month queries return each
    month's `from` and `to` dates, so a client never assumes the 1st; their
    descriptions say months follow the user's month start. Saved reviews keep the
@@ -481,6 +495,9 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    `monthly_review` asks the client to include the dates it reviewed in the saved
    text. The rule is not personal data and is returned at every level. MCP can't
    write it ("MCP writes go to the inbox only").
+   *Amended 2026-11-25 (M4.11): MCP returns the rule's effect, each month's `from` and
+   `to`, at every level, not the rule itself (its day and weekend choice): no tool
+   needs it yet.*
 8. **Rejected: months that start on payday as it happened.** Periods anchored to the
    salary itself, found by matching income or a schedule's matched occurrences, would
    handle holidays and late pay. But a month's dates would move when an import or a

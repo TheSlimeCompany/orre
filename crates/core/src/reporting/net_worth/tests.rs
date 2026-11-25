@@ -216,3 +216,47 @@ fn history_and_the_accounts_panel_agree_on_net_worth() {
     ledger.balance(card, "2026-10-10", -3_000);
     assert_eq!(check(&ledger), [347_200]);
 }
+
+#[test]
+fn each_point_is_the_last_day_of_the_month_under_the_month_start() {
+    use crate::reporting::test_ledger::date;
+    use crate::reporting::{MonthStart, StartDay, Weekends};
+
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current", Currency::GBP);
+    ledger.balance(current, "2026-10-01", 10_000);
+    ledger.row(current, "2026-11-24", -1_000, None);
+    ledger.row(current, "2026-11-25", -2_000, None);
+    let start = MonthStart::new(StartDay::day(25).unwrap(), Weekends::Keep);
+    crate::setting::set_month_start(&mut ledger.db, start).unwrap();
+
+    let history =
+        net_worth_history(&ledger.reader(), period("2026-11"), period("2026-12")).unwrap();
+    let points: Vec<_> = history
+        .items
+        .iter()
+        .map(|month| {
+            assert_eq!(month.date, month.range.to());
+            (
+                month.period.key(),
+                month.date,
+                month.total.get(Currency::GBP),
+            )
+        })
+        .collect();
+    assert_eq!(
+        points,
+        [
+            (
+                "2026-11".to_owned(),
+                date("2026-11-24"),
+                Some(Money::new(9_000, Currency::GBP))
+            ),
+            (
+                "2026-12".to_owned(),
+                date("2026-12-24"),
+                Some(Money::new(7_000, Currency::GBP))
+            ),
+        ]
+    );
+}

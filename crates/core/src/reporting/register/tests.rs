@@ -597,7 +597,11 @@ fn with_no_spending_every_category_is_other() {
 #[test]
 fn date_presets_cover_whole_periods() {
     let today = date(TODAY);
-    let range = |preset: DatePreset| preset.range(today).map(|range| (range.from(), range.to()));
+    let range = |preset: DatePreset| {
+        preset
+            .range(today, MonthStart::CALENDAR)
+            .map(|range| (range.from(), range.to()))
+    };
     let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap();
     assert_eq!(
         range(DatePreset::ThisMonth),
@@ -628,10 +632,46 @@ fn date_presets_cover_whole_periods() {
     // January's last month is the previous December.
     assert_eq!(
         DatePreset::LastMonth
-            .range(day("2027-01-15"))
+            .range(day("2027-01-15"), MonthStart::CALENDAR)
             .map(|range| (range.from(), range.to())),
         Some((day("2026-12-01"), day("2026-12-31")))
     );
+}
+
+#[test]
+fn month_presets_follow_the_month_start_and_the_rest_dont() {
+    use crate::reporting::{StartDay, Weekends};
+
+    let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap();
+    // The 25th, and 25 Oct 2026 is a Sunday: November starts on Friday 23
+    // Oct.
+    let start = MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore);
+    let range = |preset: DatePreset| {
+        preset
+            .range(date(TODAY), start)
+            .map(|range| (range.from(), range.to()))
+    };
+    assert_eq!(
+        range(DatePreset::ThisMonth),
+        Some((day("2026-10-23"), day("2026-11-24")))
+    );
+    assert_eq!(
+        range(DatePreset::LastMonth),
+        Some((day("2026-09-25"), day("2026-10-22")))
+    );
+    assert_eq!(
+        range(DatePreset::LastThreeMonths),
+        Some((day("2026-08-25"), day("2026-11-24")))
+    );
+    assert_eq!(
+        range(DatePreset::ThisYear),
+        Some((day("2026-01-01"), day("2026-12-31")))
+    );
+    assert_eq!(
+        range(DatePreset::ThisWeek),
+        Some((day("2026-11-09"), day("2026-11-15")))
+    );
+    assert_eq!(range(DatePreset::AllTime), None);
 }
 
 #[test]
@@ -639,8 +679,11 @@ fn week_presets_run_monday_to_sunday() {
     let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap();
     let weeks = |today: &str| {
         let today = day(today);
-        [DatePreset::ThisWeek, DatePreset::LastWeek]
-            .map(|preset| preset.range(today).map(|range| (range.from(), range.to())))
+        [DatePreset::ThisWeek, DatePreset::LastWeek].map(|preset| {
+            preset
+                .range(today, MonthStart::CALENDAR)
+                .map(|range| (range.from(), range.to()))
+        })
     };
     // A Monday is the first day of its own week.
     assert_eq!(
