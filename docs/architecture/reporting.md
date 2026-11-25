@@ -507,6 +507,15 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    periods a year would need a different budget model).
 9. **Where it's set.** Settings in the app, designed in Paper first. No CLI command in
    the first cut; `orre budgets` and every report follow the setting.
+   *Amended 2026-11-25 (M4.11, built from D6.12, Paper `K57-0` and `KEQ-0`; decided by
+   the user): Settings → CALENDAR → Month start, the section named "Calendar" rather
+   than the artboard's "Reports". A choice applies at once, with no Save or confirm:
+   nothing is rewritten, so it can be changed back. When a month preset's range differs
+   from the calendar month, the Date chip's label shows its dates too ("This month · 23
+   Oct – 24 Nov"), as its menu does. The Date chip has no "Pick a month…": the
+   Overview's switcher picks months, and shows the month's dates beside it when they
+   differ. Each preset shows its dates only when its own range differs, so with the 1st
+   and the Friday before, Last 3 months (1 Sep to 30 Nov in 2026) shows none.*
 10. **Later: one month's start moved by hand.** A per-month override ("December starts
    on 20 Dec") is the answer to holidays and early pay (point 2). It is a list of dates
    in the same setting, no migration, so it can follow without changing this record's

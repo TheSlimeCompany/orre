@@ -150,6 +150,17 @@ impl OverviewView {
                     .disabled(self.next_month().is_none())
                     .on_click(cx.listener(|this, _, _, cx| this.show_next(cx))),
             )
+            // The month's dates when the month start moves them off the
+            // calendar month (Paper `KLJ-0`).
+            .when_some(text.dates.clone(), |this, dates| {
+                this.child(
+                    div()
+                        .whitespace_nowrap()
+                        .text_role(typography::MONO_VALUE)
+                        .text_color(color::TEXT_MUTED)
+                        .child(SharedString::from(dates)),
+                )
+            })
     }
 
     /// "Income and spending": title, caption and legend, then the chart.

@@ -342,6 +342,29 @@ fn main() -> Result<()> {
             shell.into()
         })?;
     }
+    // M4.11: the month start as Paper `K57-0` draws it (the 25th, Friday
+    // before), and the default (calendar months, `KEZ-0`).
+    for (name, start) in [
+        ("settings-month-start", None),
+        (
+            "settings-month-start-default",
+            Some(orre_core::reporting::period::MonthStart::CALENDAR),
+        ),
+    ] {
+        snapshot(&mut cx, &out, name, move |window, cx| {
+            let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
+            let settings = cx.new(|cx| {
+                let settings = SettingsView::fixture(cx);
+                match start {
+                    Some(start) => settings.with_month_start(start),
+                    None => settings,
+                }
+            });
+            settings.update(cx, |settings, cx| settings.show(Section::MonthStart, cx));
+            cx.new(|cx| ShellView::with_settings(View::Settings, accounts, settings, window, cx))
+                .into()
+        })?;
+    }
     snapshot(&mut cx, &out, "settings-off", |window, cx| {
         let accounts = cx.new(|_| Accounts::fixture(accounts_fixture::accounts()));
         let settings = cx.new(SettingsView::fixture_off);
