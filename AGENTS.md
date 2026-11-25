@@ -6,6 +6,10 @@ Orre is a local-first personal finance dashboard: a Rust + GPUI desktop app that
 imports bank exports (CSV, OFX/QFX) into a local SQLite database, shows them as tables and
 charts, and exposes the data to AI clients through an MCP server.
 
+- **Direction:** [`VISION.md`](VISION.md) — read it first. Its principles are ranked,
+  its non-goals rule work out, and before planning or choosing the next piece of work,
+  answer its planning prompt ("How we use this file") as a short list for the user to
+  accept.
 - **Design and rationale:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the overview
   and the list of every section and decision record; the detail is in
   `docs/architecture/<topic>.md` (reference sections, then that topic's decision records).
