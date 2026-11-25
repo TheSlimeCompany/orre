@@ -723,3 +723,45 @@ fn the_opening_overview_is_the_overview_at_the_landing_month() {
     let opened = opening_overview(&reader, &query("2026-11")).unwrap();
     assert_eq!(opened, overview(&reader, &query("2026-10")).unwrap());
 }
+
+#[test]
+fn months_follow_the_month_start() {
+    use crate::reporting::{StartDay, Weekends};
+
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current", Currency::GBP);
+    ledger.row(current, "2026-11-24", -1_000, Some("food.groceries"));
+    ledger.row(current, "2026-11-25", -2_000, Some("food.groceries"));
+    let start = MonthStart::new(StartDay::day(25).unwrap(), Weekends::Keep);
+    crate::setting::set_month_start(&mut ledger.db, start).unwrap();
+
+    // Today, 26 Nov, is in December's month under the 25th.
+    let today = date("2026-11-26");
+    let reader = ledger.reader();
+    assert_eq!(
+        landing_month(&reader, None, today).unwrap(),
+        period("2026-12")
+    );
+    let opened = opening_overview(
+        &reader,
+        &OverviewQuery {
+            today,
+            ..query("2026-01")
+        },
+    )
+    .unwrap();
+    assert_eq!(opened.month_start, start);
+    assert_eq!(opened.selected.period, period("2026-12"));
+    assert_eq!(
+        (opened.selected.range.from(), opened.selected.range.to()),
+        (date("2026-11-25"), date("2026-12-24"))
+    );
+    assert_eq!(opened.selected.spent, gbp(2_000));
+    assert_eq!(opened.previous.period, period("2026-11"));
+    assert_eq!(opened.previous.spent, gbp(1_000));
+    assert_eq!(opened.months.last().unwrap().period, period("2026-12"));
+    for month in &opened.months {
+        assert_eq!(month.range, month.period.range(start));
+    }
+    assert_eq!(opened.earliest_month, Some(period("2026-11")));
+}

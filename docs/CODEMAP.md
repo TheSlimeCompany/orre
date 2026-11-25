@@ -119,7 +119,8 @@ M1.20–M1.27 have no CLI commands yet.
 
 ### Reporting, budgets and schedules
 
-- `reporting` (M2.2): the `Ledger` over `ledger_line`, `Period`, per-currency `Totals`,
+- `reporting` (M2.2): the `Ledger` over `ledger_line`, `Period` (a month's name, its dates
+  cut under the user's `MonthStart`, M4.11), per-currency `Totals`,
   `Limit`; `summary`, `spending`, `budget_status`, `net_worth`, `balance`, `rows`,
   `catalog` (`reports_visible_to`: a client's own reports at its level or below, R.2,
   `V19__report_access_level.sql`). App read models: `account_tree` (the accounts panel, M3.2), `register` (the
@@ -148,8 +149,8 @@ M1.20–M1.27 have no CLI commands yet.
 - `envelope`: the untrusted-text envelope, `sanitize`, `strip_invisible`,
   `reads_like_instructions`, merchant pseudonyms (M2.13); `envelope::shown`.
 - `setting`: the kill switch, the pseudonym key, the import's account key (R.13), the
-  window state
-  (`setting::WindowState`).
+  window state (`setting::WindowState`), and the month start
+  (`setting::month_start`, M4.11).
 - `mcp_client`: enable, level, revoke, ignore, `requested`; `enable_at`,
   `turn_off`/`turn_on` (keeping the level) and `remove` (M3.15). `V11__mcp.sql`.
 - `access_log`: append, list, 12-month retention; `access_log::activity` (pages, counts,

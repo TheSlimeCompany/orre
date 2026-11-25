@@ -61,7 +61,9 @@ fn amounts(call: &Call<'_>, totals: &Totals) -> Vec<Amount> {
 pub const MONTHLY_SUMMARY: ToolSpec = ToolSpec {
     name: "monthly_summary",
     description: "Income, spending and net for every month from `from` through `to` (both \
-                  `YYYY-MM`, at most 200 months), empty months included. Totals only. Amounts \
+                  `YYYY-MM`, at most 200 months), empty months included. Months follow the \
+                  user's month start, so one may not begin on the 1st: each month in the \
+                  result gives its first and last day as `from` and `to`. Totals only. Amounts \
                   are the user's own share (a shared cost counts as their part, a purchase \
                   being claimed back as nothing), per currency and never converted. Refunds \
                   net against spending in the month the money came back. Excluded rows and \
@@ -93,8 +95,13 @@ pub struct MonthlySummary {
 /// that month).
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SummaryMonth {
-    /// `YYYY-MM`.
+    /// `YYYY-MM`: the month's name.
     pub month: String,
+    /// The month's first day, `YYYY-MM-DD`: under the user's month start,
+    /// not necessarily the 1st.
+    pub from: String,
+    /// The month's last day, `YYYY-MM-DD`, included.
+    pub to: String,
     /// Money earned or received, positive.
     pub income: Vec<Amount>,
     /// Money spent, positive; refunds reduce it (below zero only when they
@@ -112,6 +119,8 @@ fn monthly_summary(call: &Call<'_>, args: MonthRange) -> Result<Reply<MonthlySum
         .iter()
         .map(|month: &MonthSummary| SummaryMonth {
             month: month.period.key(),
+            from: month.range.from().to_string(),
+            to: month.range.to().to_string(),
             income: amounts(call, &month.income),
             spending: amounts(call, &month.spending),
             net: amounts(call, &month.net),
@@ -137,7 +146,9 @@ pub const SPENDING_BY_CATEGORY: ToolSpec = ToolSpec {
                   only categories with spending appear, in the user's order. Amounts are \
                   positive amounts spent, the user's own share, per currency and never \
                   converted. A refund nets against its purchase's category in the month the \
-                  money came back, so a total can go below zero.",
+                  money came back, so a total can go below zero. The month follows the user's \
+                  month start, so it may not begin on the 1st: `from` and `to` in the result \
+                  are its first and last day.",
     level: AccessLevel::Aggregate,
     writes: Writes::Nothing,
 };
@@ -152,8 +163,13 @@ pub struct OneMonth {
 /// `spending_by_category`'s result.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct CategorySpending {
-    /// `YYYY-MM`.
+    /// `YYYY-MM`: the month's name.
     pub period: String,
+    /// The month's first day, `YYYY-MM-DD`: under the user's month start,
+    /// not necessarily the 1st.
+    pub from: String,
+    /// The month's last day, `YYYY-MM-DD`, included.
+    pub to: String,
     /// Groups with spending in the month.
     pub groups: Vec<GroupSpent>,
     /// Uncategorised money out, per currency.
@@ -216,6 +232,8 @@ fn spending_by_category(
     Ok(Reply::new(
         CategorySpending {
             period: period.key(),
+            from: spending.range.from().to_string(),
+            to: spending.range.to().to_string(),
             groups,
             uncategorized: amounts(call, &spending.uncategorized),
             total: amounts(call, &spending.total),
@@ -235,7 +253,9 @@ pub const BUDGET_STATUS: ToolSpec = ToolSpec {
                   user's own share in the budget's currency, a group's budget covering its \
                   subcategories; refunds net against their category in the month the money \
                   came back. Spending in other currencies is listed separately, never \
-                  converted. Totals only.",
+                  converted. Totals only. The month follows the user's month start, so it \
+                  may not begin on the 1st: `from` and `to` in the result are its first and \
+                  last day.",
     level: AccessLevel::Aggregate,
     writes: Writes::Nothing,
 };
@@ -250,8 +270,13 @@ pub struct BudgetMonth {
 /// `budget_status`' result.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct BudgetStatus {
-    /// `YYYY-MM`.
+    /// `YYYY-MM`: the month's name.
     pub month: String,
+    /// The month's first day, `YYYY-MM-DD`: under the user's month start,
+    /// not necessarily the 1st.
+    pub from: String,
+    /// The month's last day, `YYYY-MM-DD`, included.
+    pub to: String,
     /// Every category with a budget for the month, in the user's category
     /// order.
     pub budgets: Vec<BudgetState>,
@@ -337,6 +362,8 @@ fn budget_status(call: &Call<'_>, args: BudgetMonth) -> Result<Reply<BudgetStatu
     Ok(Reply::new(
         BudgetStatus {
             month: period.key(),
+            from: status.range.from().to_string(),
+            to: status.range.to().to_string(),
             budgets,
         },
         rows,
@@ -349,7 +376,9 @@ pub const NET_WORTH_HISTORY: ToolSpec = ToolSpec {
     name: "net_worth_history",
     description: "Net worth at the end of every month from `from` through `to` (both \
                   `YYYY-MM`, at most 200 months): each account's balance on the month's last \
-                  day and the total per currency, never converted. Balances are gross, like \
+                  day and the total per currency, never converted. Months follow the user's \
+                  month start, so one may not begin on the 1st: each month in the result gives \
+                  its first and last day as `from` and `to`. Balances are gross, like \
                   the bank's. Pots are accounts of their own; asset and liability accounts \
                   hold their last valuation, and a liability always lowers the total. Closed \
                   accounts are left out after closing. An account with no stated balance is \
@@ -373,9 +402,14 @@ pub struct NetWorthHistory {
 /// Net worth at one month's end.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct NetWorthAt {
-    /// `YYYY-MM`.
+    /// `YYYY-MM`: the month's name.
     pub month: String,
-    /// The day the balances are taken: the month's last, `YYYY-MM-DD`.
+    /// The month's first day, `YYYY-MM-DD`: under the user's month start,
+    /// not necessarily the 1st.
+    pub from: String,
+    /// The month's last day, `YYYY-MM-DD`, included.
+    pub to: String,
+    /// The day the balances are taken: the month's last (`to`), `YYYY-MM-DD`.
     pub date: String,
     /// Every account open that day with a known balance, in the order the
     /// user added them.
@@ -468,6 +502,8 @@ fn net_worth_history(
         .iter()
         .map(|month: &NetWorthMonth| NetWorthAt {
             month: month.period.key(),
+            from: month.range.from().to_string(),
+            to: month.range.to().to_string(),
             date: month.date.to_string(),
             accounts: month.accounts.iter().map(account).collect(),
             total: amounts(call, &month.total),

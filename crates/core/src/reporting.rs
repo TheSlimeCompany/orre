@@ -8,7 +8,10 @@
 //! # The shared pieces
 //!
 //! - [`Period`] (a month, `YYYY-MM`) and [`DateRange`] (inclusive, `from <=
-//!   to`), both validated.
+//!   to`), both validated. A month's dates come from the user's
+//!   [`MonthStart`] ([`period`]), which each report reads once from the
+//!   `reporting.month_start` setting ([`crate::setting::month_start`]) and
+//!   returns with each month's dates.
 //! - [`Ledger`]: a query over the `ledger_line` view, the one place reports
 //!   read transactions from. It keeps only rows that count in reports
 //!   (`in_reports`: not excluded, not in a confirmed transfer, and for a
@@ -71,7 +74,7 @@ pub mod totals;
 pub(crate) mod test_ledger;
 
 pub use ledger::{Basis, Ledger, LedgerLine, LineCategory, Side};
-pub use period::{DateRange, Period};
+pub use period::{DateRange, MonthStart, Period, StartDay, Weekends};
 pub use tally::Tally;
 pub use totals::{Capped, DEFAULT_ROWS, Limit, MAX_ROWS, Totals};
 
@@ -124,6 +127,11 @@ pub enum Error {
     /// Reading the recurring payments failed.
     #[error(transparent)]
     Recurring(#[from] crate::recurring::Error),
+
+    /// Reading the month start ([`crate::setting::month_start`]) failed:
+    /// the stored rule is unreadable, which is no fault of the caller's.
+    #[error(transparent)]
+    Setting(#[from] crate::setting::Error),
 }
 
 impl Error {
@@ -140,7 +148,7 @@ impl Error {
             | Error::UnknownTag
             | Error::InvalidAmountRange => true,
             Error::Money(_) | Error::Database(_) => false,
-            Error::Rule(_) | Error::Recurring(_) => false,
+            Error::Rule(_) | Error::Recurring(_) | Error::Setting(_) => false,
         }
     }
 }

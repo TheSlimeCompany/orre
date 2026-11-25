@@ -9,6 +9,7 @@ use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 use orre_core::db::Database;
 use orre_core::reporting::Period;
 use orre_core::reporting::overview::{OverviewQuery, overview as core_overview};
+use orre_core::reporting::period::MonthStart;
 use tempfile::TempDir;
 
 use super::describe::{Action, OverviewDescription, Shown};
@@ -310,7 +311,7 @@ impl Scratch {
         core_overview(
             &db.reader().unwrap(),
             &OverviewQuery {
-                month: Period::containing(Self::today()),
+                month: Period::containing(Self::today(), MonthStart::CALENDAR),
                 account,
                 today: Self::today(),
             },
@@ -482,6 +483,29 @@ fn without_pending_suggestions_there_is_no_agent_card(cx: &mut TestAppContext) {
     let (_, overview, cx) = open(cx, OverviewView::fixture());
     assert_eq!(figures(&described(&overview, cx)).agent_card, None);
     assert!(!shows("overview-review", cx));
+}
+
+#[gpui_kit::test]
+fn the_current_month_follows_the_users_month_start(cx: &mut TestAppContext) {
+    use orre_core::reporting::period::{StartDay, Weekends};
+
+    let scratch = Scratch::new();
+    let the_25th = MonthStart::new(StartDay::day(25).unwrap(), Weekends::Keep);
+    orre_core::setting::set_month_start(&mut Database::open(&scratch.path).unwrap(), the_25th)
+        .unwrap();
+    // On 26 November the 25th has begun the month named December, which
+    // has no data yet: the screen lands on November (calendar months would
+    // make November the current one, with nothing after it to step to).
+    let mut view = scratch.view();
+    view.hold_day(NaiveDate::from_ymd_opt(2026, 11, 26).unwrap());
+    let (_, overview, cx) = open(cx, view);
+    overview.update(cx, |overview, cx| overview.reload(cx));
+    redraw(cx);
+    overview.read_with(cx, |overview, _| {
+        assert_eq!(overview.month_start(), the_25th);
+        assert_eq!(overview.month(), month(2026, 11));
+        assert_eq!(overview.next_month(), Some(month(2026, 12)));
+    });
 }
 
 // The day moving on (a window left open across midnight) ------------------------

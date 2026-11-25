@@ -1,9 +1,9 @@
 //! `net_worth_history`: month-end balances per account and in total.
 //!
-//! For the last day of each month, every account's balance from
-//! [`balance::balances_at`]: gross, like the bank's (shared costs and
-//! claims don't change a balance), from its stated balances and
-//! transactions. Pots are accounts of their own, so money moved into a pot
+//! For the last day of each month, cut by the user's month start, every
+//! account's balance from [`balance::balances_at`]: gross, like the bank's
+//! (shared costs and claims don't change a balance), from its stated
+//! balances and transactions. Pots are accounts of their own, so money moved into a pot
 //! stays in net worth; a valuation account (`asset`, `liability`) holds its
 //! last valuation and is left out before its first.
 //!
@@ -32,6 +32,7 @@ use crate::account::{Account, AccountKind};
 use crate::db::Reader;
 use crate::id::AccountId;
 use crate::money::Money;
+use crate::setting;
 
 use super::balance::{self, Anchor};
 use super::{Capped, DateRange, Error, Limit, Period, Totals};
@@ -40,7 +41,9 @@ use super::{Capped, DateRange, Error, Limit, Period, Totals};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NetWorthMonth {
     pub period: Period,
-    /// The month's last day, when the balances are taken.
+    /// The month's days under the month start it was read with.
+    pub range: DateRange,
+    /// The month's last day, when the balances are taken: `range.to()`.
     pub date: NaiveDate,
     /// Every account open on that day with a balance, in the order they
     /// were created.
@@ -77,21 +80,31 @@ impl AccountWorth {
 }
 
 /// Net worth at the end of every month from `first` through `last` (module
-/// docs). A range that ends before it starts is [`Error::EmptyRange`]; one
+/// docs), months cut by the user's month start ([`setting::month_start`]).
+/// A range that ends before it starts is [`Error::EmptyRange`]; one
 /// longer than [`Limit::MAX`] months is cut there, with `truncated` set.
 pub fn net_worth_history(
     reader: &Reader,
     first: Period,
     last: Period,
 ) -> Result<Capped<NetWorthMonth>, Error> {
-    let periods = Capped::new(DateRange::months(first, last)?.periods(), Limit::MAX);
-    let dates: Vec<NaiveDate> = periods.items.iter().map(Period::last_day).collect();
+    let start = setting::month_start(reader)?;
+    let periods = Capped::new(
+        DateRange::months(first, last, start)?.periods(start),
+        Limit::MAX,
+    );
+    let dates: Vec<NaiveDate> = periods
+        .items
+        .iter()
+        .map(|period| period.last_day(start))
+        .collect();
     let mut months: Vec<NetWorthMonth> = periods
         .items
         .iter()
         .zip(&dates)
         .map(|(&period, &date)| NetWorthMonth {
             period,
+            range: period.range(start),
             date,
             accounts: Vec::new(),
             total: Totals::new(),

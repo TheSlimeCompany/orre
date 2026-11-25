@@ -373,7 +373,9 @@ as built). Everything else follows an earlier decision record or invariant.
    process-to-process messages (user).
 2. **`monthly_review`** is listed only to enabled clients; its text is built from the
    tools at the client's level, so it never names one the client can't call; getting it
-   isn't logged, since it returns no data (user).
+   isn't logged, since it returns no financial data (user). Since M4.11 it states the
+   month's dates under the user's month start, a setting that isn't personal data
+   (`reporting.md`, "Decision record: the month start", point 7).
 3. **Saved reports are capped at 500 per client**; the 501st is refused with a clear
    error, counted and inserted in one transaction (user). The error tells the client
    that the user can make room with `orre inbox delete-report`, and names nothing of

@@ -53,11 +53,14 @@ is below; the records under "Decision records" are the history.
 - `rows`, `catalog` and `register` list rows, accounts, rules and reports, and the
   Transactions table. `palette::category_palette` ranks category colours with the
   register's ranking (`inbox.md`, decision record "Inbox", point 6).
-- **Months** are calendar months today (`Period`). Decided but not built (M4.11): a
-  month runs from the user's month start, a day of the month or its last day, optionally
-  moved back off weekends, and is named after the calendar month it mostly covers;
-  every report, budget and MCP tool that says "month" follows it (decision record "the
-  month start").
+- **Months** run from the user's month start (M4.11, `reporting::MonthStart` in the
+  `reporting.month_start` setting; the default, the 1st, is calendar months): a day of
+  the month or its last day, optionally moved back off weekends, named by the nominal
+  start (`Period`, `YYYY-MM`). `Period`'s dates (`containing`, `first_day`, `last_day`,
+  `range`, `DateRange::months`) take the rule; every report, budget, Inbox month label,
+  the register's month presets and every MCP tool that says "month" follows it, and
+  month results carry their `range` (MCP: `from` and `to`). Decision record "the month
+  start".
 
 ### Previews of a change
 
@@ -472,6 +475,11 @@ lives in Settings is for Paper (point 9). No migration: the setting is a row in
    `setting`. A month is never empty and months never overlap or leave a gap, which
    tests check for every start and weekend choice across leap years. Callers that mean
    a calendar month (none today) say so.
+   *As built (M4.11):* `next`, `previous` and `through` step names, so they take no
+   rule; only a month's dates do (`containing`, `first_day`, `last_day`, `range`,
+   `DateRange::months` and `periods`). A caller meaning calendar months passes
+   `MonthStart::CALENDAR`. `containing` saturates at `0001-01` and `9999-12` for the
+   few dates outside every month.
 7. **MCP reads it, says it, and can't change it.** Live month queries return each
    month's `from` and `to` dates, so a client never assumes the 1st; their
    descriptions say months follow the user's month start. Saved reviews keep the

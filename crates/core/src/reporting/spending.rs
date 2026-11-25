@@ -16,13 +16,16 @@ use std::collections::HashMap;
 
 use crate::category::{Category, CategoryKey, CategoryKind, CategoryTree};
 use crate::db::Reader;
+use crate::setting;
 
-use super::{Basis, Error, Ledger, Period, Side, Totals};
+use super::{Basis, DateRange, Error, Ledger, Period, Side, Totals};
 
 /// One month's spending by category.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CategorySpending {
     pub period: Period,
+    /// The month's days under the month start it was read with.
+    pub range: DateRange,
     /// Groups with spending, in tree order.
     pub groups: Vec<GroupSpending>,
     /// Uncategorised money out.
@@ -53,10 +56,12 @@ pub struct SubcategorySpending {
     pub spent: Totals,
 }
 
-/// What was spent in `period`, by category (module docs).
+/// What was spent in `period`, by category (module docs), the month cut by
+/// the user's month start ([`setting::month_start`]).
 pub fn spending_by_category(reader: &Reader, period: Period) -> Result<CategorySpending, Error> {
     let tree = CategoryTree::load(reader.conn())?;
-    let lines = Ledger::new().within(period.range()).lines(reader)?;
+    let range = period.range(setting::month_start(reader)?);
+    let lines = Ledger::new().within(range).lines(reader)?;
 
     // Signed sums (money out below zero) per category ID.
     let mut by_category: HashMap<i64, Totals> = HashMap::new();
@@ -114,6 +119,7 @@ pub fn spending_by_category(reader: &Reader, period: Period) -> Result<CategoryS
     total.add_all(&uncategorized)?;
     Ok(CategorySpending {
         period,
+        range,
         groups,
         uncategorized,
         total,
