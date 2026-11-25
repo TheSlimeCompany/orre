@@ -60,11 +60,11 @@ The questions we mean are ones of understanding and planning: where the cash wen
 
 This section is the measurable end state: what the product looks like, and what it does, when we have succeeded. We compare current work against it. The following are targets, not a description of the product today. Each target is written so we can say, plainly, whether we have met it or not. If we cannot pass or fail a target, it is not yet measurable enough, and we should tighten the wording rather than leave it as a mood. A "to be set" placeholder must be filled before its target counts.
 
-- **First overview, fast.** A new user goes from installing a release to a reconciled first month and its overview in under [N minutes, to be set], with no AI client and no network connection.
-- **Import that covers the audience.** Orre ships tested presets for at least [N, to be set] banks in each of the UK, the US, and the euro area, named in ROADMAP.md, and each imports through preview, deduplication, and reconciliation without writing code.
+- **First overview, fast.** A new user goes from installing a release to a reconciled first month and its overview in under 15 minutes, with no AI client and no network connection.
+- **Import that covers the audience.** Orre ships tested presets for at least 5 banks in each of the UK, the US, and the euro area, named in ROADMAP.md, and each imports through preview, deduplication, and reconciliation without writing code.
 - **History that opens elsewhere.** A full export loads into Beancount and hledger and passes their own checks.
-- **Strangers use it.** At least [N, to be set] people outside the project have installed a release and imported their own bank's export by following the README alone, and said so in an issue or discussion.
-- **A small, serious commons.** At least [N, to be set] bank presets, importers, or MCP tools from people outside the project have been merged. Each passed the project's own review: an MCP tool passes the per-tool access-level and PII tests, and one-way doors get a hostile review.
+- **Strangers use it.** At least 25 people outside the project have installed a release and imported their own bank's export by following the README alone, and said so in an issue or discussion.
+- **A small, serious commons.** At least 10 bank presets, importers, or MCP tools from people outside the project have been merged. Each passed the project's own review: an MCP tool passes the per-tool access-level and PII tests, and one-way doors get a hostile review.
 - **Honesty that has kept pace.** Encryption at rest has shipped. SECURITY.md still states, without softening, that access levels are a guardrail, not a hard boundary against a local process.
 
 Some things must stay true on the way; breaking one is a regression, not progress. The monthly cycle of import, reconciliation, and overview needs no AI and no network. Asking an AI about your books needs no Orre account and no bank aggregator. Reports never change the ledger; suggestions wait for approval. The schema is documented, exports are open formats, and backups are plain SQLite files, so the history outlives the project.
