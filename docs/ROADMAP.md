@@ -3,7 +3,8 @@
 Orre is a local-first personal finance dashboard: import bank statements,
 see where your money goes, and talk to your data through any MCP-capable AI client
 (Claude Code, Claude Desktop, Codex). Design decisions live in
-[`ARCHITECTURE.md`](ARCHITECTURE.md); this file tracks what gets built, in what order.
+[`ARCHITECTURE.md`](ARCHITECTURE.md), and the long-term direction in
+[`VISION.md`](../VISION.md); this file tracks what gets built, in what order.
 
 Status legend: ✅ done · 🚧 in progress · ⬜ not started
 
