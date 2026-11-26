@@ -266,19 +266,36 @@ pub fn helper(today: NaiveDate, start: MonthStart) -> Vec<Run> {
     }
     let month = Period::containing(today, start);
     let name = month_name(month);
+    // An early start day names the month its chosen day falls in, not the
+    // day a weekend moves the start to: with the 1st and the Friday before,
+    // November can start on 30 October.
     let (which, named, pay) = match start.day().day_of_month() {
-        None => ("the last day", "ends in", ", the month that pay is for"),
-        Some(_) if start.day().names_next_month() => (
-            "the 16th or later",
-            "ends in",
+        None => (
+            "the last day".to_owned(),
+            "the month it ends in".to_owned(),
             ", the month that pay is for",
         ),
-        Some(_) => ("the 15th or earlier", "starts in", ""),
+        Some(_) if start.day().names_next_month() => (
+            "the 16th or later".to_owned(),
+            "the month it ends in".to_owned(),
+            ", the month that pay is for",
+        ),
+        Some(day) => (
+            "the 15th or earlier".to_owned(),
+            match start.weekends() {
+                Weekends::Keep => format!("the month its {} falls in", ordinal(day)),
+                Weekends::FridayBefore => format!(
+                    "the month its {} falls in, even when a weekend moves the start earlier",
+                    ordinal(day)
+                ),
+            },
+            "",
+        ),
     };
     vec![
         lead("Months keep their name."),
         plain(format!(
-            " A month starting on {which} is named after the month it {named}, so {} is \
+            " A month starting on {which} is named after {named}, so {} is \
              {name}{pay}. Budgets stay attached to their month: {name}’s budget is still \
              {name}’s, now counted over these dates.",
             format::day_range(month.range(start)),
@@ -783,8 +800,17 @@ mod tests {
         );
         let fifth = Run::joined(&helper(today, rule(the(5), Weekends::Keep)));
         assert!(
-            fifth.contains("the 15th or earlier is named after the month it starts in, so 5 Nov – 4 Dec is November."),
+            fifth.contains("the 15th or earlier is named after the month its 5th falls in, so 5 Nov – 4 Dec is November."),
             "{fifth}"
+        );
+        // Sun 1 Nov 2026 moves to Fri 30 Oct, yet the month is November.
+        let first = Run::joined(&helper(today, rule(the(1), Weekends::FridayBefore)));
+        assert!(
+            first.contains(
+                "the 15th or earlier is named after the month its 1st falls in, even when a \
+                 weekend moves the start earlier, so 30 Oct – 30 Nov is November."
+            ),
+            "{first}"
         );
     }
 
