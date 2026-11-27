@@ -1547,10 +1547,13 @@ due before payday.
   the first runs on GitHub are green and `main` requires the checks
 - 🚧 M5.6 Release artifacts: Linux tarball + Nix flake, and an unsigned macOS `.dmg`.
   No AppImage in v0.1. The Linux tarball (`packaging/linux/build-tarball.sh`,
-  smoke-tested under Xvfb) and the Nix flake (`flake.nix`, the release binary with
-  the GPUI libraries on its rpath) are built and checked by the `Linux tarball` and
-  `Nix flake` jobs of `.github/workflows/release.yml` (`workflow_dispatch` and `v*`
-  tags), with install steps in `docs/install.md`; the `.dmg` is still to do
+  smoke-tested under Xvfb), the Nix flake (`flake.nix`, the release binary with the
+  GPUI libraries on its rpath) and the unsigned macOS `.dmg`
+  (`packaging/macos/build-dmg.sh`, ad-hoc signed, not notarised: no Apple Developer
+  account) are built and checked by the `Linux tarball`, `Nix flake` and
+  `macOS dmg (unsigned)` jobs of `.github/workflows/release.yml` (`workflow_dispatch`
+  and `v*` tags), with install and Gatekeeper steps in `docs/install.md`; done once a
+  dispatch run of all three jobs is green
 - ⬜ M5.7 Data location, backup, and privacy documentation
 - ⬜ M5.8 Deferred to v0.2. Beancount and hledger journal export: deterministic and
   stably sorted; fixture exports are checked with `bean-check` / `hledger check` when

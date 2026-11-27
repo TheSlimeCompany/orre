@@ -6,7 +6,7 @@
 # `v*` tag runs the same jobs. One job per artifact, so each platform is
 # added beside the others:
 #   linux  - the tarball (packaging/linux/build-tarball.sh)        W2-1
-#   macos  - the unsigned .dmg (packaging/macos/)                  W2-3
+#   macos  - the unsigned .dmg (packaging/macos/build-dmg.sh)      W2-3
 #   nix    - `nix build` / `nix flake check` of flake.nix          W2-2
 #            (a check, not a download: Nix users build from the flake)
 name: Release
@@ -95,7 +95,65 @@ jobs:
             dist/*.tar.gz.sha256
           if-no-files-found: error
 
-  # macos: W2-3 adds the unsigned .dmg job here.
+  macos:
+    name: macOS dmg (unsigned)
+    # arm64 only for v0.1. Unsigned: no Apple Developer account, so no
+    # Developer ID, notarisation or Apple secrets; the app is ad-hoc signed
+    # (packaging/macos/build-dmg.sh says why).
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the Metal compiler
+        # GPUI compiles its shaders with `xcrun metal`; same step as ci.yml.
+        run: |
+          if ! xcrun -f metal >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -f metal
+
+      - name: Install Rust
+        # rustup reads rust-toolchain.toml (stable).
+        run: |
+          rustup toolchain install
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Build the dmg
+        id: build
+        run: |
+          bash packaging/macos/build-dmg.sh | tee build.out
+          echo "dmg=$(tail -n1 build.out)" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        env:
+          DMG: ${{ steps.build.outputs.dmg }}
+        run: bash packaging/macos/smoke-test.sh "$DMG"
+
+      - name: Summary
+        run: |
+          {
+            echo "### macOS dmg (unsigned, ad-hoc signed)"
+            echo
+            echo "Not notarised: a downloaded copy needs the Gatekeeper steps in docs/install.md."
+            echo
+            echo '```'
+            cat dist/*.sha256
+            grep '^unsigned' build.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: orre-macos-arm64-unsigned
+          path: |
+            dist/*.dmg
+            dist/*.dmg.sha256
+          if-no-files-found: error
 
   nix:
     name: Nix flake
