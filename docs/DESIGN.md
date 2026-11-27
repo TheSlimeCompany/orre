@@ -14,7 +14,7 @@ this file covers how the app looks and feels.
 | Tool | [Paper](https://paper.design), read and written via the Paper MCP server |
 | Orre file | **Orre** — <https://app.paper.design/file/01M6YH440YAX6H5H322ZX4JYC9> (file ID `01M6YH440YAX6H5H322ZX4JYC9`, in the team's `Projects` folder). Created in D1.1; all Orre design work happens here |
 | Orre page | `Page 1` (`p-1-0`) |
-| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only); Logo · strongbox (retired) (`J2Q-0`): the D6.2 mark, replaced 2026-11-20 (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide. M3 punch list (M3.P3, P5, P9, P10, P11, P13): M3 punch list · states (`IS2-0`), 1440 wide. LU.5, showing what arrived: Transactions · what arrived (LU.5) (`JJY-0`), 1440×900, and Live updates · LU.5 states (`JYE-0`), 1440 wide, beside the Components artboard |
+| Orre artboards | Foundations (`1-0`), 1920 wide: colour, type scale, spacing, radii (D1.3). Components (`CJ-0`), 1920 wide: every component below in its states (D1.4). Transactions (`18E-0`) and Transactions · multi-select (`1NP-0`), 1440×900: the Transactions screen (D3.1). Overview (`22V-0`), 1440×900: the Overview screen (D4.1). D6.3, Transactions additions: Transactions · split and tags (`2Q3-0`), Transactions · excluded (`3FE-0`), Transactions · rule from an edit (`3WT-0`), Transactions · manual (cash account) (`4D7-0`), 1440×900, and Transactions · D6.3 states (`4X9-0`), 1440 wide. D6.1, remaining screens: Inbox (`564-0`), Import · map columns (`5ZQ-0`), Budgets (`6OE-0`), Trends (`781-0`), Net worth (`7LH-0`), Reviews (`7YM-0`), 1440×900; Import · steps (`6J4-0`) and Accounts panel · states (`8D8-0`, with M3.2's Add balance dialog `I7C-0` and M3.P6's day-taken state `IRD-0`), 1440 wide. D6.2: Logo (`8MT-0`), 1440 wide: the mark, its construction, lockups and app icon; Logo · concepts (`8JS-0`): the three directions explored (record only); Logo · strongbox (retired) (`J2Q-0`): the D6.2 mark, replaced 2026-11-20 (record only). D6.4, review queues: Review · possible duplicates (`8SE-0`) and Review · balance checks (`98K-0`), 1440×900; Review queues · states (`9MQ-0`), 1440 wide. D6.5, refunds and shared costs: Transactions · refund link (`9WS-0`), Transactions · shared cost (`BAT-0`) and Review · owed to you (`CCF-0`), 1440×900; Links and shares · states (`EB0-0`), 1440 wide. D6.11, safe report rendering: Reviews · safe rendering (`C6D-0`), 1440×900; Reviews · D6.11 states (`E43-0`), 1440 wide. D6.9, accounts you keep yourself: Accounts · asset (valuations) (`BSI-0`), 1440×900; Accounts · D6.9 states (`EPF-0`), 1440 wide. D6.6, Inbox impact preview: Inbox · rule impact (`ABK-0`) and Inbox · merchant name impact (`DL8-0`), 1440×900; Inbox · D6.6 states (`EWZ-0`), 1440 wide. D6.8, Settings: Settings · AI clients (`AQ2-0`), Settings · access log (`DC6-0`) and Settings · backups (`F63-0`), 1440×900; Settings · D6.8 states (`GQA-0`), 1440 wide. D6.7, Rules: Rules (`B1J-0`), Rules · apply to past transactions (`EFT-0`), Rules · merchant names (`G2O-0`) and Rules · change history (`GZT-0`), 1440×900; Rules · states (`HFH-0`), 1440 wide. D6.10, budgets and upcoming: Budgets · groups, rollover and pace (`CXU-0`) and Budgets · upcoming (`GD5-0`), 1440×900; Budgets and upcoming · states (`HNB-0`), 1440 wide. U.8–U.9, keyboard paths: Rules · keyboard reorder (`I8D-0`), 1440×900; Keyboard paths · states (`IIH-0`), 1440 wide. M3 punch list (M3.P3, P5, P9, P10, P11, P13): M3 punch list · states (`IS2-0`), 1440 wide. LU.5, showing what arrived: Transactions · what arrived (LU.5) (`JJY-0`), 1440×900, and Live updates · LU.5 states (`JYE-0`), 1440 wide, beside the Components artboard. D6.12, month start: Settings · month start (`K57-0`), 1440×900, and Month start · states (`KEQ-0`), 1440 wide, to the right of Settings · D6.8 states |
 | Orre tokens | 126: 96 created in D1.2, 24 size tokens and 2 danger-state colours added in D1.4, `--container-search-field` added in D3.1, `--container-dialog` added in D6.3, `--container-dialog-wide` and `--container-reading` added in D6.1, `--container-field-date` added for M3.P5; content hash `f0be798c` (see "Tokens") |
 | Reference file | **Festive comet** — <https://app.paper.design/file/01M6GNHMB1RVVHY51G5W61H75N/p-1-0>. Not Orre's file: a design-editor app this system was extracted from. Read it for detail; never edit it |
 | Reference page | `Editor — v1` (`p-1-0`) |
@@ -2808,6 +2808,65 @@ already means new, the moldavite badge the agent.
 - **Not drawn:** the dialog with its primary disabled (composed from "Dialogs" and the
   disabled state), and Accounts' inspector when its account was removed (not possible
   today: undo-import removes transactions, not accounts).
+
+**Month start** — drawn in D6.12 for M4.11 (L.15; `docs/architecture/reporting.md` →
+"Decision record: the month start"). Settings · month start (`K57-0`, 1440×900, built
+from the D6.8 Settings shell) and a states board, Month start · states (`KEQ-0`, 1440
+wide). Every value is a bound token; no new tokens. Fixture day Tue 10 Nov 2026; the main
+artboard shows the 25th with the Friday before.
+- **Left panel.** A CALENDAR section under DATA with one row, Month start: the 12px
+  `calendar` icon and the start day as its mono value ("25th", "1st", "Last").
+- **Canvas** (872px; a 560px reading column, 8px inline padding, 20px top, 24px between
+  blocks). Toolbar "Month start", caption "The day your month begins · reports, budgets,
+  the Inbox and Transactions’ month presets all follow it".
+  - *Starts on*: a 64px `text-muted` label and a 180px select, "25th" in `text` and "of
+    the month" in `text-muted`. Its menu (180px) lists the 1st to the 28th, then "Last
+    day of the month" under a hairline; it opens scrolled to the current choice and
+    scrolls after 8 rows.
+  - *Weekends*: the inspector-size segmented control, Leave it / Use the Friday before,
+    with an 11/14 `text-muted` caption under both fields: "A start that falls on a
+    Saturday or Sunday moves back to the Friday, as UK payroll does. Bank holidays don’t
+    move it: Orre doesn’t know them."
+  - *Your months* (12/16 600) "as of today, Tue 10 Nov": last, this and next month as
+    28px rows: when (96px), the month's name (96px, 500; 600 on this month), its dates
+    with weekdays in mono 12/16 ("Fri 23 Oct – Tue 24 Nov"), and the day count in mono
+    11/14 right-aligned in 64px. This month has the `hover` fill and brighter text. A
+    month whose start moved off a weekend takes a second line under the dates, in
+    caption type: "25 Oct is a Sunday, so November starts on the Friday before".
+  - *Helper*, above a hairline: with calendar months, "**Paid on a set day?** Start
+    your month on payday…", with the 25th as the example; otherwise "**Months keep
+    their name.** A month starting on the 16th or later is named after the month it
+    ends in…", with this month's dates (the lead in `text-secondary`). Then "Changing
+    this re-cuts every month, past ones too. Nothing is rewritten, so you can change it
+    back."
+- **Inspector.** "Your month starts on the", the day as the display figure ("25th",
+  "last day") and a caption ("or the Friday before, when that’s a weekend"; "even when
+  that’s a weekend"; "calendar months, as Orre starts"). *Follows it*: 24px rows of a
+  96px name and an 11/14 `text-muted` note: Overview, Budgets, Transactions, Trends,
+  Inbox, AI clients. *Keeps its own dates*: Weeks, This year, Schedules, Exports, and a
+  caption that saved reviews keep the period their author wrote.
+- **States board** (`KEQ-0`): the default (the 1st, Leave it), the open Starts on menu,
+  the last day with the Friday before, the Date chip's menu for the 1st, the 25th with
+  the Friday before and the 1st with the Friday before, and the Overview's month
+  switcher with the month's dates.
+- **Date chip** (Transactions): a month preset shows its dates in a mono 11/14 lane
+  before the tick (`text-muted`, `text-secondary` when chosen) only when its range
+  differs from the calendar month's. Weeks, This year and All time never show dates.
+- **Overview switcher**: the month's dates follow the next chevron in mono 11/14
+  `text-muted` when they differ from the calendar month's ("23 Oct – 24 Nov").
+- **Decided by the user (2026-11-25), overriding the artboards where they differ:**
+  - the chip's label shows the dates too when the chosen preset's range differs ("This
+    month · 23 Oct – 24 Nov");
+  - the Date chip has no "Pick a month…": the Overview's switcher picks months;
+  - a choice applies at once, with no Save or confirm;
+  - the panel section is "Calendar", not "Reports".
+- **Built in M4.11** (`crates/app/src/settings/month_start.rs`, the Date chip in
+  `transactions/present.rs`, the switcher in `overview/view.rs`), checked by eye against
+  `K57-0` and `KEZ-0` in the `settings-month-start*` snapshots. Composed while building,
+  then accepted by the user (2026-11-25): one wording for a moved start on every row ("31 Oct is a Saturday, so
+  November starts on the Friday before"; the states board's last-day preview says "so
+  it starts on the Friday"); and dates per preset, so with the 1st and the Friday before
+  Last 3 months shows none (1 Sep – 30 Nov is the calendar's), where `KK6-0` draws them.
 
 **Not drawn in D6.1:** empty states for these screens (empty Inbox, no budgets, no
 reviews), the Approved / Rejected inbox lists, Save as preset (M3.5), and the screens

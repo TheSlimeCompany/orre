@@ -2,8 +2,8 @@
 //! `AQ2-0`, `DC6-0`, `F63-0`, states `GQA-0`): AI access and the data.
 //!
 //! The title bar's Settings button (⌘,) opens it. The left panel ([`panel`])
-//! has AI ACCESS: Clients and Access log; DATA: Backups and Export…; and at
-//! its foot the data file's path.
+//! has AI ACCESS: Clients and Access log; DATA: Backups and Export…;
+//! CALENDAR: Month start; and at its foot the data file's path.
 //!
 //! - [`clients`]: the kill switch, the enabled clients (level, last call,
 //!   calls in 7 days, on/off), the clients that asked to connect (Ignore,
@@ -16,6 +16,10 @@
 //! - [`backups`]: Recent and One a month, Back up now, Restore from a
 //!   file…, and the backup inspector (what it holds, what restoring would
 //!   undo, Restore…, Show in folder, Save a copy…).
+//! - [`month_start`] (M4.11, Paper `K57-0`), under CALENDAR in the panel:
+//!   the day months start on and what a weekend does to it, a preview of
+//!   last, this and next month, and what follows the rule. A choice
+//!   applies at once.
 //! - Dialogs, opened by the shell over everything: [`enable`], [`remove`],
 //!   [`restore`] and [`export`].
 //!
@@ -34,6 +38,7 @@ pub mod enable;
 pub mod export;
 pub mod fixture;
 pub mod log;
+pub mod month_start;
 pub mod panel;
 pub mod remove;
 pub mod restore;
@@ -51,6 +56,8 @@ use gpui_kit::{
 use orre_core::access_log::activity::Cursor;
 use orre_core::backup::detail::Since;
 use orre_core::mcp_client::{AccessLevel, ClientName};
+use orre_core::reporting::period::MonthStart;
+use orre_core::watch::Topic;
 
 use crate::accounts::store::StoreError;
 use crate::shell::live::Wrote;
@@ -74,10 +81,18 @@ pub enum Section {
     Clients,
     Log,
     Backups,
+    /// The month start (M4.11).
+    MonthStart,
 }
 
 impl Section {
-    pub const ALL: [Section; 3] = [Section::Clients, Section::Log, Section::Backups];
+    /// In panel order.
+    pub const ALL: [Section; 4] = [
+        Section::Clients,
+        Section::Log,
+        Section::Backups,
+        Section::MonthStart,
+    ];
 
     /// What the panel calls it.
     pub const fn label(self) -> &'static str {
@@ -85,6 +100,7 @@ impl Section {
             Section::Clients => "Clients",
             Section::Log => "Access log",
             Section::Backups => "Backups",
+            Section::MonthStart => month_start::TITLE,
         }
     }
 }
@@ -204,6 +220,11 @@ pub struct SettingsView {
     /// A backup is being taken.
     backing_up: bool,
 
+    /// The rule that cuts months (M4.11).
+    month_start: MonthStart,
+    month_start_error: LoadError,
+    day_select: SelectState,
+
     notice: Option<Notice>,
     panel_focus: FocusHandle,
     list_focus: FocusHandle,
@@ -255,6 +276,7 @@ impl SettingsView {
         view.ai = fixture::ai();
         view.log = fixture::log();
         view.backups = fixture::backups();
+        view.month_start = fixture::month_start();
         view.since = view
             .backups
             .rows
@@ -262,6 +284,13 @@ impl SettingsView {
             .map(|row| (row.backup.path.clone(), fixture::since()));
         view.select_defaults();
         view
+    }
+
+    /// Sample data whose month start is `start` (Paper `K57-0` and the
+    /// states board `KEQ-0`), for snapshots and tests.
+    pub fn with_month_start(mut self, start: MonthStart) -> Self {
+        self.month_start = start;
+        self
     }
 
     /// Sample data with AI access switched off (the states board, `GR9-0`).
@@ -277,6 +306,7 @@ impl SettingsView {
         let mut view = Self::empty(Source::Fixture, fixture::clock(), "".into(), cx);
         view.ai_error = Some(reason.clone());
         view.log_error = Some(reason.clone());
+        view.month_start_error = Some(reason.clone());
         view.backups_error = Some(reason);
         view
     }
@@ -309,6 +339,9 @@ impl SettingsView {
             selected_backup: None,
             since: None,
             backing_up: false,
+            month_start: MonthStart::CALENDAR,
+            month_start_error: None,
+            day_select: SelectState::new(cx),
             notice: None,
             panel_focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
@@ -327,6 +360,11 @@ impl SettingsView {
 
     pub fn backups(&self) -> &BackupsData {
         &self.backups
+    }
+
+    /// The month start every report cuts months by.
+    pub fn month_start(&self) -> MonthStart {
+        self.month_start
     }
 
     pub fn log_rows(&self) -> &[LogRow] {
@@ -374,6 +412,7 @@ impl SettingsView {
     pub fn show(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
         self.notice = None;
+        self.day_select.dismiss();
         self.reload_section(section);
         self.select_defaults();
         cx.notify();
@@ -427,6 +466,13 @@ impl SettingsView {
         }));
     }
 
+    /// Reads the month start again, for the shell after the settings
+    /// changed ([`crate::shell::live`]): a restore, or another process.
+    pub fn reload_month_start(&mut self, cx: &mut Context<Self>) {
+        self.reload_section(Section::MonthStart);
+        cx.notify();
+    }
+
     fn land_clients(&mut self, result: Result<AiData, StoreError>) {
         match result {
             Ok(ai) => {
@@ -444,7 +490,7 @@ impl SettingsView {
     /// clients were read again here: the shell rebases the Settings topic and
     /// reads them once more ([`crate::shell::live`]).
     fn wrote_clients(cx: &mut Context<Self>) {
-        cx.emit(Wrote::of([orre_core::watch::Topic::Settings]));
+        cx.emit(Wrote::of([Topic::Settings]));
     }
 
     /// Reads further pages of the log until it lists `rows` calls again, or
@@ -521,6 +567,16 @@ impl SettingsView {
                 }
                 self.since = None;
             }
+            Section::MonthStart => match store.load_month_start() {
+                Ok(start) => {
+                    self.month_start = start;
+                    self.month_start_error = None;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "couldn't read the month start");
+                    self.month_start_error = Some(sentence(&error.to_string()));
+                }
+            },
         }
     }
 
@@ -653,7 +709,34 @@ impl SettingsView {
                     self.select_backup(path, cx);
                 }
             }
+            // A form, not a list: nothing to move through.
+            Section::MonthStart => {}
         }
+    }
+
+    /// Sets the month start, at once (no Save: decided by the user,
+    /// 2026-11-25). Every view that cuts months re-reads: the shell reloads
+    /// them on the Settings topic ([`crate::shell::live::views`]). A refused
+    /// change is shown in the notification bar and leaves the rule as it was.
+    pub fn set_month_start(&mut self, start: MonthStart, cx: &mut Context<Self>) {
+        if start == self.month_start {
+            return;
+        }
+        let result = match self.store() {
+            Ok(store) => store
+                .set_month_start(start)
+                .map_err(|error| sentence(&error.to_string())),
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(()) => {
+                self.notice = None;
+                self.reload_section(Section::MonthStart);
+                cx.emit(Wrote::of([Topic::Settings]));
+            }
+            Err(error) => self.fail(error, cx),
+        }
+        cx.notify();
     }
 
     /// Moves to the next or previous section in the panel (the arrow keys
@@ -1055,11 +1138,13 @@ impl Render for SettingsView {
             Section::Clients => self.render_clients(window, cx),
             Section::Log => self.render_log(window, cx),
             Section::Backups => self.render_backups(window, cx),
+            Section::MonthStart => self.render_month_start(window, cx),
         };
         let inspector = match self.section {
             Section::Clients => self.render_client_inspector(window, cx),
             Section::Log => self.render_call_inspector(cx),
             Section::Backups => self.render_backup_inspector(cx),
+            Section::MonthStart => Some(self.render_month_start_inspector()),
         };
         let notice = self.render_notice(cx);
         div()

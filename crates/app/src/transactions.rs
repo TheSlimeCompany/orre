@@ -488,11 +488,11 @@ impl ToolbarText {
             .category
             .and_then(|id| view.register.category(id))
             .map(|category| category.label.clone());
-        let date = (view.date != DatePreset::AllTime).then(|| present::date_label(view.date));
+        let date = present::date_chip(view.date, view.today, view.month_start);
         Self {
             account: ChipText::new(account, "Account"),
             category: ChipText::new(category, "Category"),
-            date: ChipText::new(date.map(str::to_owned), "Date"),
+            date: ChipText::new(date, "Date"),
             uncategorised: ChipText {
                 label: "Uncategorised".to_owned(),
                 active: view.filter.uncategorised,
@@ -890,6 +890,14 @@ impl TransactionsView {
     /// Today, as the screen dates things.
     pub fn today(&self) -> NaiveDate {
         self.today
+    }
+
+    /// Dates the view as of `today`, so a test reads a fixed day whatever
+    /// the real date is; a date preset on show is cut again for it.
+    #[cfg(test)]
+    pub(crate) fn hold_day(&mut self, today: NaiveDate) {
+        self.today = today;
+        self.filter.dates = self.date.range(today, self.month_start);
     }
 
     pub fn register(&self) -> &Register {
@@ -1368,7 +1376,7 @@ impl TransactionsView {
         match menu {
             Menu::Account => present::account_groups(&self.account_choices(cx)),
             Menu::Category => present::category_filter_groups(&self.register),
-            Menu::Date => present::date_groups(),
+            Menu::Date => present::date_groups(self.today, self.month_start),
             Menu::Row(_) | Menu::Inspector | Menu::Bulk | Menu::SplitLine(_) => {
                 present::category_groups(&self.register)
             }

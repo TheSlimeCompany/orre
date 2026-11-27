@@ -168,7 +168,9 @@ push one. `shell::live` holds it:
   the view on show; Rules reloads Rules and Transactions (merchant names); Settings
   reloads Settings' AI clients (`load_ai`: it flushes refused calls into the access log,
   a write, and aggregates `mcp_access_log`, once with no time bound; on a background
-  thread, LU.6). The status bar follows the reloads.
+  thread, LU.6) and its month start, and, since M4.11, the views that cut months by the
+  month start: the Overview, Transactions (its month presets) and the Inbox (its month
+  labels). The status bar follows the reloads.
 - **The app's own writes** go through the shell: a view names the topics it changed
   (`live::Wrote`), and the shell's `refresh` rebases them on a background thread, then
   reloads every view of them. That is the only place the watcher is rebased. Imports
@@ -881,6 +883,12 @@ and confirmed by the user on 2026-11-23. The lead decided Q1 to Q6 below.
    Settings' own writes keep their read on the UI thread (the Enable dialog selects the
    client it enabled from it) and also name Settings, so the shell rebases and reads the
    clients once more.
+   *Amended 2026-11-25 (M4.11): the month start is a `setting` row, so the Settings
+   topic holds it, and the views that cut months by it reload on Settings too: the
+   Overview, Transactions and the Inbox, besides Settings' clients and its month start.
+   Rejected: a topic of its own for the one key, which would split `setting` across two
+   fingerprints. A kill-switch or client change now also reloads those three views; all
+   three read in the background, and Settings-topic changes are rare user actions.*
 10. **Q3: routing is always on inside a shell.** One code path: the shell sets each
     view to reload through it whether or not a watcher is attached. Without one (tests),
     `refresh` reloads the views at once. A view outside a shell reloads itself.

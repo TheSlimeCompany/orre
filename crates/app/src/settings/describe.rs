@@ -34,13 +34,13 @@ use super::export::ExportDialog;
 use super::remove::RemoveDialog;
 use super::restore::RestoreDialog;
 use super::table::{self, NoticeText, Run, count, file_size};
-use super::{Section as Screen, SettingsView, backups, clients, log, panel};
+use super::{Section as Screen, SettingsView, backups, clients, log, month_start, panel};
 
 /// What Settings shows ([`SettingsView::describe`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingsDescription {
-    /// The panel's rows: Clients, Access log, Backups, then Export…, the
-    /// open screen selected.
+    /// The panel's rows: Clients, Access log, Backups, Export…, then Month
+    /// start, the open screen selected.
     pub panel: Vec<PanelRow>,
     /// The panel's foot: where the data lives.
     pub data_file: String,
@@ -68,6 +68,22 @@ pub enum Body {
     Clients(ClientsDescription),
     Log(LogDescription),
     Backups(BackupsDescription),
+    MonthStart(MonthStartDescription),
+}
+
+/// The month start (M4.11): the rule's two fields as shown, and the
+/// preview's months. The helper's fixed sentences are left out; its first
+/// paragraph, with this month in it, is kept.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MonthStartDescription {
+    /// Starts on, as the field shows it: "25th of the month".
+    pub starts_on: String,
+    /// The Weekends segment chosen: "Leave it" or "Use the Friday before".
+    pub weekends: &'static str,
+    /// "as of today, Tue 10 Nov".
+    pub as_of: String,
+    pub months: Vec<month_start::MonthRow>,
+    pub helper: String,
 }
 
 /// AI clients.
@@ -413,26 +429,67 @@ impl SettingsView {
         })
     }
 
+    // The month start ---------------------------------------------------------------
+
+    fn describe_month_start(&self) -> Body {
+        let start = self.month_start;
+        let today = self.clock.today;
+        Body::MonthStart(MonthStartDescription {
+            starts_on: format!("{} of the month", month_start::field_value(start.day())),
+            weekends: match start.weekends() {
+                orre_core::reporting::period::Weekends::Keep => month_start::LEAVE_IT,
+                orre_core::reporting::period::Weekends::FridayBefore => month_start::FRIDAY_BEFORE,
+            },
+            as_of: month_start::as_of(today),
+            months: month_start::preview(today, start),
+            helper: joined(&month_start::helper(today, start)),
+        })
+    }
+
+    fn describe_month_start_inspector(&self) -> Inspector {
+        let listed = |title: &str, rows: &[(&str, &str)]| {
+            rows.iter()
+                .fold(Section::titled(title), |section, (name, what)| {
+                    section.row(*name, *what)
+                })
+        };
+        Inspector {
+            header: Header {
+                title: month_start::STARTS_ON_THE.to_owned(),
+                figure: Some(month_start::day_label(self.month_start.day())),
+                caption: Some(month_start::rule_caption(self.month_start).to_owned()),
+            },
+            sections: vec![
+                listed(month_start::FOLLOWS_IT, &month_start::FOLLOWS),
+                listed(month_start::KEEPS_ITS_OWN, &month_start::KEEPS),
+            ],
+        }
+    }
+
     // The whole -------------------------------------------------------------------
 
     /// What Settings shows now, as plain data (module docs). A dialog is
     /// the shell's: add it with `SettingsDescription::with_dialog`.
     pub fn describe(&self) -> SettingsDescription {
-        let mut panel: Vec<PanelRow> = Screen::ALL
-            .into_iter()
-            .map(|section| PanelRow {
-                label: section.label(),
-                count: Some(self.panel_count(section)),
-                flagged: false,
-                selected: self.section == section,
-            })
-            .collect();
-        panel.push(PanelRow {
-            label: panel::EXPORT,
-            count: None,
+        let row = |section: Screen| PanelRow {
+            label: section.label(),
+            count: Some(self.panel_count(section)),
             flagged: false,
-            selected: false,
-        });
+            selected: self.section == section,
+        };
+        // As the panel draws them: Export… ends DATA, before CALENDAR.
+        let panel = vec![
+            row(Screen::Clients),
+            row(Screen::Log),
+            row(Screen::Backups),
+            PanelRow {
+                label: panel::EXPORT,
+                count: None,
+                flagged: false,
+                selected: false,
+            },
+            row(Screen::MonthStart),
+        ];
         let (title, caption, error, body, inspector, rows) = match self.section {
             Screen::Clients => (
                 clients::TITLE,
@@ -457,6 +514,14 @@ impl SettingsView {
                 self.describe_backups(),
                 self.describe_backup_inspector(),
                 !self.backups.rows.is_empty(),
+            ),
+            Screen::MonthStart => (
+                month_start::TITLE,
+                month_start::CAPTION,
+                &self.month_start_error,
+                self.describe_month_start(),
+                Some(self.describe_month_start_inspector()),
+                false,
             ),
         };
         SettingsDescription {

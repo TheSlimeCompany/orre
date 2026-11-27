@@ -5,8 +5,9 @@
 //! connection, so each call opens the database at the path it was given,
 //! creating and migrating it as the CLI does, through [`gate::open`], which
 //! checks the restore lock. The rules are core's: [`orre_core::setting`]
-//! (the kill switch), [`orre_core::mcp_client`], [`orre_core::access_log`],
-//! [`orre_core::backup`] and [`orre_core::export`]. The CLI's
+//! (the kill switch and the month start), [`orre_core::mcp_client`],
+//! [`orre_core::access_log`], [`orre_core::backup`] and
+//! [`orre_core::export`]. The CLI's
 //! `ai-access`, `backup`, `restore` and `export` are the reference
 //! behaviour; this shows nothing they don't (no result hash).
 //!
@@ -29,6 +30,7 @@ use orre_core::clock;
 use orre_core::db::Database;
 use orre_core::export::{self, Counts, Format, Options};
 use orre_core::mcp_client::{self, AccessLevel, ClientName, ClientStatus};
+use orre_core::reporting::period::MonthStart;
 use orre_core::{account, schedule, setting, tag};
 
 use super::data::{
@@ -281,6 +283,17 @@ impl SettingsStore {
 
     pub fn remove(&self, name: &ClientName) -> Result<(), StoreError> {
         Ok(mcp_client::remove(&mut self.open()?, name)?)
+    }
+
+    /// The month start: the rule every report cuts months by (M4.11).
+    pub fn load_month_start(&self) -> Result<MonthStart, StoreError> {
+        Ok(setting::month_start(&self.open()?.reader()?)?)
+    }
+
+    /// Saves the month start. Every report re-cuts its months by it from
+    /// the next read on, past months included.
+    pub fn set_month_start(&self, start: MonthStart) -> Result<(), StoreError> {
+        Ok(setting::set_month_start(&mut self.open()?, start)?)
     }
 
     /// Takes a manual backup ("Back up now"), and reads what it holds.
