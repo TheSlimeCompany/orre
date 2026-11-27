@@ -8,6 +8,7 @@
 #   linux  - the tarball (packaging/linux/build-tarball.sh)        W2-1
 #   macos  - the unsigned .dmg (packaging/macos/)                  W2-3
 #   nix    - `nix build` / `nix flake check` of flake.nix          W2-2
+#            (a check, not a download: Nix users build from the flake)
 name: Release
 
 on:
@@ -95,4 +96,24 @@ jobs:
           if-no-files-found: error
 
   # macos: W2-3 adds the unsigned .dmg job here.
-  # nix:   W2-2 adds the flake build and check here.
+
+  nix:
+    name: Nix flake
+    # Builds the flake's package (packaging/nix/package.nix) and runs its
+    # check (`orre --help` without LD_LIBRARY_PATH). Nothing is uploaded:
+    # Nix users build from the flake itself.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v32
+
+      - name: Build
+        run: nix build -L
+
+      - name: Check
+        run: nix flake check -L
+
+      - name: Run
+        run: ./result/bin/orre --version

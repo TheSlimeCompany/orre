@@ -1546,10 +1546,11 @@ due before payday.
   macOS, adds an MSRV `cargo check` and a non-blocking Windows `cargo check`; done once
   the first runs on GitHub are green and `main` requires the checks
 - 🚧 M5.6 Release artifacts: Linux tarball + Nix flake, and an unsigned macOS `.dmg`.
-  No AppImage in v0.1. The Linux tarball is built by `packaging/linux/build-tarball.sh`
-  and smoke-tested under Xvfb by the `Linux tarball` job of
-  `.github/workflows/release.yml` (`workflow_dispatch` and `v*` tags); install steps
-  in `docs/install.md`. The flake and the `.dmg` are still to do
+  No AppImage in v0.1. The Linux tarball (`packaging/linux/build-tarball.sh`,
+  smoke-tested under Xvfb) and the Nix flake (`flake.nix`, the release binary with
+  the GPUI libraries on its rpath) are built and checked by the `Linux tarball` and
+  `Nix flake` jobs of `.github/workflows/release.yml` (`workflow_dispatch` and `v*`
+  tags), with install steps in `docs/install.md`; the `.dmg` is still to do
 - ⬜ M5.7 Data location, backup, and privacy documentation
 - ⬜ M5.8 Deferred to v0.2. Beancount and hledger journal export: deterministic and
   stably sorted; fixture exports are checked with `bean-check` / `hledger check` when

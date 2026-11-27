@@ -1,7 +1,8 @@
 # Installing Orre
 
-v0.1 is not released yet: this page describes the downloads the release
-workflow (`.github/workflows/release.yml`) builds. Until a `v0.1.0` tag
+v0.1 is not released yet: this page describes the Linux tarball the
+release workflow (`.github/workflows/release.yml`) builds, and the Nix
+flake (`flake.nix`) that workflow builds and checks. Until a `v0.1.0` tag
 exists, build from source (README → "Development").
 
 ## Linux (tarball)
@@ -66,7 +67,7 @@ another folder.
 
 There is no AppImage in v0.1 (planned for v0.1.1).
 
-## How the tarball is built
+### How the tarball is built
 
 `bash packaging/linux/build-tarball.sh` builds
 `cargo build --release --locked -p orre-app` with the workspace release
@@ -81,3 +82,46 @@ the contents, the linked libraries (each must be in the table above), that
 command on a scratch data dir, and that the window opens and stays up.
 The release workflow runs both on `workflow_dispatch` and on `v*` tags,
 and uploads the tarball as a workflow artifact.
+
+## Nix (Linux)
+
+The flake (`flake.nix`) builds the same release binary, with no features,
+from the repository. It is Linux only: `x86_64-linux` is tested (the
+release workflow's `Nix flake` job builds and checks it); `aarch64-linux`
+is listed in the flake but untested, as there is no aarch64 build in CI
+for v0.1. On macOS use the `.dmg`.
+
+```sh
+nix run github:TheSlimeCompany/orre               # opens the app
+nix run github:TheSlimeCompany/orre -- --help     # the headless commands
+nix profile install github:TheSlimeCompany/orre   # puts `orre` on your PATH
+```
+
+From a checkout, `nix build` leaves the binary in `./result/bin/orre`, and
+`nix flake check` builds it and runs `orre --help`. The windowing, Vulkan
+and font libraries are on the binary's rpath, so you don't set
+`LD_LIBRARY_PATH`.
+
+**Known limitation in v0.1: Nix outside NixOS.** On NixOS the GPU driver
+comes from the system (`hardware.graphics`). On other distributions,
+Nix's Vulkan loader doesn't load the distribution's Mesa drivers, and the
+window fails to open with "Failed to create surface".
+The headless commands still work. To open the window, point the loader at a
+Mesa from nixpkgs, for example its software driver (lavapipe):
+
+```sh
+mesa=$(nix build --no-link --print-out-paths nixpkgs#mesa)
+VK_ICD_FILENAMES=$mesa/share/vulkan/icd.d/lvp_icd.x86_64.json orre
+```
+
+(Checked on Debian 13 under Xvfb.) [nixGL](https://github.com/nix-community/nixGL)
+automates this, hardware drivers included; it hasn't been tested with Orre.
+Its Mesa Vulkan wrapper, with nixGL's nixpkgs set to the flake's
+(`nixos-26.11`) as its README advises, is:
+
+```sh
+nix run --override-input nixpkgs nixpkgs/nixos-26.11 github:nix-community/nixGL#nixVulkanIntel -- orre
+```
+
+The tarball above uses the distribution's drivers and doesn't have this
+problem.
