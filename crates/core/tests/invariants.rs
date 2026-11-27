@@ -284,6 +284,54 @@ fn the_dev_driver_stays_out_of_release_and_mcp() {
     );
 }
 
+/// W1-3 (decision record "sample data and unbuilt tabs stay out of release
+/// builds" in `docs/architecture/app.md`): the `dev-samples` feature is off
+/// by default and enabled by no other feature, and every sample module is
+/// compiled only under `cfg(test)` or that feature.
+#[test]
+fn sample_data_stays_out_of_release() {
+    let root = workspace_root();
+    let manifest = fs::read_to_string(root.join("crates/app/Cargo.toml")).unwrap();
+    let mut found = Vec::new();
+    let mut in_features = false;
+    for line in manifest.lines() {
+        let line = code_toml(line.trim());
+        if line.starts_with('[') {
+            in_features = line == "[features]";
+            continue;
+        }
+        if in_features && line.contains("dev-samples") && !line.starts_with("dev-samples =") {
+            found.push(format!("crates/app/Cargo.toml: {line}"));
+        }
+    }
+    assert!(
+        manifest.contains("\ndev-samples = []"),
+        "the dev-samples feature moved or enables something; update this check"
+    );
+    const GATE: &str = "#[cfg(any(test, feature = \"dev-samples\"))]";
+    for (path, text) in sources(&["app"]) {
+        let lines: Vec<&str> = text.lines().collect();
+        for (n, line) in lines.iter().enumerate() {
+            let line = line.trim();
+            let sample_module = line.starts_with("pub mod ")
+                && (line.contains("fixture") || line == "pub mod showcase;");
+            if sample_module && (n == 0 || lines[n - 1].trim() != GATE) {
+                found.push(format!("{}:{}: {line} isn't gated", path.display(), n + 1));
+            }
+        }
+    }
+    fail_if_any(
+        "Sample data reachable in a release build (W1-3): gate it on \
+         `cfg(any(test, feature = \"dev-samples\"))`.",
+        found,
+    );
+}
+
+/// A manifest line up to any `#` comment.
+fn code_toml(line: &str) -> &str {
+    line.find('#').map_or(line, |at| line[..at].trim_end())
+}
+
 /// Whether a manifest line names the `bench` feature as a string, in either
 /// TOML quote style: `"bench"`, `'bench'`, or forwarded as `…/bench`.
 fn names_bench(line: &str) -> bool {

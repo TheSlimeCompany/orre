@@ -1,7 +1,7 @@
 //! What the accounts panel and inspector show: the account tree from core
 //! ([`orre_core::reporting::account_tree`]) and, per account, what the
 //! inspector lists. Plain data, read in one go by [`super::store`] or built
-//! by [`super::fixture`].
+//! by `super::fixture`.
 
 use std::collections::BTreeMap;
 

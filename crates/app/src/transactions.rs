@@ -13,7 +13,7 @@
 //!   Filtering, sorting and grouping are core's [`Register::select`], pure
 //!   and in memory, so a keystroke in the search field never reads the
 //!   database. Without a database (snapshots, tests) the view shows the
-//!   Paper fixture ([`fixture::register`]), which can't change.
+//!   Paper fixture (`fixture::register`), which can't change.
 //! - **Filters.** The accounts panel's selection is the account filter (the
 //!   Account chip mirrors it), and hides the Account column. The Category
 //!   and Date chips open menus; Uncategorised toggles. Search matches the
@@ -60,9 +60,11 @@ pub mod confirm;
 pub(crate) mod describe;
 mod editor;
 pub mod exclude_dialog;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 mod inspector;
 pub mod link_dialog;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod link_fixture;
 pub mod linking;
 pub mod links;
@@ -223,8 +225,12 @@ pub fn init(cx: &mut App) {
 pub enum Source {
     /// The database: what `orre` opens.
     Database(TransactionStore),
-    /// The Paper fixture, which can't change.
+    /// The Paper fixture, which can't change (tests, `dev-samples`).
+    #[cfg(any(test, feature = "dev-samples"))]
     Fixture,
+    /// Nothing to read, and why: no data folder. The table says so, with
+    /// no rows; never the sample data (W1-3).
+    Unavailable(SharedString),
 }
 
 /// What the Transactions screen asks its owner (the shell) to do.
@@ -568,6 +574,18 @@ struct EditFailure {
     reason: SharedString,
 }
 
+/// The day the screen starts on: the fixture's for the fixture, else the
+/// computer's ([`crate::today`]).
+fn starting_day(source: &Source) -> chrono::NaiveDate {
+    #[cfg(any(test, feature = "dev-samples"))]
+    if matches!(source, Source::Fixture) {
+        return crate::accounts::fixture::today();
+    }
+    #[cfg(not(any(test, feature = "dev-samples")))]
+    let _ = source;
+    crate::today()
+}
+
 /// What the status bar counts (M3.10): "328 transactions · 2 excluded".
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
@@ -689,12 +707,7 @@ impl TransactionsView {
             }),
         ];
         subscriptions.extend(editor_subscriptions);
-        let fixture = matches!(source, Source::Fixture);
-        let today = if fixture {
-            crate::accounts::fixture::today()
-        } else {
-            orre_core::schedule::local_today().unwrap_or_else(|_| crate::accounts::fixture::today())
-        };
+        let today = starting_day(&source);
         let mut view = Self {
             source,
             register: Register::default(),
@@ -740,11 +753,18 @@ impl TransactionsView {
             marks_set: 0,
             _subscriptions: subscriptions,
         };
-        if fixture {
-            view.apply(Ok((fixture::register(), MonthStart::CALENDAR)), cx);
-            view.selection.set([fixture::id("txn-amazon-09")]);
-        } else {
-            view.reload(cx);
+        match &view.source {
+            Source::Database(_) => view.reload(cx),
+            Source::Unavailable(reason) => {
+                let reason = reason.clone();
+                view.loaded = true;
+                view.load_error = Some(reason);
+            }
+            #[cfg(any(test, feature = "dev-samples"))]
+            Source::Fixture => {
+                view.apply(Ok((fixture::register(), MonthStart::CALENDAR)), cx);
+                view.selection.set([fixture::id("txn-amazon-09")]);
+            }
         }
         view
     }
@@ -1286,7 +1306,7 @@ impl TransactionsView {
         Counts {
             transactions: self.register.rows().len() - excluded,
             excluded,
-            sample: matches!(self.source, Source::Fixture),
+            sample: self.is_sample(),
         }
     }
 
@@ -1488,8 +1508,14 @@ impl TransactionsView {
         }
     }
 
+    /// Whether it shows the Paper fixture (never in a release build).
+    pub fn is_sample(&self) -> bool {
+        !matches!(self.source, Source::Database(_) | Source::Unavailable(_))
+    }
+
     /// Shows `register` instead of the Paper fixture: another artboard's
     /// rows (snapshots). Does nothing over the database.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn show_fixture(&mut self, register: Register, cx: &mut Context<Self>) {
         if matches!(self.source, Source::Fixture) {
             self.apply(Ok((register, MonthStart::CALENDAR)), cx);
