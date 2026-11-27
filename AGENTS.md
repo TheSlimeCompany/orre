@@ -72,7 +72,10 @@ it with `--no-verify`.
 - Dev shell: devenv (Nix) loaded via direnv (`.envrc`). Run commands inside it so the
   Rust toolchain and the GPUI runtime libraries (`LD_LIBRARY_PATH`) are available.
   Outside direnv, use `devenv shell -- <command>`.
-- Rust stable, edition 2024. Toolchain components: clippy, rustfmt, rust-analyzer.
+- Rust stable, edition 2024; the minimum supported version is 1.88 (`rust-version` in
+  `Cargo.toml`), so don't use newer language or std features without raising it.
+  `rust-toolchain.toml` pins rustup to stable. Toolchain components: clippy, rustfmt,
+  rust-analyzer.
 - Add system libraries in `devenv.nix`, not with ad-hoc installs.
 - Set `ORRE_DATA_DIR` to a scratch directory when running Orre against test data,
   so it never touches the real database in the platform data dir.
