@@ -288,7 +288,10 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
     database from before V7 names every existing row once, inside the migrations' own
     DB transaction, before it commits (`db::migrations::run` applies the migrations
     itself so Rust can run there; refinery's runner can't): a failure or crash leaves the
-    database at its old version with no names, and the next open tries again.
+    database at its old version with no names, and the next open tries again. A
+    database that an earlier build (before W1-6, which named rows in a second
+    transaction) left past V7 with unnamed rows isn't named on open (only a run from
+    below V7 names rows); `merchant::recompute_all`, or editing any alias, repairs it.
 13. **Undo and deletes clear what references a transaction.** `import::undo` and
     `manual::delete` delete split lines (`split::clear_batch` / `clear`) and tag links
     (`tag::clear_batch` / `clear`) before the rows. `undo_preview`'s `edited` count
