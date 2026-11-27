@@ -10,11 +10,9 @@ Orre is pre-release, with no supported releases yet. Security fixes go on `main`
 ## Reporting a vulnerability
 
 Report it privately through
-[GitHub private vulnerability reporting](https://github.com/lorrehuggan/orre/security/advisories/new)
+[GitHub private vulnerability reporting](https://github.com/TheSlimeCompany/orre/security/advisories/new)
 (**Security** tab → **Report a vulnerability**). Don't open a public issue for a
-security bug.
-
-<!-- TODO: add a contact email for reporters who can't use GitHub, if one is wanted. -->
+security bug. If you can't use GitHub, email lorreslime@gmail.com instead.
 
 Include what goes wrong and what an attacker gains, steps to reproduce with synthetic
 data only (never a real statement), the commit and OS you tested, and the MCP access
