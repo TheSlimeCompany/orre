@@ -1,0 +1,56 @@
+name: Bank preset request
+description: Ask for a CSV preset for a bank that Orre doesn't read yet.
+title: "Preset: <bank> (<country>)"
+labels: ["preset"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        v0.1 reads Monzo CSV exports and any bank's OFX/QFX files. Starling is planned for v0.2; other banks need a preset. See [presets/README.md](https://github.com/TheSlimeCompany/orre/blob/main/presets/README.md) for what a preset is.
+
+        **Never attach or paste a real export.** Give the column headers only, or a fully redacted file: fake merchants, amounts, IDs, notes and addresses, with the real structure kept.
+  - type: input
+    id: bank
+    attributes:
+      label: Bank and account type
+      placeholder: e.g. Nationwide current account
+    validations:
+      required: true
+  - type: input
+    id: country
+    attributes:
+      label: Country
+    validations:
+      required: true
+  - type: dropdown
+    id: ofx
+    attributes:
+      label: Does the bank offer OFX or QFX?
+      description: If it does, try importing that first. Orre reads OFX/QFX from any bank, so you may not need a preset.
+      options:
+        - "No, CSV only"
+        - "Yes, and the OFX/QFX import doesn't work (describe below)"
+        - "Not sure"
+    validations:
+      required: true
+  - type: input
+    id: export
+    attributes:
+      label: Export type
+      description: File format and where in the bank's app or website you export it.
+      placeholder: e.g. CSV from Statements → Download
+    validations:
+      required: true
+  - type: textarea
+    id: headers
+    attributes:
+      label: Column headers
+      description: The header row exactly as it appears. Attach a fully redacted file only if the structure needs it (date format, sign of amounts, extra rows).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Quirks you've noticed, such as refunds shown as positive debits or a balance column.

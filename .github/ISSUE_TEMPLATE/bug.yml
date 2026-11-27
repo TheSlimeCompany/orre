@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in Orre doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Don't attach `orre.db`, backups, exports or unredacted CSVs.** They hold your financial data. If a file is needed to reproduce the bug, make a small synthetic one. Security problems go through [private vulnerability reporting](https://github.com/TheSlimeCompany/orre/security/advisories/new), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `orre --version`, and the commit if you built from source.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: e.g. Ubuntu 24.04, macOS 15.2
+    validations:
+      required: true
+  - type: input
+    id: install
+    attributes:
+      label: How you installed it
+      placeholder: e.g. cargo build from source, devenv shell
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `orre import statement.csv`
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happened instead. Include error output, with any transaction details removed.
+    validations:
+      required: true
