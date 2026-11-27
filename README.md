@@ -147,6 +147,7 @@ see [`docs/install.md`](docs/install.md).
   [opening it past Gatekeeper](docs/install.md#why-macos-warns-you-and-how-to-open-it))
 - [`docs/mcp-setup.md`](docs/mcp-setup.md): connecting an AI client
 - [`presets/README.md`](presets/README.md): add your bank as a CSV preset, no Rust required
+- [`docs/data-and-privacy.md`](docs/data-and-privacy.md): where your data lives, backups and privacy
 - [`SECURITY.md`](SECURITY.md): what Orre protects, what it doesn't, and how to report a vulnerability
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): building, testing and sending changes
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md): the Contributor Covenant

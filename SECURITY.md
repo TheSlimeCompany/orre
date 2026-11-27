@@ -1,7 +1,8 @@
 # Security
 
 What Orre does to protect your financial data, what it doesn't, and how to report a
-problem.
+problem. For where your data lives, how to back it up and restore it, and how to turn AI
+access off, see [`docs/data-and-privacy.md`](docs/data-and-privacy.md).
 
 ## Supported versions
 
