@@ -43,6 +43,7 @@ use super::store::TransactionStore;
 use super::{EditFailure, Source, TransactionsEvent, TransactionsView, Undo, UndoAction};
 
 /// Why sample data (the Paper fixture) can't change.
+#[cfg(any(test, feature = "dev-samples"))]
 pub(super) const SAMPLE_DATA: &str = "This is sample data, which can't be changed.";
 
 /// Where a write's error is said.
@@ -229,7 +230,9 @@ impl TransactionsView {
                     text.into()
                 }
             }),
+            #[cfg(any(test, feature = "dev-samples"))]
             Source::Fixture => Err(SAMPLE_DATA.into()),
+            Source::Unavailable(reason) => Err(reason.clone()),
         };
         match result {
             Ok(value) => {
@@ -304,7 +307,9 @@ impl TransactionsView {
             Source::Database(store) => {
                 run(store, |db| op(db)).map_err(|error| sentence(&error.to_string()))
             }
+            #[cfg(any(test, feature = "dev-samples"))]
             Source::Fixture => Err(SAMPLE_DATA.into()),
+            Source::Unavailable(reason) => Err(reason.clone()),
         }
     }
 

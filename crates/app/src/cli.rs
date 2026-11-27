@@ -100,6 +100,9 @@ pub use undo::UndoImportArgs;
 #[command(name = "orre", version, args_conflicts_with_subcommands = true)]
 pub struct Cli {
     /// Open the component showcase (a development tool) instead of the app.
+    /// Only in tests and `dev-samples` builds: a release `orre` has no such
+    /// flag (W1-3).
+    #[cfg(any(test, feature = "dev-samples"))]
     #[arg(long)]
     pub showcase: bool,
 

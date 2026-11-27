@@ -7,7 +7,7 @@
 //!   preset and account, the column mapping, the statement.
 //! - [`store`]: the database and the disk, called on a background thread.
 //! - [`text`]: what the dialog says.
-//! - [`fixture`]: a synthetic Monzo-style export for snapshots and tests.
+//! - `fixture`: a synthetic Monzo-style export for snapshots and tests.
 //!
 //! [`Imports`] outlives the dialog: it holds the notification after an
 //! import ("Imported 296 transactions from monzo-november.csv", with Undo),
@@ -15,6 +15,7 @@
 //! Transactions read it again.
 
 pub mod dialog;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 pub mod session;
 pub mod store;
@@ -48,6 +49,8 @@ pub struct Imports {
     /// The file the last import came from, for the undo notice.
     file: String,
     task: Option<Task<()>>,
+    /// Why there's no store, when it isn't sample data: no data folder.
+    unavailable: Option<SharedString>,
 }
 
 impl EventEmitter<ImportsChanged> for Imports {}
@@ -72,18 +75,38 @@ impl Imports {
             notice: None,
             file: String::new(),
             task: None,
+            unavailable: None,
         }
     }
 
     /// No database (sample data, snapshots): the dialog shows the sample
     /// file and can't import.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn sample() -> Self {
         Self {
             store: None,
             notice: None,
             file: String::new(),
             task: None,
+            unavailable: None,
         }
+    }
+
+    /// No database, and `reason` why (no data folder): the dialog says so,
+    /// with no sample data, and can't import.
+    pub fn unavailable(reason: impl Into<SharedString>) -> Self {
+        Self {
+            store: None,
+            notice: None,
+            file: String::new(),
+            task: None,
+            unavailable: Some(reason.into()),
+        }
+    }
+
+    /// Why there's no store, when it isn't sample data.
+    pub fn unavailable_reason(&self) -> Option<&SharedString> {
+        self.unavailable.as_ref()
     }
 
     /// The store, when there's a database.
