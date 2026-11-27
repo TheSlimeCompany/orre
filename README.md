@@ -83,6 +83,8 @@ cargo clippy --all-targets --all-features -- -D warnings
 A [lefthook](https://lefthook.dev) `pre-push` hook (installed automatically when the
 devenv shell loads) runs fmt, clippy, tests, and docs, and blocks pushing bank exports
 or databases outside `fixtures/`. Run it by hand with `lefthook run pre-push --force < /dev/null`.
+GitHub Actions CI (`.github/workflows/ci.yml`) runs the same checks on every pull request
+on Linux and macOS, plus a minimum-Rust-version check.
 
 ## Documentation
 
