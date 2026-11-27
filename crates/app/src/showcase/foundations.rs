@@ -151,6 +151,7 @@ const COLUMNS: &[&[Group]] = &[
             fill("chart-4", color::CHART_4),
             fill("chart-5", color::CHART_5),
             fill("chart-6", color::CHART_6),
+            fill("chart-income-fill", color::CHART_INCOME_FILL),
             Swatch {
                 name: "Other",
                 color: color::FIELD,
