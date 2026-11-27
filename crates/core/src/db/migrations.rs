@@ -1,9 +1,16 @@
 //! Versioned migrations: the SQL files in `crates/core/migrations/`,
-//! embedded at compile time and applied by `refinery`, which records each
-//! one with a checksum in `refinery_schema_history`.
+//! embedded at compile time and recorded with a checksum in
+//! `refinery_schema_history`, refinery's history table.
+//!
+//! refinery embeds and checksums the migrations, but [`run`] applies them
+//! itself, the way refinery's grouped runner would (the same SQL, the same
+//! history rows), so that Rust can run inside the same transaction before
+//! it commits ([`BeforeCommit`]). refinery's runner begins and commits its
+//! own transaction and has no hook before the commit.
 
-use refinery::{Migration, Runner};
-use rusqlite::Connection;
+use refinery::Migration;
+use refinery::error::WrapMigrationError;
+use rusqlite::{Connection, TransactionBehavior};
 
 use super::{Error, HistoryProblem, SchemaVersion};
 
@@ -50,9 +57,6 @@ pub(super) fn current_version(conn: &Connection) -> rusqlite::Result<SchemaVersi
 /// turns them off around the whole run.
 pub(super) const FOREIGN_KEYS_OFF: &str = "-- orre: foreign_keys=off";
 
-/// The temporary trigger that checks foreign keys before the run commits.
-const FOREIGN_KEY_CHECK_TRIGGER: &str = "orre_migration_foreign_key_check";
-
 /// Whether `migration` asks for foreign keys off ([`FOREIGN_KEYS_OFF`]).
 fn needs_foreign_keys_off(migration: &Migration) -> bool {
     migration
@@ -61,85 +65,167 @@ fn needs_foreign_keys_off(migration: &Migration) -> bool {
         .is_some_and(|line| line.trim_end() == FOREIGN_KEYS_OFF)
 }
 
-/// Applies every pending migration in one transaction.
+/// What a run applied, for its [`BeforeCommit`] step.
+#[derive(Debug)]
+pub(super) struct Applied {
+    /// The schema version before the run.
+    pub(super) from: SchemaVersion,
+    /// The versions the run applied, in order; none when nothing was
+    /// pending.
+    pub(super) versions: Vec<SchemaVersion>,
+}
+
+impl Applied {
+    /// Whether the run applied the migration with `version`.
+    pub(super) fn includes(&self, version: SchemaVersion) -> bool {
+        self.versions.contains(&version)
+    }
+}
+
+/// Rust that runs inside a run's transaction, after its last migration and
+/// before it commits: its writes commit with the migrations, and its error
+/// rolls the whole run back. It runs on every run, even one with nothing
+/// pending, so it decides from [`Applied`] whether there is work to do.
+pub(super) type BeforeCommit<'a> = &'a dyn Fn(&Connection, &Applied) -> Result<(), Error>;
+
+/// Applies every pending migration in one transaction, then
+/// `before_commit`, in the same transaction.
 ///
-/// Refuses a database from a newer Orre, and (through refinery) one whose
-/// applied migrations differ from `migrations`: an edited, missing or
-/// skipped migration.
+/// Refuses a database from a newer Orre, and one whose applied migrations
+/// differ from `migrations`: an edited, missing or skipped migration
+/// ([`check`], refinery's checks).
 ///
 /// When a pending migration needs foreign keys off ([`FOREIGN_KEYS_OFF`]),
 /// they are off for the whole run, and every foreign key in the database
-/// is checked inside its transaction, just before it commits: a violation
-/// fails the run and rolls every pending migration back. Foreign keys are on
-/// again afterwards, whatever happened.
-pub(super) fn run(conn: &mut Connection, migrations: &[Migration]) -> Result<(), Error> {
+/// is checked inside its transaction, after `before_commit` and just
+/// before the commit, so the step's writes are checked too: a violation
+/// fails the run and rolls every pending migration back. Foreign keys are
+/// on again afterwards, whatever happened.
+pub(super) fn run(
+    conn: &mut Connection,
+    migrations: &[Migration],
+    before_commit: BeforeCommit<'_>,
+) -> Result<(), Error> {
     refuse_newer(conn, migrations)?;
     let current = current_version(conn)?;
     let foreign_keys_off = migrations.iter().any(|migration| {
         SchemaVersion::from(migration.version()) > current && needs_foreign_keys_off(migration)
     });
     if !foreign_keys_off {
-        return apply(conn, migrations);
+        return apply(conn, migrations, before_commit, false);
     }
 
-    // The checks refinery makes, before anything here writes.
+    // The checks `apply` makes, before anything here writes.
     check(conn, migrations)?;
     // Outside any transaction: there the pragma does nothing.
     conn.pragma_update(None, "foreign_keys", false)?;
-    let result =
-        check_foreign_keys_before_commit(conn, migrations).and_then(|()| apply(conn, migrations));
-    let cleanup = conn
-        .execute_batch(&format!(
-            "DROP TRIGGER IF EXISTS temp.{FOREIGN_KEY_CHECK_TRIGGER}"
-        ))
-        .and_then(|()| conn.pragma_update(None, "foreign_keys", true));
+    let result = apply(conn, migrations, before_commit, true);
+    let restored = conn.pragma_update(None, "foreign_keys", true);
     result?;
-    cleanup?;
+    restored?;
     Ok(())
 }
 
-/// Makes the run fail, inside its transaction, if the database has a
-/// foreign key violation once the last migration has run: refinery records
-/// each migration in its history table in the same transaction as the
-/// migration, so a temporary trigger on that table checks every foreign key
-/// when the last one is recorded (`pragma_foreign_key_check` reports
-/// violations whether or not foreign keys are on).
-fn check_foreign_keys_before_commit(
+/// Fails, inside the run's transaction, if any foreign key in the
+/// database points at nothing. `pragma_foreign_key_check` reports
+/// violations whether or not foreign keys are on, so this is the check a
+/// run with them off makes before it commits.
+fn check_foreign_keys(tx: &Connection) -> Result<(), Error> {
+    let dangling: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_foreign_key_check)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !dangling {
+        return Ok(());
+    }
+    Err::<(), _>(rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY),
+        Some("the migrations leave a foreign key that points at nothing".into()),
+    ))
+    .migration_err("error checking foreign keys before commit", None)
+    .map_err(|err| Error::Migration(Box::new(err)))
+}
+
+/// refinery's history table, created the way refinery creates it.
+fn create_history_table(conn: &Connection) -> Result<(), Error> {
+    conn.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS {HISTORY_TABLE}(
+             version int4 PRIMARY KEY,
+             name VARCHAR(255),
+             applied_on VARCHAR(255),
+             checksum VARCHAR(255));"
+    ))
+    .migration_err("error asserting migrations table", None)
+    .map_err(|err| Error::Migration(Box::new(err)))
+}
+
+/// Applies the pending migrations and `before_commit` in one transaction,
+/// as refinery's grouped runner applies the migrations.
+///
+/// The transaction is `IMMEDIATE`, and the history is read inside it: two
+/// processes opening a fresh database at once queue on the write lock (the
+/// busy timeout), and the second then finds the first's migrations applied
+/// and nothing left to do. Any error, `before_commit`'s included, rolls the
+/// whole transaction back. With `check_foreign_keys` (foreign keys are off
+/// for the run), every foreign key is checked after `before_commit`, just
+/// before the commit ([`check_foreign_keys`]).
+fn apply(
     conn: &mut Connection,
     migrations: &[Migration],
+    before_commit: BeforeCommit<'_>,
+    check_foreign_keys: bool,
 ) -> Result<(), Error> {
-    <Connection as refinery::Migrate>::assert_migrations_table(conn, HISTORY_TABLE)
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let from = check(&tx, migrations)?;
+    create_history_table(&tx)?;
+
+    let mut pending: Vec<&Migration> = migrations
+        .iter()
+        .filter(|migration| SchemaVersion::from(migration.version()) > from)
+        .collect();
+    pending.sort();
+    let mut applied = Vec::with_capacity(pending.len());
+    for migration in &pending {
+        // refinery's own invariant: an embedded or `Migration::unapplied`
+        // migration always has its SQL.
+        let sql = migration.sql().expect("a migration to apply has its SQL");
+        tx.execute_batch(sql)
+            .and_then(|()| {
+                // refinery's history row: `applied_on` in RFC 3339, the
+                // checksum as text.
+                tx.execute(
+                    &format!(
+                        "INSERT INTO {HISTORY_TABLE} (version, name, applied_on, checksum) \
+                         VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?3)"
+                    ),
+                    rusqlite::params![
+                        migration.version(),
+                        migration.name(),
+                        migration.checksum().to_string()
+                    ],
+                )
+            })
+            .migration_err(&format!("error applying migration {migration}"), None)
+            .map_err(|err| Error::Migration(Box::new(err)))?;
+        applied.push(SchemaVersion::from(migration.version()));
+    }
+
+    before_commit(
+        &tx,
+        &Applied {
+            from,
+            versions: applied,
+        },
+    )?;
+    if check_foreign_keys {
+        self::check_foreign_keys(&tx)?;
+    }
+    tx.commit()
+        .migration_err("error committing migrations", None)
         .map_err(|err| Error::Migration(Box::new(err)))?;
-    let last = latest_version(migrations);
-    conn.execute_batch(&format!(
-        "CREATE TEMP TRIGGER {FOREIGN_KEY_CHECK_TRIGGER} \
-         BEFORE INSERT ON main.{HISTORY_TABLE} \
-         WHEN NEW.version = {last} AND EXISTS (SELECT 1 FROM pragma_foreign_key_check) \
-         BEGIN \
-             SELECT RAISE(ABORT, 'the migrations leave a foreign key that points at nothing'); \
-         END"
-    ))?;
-    Ok(())
-}
 
-/// Runs refinery over `migrations`, all pending ones in one transaction.
-fn apply(conn: &mut Connection, migrations: &[Migration]) -> Result<(), Error> {
-    let runner = Runner::new(migrations).set_grouped(true);
-    let report = match runner.run(conn) {
-        Ok(report) => report,
-        // Two processes opening a fresh database at once can both see the
-        // same migrations as pending; the second's apply then fails once the
-        // first has committed. Running again finds nothing left to do. A real
-        // failure fails the same way again, and its transaction rolls back.
-        Err(_) => {
-            refuse_newer(conn, migrations)?;
-            runner
-                .run(conn)
-                .map_err(|err| Error::Migration(Box::new(err)))?
-        }
-    };
-
-    for migration in report.applied_migrations() {
+    for migration in pending {
         tracing::info!(%migration, "applied database migration");
     }
     Ok(())
@@ -229,6 +315,11 @@ fn refuse_newer(conn: &Connection, migrations: &[Migration]) -> Result<(), Error
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run with nothing to do before it commits.
+    fn run(conn: &mut Connection, migrations: &[Migration]) -> Result<(), Error> {
+        super::run(conn, migrations, &|_, _| Ok(()))
+    }
 
     /// Every embedded migration is versioned (`V`), and versions run 1, 2, 3…
     /// with no gaps, so "the last applied version" is a complete description
@@ -457,13 +548,13 @@ mod tests {
             )
             .unwrap();
         assert!(!third);
-        // The check's trigger is gone with the run.
-        let triggers: i64 = conn
+        // The run leaves nothing behind in the connection's temp schema.
+        let temp: i64 = conn
             .query_row("SELECT count(*) FROM temp.sqlite_schema", [], |row| {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(triggers, 0);
+        assert_eq!(temp, 0);
     }
 
     /// A newer or diverged database is refused before the rebuild's run
@@ -498,5 +589,139 @@ mod tests {
         check(&conn, &[v1(), v2()]).unwrap();
         run(&mut conn, &[v1(), v2()]).unwrap();
         assert_eq!(current_version(&conn).unwrap(), 2);
+    }
+
+    /// refinery itself reads the history a run writes as its own: it
+    /// parses every row (it panics on an `applied_on` that isn't RFC 3339)
+    /// and finds nothing changed and nothing pending.
+    #[test]
+    fn refinery_reads_the_history_a_run_writes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = embedded();
+        run(&mut conn, &migrations).unwrap();
+
+        let report = refinery::Runner::new(&migrations).run(&mut conn).unwrap();
+
+        assert!(report.applied_migrations().is_empty());
+        let mut from_refinery = refinery::Runner::new(&migrations)
+            .get_applied_migrations(&mut conn)
+            .unwrap()
+            .into_iter()
+            .map(|migration| (migration.version(), migration.checksum()))
+            .collect::<Vec<_>>();
+        from_refinery.sort();
+        let ours = migrations
+            .iter()
+            .map(|migration| (migration.version(), migration.checksum()))
+            .collect::<Vec<_>>();
+        assert_eq!(from_refinery, ours);
+    }
+
+    /// The step before commit sees what the run applied, and its writes
+    /// commit with the migrations.
+    #[test]
+    fn the_step_before_commit_sees_the_run_and_commits_with_it() {
+        let mut conn = migrated(&[v1()]);
+        let seen = std::cell::RefCell::new(Vec::new());
+
+        super::run(&mut conn, &[v1(), v2(), v3()], &|tx, applied| {
+            seen.borrow_mut()
+                .push((applied.from, applied.versions.clone()));
+            tx.execute("INSERT INTO second (id) VALUES (1)", [])?;
+            Ok(())
+        })
+        .unwrap();
+        super::run(&mut conn, &[v1(), v2(), v3()], &|_, applied| {
+            seen.borrow_mut()
+                .push((applied.from, applied.versions.clone()));
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(*seen.borrow(), [(1, vec![2, 3]), (3, vec![])]);
+        assert_eq!(count(&conn, "second"), 1);
+    }
+
+    /// A failure before commit rolls back every migration of the run, and
+    /// whatever the step itself wrote.
+    #[test]
+    fn a_failure_before_commit_rolls_the_run_back() {
+        let mut conn = migrated(&[v1()]);
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+
+        let error = super::run(&mut conn, &[v1(), v2()], &|tx, _| {
+            tx.execute("INSERT INTO first (id) VALUES (1)", [])?;
+            Err(Error::Sqlite(rusqlite::Error::InvalidQuery))
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, Error::Sqlite(_)), "{error:?}");
+        assert_eq!(current_version(&conn).unwrap(), 1);
+        assert_eq!(count(&conn, "first"), 0);
+        let second: bool = conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = 'second')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!second);
+    }
+
+    /// With foreign keys off for a rebuild, the step before commit still
+    /// runs in the run's transaction, and its failure rolls the rebuild
+    /// back and turns foreign keys on again.
+    #[test]
+    fn a_failure_before_commit_rolls_a_rebuild_back() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        run(&mut conn, &[parent_and_child()]).unwrap();
+
+        let error = super::run(
+            &mut conn,
+            &[parent_and_child(), rebuild_parent("")],
+            &|_, _| Err(Error::Sqlite(rusqlite::Error::InvalidQuery)),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, Error::Sqlite(_)), "{error:?}");
+        assert_eq!(current_version(&conn).unwrap(), 1);
+        assert!(foreign_keys_on(&conn));
+        let refused = conn.execute("DELETE FROM parent WHERE id = 1", []);
+        assert!(refused.is_err(), "{refused:?}");
+    }
+
+    /// With foreign keys off for a rebuild, what the step before commit
+    /// writes is checked too: a reference to nothing it leaves fails the
+    /// run, and the whole upgrade rolls back.
+    #[test]
+    fn a_foreign_key_violation_written_before_commit_rolls_the_upgrade_back() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        run(&mut conn, &[parent_and_child()]).unwrap();
+
+        let error = super::run(
+            &mut conn,
+            &[parent_and_child(), rebuild_parent(""), v3()],
+            &|tx, run| {
+                assert_eq!(run.versions, [2, 3]);
+                tx.execute("INSERT INTO child (id, parent_id) VALUES (3, 99)", [])?;
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, Error::Migration(_)), "{error:?}");
+        assert_eq!(current_version(&conn).unwrap(), 1);
+        assert!(foreign_keys_on(&conn));
+        assert_eq!(count(&conn, "child"), 2);
+        let third: bool = conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = 'third')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!third);
     }
 }
