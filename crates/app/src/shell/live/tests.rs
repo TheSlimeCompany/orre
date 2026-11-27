@@ -299,6 +299,34 @@ fn a_new_month_start_recuts_the_overview_and_the_date_chip(cx: &mut TestAppConte
         )
     );
     assert_eq!(check(&shell, cx), topics(&[]), "the app's own write");
+    // The open chip menu says every month preset's dates, chosen or not.
+    cx.update(|window, cx| window.click("filter-date", cx));
+    settle(cx);
+    let details = cx.update(|_, cx| {
+        let menu = transactions
+            .read(cx)
+            .describe(cx)
+            .menu
+            .expect("the Date menu");
+        menu.groups[0]
+            .options
+            .iter()
+            .map(|option| (option.label.clone(), option.detail.clone()))
+            .collect::<Vec<_>>()
+    });
+    let detail = |label: &str| {
+        details
+            .iter()
+            .find(|(shown, _)| shown == label)
+            .unwrap_or_else(|| panic!("no {label} in {details:?}"))
+            .1
+            .as_deref()
+    };
+    assert_eq!(detail("This month"), Some("23 Oct – 24 Nov"));
+    assert_eq!(detail("Last month"), Some("25 Sep – 22 Oct"));
+    assert_eq!(detail("This year"), None, "years keep their own dates");
+    cx.simulate_keystrokes("escape");
+    settle(cx);
 
     // The last day, Friday before: 31 Oct is a Saturday.
     set(MonthStart::new(StartDay::LAST, Weekends::FridayBefore), cx);
