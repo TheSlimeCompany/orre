@@ -664,54 +664,84 @@ fn a_stored_alias_that_no_longer_validates_is_named_by_id() {
     assert!(recompute_all(f.db.conn()).is_err());
 }
 
+/// A database at the version before merchant names, with three imported
+/// rows: one with a merchant, one named only by its bank text, one blank.
+fn database_before_names(path: &std::path::Path) {
+    let db = crate::db::open_at_version(path, SCHEMA_VERSION - 1).unwrap();
+    let conn = db.conn();
+    conn.execute(
+        "INSERT INTO account (name, kind, currency) VALUES ('Current', 'current', 'GBP')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO import_batch (account_id, source_file, format) \
+         VALUES (1, 'statement.csv', 'csv')",
+        [],
+    )
+    .unwrap();
+    for (i, (merchant, description)) in [
+        (Some("SQ *ACME COFFEE"), "x"),
+        (None, "CONTACTLESS ACME BAKERY 12/11"),
+        (None, ""),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        conn.execute(
+            "INSERT INTO \"transaction\" (account_id, batch_id, date, amount_minor, \
+             currency, merchant, description_raw, description_normalized, fingerprint, \
+             origin) VALUES (1, 1, '2026-11-02', -450, 'GBP', ?1, ?2, ?2, ?3, 'imported')",
+            params![merchant, description, format!("fp-{i}")],
+        )
+        .unwrap();
+    }
+}
+
+fn display_names(conn: &rusqlite::Connection) -> Vec<Option<String>> {
+    let mut statement = conn
+        .prepare("SELECT merchant_display FROM \"transaction\" ORDER BY id")
+        .unwrap();
+    statement
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
 #[test]
 fn opening_an_older_database_names_existing_rows() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("orre.db");
-    {
-        let db = crate::db::open_at_version(&path, SCHEMA_VERSION - 1).unwrap();
-        let conn = db.conn();
-        conn.execute(
-            "INSERT INTO account (name, kind, currency) VALUES ('Current', 'current', 'GBP')",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO import_batch (account_id, source_file, format) \
-             VALUES (1, 'statement.csv', 'csv')",
-            [],
-        )
-        .unwrap();
-        for (i, (merchant, description)) in [
-            (Some("SQ *ACME COFFEE"), "x"),
-            (None, "CONTACTLESS ACME BAKERY 12/11"),
-            (None, ""),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            conn.execute(
-                "INSERT INTO \"transaction\" (account_id, batch_id, date, amount_minor, \
-                 currency, merchant, description_raw, description_normalized, fingerprint, \
-                 origin) VALUES (1, 1, '2026-11-02', -450, 'GBP', ?1, ?2, ?2, ?3, 'imported')",
-                params![merchant, description, format!("fp-{i}")],
-            )
-            .unwrap();
-        }
-    }
+    database_before_names(&path);
 
     let db = Database::open(&path).unwrap();
-    let mut statement = db
-        .conn()
-        .prepare("SELECT merchant_display FROM \"transaction\" ORDER BY id")
-        .unwrap();
-    let names: Vec<Option<String>> = statement
-        .query_map([], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
     assert_eq!(
-        names,
+        display_names(db.conn()),
+        [Some("ACME COFFEE".into()), Some("ACME BAKERY".into()), None]
+    );
+}
+
+/// The naming pass shares the migrations' transaction (W1-6): when the
+/// open fails after the names were written but before the commit, the
+/// migrations roll back with them, so the next open still names the rows.
+#[test]
+fn a_failed_naming_pass_rolls_the_migrations_back() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("orre.db");
+    database_before_names(&path);
+
+    let error = crate::db::open_failing_before_commit(&path).unwrap_err();
+    assert!(matches!(error, crate::db::Error::Sqlite(_)), "{error:?}");
+
+    {
+        let db = crate::db::open_at_version(&path, SCHEMA_VERSION - 1).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION - 1);
+        assert_eq!(display_names(db.conn()), [None, None, None]);
+    }
+    let db = Database::open(&path).unwrap();
+    assert_eq!(
+        display_names(db.conn()),
         [Some("ACME COFFEE".into()), Some("ACME BAKERY".into()), None]
     );
 }
