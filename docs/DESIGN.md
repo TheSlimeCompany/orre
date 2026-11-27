@@ -595,10 +595,16 @@ in Paper (Foundations artboard); the chart designs below were drawn on the Overv
 
 **Categorical palette.** Six colours, each with its own lightness step, so they stay
 distinguishable when hue is lost. They avoid the hues of `molten`, `moldavite`, `danger` and
-`warning`. Measured as OKLab ΔE ×100, the closest pair among the six colours and the
-four accent/status colours is **12.2** for normal vision, **7.0** for protanopia and
-**8.2** for deuteranopia (Machado 2009 simulation). Every colour has at least 3:1
-contrast on `canvas` (WCAG non-text contrast).
+`warning`. Pablo re-measured the full new palette as ΔE2000 with Machado 2009
+simulation at full severity. The closest pair per type is **6.8** for protanopia
+(chart-3 / chart-5; chart-5 / chart-6 is 7.0), **5.4** for deuteranopia (chart-4 /
+chart-6, teal vs mauve; chart-4 / chart-5 is 6.4), **8.5** for tritanopia (chart-4 /
+chart-5) and **14.9** for normal vision (chart-3 / chart-6). The previous palette's
+minimums were 7.2 (protanopia), 8.9 (deuteranopia) and 12.3 (tritanopia), so the
+contrast lift costs some CVD separation. The worst case, teal vs mauve for
+deuteranopes at 5.4, is accepted for v0.1 because category charts always carry
+text labels. Every colour has at least 3:1 contrast on `canvas` (WCAG non-text
+contrast).
 
 | Token | Value | OKLCH | Contrast on canvas |
 |---|---|---|---|
@@ -658,7 +664,7 @@ The selected month is the month the switcher shows.
 | Gridlines | Horizontal only, 1px `hairline`; no vertical gridlines, no chart border |
 | Baseline / zero line | 1px `border-strong` |
 | Bars | Radius 2 on the value end. Fixed width, not a share of the band: 16px (`spacing-4`), 2px apart within a group (`spacing-0_5`), groups centred in equal bands. (The proposed "group gap 40% of bar width" gave 38px bars at 1440, too heavy for a 28px-row UI) |
-| Lines | 1.5px, round joins and caps; points hidden until hover (6px dot, 2px `canvas` ring). A line drawn over bars gets a `canvas` halo: the same path at 4.5px in `canvas` underneath, so 1.5px of canvas shows each side. Without it the `text` line over `text-strong` spending bars measures 1.2:1 and vanishes at each crossing |
+| Lines | 1.5px, round joins and caps; points hidden until hover (6px dot, 2px `canvas` ring). A line drawn over bars gets a `canvas` halo: a 2px `canvas` stroke on each side of the 1.5px `text` line, so the line sits inside a 5.5px knockout (the same path at 5.5px in `canvas` underneath, then the 1.5px line), drawn above the bars. The line against the halo measures 15.16:1, which is what makes it readable over the bars |
 | Area fill | Series colour at 8% opacity |
 | Budget line | 1px dashed `text-muted`; the part over budget is `danger` |
 | Tooltip | Tooltip component; values in mono; series marker 8×8 radius 2 |
@@ -2904,7 +2910,7 @@ reference file except the values recorded here.
    Components: 1px borders, the bulk-action bar's shadow, SVG icon paths. Overview ✅ done
    (D4.1, artboard `22V-0`): the shell cloned from Transactions, the canvas written from
    the specs here, every colour, size, gap, radius and type value a bound token, with no new
-   tokens. Typed values: 1px/1.5px borders and outlines, the 4.5px halo stroke, the
+   tokens. Typed values: 1px/1.5px borders and outlines, the 5.5px halo stroke, the
    tooltip shadow and swatch ring, the net line's SVG points, data-driven positions (bar
    heights and widths as percentages, the hover point's −5px centring offset) and the
    hover point's 50% radius (a 10px circle has no radius token). Transactions additions
