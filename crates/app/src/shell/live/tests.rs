@@ -224,6 +224,100 @@ fn the_overview_reloads_on_a_ledger_change(cx: &mut TestAppContext) {
     assert_eq!(spent(cx), Some(before + 1234));
 }
 
+/// Setting the month start in Settings (M4.11) applies at once: the
+/// Overview's month and the Date chip's presets are cut again by the next
+/// reads, with no check needed, and the next check has nothing to report.
+#[gpui_kit::test]
+fn a_new_month_start_recuts_the_overview_and_the_date_chip(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+    use orre_core::reporting::period::{DateRange, MonthStart, StartDay, Weekends};
+
+    let scratch = Scratch::seeded();
+    let (shell, cx) = open(cx, &scratch, View::Transactions);
+    let (overview, transactions, settings) = cx.update(|_, cx| {
+        let shell = shell.read(cx);
+        (
+            shell.overview().clone(),
+            shell.transactions().clone(),
+            shell.settings().clone(),
+        )
+    });
+    // The fixture day, Tue 10 Nov 2026.
+    let tuesday = NaiveDate::from_ymd_opt(2026, 11, 10).unwrap();
+    cx.update(|_, cx| {
+        overview.update(cx, |overview, cx| {
+            overview.hold_day(tuesday);
+            overview.reload(cx);
+        });
+        transactions.update(cx, |transactions, _| transactions.hold_day(tuesday));
+    });
+    settle(cx);
+    for id in ["filter-date", "option-this_month"] {
+        cx.update(|window, cx| window.click(id, cx));
+        settle(cx);
+    }
+    // The chip's label, its range, and the Overview's switcher dates.
+    let shown = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            let transactions = transactions.read(cx);
+            let chip = transactions.describe(cx).toolbar.chips[2].label.clone();
+            let range = transactions.filter().dates;
+            let overview = overview.read(cx).describe(cx);
+            (chip, range, overview.month, overview.dates)
+        })
+    };
+    let set = |start: MonthStart, cx: &mut VisualTestContext| {
+        cx.update(|_, cx| settings.update(cx, |settings, cx| settings.set_month_start(start, cx)));
+        settle(cx);
+    };
+    let range = |from: &str, to: &str| DateRange::parse(from, to).ok();
+
+    assert_eq!(
+        shown(cx),
+        (
+            "This month".to_owned(),
+            range("2026-11-01", "2026-11-30"),
+            "November 2026".to_owned(),
+            None
+        ),
+        "calendar months say no dates"
+    );
+
+    // The 25th, Friday before: 25 Oct is a Sunday, so November starts on
+    // Friday 23 Oct.
+    set(
+        MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore),
+        cx,
+    );
+    assert_eq!(
+        shown(cx),
+        (
+            "This month · 23 Oct – 24 Nov".to_owned(),
+            range("2026-10-23", "2026-11-24"),
+            "November 2026".to_owned(),
+            Some("23 Oct – 24 Nov".to_owned())
+        )
+    );
+    assert_eq!(check(&shell, cx), topics(&[]), "the app's own write");
+
+    // The last day, Friday before: 31 Oct is a Saturday.
+    set(MonthStart::new(StartDay::LAST, Weekends::FridayBefore), cx);
+    assert_eq!(
+        shown(cx),
+        (
+            "This month · 30 Oct – 29 Nov".to_owned(),
+            range("2026-10-30", "2026-11-29"),
+            "November 2026".to_owned(),
+            Some("30 Oct – 29 Nov".to_owned())
+        )
+    );
+
+    // Back to the 1st: the dates go again.
+    set(MonthStart::CALENDAR, cx);
+    assert_eq!(shown(cx).0, "This month");
+    assert_eq!(shown(cx).3, None);
+}
+
 // The topic map ------------------------------------------------------------------
 
 #[test]
@@ -264,6 +358,10 @@ fn each_topic_reloads_its_views() {
         views(&topics(&[Topic::Settings]), false),
         Views {
             settings: true,
+            // The month start is a setting: the views it cuts months for.
+            inbox: true,
+            transactions: true,
+            overview: true,
             ..none
         }
     );

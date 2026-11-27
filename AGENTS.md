@@ -26,8 +26,8 @@ charts, and exposes the data to AI clients through an MCP server.
 
 - **Status:** M0, the design track (D1–D6), M1 and M2 are done; every M3 item is built,
   and M3's exit check on real data is the user's. The UI review is done, U.5 (the dev
-  driver) included. M4 has started: M4.1 (the Overview) is built, ahead of M4.11 (the
-  user's call); M4.11's core and MCP are built, its Settings UI waits for Paper. Detail per item: `docs/ROADMAP.md`.
+  driver) included. M4 has started: M4.1 (the Overview) and M4.11 (the month start,
+  its Settings UI from D6.12) are built. Detail per item: `docs/ROADMAP.md`.
 - **Where things are:** [`docs/CODEMAP.md`](docs/CODEMAP.md), by crate and area. It
   lags the code: check the tree before assuming a module exists, and update the map
   when you add or move a module.
@@ -64,15 +64,20 @@ Git hooks are managed by lefthook (`lefthook.yml`, installed on devenv shell ent
 Only `pre-push` is used: data guard (no statements/databases outside `fixtures/`),
 `--locked` lockfile check, no edits to migrations already on `origin/main`, the
 dependency direction (`cargo tree`), fmt, clippy `-D warnings`, tests, and docs with
-`RUSTDOCFLAGS=-D warnings`. There is no CI yet, so this hook is the gate; don't bypass
-it with `--no-verify`.
+`RUSTDOCFLAGS=-D warnings`. CI (`.github/workflows/ci.yml`) runs the same jobs with the
+same Cargo flags on Linux and macOS, plus an MSRV `cargo check` and a non-blocking Windows
+`cargo check`; keep the two in step when either changes. Don't bypass the hook with
+`--no-verify`: it catches failures before CI does.
 
 ## Environment
 
 - Dev shell: devenv (Nix) loaded via direnv (`.envrc`). Run commands inside it so the
   Rust toolchain and the GPUI runtime libraries (`LD_LIBRARY_PATH`) are available.
   Outside direnv, use `devenv shell -- <command>`.
-- Rust stable, edition 2024. Toolchain components: clippy, rustfmt, rust-analyzer.
+- Rust stable, edition 2024; the minimum supported version is 1.95 (`rust-version` in
+  `Cargo.toml`), so don't use newer language or std features without raising it.
+  `rust-toolchain.toml` pins rustup to stable. Toolchain components: clippy, rustfmt,
+  rust-analyzer.
 - Add system libraries in `devenv.nix`, not with ad-hoc installs.
 - Set `ORRE_DATA_DIR` to a scratch directory when running Orre against test data,
   so it never touches the real database in the platform data dir.
