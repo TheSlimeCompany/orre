@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Orre.app's Info.plist. build-dmg.sh fills in @VERSION@ and
+  @MIN_MACOS@ (MACOSX_DEPLOYMENT_TARGET, the oldest macOS the binary is
+  built for). The bundle identifier app.orre is permanent: macOS keys
+  the app's settings and privacy grants on it, so never change it.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleIdentifier</key>
+	<string>app.orre</string>
+	<key>CFBundleName</key>
+	<string>Orre</string>
+	<key>CFBundleDisplayName</key>
+	<string>Orre</string>
+	<key>CFBundleExecutable</key>
+	<string>orre</string>
+	<key>CFBundleIconFile</key>
+	<string>Orre</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MIN_MACOS@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.finance</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 The Slime Company. MIT OR Apache-2.0.</string>
+</dict>
+</plist>

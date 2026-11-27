@@ -1,9 +1,10 @@
 # Installing Orre
 
-v0.1 is not released yet: this page describes the Linux tarball the
-release workflow (`.github/workflows/release.yml`) builds, and the Nix
-flake (`flake.nix`) that workflow builds and checks. Until a `v0.1.0` tag
-exists, build from source (README → "Development").
+v0.1 is not released yet: this page describes the downloads the release
+workflow (`.github/workflows/release.yml`) builds, a Linux tarball and an
+unsigned macOS `.dmg`, and the Nix flake (`flake.nix`) that workflow builds
+and checks. Until a `v0.1.0` tag exists, build from source (README →
+"Development").
 
 ## Linux (tarball)
 
@@ -125,3 +126,66 @@ nix run --override-input nixpkgs nixpkgs/nixos-26.11 github:nix-community/nixGL#
 
 The tarball above uses the distribution's drivers and doesn't have this
 problem.
+
+## macOS (unsigned .dmg)
+
+`orre-<version>-macos-arm64.dmg` holds `Orre.app` for Apple Silicon Macs
+(M1 and later) only; there is no Intel build in v0.1. The app is built
+for macOS 11 and later (`MACOSX_DEPLOYMENT_TARGET=11.0`), but it is
+tested only on the release workflow's `macos-latest` runner: older
+versions of macOS are untested. Open the image and drag **Orre** onto
+**Applications**.
+
+### Why macOS warns you, and how to open it
+
+v0.1 is **unsigned**: we don't have an Apple Developer account, so Orre
+isn't signed with a Developer ID or notarised by Apple. (It carries an
+ad-hoc signature, which Apple Silicon needs to run it, but that isn't an
+identity Apple recognises.) The first time you open it, macOS says it
+can't verify the developer. That warning is expected for this build; it
+doesn't mean the download is corrupt. Check it against the `.sha256` file
+next to it if you want to be sure: `shasum -a 256 -c orre-0.1.0-macos-arm64.dmg.sha256`.
+
+Open it once in one of these ways, in this order. After that it opens
+normally.
+
+1. **Finder:** right-click (or Control-click) `Orre.app` in Applications,
+   choose **Open**, then choose **Open** again in the dialog.
+2. **If macOS only offers "Move to Bin" (or "Done") and "Cancel":** open
+   **System Settings → Privacy & Security**, scroll down to the message
+   about Orre, click **Open Anyway**, and confirm. On macOS 15 (Sequoia)
+   and later this is the usual path, because step 1 no longer offers
+   **Open**.
+3. **Fallback, in Terminal:** remove the quarantine flag macOS put on the
+   download, then do step 1 again:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Orre.app
+   ```
+
+   If macOS won't mount the `.dmg` itself, run the same on the image first:
+   `xattr -d com.apple.quarantine ~/Downloads/orre-0.1.0-macos-arm64.dmg`.
+
+Don't turn Gatekeeper off for the whole Mac (`spctl --master-disable`) to
+open Orre: the steps above allow this one app and leave the protection on
+for everything else.
+
+Your data lives in `~/Library/Application Support/Orre` unless
+`ORRE_DATA_DIR` names another folder. The `orre` command-line tool is the
+same binary: `/Applications/Orre.app/Contents/MacOS/orre --help`.
+
+### How the .dmg is built
+
+`bash packaging/macos/build-dmg.sh` (on a Mac) builds
+`cargo build --release --locked -p orre-app` with no features, makes
+`Orre.app` (bundle identifier `app.orre`, icon generated from
+`assets/brand/orre-app-icon-1024.png`), ad-hoc signs it
+(`codesign --sign -`, no Developer ID, no notarisation), and writes
+`dist/orre-<version>-macos-<arch>.dmg` (volume **Orre**, with the
+licences and an Applications link) and its `.sha256`.
+`bash packaging/macos/smoke-test.sh dist/<dmg>` mounts it and checks the
+bundle, the plist, the ad-hoc signature, `--help`, `--version`, that
+`--showcase` is rejected and a headless command. The release workflow's
+`macOS dmg (unsigned)` job runs both. A green job doesn't prove a
+downloaded copy opens: CI-built files aren't quarantined, so Gatekeeper
+never runs there.
