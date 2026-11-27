@@ -899,8 +899,9 @@ and confirmed by the user on 2026-11-23. The lead decided Q1 to Q6 below.
 11. **Q4: the baseline is taken before the window opens**, on a background thread, in
     `shell::open`, which then opens the window, builds the shell over the watcher and
     starts the timer; the dev driver starts after it. A window that can't open is
-    logged and the app quits. If the baseline didn't compare (no file yet, a restore
-    held the lock, an error), the first check that compares reloads every view.
+    logged and the process exits non-zero (W2-11). If the baseline didn't compare (no
+    file yet, a restore held the lock, an error), the first check that compares
+    reloads every view.
 12. **Q5: the topic map.** Inbox → the Inbox (and its badge). Ledger → Transactions, the
     accounts, the review queues, and Rules only while it is on show. Rules → Rules and
     Transactions. Settings → Settings' AI clients (and the status bar's agent count).
