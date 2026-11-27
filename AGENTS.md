@@ -42,7 +42,7 @@ cargo test -p <package> <name>                    # one package / test, e.g. -p 
 cargo test                                        # all tests (whole workspace)
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
-cargo run --example snapshot -- <dir>             # render views to PNG, compare with Paper
+cargo run --features dev-samples --example snapshot -- <dir>   # render views to PNG, compare with Paper
 ORRE_DATA_DIR=<scratch> cargo run --features dev-driver            # a dev build to drive
 ORRE_DATA_DIR=<scratch> cargo run --features dev-driver -- dev describe   # …and drive it
 devenv test                                       # environment check (cargo check)

@@ -2,7 +2,7 @@
 //! Paper artboards (`docs/ROADMAP.md` D5.1).
 //!
 //! ```sh
-//! cargo run --example snapshot -- <out-dir>
+//! cargo run --features dev-samples --example snapshot -- <out-dir>
 //! ```
 //!
 //! Uses GPUI's headless platform with the real text system (cosmic-text on

@@ -152,12 +152,14 @@ fn title_bar_on(bounds: Bounds<Pixels>, display: Bounds<Pixels>) -> bool {
     overlap.size.width >= token_size::TITLE_BAR && overlap.size.height >= token_size::TITLE_BAR
 }
 
-/// The view to open: the saved one, or [`View::default`] when there's none
-/// or the key isn't a view this build has.
+/// The view to open: the saved one, or [`View::default`] when there's none,
+/// the key isn't a view this build has, or the view isn't shown in this
+/// build ([`View::is_shown`]: an unbuilt tab saved by a dev build).
 pub fn restored_view(saved: Option<&WindowState>) -> View {
     saved
         .and_then(|state| state.view.as_deref())
         .and_then(View::from_key)
+        .filter(|view| view.is_shown())
         .unwrap_or_default()
 }
 

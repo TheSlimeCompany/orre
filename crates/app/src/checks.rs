@@ -27,6 +27,7 @@ pub mod balances;
 #[cfg(any(test, feature = "dev-driver"))]
 pub(crate) mod describe;
 pub mod duplicates;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 pub mod lock;
 pub mod owed;
@@ -207,9 +208,7 @@ impl Checks {
     }
 
     pub fn today(&self) -> chrono::NaiveDate {
-        self.data
-            .today
-            .unwrap_or_else(crate::accounts::fixture::today)
+        self.data.today.unwrap_or_else(crate::today)
     }
 
     /// The open queue; `None` while the Inbox shows suggestions.

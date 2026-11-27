@@ -175,6 +175,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 - Decision record: live updates (2026-11-21)
 - Decision record: live updates in the shell (2026-11-22)
 - Decision record: what arrived from another process (2026-11-23)
+- Decision record: sample data and unbuilt tabs stay out of release builds (2026-11-27)
 
 ### In this file
 

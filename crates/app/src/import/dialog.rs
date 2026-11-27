@@ -414,6 +414,7 @@ impl ImportDialog {
     /// The dialog with the sample setup (snapshots, tests): the bundled
     /// presets, Paper's accounts and recent imports, read from no
     /// database. It imports only if `imports` has a store.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn sample(imports: Entity<Imports>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut dialog = Self::new(imports, None, None, window, cx);
         dialog.task = None;
@@ -462,10 +463,24 @@ impl ImportDialog {
             .update(cx, |input, cx| input.set_value(name.to_owned(), window, cx));
     }
 
+    /// No database: the sample setup for sample imports (tests,
+    /// `dev-samples`), else no setup, and why there's nothing to import
+    /// into.
+    fn setup_without_store(&mut self, cx: &gpui_kit::App) {
+        let reason = self.imports.read(cx).unavailable_reason().cloned();
+        #[cfg(any(test, feature = "dev-samples"))]
+        if reason.is_none() {
+            self.setup = Some(super::fixture::setup());
+            return;
+        }
+        self.problem =
+            Some(reason.unwrap_or_else(|| "There's no data folder to import into.".into()));
+    }
+
     /// Reads the presets, accounts and last imports, then `path` if given.
     fn load(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
         let Some(store) = self.store.clone() else {
-            self.setup = Some(super::fixture::setup());
+            self.setup_without_store(cx);
             return;
         };
         self.busy = Some(Busy::Loading);
