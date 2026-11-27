@@ -136,21 +136,22 @@ const CLOCK_TICK: Duration = Duration::from_secs(30);
 gpui_kit::actions!(
     orre_shell,
     [
-        /// ⌘1: open Overview.
+        /// ⌘ and its tab's number ([`View::TABS`]; ⌘1): open Overview.
         ShowOverview,
         /// ⌘2: open Transactions.
         ShowTransactions,
-        /// ⌘3: open Trends.
+        /// Open Trends: a tab, with a shortcut, only in tests and
+        /// `dev-samples` builds (it isn't built).
         ShowTrends,
-        /// ⌘4: open Budgets.
+        /// Open Budgets: as Trends.
         ShowBudgets,
-        /// ⌘5: open Net worth.
+        /// Open Net worth: as Trends.
         ShowNetWorth,
-        /// ⌘6: open the Inbox.
+        /// ⌘ and its tab's number: open the Inbox (⌘3; ⌘6 with every tab).
         ShowInbox,
-        /// ⌘7: open Reviews.
+        /// Open Reviews: as Trends.
         ShowReviews,
-        /// ⌘8: open Rules.
+        /// ⌘ and its tab's number: open Rules (⌘4; ⌘8 with every tab).
         ShowRules,
         /// ⌘,: open Settings.
         OpenSettings,
@@ -180,8 +181,25 @@ pub enum View {
 }
 
 impl View {
-    /// The title bar's tabs, in order.
-    pub const TABS: [View; 8] = [
+    /// The title bar's tabs, in order, each opened by ⌘ and its number:
+    /// the shipped ones ([`View::SHIPPED_TABS`]) in a release or default
+    /// build; all eight ([`View::ALL_TABS`]) in tests and `dev-samples`
+    /// builds, so the shell tests and the snapshots keep Paper's title bar.
+    #[cfg(any(test, feature = "dev-samples"))]
+    pub const TABS: [View; 8] = View::ALL_TABS;
+    /// The title bar's tabs, in order, each opened by ⌘ and its number:
+    /// the shipped ones ([`View::SHIPPED_TABS`]).
+    #[cfg(not(any(test, feature = "dev-samples")))]
+    pub const TABS: [View; 4] = View::SHIPPED_TABS;
+
+    /// The tabs v0.1 ships: the built screens. Trends, Budgets, Net worth
+    /// and Reviews (M4.2–M4.7) are v0.2, so a release build has no tab or
+    /// shortcut for them (W1-3).
+    pub const SHIPPED_TABS: [View; 4] =
+        [View::Overview, View::Transactions, View::Inbox, View::Rules];
+
+    /// Every tab Paper draws, built or not.
+    pub const ALL_TABS: [View; 8] = [
         View::Overview,
         View::Transactions,
         View::Trends,
@@ -265,6 +283,27 @@ impl View {
         )
     }
 
+    /// Whether this build shows it: one of its [`View::TABS`], or Settings.
+    /// A saved window on any other view opens on the default.
+    pub fn is_shown(self) -> bool {
+        self == View::Settings || View::TABS.contains(&self)
+    }
+
+    /// The action that opens it, as its shortcut does.
+    fn show_action(self) -> Box<dyn Action> {
+        match self {
+            View::Overview => Box::new(ShowOverview),
+            View::Transactions => Box::new(ShowTransactions),
+            View::Trends => Box::new(ShowTrends),
+            View::Budgets => Box::new(ShowBudgets),
+            View::NetWorth => Box::new(ShowNetWorth),
+            View::Inbox => Box::new(ShowInbox),
+            View::Reviews => Box::new(ShowReviews),
+            View::Rules => Box::new(ShowRules),
+            View::Settings => Box::new(OpenSettings),
+        }
+    }
+
     /// Whether its screen exists yet.
     pub fn is_built(self) -> bool {
         matches!(
@@ -274,31 +313,39 @@ impl View {
     }
 }
 
+/// Each of `tabs` with its shortcut: ⌘ and its number from 1, in order, so
+/// the numbers have no holes whatever the tab set.
+pub fn tab_shortcuts(tabs: &[View]) -> Vec<(String, View)> {
+    tabs.iter()
+        .enumerate()
+        .map(|(index, view)| (format!("secondary-{}", index + 1), *view))
+        .collect()
+}
+
 /// Binds the shell's shortcuts and the Transactions table's keys. Call once,
 /// before [`open`] or the first [`ShellView`].
 pub fn init(cx: &mut App) {
-    let bindings: [(&str, Box<dyn Action>); 11] = [
-        ("secondary-1", Box::new(ShowOverview)),
-        ("secondary-2", Box::new(ShowTransactions)),
-        ("secondary-3", Box::new(ShowTrends)),
-        ("secondary-4", Box::new(ShowBudgets)),
-        ("secondary-5", Box::new(ShowNetWorth)),
-        ("secondary-6", Box::new(ShowInbox)),
-        ("secondary-7", Box::new(ShowReviews)),
-        ("secondary-8", Box::new(ShowRules)),
-        ("secondary-,", Box::new(OpenSettings)),
-        ("secondary-i", Box::new(ImportStatement)),
-        ("secondary-n", Box::new(NewTransaction)),
+    let tabs = tab_shortcuts(&View::TABS)
+        .into_iter()
+        .map(|(keys, view)| (keys, view.show_action()));
+    let others: [(String, Box<dyn Action>); 3] = [
+        ("secondary-,".to_owned(), Box::new(OpenSettings)),
+        ("secondary-i".to_owned(), Box::new(ImportStatement)),
+        ("secondary-n".to_owned(), Box::new(NewTransaction)),
     ];
+    let bindings: Vec<_> = tabs.chain(others).collect();
     let context = Rc::new(
         KeyBindingContextPredicate::parse(SHELL_CONTEXT).expect("the shell's key context parses"),
     );
     // `KeyBinding::new` can't resolve `secondary-` (⌘ on macOS, Ctrl
     // elsewhere); `load` asks the platform.
-    let bindings = bindings.map(|(keys, action)| {
-        KeyBinding::load(keys, action, Some(context.clone()), false, None, cx)
-            .expect("the shell's shortcuts parse")
-    });
+    let bindings: Vec<_> = bindings
+        .into_iter()
+        .map(|(keys, action)| {
+            KeyBinding::load(&keys, action, Some(context.clone()), false, None, cx)
+                .expect("the shell's shortcuts parse")
+        })
+        .collect();
     cx.bind_keys(bindings);
     transactions::init(cx);
     accounts::init(cx);
@@ -452,10 +499,21 @@ pub struct ShellView {
     _subscriptions: Vec<Subscription>,
 }
 
+/// What a shell is built from: each view's data, before the shell
+/// subscribes to it.
+struct Parts {
+    accounts: Entity<Accounts>,
+    source: transactions::Source,
+    inbox: Entity<Inbox>,
+    settings: Entity<SettingsView>,
+    imports: Imports,
+    overview: OverviewView,
+}
+
 impl ShellView {
     /// The shell showing `view` over the database at `database`, as `orre`
-    /// opens it; with `Err` (no data folder, and why), every view says so
-    /// and Transactions shows the sample data.
+    /// opens it; with `Err` (no data folder, and why), every view says so,
+    /// Transactions and the Overview included: no sample data (W1-3).
     pub fn from_database(
         view: View,
         database: Result<PathBuf, String>,
@@ -463,22 +521,27 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) -> Self {
         let no_folder = |error: &String| format!("Orre has no data folder: {error}");
-        let (accounts, source, inbox, checks, rules) = match &database {
+        let (accounts, source, inbox, checks, rules, imports, overview) = match &database {
             Ok(database) => (
                 Accounts::unloaded(AccountStore::new(database.clone())),
                 transactions::Source::Database(TransactionStore::new(database.clone())),
                 Inbox::unloaded(InboxStore::new(database.clone())),
                 Checks::unloaded(ChecksStore::new(database.clone())),
                 Rules::unloaded(RulesStore::new(database.clone())),
+                Imports::from_store(ImportStore::new(database.clone())),
+                // Read in the background, as of today.
+                OverviewView::unloaded(OverviewStore::new(database.clone()), crate::today()),
             ),
-            // Without a data folder there's nothing to read: the panel says
-            // why, and the table shows the sample data.
+            // Without a data folder there's nothing to read: each view says
+            // why.
             Err(error) => (
                 Accounts::unavailable(no_folder(error)),
-                transactions::Source::Fixture,
+                transactions::Source::Unavailable(no_folder(error).into()),
                 Inbox::unavailable(no_folder(error)),
                 Checks::unavailable(no_folder(error)),
                 Rules::unavailable(no_folder(error)),
+                Imports::unavailable(no_folder(error)),
+                OverviewView::unavailable(no_folder(error)),
             ),
         };
         let accounts = cx.new(|_| accounts);
@@ -487,23 +550,23 @@ impl ShellView {
             Ok(database) => SettingsView::from_store(SettingsStore::new(database.clone()), cx),
             Err(error) => SettingsView::unavailable(no_folder(error), cx),
         });
-        let mut shell = ShellView::with_all(view, accounts, source, inbox, settings, window, cx);
-        if let Ok(database) = &database {
-            shell.import_into(ImportStore::new(database.clone()), cx);
-        }
+        let parts = Parts {
+            accounts,
+            source,
+            inbox,
+            settings,
+            imports,
+            overview,
+        };
+        let mut shell = ShellView::with_parts(view, parts, window, cx);
         let checks = cx.new(|_| checks);
         checks.update(cx, |checks, cx| checks.start_loading(cx));
         shell.install_checks(checks, window, cx);
         let rules = cx.new(|_| rules);
         shell.install_rules(rules, window, cx);
-        if let Ok(database) = &database {
-            // The Overview reads the ledger in the background, as of today
-            // (the sample data's day if the clock can't be read).
-            let today = orre_core::schedule::local_today()
-                .unwrap_or_else(|_| crate::overview::fixture::today());
-            let store = OverviewStore::new(database.clone());
-            let overview = cx.new(|_| OverviewView::unloaded(store, today));
-            shell.install_overview(overview.clone(), window, cx);
+        let overview = shell.overview.clone();
+        shell.install_overview(overview.clone(), window, cx);
+        if database.is_ok() {
             overview.update(cx, |overview, cx| overview.reload(cx));
         }
         shell
@@ -511,6 +574,7 @@ impl ShellView {
 
     /// The shell showing `view` with the sample accounts, keeping no window
     /// state (tests, snapshots).
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn new(view: View, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let accounts = cx.new(|_| Accounts::fixture(accounts::fixture::accounts()));
         Self::with_accounts(view, accounts, window, cx)
@@ -518,6 +582,7 @@ impl ShellView {
 
     /// The shell showing `view` with `accounts` in its panel, the sample
     /// transactions, an empty Inbox and Settings on sample data.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn with_accounts(
         view: View,
         accounts: Entity<Accounts>,
@@ -530,6 +595,7 @@ impl ShellView {
     /// The shell showing `view` with `accounts` in its panel, the
     /// transactions from `source`, an empty Inbox and Settings on sample
     /// data.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn with_sources(
         view: View,
         accounts: Entity<Accounts>,
@@ -544,6 +610,7 @@ impl ShellView {
 
     /// The shell showing `view` with `accounts`, the sample transactions,
     /// `inbox` and Settings on sample data.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn with_data(
         view: View,
         accounts: Entity<Accounts>,
@@ -558,6 +625,7 @@ impl ShellView {
 
     /// The shell showing `view` with `accounts`, the sample transactions, an
     /// empty Inbox and `settings` as Settings.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn with_settings(
         view: View,
         accounts: Entity<Accounts>,
@@ -571,7 +639,10 @@ impl ShellView {
     }
 
     /// The shell showing `view` with `accounts`, the transactions from
-    /// `source`, `inbox` and `settings`.
+    /// `source`, `inbox` and `settings`; the Overview and the Import dialog
+    /// on sample data until the shell is given the database's (tests,
+    /// snapshots).
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn with_all(
         view: View,
         accounts: Entity<Accounts>,
@@ -581,6 +652,32 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let parts = Parts {
+            accounts,
+            source,
+            inbox,
+            settings,
+            imports: Imports::sample(),
+            overview: OverviewView::fixture(),
+        };
+        Self::with_parts(view, parts, window, cx)
+    }
+
+    fn with_parts(view: View, parts: Parts, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let Parts {
+            accounts,
+            source,
+            inbox,
+            settings,
+            imports,
+            overview,
+        } = parts;
+        // A view this build doesn't show opens as the default.
+        let view = if view.is_shown() {
+            view
+        } else {
+            View::default()
+        };
         let focus = cx.focus_handle();
         // Focused from the start, so the shortcuts work before any click.
         focus.focus(window, cx);
@@ -654,7 +751,7 @@ impl ShellView {
                 }
             }),
         ];
-        let imports = cx.new(|_| Imports::sample());
+        let imports = cx.new(|_| imports);
         let mut subscriptions = subscriptions;
         subscriptions.push(Self::watch_imports(&imports, cx));
         subscriptions.push(Self::watch_import_writes(&imports, cx));
@@ -666,8 +763,7 @@ impl ShellView {
         let checks_view = cx.new(|cx| ChecksView::new(checks.clone(), cx));
         let rules = cx.new(|_| Rules::empty());
         let rules_view = cx.new(|cx| RulesView::new(rules.clone(), window, cx));
-        // The sample data until the shell is given the database's.
-        let overview = cx.new(|_| OverviewView::fixture());
+        let overview = cx.new(|_| overview);
         let mut shell = Self {
             view,
             before_settings: View::default(),
@@ -835,6 +931,7 @@ impl ShellView {
 
     /// Shows the sample Import dialog (snapshots): the sample export on
     /// its Map step.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn open_sample_import(
         &mut self,
         window: &mut Window,
@@ -1352,7 +1449,8 @@ impl ShellView {
     /// Transactions table) may have left the window, and a focus outside the
     /// window would leave the shortcuts nowhere to go.
     pub fn show(&mut self, view: View, window: &mut Window, cx: &mut Context<Self>) {
-        if self.view == view {
+        // An unbuilt view has no tab in a release build, so nothing shows it.
+        if self.view == view || !view.is_shown() {
             return;
         }
         if view == View::Inbox {

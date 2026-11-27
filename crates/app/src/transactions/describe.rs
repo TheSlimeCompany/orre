@@ -163,6 +163,9 @@ pub struct MenuGroupDescription {
 pub struct OptionDescription {
     pub label: String,
     pub hint: Option<String>,
+    /// The mono value before the tick lane: a month preset's dates when
+    /// they aren't the calendar month's.
+    pub detail: Option<String>,
     /// Ticked: the value chosen now, or one of a row's tags.
     pub chosen: bool,
     /// Where Enter chooses.
@@ -388,6 +391,7 @@ impl TransactionsView {
                         highlighted: highlighted.as_ref() == Some(&option.key),
                         label: option.label.to_string(),
                         hint: option.hint.map(|hint| hint.to_string()),
+                        detail: option.detail.map(|detail| detail.to_string()),
                         disabled: option.disabled,
                     })
                     .collect(),

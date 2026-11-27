@@ -26,10 +26,12 @@
 //! month. The screen opens on the current month, or on the latest month with
 //! data when the current one has none yet (the statements lag), and keeps
 //! doing so on each read until the user picks a month. Without a data folder
-//! the screen shows [`fixture`]'s sample data.
+//! the screen says so ([`OverviewView::unavailable`]); tests and snapshots
+//! use `fixture`'s sample data (`dev-samples`).
 
 #[cfg(any(test, feature = "dev-driver"))]
 pub(crate) mod describe;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 pub mod store;
 pub mod text;
@@ -50,8 +52,12 @@ use store::OverviewStore;
 enum Source {
     /// The database.
     Database(OverviewStore),
-    /// Sample data: [`fixture`]'s functions answer the query as core would.
+    /// Sample data: `fixture`'s functions answer the query as core would
+    /// (tests, `dev-samples`).
+    #[cfg(any(test, feature = "dev-samples"))]
     Sample(fn(&OverviewQuery) -> Overview),
+    /// Nothing to read, and why (no data folder).
+    Unavailable(SharedString),
 }
 
 /// What the screen asks its owner (the shell) to do.
@@ -109,14 +115,25 @@ impl OverviewView {
     }
 
     /// The sample data on the sample day, read now.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn fixture() -> Self {
         Self::sample(fixture::sample)
     }
 
     /// `sample`'s data on the sample day, read now.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn sample(sample: fn(&OverviewQuery) -> Overview) -> Self {
         let mut view = Self::with_source(Source::Sample(sample), fixture::today());
         view.data = Some(sample(&view.query()));
+        view
+    }
+
+    /// Nothing to show, and `reason` instead: no data folder. Never sample
+    /// data (W1-3).
+    pub fn unavailable(reason: impl Into<SharedString>) -> Self {
+        let reason = reason.into();
+        let mut view = Self::with_source(Source::Unavailable(reason.clone()), crate::today());
+        view.load_error = Some(reason);
         view
     }
 
@@ -205,7 +222,9 @@ impl OverviewView {
             Source::Database(store) => {
                 load(store, &query, self.browsed).map_err(|error| error.to_string())
             }
+            #[cfg(any(test, feature = "dev-samples"))]
             Source::Sample(sample) => Ok(sample(&query)),
+            Source::Unavailable(reason) => Err(reason.to_string()),
         }
     }
 
@@ -216,11 +235,13 @@ impl OverviewView {
         self.follow_clock();
         let query = self.query();
         match &self.source {
+            #[cfg(any(test, feature = "dev-samples"))]
             Source::Sample(sample) => {
                 let result = Ok(sample(&query));
                 self.apply(result);
                 cx.notify();
             }
+            Source::Unavailable(_) => {}
             Source::Database(store) => {
                 let store = store.clone();
                 let browsed = self.browsed;

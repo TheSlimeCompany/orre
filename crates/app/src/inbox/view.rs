@@ -618,7 +618,7 @@ impl InboxView {
 
 /// Today, from when the data was read.
 pub(super) fn today(read_at: Option<DateTime<Utc>>) -> NaiveDate {
-    read_at.map_or_else(crate::accounts::fixture::today, |at| at.date_naive())
+    read_at.map_or_else(crate::today, |at| at.date_naive())
 }
 
 /// A fixed-width lane of a row: content in a line, vertically centred.

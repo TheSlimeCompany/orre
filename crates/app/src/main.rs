@@ -11,7 +11,10 @@ fn main() -> ExitCode {
         // The headless commands never start GPUI.
         Some(command) => run_command(command),
         None => {
+            #[cfg(feature = "dev-samples")]
             run_gui(args.showcase);
+            #[cfg(not(feature = "dev-samples"))]
+            run_gui();
             ExitCode::SUCCESS
         }
     }
@@ -39,8 +42,9 @@ fn run_command(command: cli::Command) -> ExitCode {
     }
 }
 
-/// Opens the app, or with `--showcase` the component showcase (D2.5).
-fn run_gui(showcase: bool) {
+/// Opens the app, or in a `dev-samples` build with `--showcase` the
+/// component showcase (D2.5).
+fn run_gui(#[cfg(feature = "dev-samples")] showcase: bool) {
     cli::mcp::init_logging();
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
@@ -49,16 +53,17 @@ fn run_gui(showcase: bool) {
             gpui_kit::init(cx);
             orre_app::theme::install(cx).expect("Failed to install the theme");
 
+            #[cfg(feature = "dev-samples")]
             if showcase {
                 orre_app::showcase::init(cx);
                 orre_app::showcase::open(cx).expect("Failed to open the showcase");
-            } else {
-                // The app shell (M3.1) around its views; Transactions shows
-                // fixture data until the table reads the database (M3.3).
-                orre_app::shell::init(cx);
-                // The window opens once the live-updates baseline is
-                // taken; one that can't open is logged and the app quits.
-                orre_app::shell::open(cx);
+                return;
             }
+            // The app shell (M3.1) around its views, over the database in
+            // the data dir; with no data folder every view says so.
+            orre_app::shell::init(cx);
+            // The window opens once the live-updates baseline is taken;
+            // one that can't open is logged and the app quits.
+            orre_app::shell::open(cx);
         });
 }

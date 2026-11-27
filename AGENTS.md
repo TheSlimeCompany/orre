@@ -42,7 +42,7 @@ cargo test -p <package> <name>                    # one package / test, e.g. -p 
 cargo test                                        # all tests (whole workspace)
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
-cargo run --example snapshot -- <dir>             # render views to PNG, compare with Paper
+cargo run --features dev-samples --example snapshot -- <dir>   # render views to PNG, compare with Paper
 ORRE_DATA_DIR=<scratch> cargo run --features dev-driver            # a dev build to drive
 ORRE_DATA_DIR=<scratch> cargo run --features dev-driver -- dev describe   # …and drive it
 devenv test                                       # environment check (cargo check)
@@ -64,15 +64,20 @@ Git hooks are managed by lefthook (`lefthook.yml`, installed on devenv shell ent
 Only `pre-push` is used: data guard (no statements/databases outside `fixtures/`),
 `--locked` lockfile check, no edits to migrations already on `origin/main`, the
 dependency direction (`cargo tree`), fmt, clippy `-D warnings`, tests, and docs with
-`RUSTDOCFLAGS=-D warnings`. There is no CI yet, so this hook is the gate; don't bypass
-it with `--no-verify`.
+`RUSTDOCFLAGS=-D warnings`. CI (`.github/workflows/ci.yml`) runs the same jobs with the
+same Cargo flags on Linux and macOS, plus an MSRV `cargo check` and a non-blocking Windows
+`cargo check`; keep the two in step when either changes. Don't bypass the hook with
+`--no-verify`: it catches failures before CI does.
 
 ## Environment
 
 - Dev shell: devenv (Nix) loaded via direnv (`.envrc`). Run commands inside it so the
   Rust toolchain and the GPUI runtime libraries (`LD_LIBRARY_PATH`) are available.
   Outside direnv, use `devenv shell -- <command>`.
-- Rust stable, edition 2024. Toolchain components: clippy, rustfmt, rust-analyzer.
+- Rust stable, edition 2024; the minimum supported version is 1.95 (`rust-version` in
+  `Cargo.toml`), so don't use newer language or std features without raising it.
+  `rust-toolchain.toml` pins rustup to stable. Toolchain components: clippy, rustfmt,
+  rust-analyzer.
 - Add system libraries in `devenv.nix`, not with ad-hoc installs.
 - Set `ORRE_DATA_DIR` to a scratch directory when running Orre against test data,
   so it never touches the real database in the platform data dir.

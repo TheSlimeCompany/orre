@@ -28,7 +28,7 @@
 //! writes run on the UI thread and then ask for a read. Until the first read
 //! is back the panel says nothing about accounts; later reads keep showing
 //! the last one. Screens drawn
-//! without a database (snapshots, tests) use [`fixture`] data, which can't
+//! without a database (snapshots, tests) use `fixture` data, which can't
 //! change.
 
 pub mod add_balance;
@@ -38,6 +38,7 @@ pub mod data;
 pub mod delete;
 #[cfg(any(test, feature = "dev-driver"))]
 pub(crate) mod describe;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 pub mod inspector;
 pub mod new_account;
@@ -114,17 +115,20 @@ use crate::ui::list;
 use data::AccountsData;
 use store::AccountStore;
 
-/// Today, where the computer's clock can be read.
+/// Today, from the computer's clock ([`crate::today`]).
 fn today() -> chrono::NaiveDate {
-    orre_core::schedule::local_today().unwrap_or_else(|_| fixture::today())
+    crate::today()
 }
 
 /// Where the accounts come from.
 enum Source {
     /// The database: what `orre` opens.
     Database(AccountStore),
-    /// Sample data that can't change.
+    /// Sample data that can't change (tests, `dev-samples`).
+    #[cfg(any(test, feature = "dev-samples"))]
     Fixture,
+    /// Nothing to read, and why (no data folder).
+    Unavailable(SharedString),
 }
 
 /// Something the panel or inspector asked for that the shell carries out.
@@ -289,11 +293,12 @@ impl Accounts {
     /// No accounts, because they can't be read: `reason` shows in the
     /// panel.
     pub fn unavailable(reason: impl Into<SharedString>) -> Self {
+        let reason = reason.into();
         Self {
-            source: Source::Fixture,
+            source: Source::Unavailable(reason.clone()),
             data: AccountsData::empty(Vec::new(), today()),
             selected: None,
-            load_error: Some(reason.into()),
+            load_error: Some(reason),
             loaded: true,
             loading: None,
             reloads: Reloads::Itself,
@@ -308,6 +313,7 @@ impl Accounts {
     }
 
     /// Sample data, which can't change.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn fixture(data: AccountsData) -> Self {
         Self {
             source: Source::Fixture,
@@ -635,7 +641,9 @@ impl Accounts {
     fn store(&self) -> Result<&AccountStore, SharedString> {
         match &self.source {
             Source::Database(store) => Ok(store),
+            #[cfg(any(test, feature = "dev-samples"))]
             Source::Fixture => Err("This is sample data, which can't be changed.".into()),
+            Source::Unavailable(reason) => Err(reason.clone()),
         }
     }
 
@@ -756,6 +764,8 @@ impl Accounts {
             Source::Database(store) => store
                 .cash_expectation(account, date, counted)
                 .map_err(|error| SharedString::from(error.to_string())),
+            Source::Unavailable(reason) => Err(reason.clone()),
+            #[cfg(any(test, feature = "dev-samples"))]
             Source::Fixture => {
                 let detail = self.data.detail(account);
                 let since = detail

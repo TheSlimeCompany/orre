@@ -205,7 +205,9 @@ per call through its own store and changes data only through core.
 
 ### Shell and components
 
-- `shell.rs` (M3.1): the title bar's eight view tabs and Settings button (⌘1–⌘8, ⌘,), the
+- `shell.rs` (M3.1): the title bar's view tabs (`View::TABS`: the four shipped ones,
+  ⌘1–⌘4, in a release build; Paper's eight, ⌘1–⌘8, in tests and `dev-samples`
+  builds) and Settings button (⌘,), the
   view's left panel (the accounts panel on the five money views), the status bar, and
   the window state (bounds, mode, open view) restored on launch
   (`shell::window_state`). Actions such as `shell::ImportStatement` (⌘I) and
@@ -262,7 +264,8 @@ per call through its own store and changes data only through core.
   the income and spending bars with the net line, hover tooltip and selected month
   (`chart-month-{i}` hit areas); `RankedBars` is the ranked bar list.
 - `format`: writes and reads money and dates.
-- `showcase`: the component showcase, `orre --showcase`.
+- `showcase`: the component showcase, `orre --showcase` (tests and `dev-samples`
+  builds only, like every `fixture` module).
 
 ### Overview (M4.1)
 
@@ -392,5 +395,7 @@ checked by `cli::run_with`.
   git or `cargo tree` (shipped migrations, dependency direction).
 - App views: `#[gpui_kit::test]` tests next to each view (e.g.
   `transactions/write_tests.rs`), on the views' fixtures.
-- `cargo run --example snapshot -- <dir>` renders the app and the showcase headlessly to
-  PNG for comparison with Paper.
+- `cargo run --features dev-samples --example snapshot -- <dir>` renders the app and the
+  showcase headlessly to PNG for comparison with Paper.
+- `crates/app/tests/release_gating.rs`: what a build without `dev-samples` ships (no
+  `--showcase`, the four shipped tabs and their shortcuts).
