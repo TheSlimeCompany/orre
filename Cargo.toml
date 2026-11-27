@@ -7,6 +7,10 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# Minimum supported Rust. The tree uses let-chains (stable since 1.88), but
+# locked dependencies need 1.95: gpui-pre 0.3.11 uses std::hint::cold_path.
+# CI's MSRV job checks the workspace with exactly this version.
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 publish = false
 
@@ -65,3 +69,11 @@ serde_json = "1"
 tempfile = "3.27"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ttf-parser = "0.25"
+
+# Virtual-workspace profiles live here, not in the crate manifests.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+# panic stays "unwind" (the default): this is a GPUI desktop app, and abort is
+# a poorer default for a GUI and for crash reports.
