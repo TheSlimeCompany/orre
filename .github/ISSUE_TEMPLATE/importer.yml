@@ -1,0 +1,32 @@
+name: Importer request
+description: Ask for a new file format, not covered by CSV presets or OFX/QFX.
+title: "Importer: <format>"
+labels: ["importer"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Orre reads CSV (with [presets](https://github.com/TheSlimeCompany/orre/blob/main/presets/README.md)) and OFX/QFX. QIF, CAMT.053 and MT940 are planned for later; a request for one of those still helps if it says which bank produces it. If your bank exports CSV, a [bank preset request](https://github.com/TheSlimeCompany/orre/issues/new?template=bank-preset.yml) is usually what you want.
+
+        **Never attach a real file.** A fully redacted sample is fine.
+  - type: input
+    id: format
+    attributes:
+      label: Format
+      placeholder: e.g. CAMT.053
+    validations:
+      required: true
+  - type: input
+    id: spec
+    attributes:
+      label: Public specification
+      description: A link to the format's published spec.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why CSV or OFX/QFX isn't enough
+      description: Which bank or tool produces it, and what you lose by exporting CSV or OFX/QFX instead.
+    validations:
+      required: true
