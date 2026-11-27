@@ -285,9 +285,10 @@ M1.20–M1.23 (M1 wave 3). Migrations `V5__transaction_split.sql`, `V6__tags.sql
     now matches the noisy rows. The description field is unchanged.
 12. **Names run before rules in the import commit** (after the pot mirror, so mirrored
     rows are named too), so a rule's `set_merchant` (M1.24) has the last word. Opening a
-    database from before V7 names every existing row once, right after the migrations,
-    in its own DB transaction (refinery's can't run Rust); if that fails,
-    `merchant::recompute_all` repairs it.
+    database from before V7 names every existing row once, inside the migrations' own
+    DB transaction, before it commits (`db::migrations::run` applies the migrations
+    itself so Rust can run there; refinery's runner can't): a failure or crash leaves the
+    database at its old version with no names, and the next open tries again.
 13. **Undo and deletes clear what references a transaction.** `import::undo` and
     `manual::delete` delete split lines (`split::clear_batch` / `clear`) and tag links
     (`tag::clear_batch` / `clear`) before the rows. `undo_preview`'s `edited` count
