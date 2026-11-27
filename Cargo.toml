@@ -7,9 +7,10 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-# Minimum supported Rust: let-chains (stable since 1.88) are used across the
-# tree. CI's MSRV job checks the workspace with exactly this version.
-rust-version = "1.88"
+# Minimum supported Rust. The tree uses let-chains (stable since 1.88), but
+# locked dependencies need 1.95: gpui-pre 0.3.11 uses std::hint::cold_path.
+# CI's MSRV job checks the workspace with exactly this version.
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 publish = false
 
