@@ -55,8 +55,9 @@ const LABEL_RISE: f32 = 12.;
 /// width, so a month with no bars (or tiny ones) gets a square to frame
 /// rather than an outline flattened onto the axis, its handles overlapping.
 const OUTLINE_MIN_HEIGHT: f32 = BAR_WIDTH;
-/// The line's halo: 4.5px, so 1.5px of `canvas` shows each side of the line.
-const HALO: f32 = 4.5;
+/// The line's halo: 5.5px, so a 2px `canvas` stroke shows each side of the
+/// 1.5px line.
+const HALO: f32 = 5.5;
 /// The tooltip's distance from the month's centre.
 const TOOLTIP_OFFSET: f32 = 24.;
 /// The tooltip's width.
@@ -181,7 +182,9 @@ impl IncomeChart {
 }
 
 /// The legend that sits right of the chart title: 8×8 markers for the bars
-/// and a 12×1.5px line for the net, 11/14 `text-secondary` labels.
+/// and a 12×1.5px line for the net, 11/14 `text-secondary` labels. Spending
+/// and income markers follow the bars: solid `text-strong`, and a 1px
+/// `text-muted` outline on `chart-income-fill`.
 pub fn legend() -> Div {
     let item = |swatch: Div, name: &'static str| {
         div()
@@ -198,20 +201,13 @@ pub fn legend() -> Div {
                     .child(name),
             )
     };
-    let marker = |fill: Rgba| {
-        div()
-            .flex_none()
-            .size(size::MARKER)
-            .rounded(radius::MARKER)
-            .bg(fill)
-    };
     div()
         .flex()
         .flex_none()
         .items_center()
         .gap(spacing::S3)
-        .child(item(marker(color::TEXT_SECONDARY), "Spending"))
-        .child(item(marker(color::ICON_FAINT), "Income"))
+        .child(item(spending_swatch(), "Spending"))
+        .child(item(income_swatch(), "Income"))
         .child(item(
             div()
                 .flex_none()
@@ -227,8 +223,37 @@ fn month_id(index: usize) -> SharedString {
     format!("chart-month-{index}").into()
 }
 
+/// An 8×8 series marker: a solid fill, or a 1px outline on a fill.
+fn series_swatch(fill: Rgba, outline: Option<Rgba>) -> Div {
+    let swatch = div()
+        .flex_none()
+        .size(size::MARKER)
+        .rounded(radius::MARKER)
+        .bg(fill);
+    match outline {
+        Some(outline) => swatch.border(size::HAIRLINE).border_color(outline),
+        None => swatch,
+    }
+}
+
+/// The spending marker: solid `text-strong`.
+fn spending_swatch() -> Div {
+    series_swatch(color::TEXT_STRONG, None)
+}
+
+/// The income marker: 1px `text-muted` outline on `chart-income-fill`.
+fn income_swatch() -> Div {
+    series_swatch(color::CHART_INCOME_FILL, Some(color::TEXT_MUTED))
+}
+
 /// A bar of `extent` at `left` in the pair: radius 2 on the value end only.
-fn bar(left: f32, extent: BarExtent, fill: Rgba) -> Div {
+/// `outline` is a 1px border in that colour, used for income bars; the
+/// treatment matches "Other" in the ranked bar list (`size::HAIRLINE` on the
+/// same box). GPUI paints a quad's border inside its layout bounds (taffy
+/// defaults to border-box; `Style::paint` strokes the border on the same
+/// `bounds` the background fills), so the outlined income bar stays the same
+/// 16px outer width as the spending bar.
+fn bar(left: f32, extent: BarExtent, fill: Rgba, outline: Option<Rgba>) -> Div {
     let bar = div()
         .absolute()
         .left(px(left))
@@ -236,6 +261,10 @@ fn bar(left: f32, extent: BarExtent, fill: Rgba) -> Div {
         .w(px(BAR_WIDTH))
         .h(px(extent.height))
         .bg(fill);
+    let bar = match outline {
+        Some(outline) => bar.border(size::HAIRLINE).border_color(outline),
+        None => bar,
+    };
     if extent.rises {
         bar.rounded_tl(radius::MARKER).rounded_tr(radius::MARKER)
     } else {
@@ -285,13 +314,6 @@ fn tooltip(month: &ChartMonth) -> Div {
                     .child(value.clone()),
             )
     };
-    let marker = |fill: Rgba| {
-        div()
-            .flex_none()
-            .size(size::MARKER)
-            .rounded(radius::MARKER)
-            .bg(fill)
-    };
     // The net's point, as it is drawn on the chart, in the 8px marker lane.
     let net_point = div()
         .flex()
@@ -319,12 +341,8 @@ fn tooltip(month: &ChartMonth) -> Div {
                 .text_color(color::TEXT)
                 .child(month.title.clone()),
         )
-        .child(row(
-            marker(color::TEXT_SECONDARY),
-            "Spending",
-            &month.spending.text,
-        ))
-        .child(row(marker(color::ICON_FAINT), "Income", &month.income.text))
+        .child(row(spending_swatch(), "Spending", &month.spending.text))
+        .child(row(income_swatch(), "Income", &month.income.text))
         .child(row(net_point, "Net", &month.net.text))
 }
 
@@ -531,10 +549,15 @@ impl RenderOnce for IncomeChart {
                 .w(px(PAIR_WIDTH))
                 .h_full()
                 .when_some(spending, |this, extent| {
-                    this.child(bar(0., extent, color::TEXT_SECONDARY))
+                    this.child(bar(0., extent, color::TEXT_STRONG, None))
                 })
                 .when_some(income, |this, extent| {
-                    this.child(bar(BAR_WIDTH + BAR_GAP, extent, color::ICON_FAINT))
+                    this.child(bar(
+                        BAR_WIDTH + BAR_GAP,
+                        extent,
+                        color::CHART_INCOME_FILL,
+                        Some(color::TEXT_MUTED),
+                    ))
                 });
             let on_select = on_select.clone();
             let hover = hovered_state.clone();

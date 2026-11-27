@@ -137,8 +137,8 @@ difference is below 1% lightness), so each role has one value.
 | Token | Value | Merges | Use |
 |---|---|---|---|
 | `--color-text-secondary` | `#B4B4B9` | `#A1A1A6` (tooltip body) | Text one step below primary: list labels, chips, kbd glyphs, tooltip body, secondary icons |
-| `--color-text-strong` | `#D6D6DA` | | Text on outline buttons, empty-state titles, emphasized values |
-| `--color-icon-faint` | `#6E6E73` | | Chevrons, sort indicators, income bars in charts |
+| `--color-text-strong` | `#D6D6DA` | | Text on outline buttons, empty-state titles, emphasized values; spending bars on the income chart |
+| `--color-icon-faint` | `#6E6E73` | | Chevrons, sort indicators |
 | `--color-icon-disabled` | `#4A4A4F` | | Disabled icons |
 | `--color-float` | `#141416` | | Floating surfaces (toolbar, cards, popovers), status bar |
 | `--color-control-active` | `#2C2C30` | | Active segment, active icon button, toggle track (off), pressed state |
@@ -595,10 +595,16 @@ in Paper (Foundations artboard); the chart designs below were drawn on the Overv
 
 **Categorical palette.** Six colours, each with its own lightness step, so they stay
 distinguishable when hue is lost. They avoid the hues of `molten`, `moldavite`, `danger` and
-`warning`. Measured as OKLab ΔE ×100, the closest pair among the six colours and the
-four accent/status colours is **12.2** for normal vision, **7.0** for protanopia and
-**8.2** for deuteranopia (Machado 2009 simulation). Every colour has at least 3:1
-contrast on `canvas` (WCAG non-text contrast).
+`warning`. Pablo re-measured the full new palette as ΔE2000 with Machado 2009
+simulation at full severity. The closest pair per type is **6.8** for protanopia
+(chart-3 / chart-5; chart-5 / chart-6 is 7.0), **5.4** for deuteranopia (chart-4 /
+chart-6, teal vs mauve; chart-4 / chart-5 is 6.4), **8.5** for tritanopia (chart-4 /
+chart-5) and **14.9** for normal vision (chart-3 / chart-6). The previous palette's
+minimums were 7.2 (protanopia), 8.9 (deuteranopia) and 12.3 (tritanopia), so the
+contrast lift costs some CVD separation. The worst case, teal vs mauve for
+deuteranopes at 5.4, is accepted for v0.1 because category charts always carry
+text labels. Every colour has at least 3:1 contrast on `canvas` (WCAG non-text
+contrast).
 
 | Token | Value | OKLCH | Contrast on canvas |
 |---|---|---|---|
@@ -606,8 +612,8 @@ contrast on `canvas` (WCAG non-text contrast).
 | `--color-chart-2` | `#FBA0CC` | 0.81 0.12 350 | 9.3:1 |
 | `--color-chart-3` | `#B396E8` | 0.73 0.12 300 | 7.1:1 |
 | `--color-chart-4` | `#1AA0B9` | 0.65 0.11 215 | 5.7:1 |
-| `--color-chart-5` | `#5777C1` | 0.58 0.12 265 | 4.1:1 |
-| `--color-chart-6` | `#92508C` | 0.53 0.12 330 | 3.2:1 |
+| `--color-chart-5` | `#6B88D0` | 0.64 0.11 267 | 5.11:1 |
+| `--color-chart-6` | `#BA74AC` | 0.65 0.11 334 | 5.22:1 |
 | "Other" | 1px `text-muted` outline, `field` fill | — | outline 5.4:1 |
 
 Rules:
@@ -634,9 +640,12 @@ repeat their markers: "Other" is a `field` bar with a 1px `text-muted` outline,
 "Uncategorised" a 1px dashed `text-muted` outline with no fill, and its name is
 `text-muted` as in the table.
 
-**Income vs spending (monthly overview).** Drawn in D4.1 (Overview `2HP-0`). Spending
-bars `text-secondary`, income bars `icon-faint`, in that order within each month; net
-savings a 1.5px `text` line through the month centres, over the bars. 240px plot
+**Income vs spending (monthly overview).** Drawn in D4.1 (Overview `2HP-0`), with
+bar contrast updated 27 Nov 2026. Spending bars `text-strong`, income bars a 1px
+`text-muted` outline filled with `chart-income-fill` (`text-muted` at 24% alpha),
+in that order within each month; net
+savings a 1.5px `text` line through the month centres, over the bars. Legend and
+tooltip swatches use the same encoding. 240px plot
 (`calc(var(--spacing-6) * 10)`), y axis £0 to the next round step above the largest
 value, five intervals, labels right-aligned in a 32px column 8px from the plot. A legend
 row sits right of the chart title: 8×8 markers for the bars, a 12×1.5px line for net.
@@ -655,7 +664,7 @@ The selected month is the month the switcher shows.
 | Gridlines | Horizontal only, 1px `hairline`; no vertical gridlines, no chart border |
 | Baseline / zero line | 1px `border-strong` |
 | Bars | Radius 2 on the value end. Fixed width, not a share of the band: 16px (`spacing-4`), 2px apart within a group (`spacing-0_5`), groups centred in equal bands. (The proposed "group gap 40% of bar width" gave 38px bars at 1440, too heavy for a 28px-row UI) |
-| Lines | 1.5px, round joins and caps; points hidden until hover (6px dot, 2px `canvas` ring). A line drawn over bars gets a `canvas` halo: the same path at 4.5px in `canvas` underneath, so 1.5px of canvas shows each side. Without it the `text` line over `text-secondary` bars measures 1.8:1 and vanishes at each crossing |
+| Lines | 1.5px, round joins and caps; points hidden until hover (6px dot, 2px `canvas` ring). A line drawn over bars gets a `canvas` halo: a 2px `canvas` stroke on each side of the 1.5px `text` line, so the line sits inside a 5.5px knockout (the same path at 5.5px in `canvas` underneath, then the 1.5px line), drawn above the bars. The line against the halo measures 15.16:1, which is what makes it readable over the bars |
 | Area fill | Series colour at 8% opacity |
 | Budget line | 1px dashed `text-muted`; the part over budget is `danger` |
 | Tooltip | Tooltip component; values in mono; series marker 8×8 radius 2 |
@@ -2909,7 +2918,7 @@ reference file except the values recorded here.
    Components: 1px borders, the bulk-action bar's shadow, SVG icon paths. Overview ✅ done
    (D4.1, artboard `22V-0`): the shell cloned from Transactions, the canvas written from
    the specs here, every colour, size, gap, radius and type value a bound token, with no new
-   tokens. Typed values: 1px/1.5px borders and outlines, the 4.5px halo stroke, the
+   tokens. Typed values: 1px/1.5px borders and outlines, the 5.5px halo stroke, the
    tooltip shadow and swatch ring, the net line's SVG points, data-driven positions (bar
    heights and widths as percentages, the hover point's −5px centring offset) and the
    hover point's 50% radius (a 10px circle has no radius token). Transactions additions
