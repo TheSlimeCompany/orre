@@ -88,6 +88,8 @@ pub enum Glyph {
     Backup,
     /// Export…: an arrow out of a tray (Paper `BR4-0`). 12px.
     Export,
+    /// Month start in Settings: a calendar page (Paper `KC4-0`). 12px.
+    Calendar,
     /// Refused: a circle with a slash (Paper `E9T-0`): a refused call, AI
     /// access off. 12px; the off banner draws it at 14px.
     Refused,
@@ -202,6 +204,7 @@ impl Glyph {
             | Self::Log
             | Self::Backup
             | Self::Export
+            | Self::Calendar
             | Self::Refused
             | Self::Copy
             | Self::Alert
@@ -376,6 +379,10 @@ impl Glyph {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
                 r#"<path d="M4.5 3H10M4.5 6H10M4.5 9H10M2 3H2.5M2 6H2.5M2 9H2.5"/></svg>"#
             ),
+            Self::Calendar => concat!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
+                r#"<path d="M2 3.5C2 2.95 2.45 2.5 3 2.5H9C9.55 2.5 10 2.95 10 3.5V9.5C10 10.05 9.55 10.5 9 10.5H3C2.45 10.5 2 10.05 2 9.5ZM2 5H10M4.25 1.5V3M7.75 1.5V3"/></svg>"#
+            ),
             Self::Backup => concat!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">"#,
                 r#"<path d="M2 6A4 4 0 1 0 3.2 3.2M2 1.5V3.5H4M6 4V6L7.5 7"/></svg>"#
@@ -531,7 +538,7 @@ mod tests {
 
     use super::*;
 
-    const ALL: [Glyph; 62] = [
+    const ALL: [Glyph; 63] = [
         Glyph::Account,
         Glyph::Pot,
         Glyph::Plus,
@@ -562,6 +569,7 @@ mod tests {
         Glyph::Log,
         Glyph::Backup,
         Glyph::Export,
+        Glyph::Calendar,
         Glyph::Refused,
         Glyph::Copy,
         Glyph::Alert,

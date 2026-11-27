@@ -26,6 +26,9 @@ pub struct OverviewDescription {
     /// for, which lags a pick while its read is in flight; before the first
     /// read, the selected month.
     pub month: String,
+    /// Its dates beside the switcher, when the month start moves them off
+    /// the calendar month ("23 Oct – 24 Nov").
+    pub dates: Option<String>,
     pub shown: Shown,
     /// "Previous month", "Next month" and, with the agent card, "Review".
     pub actions: Vec<Action>,
@@ -88,6 +91,8 @@ impl OverviewView {
             .as_ref()
             .map_or(self.month, |data| data.selected.period);
         let month = super::text::month_title(shown_month);
+        // The rule the shown data was cut by; calendar months before a read.
+        let dates = super::text::month_dates(shown_month, self.month_start());
         let agent = self
             .inbox
             .as_ref()
@@ -118,6 +123,7 @@ impl OverviewView {
         };
         OverviewDescription {
             month,
+            dates,
             shown,
             actions,
         }
