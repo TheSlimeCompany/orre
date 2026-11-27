@@ -55,8 +55,9 @@ const LABEL_RISE: f32 = 12.;
 /// width, so a month with no bars (or tiny ones) gets a square to frame
 /// rather than an outline flattened onto the axis, its handles overlapping.
 const OUTLINE_MIN_HEIGHT: f32 = BAR_WIDTH;
-/// The line's halo: 4.5px, so 1.5px of `canvas` shows each side of the line.
-const HALO: f32 = 4.5;
+/// The line's halo: 5.5px, so a 2px `canvas` stroke shows each side of the
+/// 1.5px line.
+const HALO: f32 = 5.5;
 /// The tooltip's distance from the month's centre.
 const TOOLTIP_OFFSET: f32 = 24.;
 /// The tooltip's width.
@@ -248,7 +249,10 @@ fn income_swatch() -> Div {
 /// A bar of `extent` at `left` in the pair: radius 2 on the value end only.
 /// `outline` is a 1px border in that colour, used for income bars; the
 /// treatment matches "Other" in the ranked bar list (`size::HAIRLINE` on the
-/// same box).
+/// same box). GPUI paints a quad's border inside its layout bounds (taffy
+/// defaults to border-box; `Style::paint` strokes the border on the same
+/// `bounds` the background fills), so the outlined income bar stays the same
+/// 16px outer width as the spending bar.
 fn bar(left: f32, extent: BarExtent, fill: Rgba, outline: Option<Rgba>) -> Div {
     let bar = div()
         .absolute()
