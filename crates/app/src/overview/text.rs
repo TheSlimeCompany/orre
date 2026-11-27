@@ -29,6 +29,15 @@ pub fn month_title(month: Period) -> String {
     name_day(month).format("%B %Y").to_string()
 }
 
+/// `month`'s dates under `start` ("23 Oct – 24 Nov"), when they aren't its
+/// calendar month's: the switcher says them only then.
+pub fn month_dates(month: Period, start: MonthStart) -> Option<String> {
+    format::dates_if_moved(
+        Some(month.range(start)),
+        Some(month.range(MonthStart::CALENDAR)),
+    )
+}
+
 /// "October": the spending section's caption.
 pub fn month_name(month: Period) -> String {
     name_day(month).format("%B").to_string()
@@ -169,6 +178,10 @@ pub struct RecurringText {
 pub struct ScreenText {
     /// The switcher's month, "October 2026".
     pub title: String,
+    /// Its dates beside the switcher, "23 Oct – 24 Nov", when the user's
+    /// month start makes them other than the calendar month's (M4.11,
+    /// Paper `KLJ-0`).
+    pub dates: Option<String>,
     /// Spent, Income and Net.
     pub figures: [FigureText; 3],
     pub other_currencies: Option<String>,
@@ -267,6 +280,7 @@ pub fn screen_text(overview: &Overview, month: Period, today: NaiveDate) -> Scre
         .collect();
     ScreenText {
         title: month_title(month),
+        dates: month_dates(month, overview.month_start),
         figures,
         other_currencies: other_currencies_note(&overview.other_currencies),
         chart_caption: overview.months.last().map_or_else(String::new, |last| {

@@ -378,6 +378,21 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
   - `withheld_count` on `mcp_access_log` (new migration), no transaction IDs logged;
   - the marker reads `[withheld: N characters that read like instructions]`;
   - `list_reports` strips hidden characters and sets `ai_authored`, without withholding.
+- ✅ D6.12 Month start, designed for M4.11 (L.15): Settings · month start (`K57-0`),
+  1440×900, from the D6.8 Settings shell: a CALENDAR section with Month start; Starts on
+  (a select, the 1st to the 28th, then "Last day of the month" under a hairline);
+  Weekends (Leave it / Use the Friday before, with the bank-holiday caption); a preview
+  of last, this and next month with names, dates with weekdays and day counts; the
+  helper; and an inspector listing what follows the rule and what keeps its own dates.
+  Plus a states board, Month start · states (`KEQ-0`): the default, the open day menu,
+  the last day with the Friday before, the Date chip's month presets with their dates,
+  and the Overview's month switcher with the month's dates. No new tokens. Spec in
+  `DESIGN.md` → "Month start". Decided by the user (2026-11-25), over the artboards:
+  - the Date chip's label shows the dates too when the preset's range differs ("This
+    month · 23 Oct – 24 Nov");
+  - no "Pick a month…" in the Date chip: the Overview's switcher picks months;
+  - the setting applies at once, with no Save or confirm;
+  - the panel section is "Calendar", not "Reports".
 
 **Exit criteria:** tokens live in Paper and in the GPUI theme with a drift test;
 Transactions and Overview are designed; the GPUI build of Transactions matches the Paper
@@ -1489,12 +1504,11 @@ meaning.
   schedules seeding the non-monthly amounts; a spending-pace line
 - ⬜ M4.10 Safe report rendering: a markdown subset with no HTML or images, and links shown
   as plain text; reports are marked `ai_authored` when read back
-- 🚧 M4.11 Month start (L.15, decision record "the month start" in
+- ✅ M4.11 Month start (L.15, decision record "the month start" in
   `docs/architecture/reporting.md`). Planned first in M4, but M4.1 was built before it,
   on calendar months (user, 2026-11-24). Core and MCP built (2026-11-25), and the
-  Overview, Transactions' month presets and Inbox labels follow the rule; the Settings
-  control and the Date chip's dates wait for Paper, so the rule can't be set in the app
-  yet:
+  Overview, Transactions' month presets and Inbox labels follow the rule; the app side
+  built from D6.12 (2026-11-25), so the rule is set in Settings:
   - **Core:** the rule as a typed `setting` value (day 1–28 or the last day; weekends off
     or the Friday before; default the 1st). `Period` cuts months under it and keeps its
     `YYYY-MM` name. Tests: no gaps or overlaps for every start and weekend choice across
@@ -1503,8 +1517,15 @@ meaning.
   - **Reports and MCP:** `monthly_summary`, `spending_by_category`, `budget_status`,
     `net_worth_history` and `monthly_review` follow it; month results gain `from` and
     `to`, and the tool descriptions say so. Access-level tests unchanged.
-  - **App:** the setting in Settings and the Date chip's month presets, drawn in Paper
-    first.
+  - **App** (D6.12, Paper `K57-0`, `KEQ-0`): Settings → CALENDAR → Month start, the
+    start day and weekend choice applied at once, a preview of last, this and next
+    month, and what follows the rule (`settings/month_start.rs`). The Date chip's month
+    presets show their dates when they differ from the calendar month, in the menu and
+    on the chip; the Overview's switcher shows the month's dates when they differ. The
+    Settings topic now reloads the Overview, Transactions and the Inbox (`live::views`).
+    Tests: the setting from the select and the Weekends control; the shell re-cutting
+    the Overview's month and the Date chip after a change (the 25th and the last day,
+    both with the Friday before); dates shown only when they differ.
 
 **Exit criteria:** the dashboard answers "how am I doing?" at a glance, including what's
 due before payday.
@@ -1517,7 +1538,10 @@ due before payday.
 - ⬜ M5.2 "Add your bank" guide: preset TOML + redacted fixture, no Rust required
 - ⬜ M5.3 Presets for common UK, US, and euro-area banks
 - ⬜ M5.4 Issue templates (bank preset request, bug, importer request)
-- ⬜ M5.5 CI: fmt, clippy, tests; build on Linux, macOS, Windows (best-effort)
+- 🚧 M5.5 CI: fmt, clippy, tests; build on Linux, macOS, Windows (best-effort).
+  `.github/workflows/ci.yml` mirrors every `lefthook.yml` pre-push job on Linux and
+  macOS, adds an MSRV `cargo check` and a non-blocking Windows `cargo check`; done once
+  the first runs on GitHub are green and `main` requires the checks
 - ⬜ M5.6 Release artifacts: Linux tarball + Nix flake (+ AppImage), macOS `.dmg`
 - ⬜ M5.7 Data location, backup, and privacy documentation
 - ⬜ M5.8 Beancount and hledger journal export: deterministic and stably sorted; fixture

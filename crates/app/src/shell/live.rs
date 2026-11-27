@@ -92,7 +92,8 @@ pub struct Views {
     /// The review queues, and the status bar's failing checks.
     pub checks: bool,
     pub rules: bool,
-    /// Settings' AI clients, and the status bar's agent count.
+    /// Settings' AI clients and month start, and the status bar's agent
+    /// count.
     pub settings: bool,
 }
 
@@ -101,19 +102,22 @@ pub struct Views {
 /// Rules for its merchant names; the Overview on Ledger, and on Rules for
 /// the categories; Accounts and Checks on Ledger; Rules on
 /// Rules, and on Ledger (its counts) only while it's the view on show
-/// (`rules_on_show`), since showing it reloads it; Settings' AI clients on
-/// Settings.
+/// (`rules_on_show`), since showing it reloads it; Settings' AI clients and
+/// month start on Settings. The views that cut months by the month start
+/// (M4.11) reload on Settings too, which holds it: the Overview,
+/// Transactions' month presets and the Inbox's month labels.
 pub fn views(topics: &BTreeSet<Topic>, rules_on_show: bool) -> Views {
     let ledger = topics.contains(&Topic::Ledger);
     let rules = topics.contains(&Topic::Rules);
+    let settings = topics.contains(&Topic::Settings);
     Views {
-        inbox: topics.contains(&Topic::Inbox),
-        transactions: ledger || rules,
-        overview: ledger || rules,
+        inbox: topics.contains(&Topic::Inbox) || settings,
+        transactions: ledger || rules || settings,
+        overview: ledger || rules || settings,
         accounts: ledger,
         checks: ledger,
         rules: rules || (ledger && rules_on_show),
-        settings: topics.contains(&Topic::Settings),
+        settings,
     }
 }
 
@@ -438,8 +442,10 @@ impl ShellView {
             self.rules.update(cx, |rules, cx| rules.reload(cx));
         }
         if views.settings {
-            self.settings
-                .update(cx, |settings, cx| settings.reload_clients(cx));
+            self.settings.update(cx, |settings, cx| {
+                settings.reload_clients(cx);
+                settings.reload_month_start(cx);
+            });
         }
         cx.notify();
     }
