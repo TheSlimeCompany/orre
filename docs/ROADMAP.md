@@ -1517,7 +1517,10 @@ due before payday.
 - ⬜ M5.2 "Add your bank" guide: preset TOML + redacted fixture, no Rust required
 - ⬜ M5.3 Presets for common UK, US, and euro-area banks
 - ⬜ M5.4 Issue templates (bank preset request, bug, importer request)
-- ⬜ M5.5 CI: fmt, clippy, tests; build on Linux, macOS, Windows (best-effort)
+- 🚧 M5.5 CI: fmt, clippy, tests; build on Linux, macOS, Windows (best-effort).
+  `.github/workflows/ci.yml` mirrors every `lefthook.yml` pre-push job on Linux and
+  macOS, adds an MSRV `cargo check` and a non-blocking Windows `cargo check`; done once
+  the first runs on GitHub are green and `main` requires the checks
 - ⬜ M5.6 Release artifacts: Linux tarball + Nix flake (+ AppImage), macOS `.dmg`
 - ⬜ M5.7 Data location, backup, and privacy documentation
 - ⬜ M5.8 Beancount and hledger journal export: deterministic and stably sorted; fixture

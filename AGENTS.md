@@ -64,8 +64,10 @@ Git hooks are managed by lefthook (`lefthook.yml`, installed on devenv shell ent
 Only `pre-push` is used: data guard (no statements/databases outside `fixtures/`),
 `--locked` lockfile check, no edits to migrations already on `origin/main`, the
 dependency direction (`cargo tree`), fmt, clippy `-D warnings`, tests, and docs with
-`RUSTDOCFLAGS=-D warnings`. There is no CI yet, so this hook is the gate; don't bypass
-it with `--no-verify`.
+`RUSTDOCFLAGS=-D warnings`. CI (`.github/workflows/ci.yml`) runs the same jobs with the
+same Cargo flags on Linux and macOS, plus an MSRV `cargo check` and a non-blocking Windows
+`cargo check`; keep the two in step when either changes. Don't bypass the hook with
+`--no-verify`: it catches failures before CI does.
 
 ## Environment
 

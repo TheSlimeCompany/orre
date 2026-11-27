@@ -1,0 +1,182 @@
+# CI: the same checks as the lefthook pre-push hook (lefthook.yml), on Linux
+# and macOS, plus an MSRV check and a non-blocking Windows `cargo check`.
+# Keep the Cargo commands here identical to lefthook.yml (same flags).
+# Release packaging is not here (M5.6).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same PR or branch cancels the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    # Job names are the status checks branch protection requires: keep them
+    # stable ("Linux", "macOS", "MSRV").
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: macOS
+            # arm64. The headless GPUI tests had not run on macOS before this
+            # workflow; if the first run proves a Homebrew package is needed,
+            # add only that one, with the failing log line as the reason.
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history and origin/main: shipped-migrations.sh diffs
+          # origin/main, and no-bank-data.sh walks the pushed commits.
+          fetch-depth: 0
+
+      - name: Install system libraries (Linux)
+        if: runner.os == 'Linux'
+        # GPUI's build and runtime dependencies; enough for `cargo test
+        # --workspace` and `cargo build --release` on Debian 13.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev \
+            libasound2-dev libzstd-dev pkg-config clang libssl-dev
+
+      - name: Check the Metal compiler (macOS)
+        if: runner.os == 'macOS'
+        # GPUI's build script compiles its shaders with `xcrun metal`. Xcode 26
+        # ships the Metal toolchain as a separate component; download it only
+        # if it is missing, so this step is a no-op on images that have it.
+        run: |
+          if ! xcrun -f metal >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -f metal
+
+      - name: Install Rust
+        # rustup reads rust-toolchain.toml (stable + rustfmt + clippy).
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The lefthook pre-push jobs, in the same order.
+      - name: no-bank-data
+        # The script reads git's pre-push lines from stdin. Feed it one for
+        # the commits under test instead of using its no-stdin path
+        # (`HEAD --not --remotes`), which is wrong in CI.
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          head=$(git rev-parse HEAD)
+          if [[ $EVENT == pull_request ]]; then
+            # HEAD is the PR merged into main; base is main's tip.
+            base=$PR_BASE
+          else
+            base=$PUSH_BEFORE
+            # A forced push can leave `before` unreachable; fall back to the
+            # parent so the pushed tip is still checked.
+            if [[ $base =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+              base=$(git rev-parse HEAD^)
+            fi
+          fi
+          echo "Checking files in $base..$head"
+          printf 'HEAD %s refs/heads/main %s\n' "$head" "$base" |
+            bash .lefthook/pre-push/no-bank-data.sh
+
+      - name: lockfile
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+      - name: shipped-migrations
+        run: bash .lefthook/pre-push/shipped-migrations.sh
+
+      - name: dependency-direction
+        run: bash .lefthook/pre-push/dependency-direction.sh
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: test
+        run: cargo test --workspace --all-features --locked
+
+      - name: doc
+        run: cargo doc --workspace --no-deps --all-features --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev \
+            libasound2-dev libzstd-dev pkg-config clang libssl-dev
+
+      - name: Install the MSRV toolchain
+        # The MSRV is `rust-version` in Cargo.toml (1.88 until it is set).
+        # RUSTUP_TOOLCHAIN overrides rust-toolchain.toml, so every later step
+        # in this job runs the MSRV compiler, not stable.
+        run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          msrv=${msrv:-1.88}
+          rustup toolchain install "$msrv" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$msrv" >> "$GITHUB_ENV"
+
+      - name: Show the toolchain
+        run: rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --workspace --locked
+
+  windows:
+    # Non-blocking for v0.1: Windows is not an official platform yet, and
+    # this job may fail on system libraries. Don't require it in branch
+    # protection.
+    name: Windows (non-blocking)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --workspace --locked
