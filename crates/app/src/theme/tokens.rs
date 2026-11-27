@@ -81,12 +81,13 @@ pub mod color {
     // Neutrals.
 
     /// `--color-text-secondary`: text one step below primary: list labels,
-    /// chips, kbd glyphs, tooltip body, secondary icons, spending bars.
+    /// chips, kbd glyphs, tooltip body, secondary icons.
     pub const TEXT_SECONDARY: Rgba = opaque(0xB4B4B9);
     /// `--color-text-strong`: text on outline buttons, empty-state titles,
-    /// emphasized values; pressed neutral primary button.
+    /// emphasized values; pressed neutral primary button; spending bars on
+    /// the income chart.
     pub const TEXT_STRONG: Rgba = opaque(0xD6D6DA);
-    /// `--color-icon-faint`: chevrons, sort indicators, income bars in charts.
+    /// `--color-icon-faint`: chevrons, sort indicators.
     pub const ICON_FAINT: Rgba = opaque(0x6E6E73);
     /// `--color-icon-disabled`: disabled icons.
     pub const ICON_DISABLED: Rgba = opaque(0x4A4A4F);
@@ -177,13 +178,16 @@ pub mod color {
     pub const CHART_3: Rgba = opaque(0xB396E8);
     /// `--color-chart-4`: chart series 4 (5.7:1 on canvas).
     pub const CHART_4: Rgba = opaque(0x1AA0B9);
-    /// `--color-chart-5`: chart series 5 (4.1:1 on canvas).
-    pub const CHART_5: Rgba = opaque(0x5777C1);
-    /// `--color-chart-6`: chart series 6 (3.2:1 on canvas).
-    pub const CHART_6: Rgba = opaque(0x92508C);
+    /// `--color-chart-5`: chart series 5 (5.11:1 on canvas).
+    pub const CHART_5: Rgba = opaque(0x6B88D0);
+    /// `--color-chart-6`: chart series 6 (5.22:1 on canvas).
+    pub const CHART_6: Rgba = opaque(0xBA74AC);
     /// The six categorical series in rank order. "Other" is not a seventh
     /// colour: draw it as a 1px [`TEXT_MUTED`] outline on [`FIELD`].
     pub const CHART: [Rgba; 6] = [CHART_1, CHART_2, CHART_3, CHART_4, CHART_5, CHART_6];
+    /// `--color-chart-income-fill`: income bar fill on the monthly overview
+    /// chart ([`TEXT_MUTED`] at 24% alpha, `#8E8E933D`).
+    pub const CHART_INCOME_FILL: Rgba = translucent(0x8E8E933D);
     /// Code-only, showcase only: the 1px inset ring round a colour swatch
     /// (Paper Foundations `9-0`), so swatches as dark as `canvas` keep an
     /// edge. White at 12%.
@@ -788,6 +792,7 @@ pub(crate) mod tests {
             ("--color-chart-4", hex(color::CHART_4)),
             ("--color-chart-5", hex(color::CHART_5)),
             ("--color-chart-6", hex(color::CHART_6)),
+            ("--color-chart-income-fill", hex(color::CHART_INCOME_FILL)),
             // Typography.
             ("--font-ui", format!("\"{}\"", font::UI)),
             ("--font-mono", format!("\"{}\"", font::MONO)),
