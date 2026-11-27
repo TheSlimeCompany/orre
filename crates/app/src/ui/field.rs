@@ -140,6 +140,8 @@ pub struct SelectField {
     value: SharedString,
     lead: Option<SelectLead>,
     hint: Option<SharedString>,
+    /// Words that finish the value, in `text-muted` ("25th of the month").
+    tail: Option<SharedString>,
     /// A mono figure before the chevron, in `text-secondary`.
     amount: Option<SharedString>,
     placeholder: bool,
@@ -154,6 +156,7 @@ impl SelectField {
             value: value.into(),
             lead: None,
             hint: None,
+            tail: None,
             amount: None,
             placeholder: false,
             mono: false,
@@ -200,6 +203,13 @@ impl SelectField {
     /// ("Aggregate · totals only", Paper `GZI-0`).
     pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
         self.hint = Some(hint.into());
+        self
+    }
+
+    /// Finishes the value with `tail` in `text-muted`, after a space: "25th
+    /// *of the month*" (Settings' start day, Paper `K57-0`).
+    pub fn tail(mut self, tail: impl Into<SharedString>) -> Self {
+        self.tail = Some(tail.into());
         self
     }
 
@@ -278,6 +288,13 @@ impl RenderOnce for SelectField {
                             div()
                                 .text_color(color::TEXT_MUTED)
                                 .child(format!("\u{a0}· {hint}")),
+                        )
+                    })
+                    .when_some(self.tail, |this, tail| {
+                        this.flex().child(
+                            div()
+                                .text_color(color::TEXT_MUTED)
+                                .child(format!("\u{a0}{tail}")),
                         )
                     }),
             );

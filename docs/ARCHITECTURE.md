@@ -192,7 +192,7 @@ The app shell, window state, the status bar, and how the app opens the database 
 | Area | Decision |
 |---|---|
 | Stack | Rust 2024, GPUI via `gpui-kit` / `gpui-component` (charts, `DataTable`, sidebar/dock built in) |
-| Platforms | Linux + macOS official; Windows community-supported, to be built in CI once there is one (M5.5; there is no CI yet) |
+| Platforms | Linux + macOS official; Windows community-supported: CI runs a non-blocking `cargo check` on it (M5.5) |
 | License | `MIT OR Apache-2.0` |
 | Storage | SQLite, WAL mode, `synchronous = FULL`, file mode 0600 (data dir 0700), `orre.db` in the platform data dir (`~/.local/share/orre`; `~/Library/Application Support/Orre` on macOS), overridable with `ORRE_DATA_DIR`. Not encrypted in v1 (SQLCipher possible later) |
 | Money | Integer minor units + ISO 4217 currency per account/transaction. Never floats |

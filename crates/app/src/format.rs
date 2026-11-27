@@ -11,9 +11,12 @@
 //! year and `2 Oct 25` for an earlier one, and `9 Nov 2026` in a date field.
 //! A date field reads that form back, and also `9 Nov` (this year), `9 Nov
 //! 26` and `9/11/26` (this century), ISO `2026-11-09` and `9/11/2026`.
+//! A month cut by the user's month start is `23 Oct – 24 Nov`, with
+//! weekdays in Settings' preview (M4.11).
 
 use chrono::{Datelike as _, NaiveDate};
 use orre_core::money::{Currency, DecimalMark, Money, ParseAmountError};
+use orre_core::reporting::period::DateRange;
 
 /// How a formatted amount shows its sign.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +104,35 @@ pub fn list_date(date: NaiveDate, today: NaiveDate) -> String {
     }
 }
 
+/// A month's dates where the user's month start makes them worth saying:
+/// `23 Oct – 24 Nov` (M4.11; Paper `KEQ-0`). No year: a month is never
+/// more than a few weeks from the month it's named after.
+pub fn day_range(range: DateRange) -> String {
+    format!(
+        "{} – {}",
+        range.from().format("%-d %b"),
+        range.to().format("%-d %b")
+    )
+}
+
+/// [`day_range`] with weekdays: `Fri 23 Oct – Tue 24 Nov` (Settings' month
+/// preview, Paper `K57-0`).
+pub fn weekday_range(range: DateRange) -> String {
+    format!(
+        "{} – {}",
+        range.from().format("%a %-d %b"),
+        range.to().format("%a %-d %b")
+    )
+}
+
+/// `range`'s dates ([`day_range`]) when they aren't the calendar months
+/// they're named after, which `calendar` covers; `None` when they are, so a
+/// month on the 1st says nothing it doesn't need to.
+pub fn dates_if_moved(range: Option<DateRange>, calendar: Option<DateRange>) -> Option<String> {
+    let range = range?;
+    (Some(range) != calendar).then(|| day_range(range))
+}
+
 /// A date in a date field: `9 Nov 2026`.
 pub fn field_date(date: NaiveDate) -> String {
     date.format("%-d %b %Y").to_string()
@@ -164,6 +196,20 @@ mod tests {
 
     fn day(y: i32, m: u32, d: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn writes_a_months_dates_and_only_when_they_moved() {
+        let range = DateRange::new(day(2026, 10, 23), day(2026, 11, 24)).unwrap();
+        assert_eq!(day_range(range), "23 Oct – 24 Nov");
+        assert_eq!(weekday_range(range), "Fri 23 Oct – Tue 24 Nov");
+        let november = DateRange::new(day(2026, 11, 1), day(2026, 11, 30)).ok();
+        assert_eq!(dates_if_moved(november, november), None);
+        assert_eq!(
+            dates_if_moved(Some(range), november).as_deref(),
+            Some("23 Oct – 24 Nov")
+        );
+        assert_eq!(dates_if_moved(None, None), None);
     }
 
     #[test]
