@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Orre
+GenericName=Personal finance dashboard
+Comment=Local-first personal finance dashboard
+Exec=orre
+Icon=orre
+Terminal=false
+Categories=Office;Finance;
+Keywords=finance;budget;bank;money;
