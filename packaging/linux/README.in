@@ -1,0 +1,55 @@
+Orre @VERSION@ for Linux (@ARCH@)
+================================
+
+Orre is a local-first personal finance dashboard. This archive holds a
+release build of the `orre` binary: no Rust toolchain, Nix or devenv needed.
+
+Run it
+------
+
+    tar xzf orre-@VERSION@-linux-@ARCH@.tar.gz
+    cd orre-@VERSION@-linux-@ARCH@
+    ./orre              # opens the app
+    ./orre --help       # the headless commands (import, backup, mcp, ...)
+
+To install it for your user, so a launcher can find it:
+
+    install -Dm755 orre ~/.local/bin/orre
+    install -Dm644 orre.desktop ~/.local/share/applications/orre.desktop
+    install -Dm644 orre.png ~/.local/share/icons/hicolor/1024x1024/apps/orre.png
+
+(`~/.local/bin` must be on your PATH for the launcher's `Exec=orre`.)
+
+Your data lives in ~/.local/share/orre (set ORRE_DATA_DIR to use another
+folder). Orre makes no network requests.
+
+Requirements
+------------
+
+- x86_64 Linux with glibc @GLIBC@ or newer (this binary's highest
+  versioned glibc symbol is GLIBC_@GLIBC@; built on @BUILD_HOST@).
+- A Wayland or X11 session and a Vulkan driver (Mesa is fine).
+- These shared libraries, which most desktop installs already have:
+
+  Library          Debian / Ubuntu                   Fedora
+  --------------   -------------------------------   ----------------------
+  wayland-client   libwayland-client0                libwayland-client
+  xkbcommon        libxkbcommon0, libxkbcommon-x11-0 libxkbcommon, libxkbcommon-x11
+  xcb, X11         libxcb1, libx11-6, libx11-xcb1    libxcb, libX11, libX11-xcb
+  Vulkan loader    libvulkan1, mesa-vulkan-drivers   vulkan-loader, mesa-vulkan-drivers
+  fontconfig       libfontconfig1                    fontconfig
+  freetype         libfreetype6                      freetype
+
+orre links xkbcommon and xcb directly and loads the others when it starts.
+fontconfig and freetype are in GPUI's library list but weren't loaded in
+our X11 test; if Orre won't start, install them too. Fonts (Inter, Geist
+Mono) are built into the binary.
+
+Licences
+--------
+
+Orre is dual-licensed under MIT or Apache-2.0 (LICENSE-MIT,
+LICENSE-APACHE). The bundled fonts are under the SIL Open Font License
+1.1: OFL-Inter.txt and OFL-GeistMono.txt.
+
+Source, issues and the full docs: https://github.com/TheSlimeCompany/orre

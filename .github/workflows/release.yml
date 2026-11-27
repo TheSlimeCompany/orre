@@ -1,0 +1,98 @@
+# Release artifacts (M5.6). Builds the v0.1 downloads and uploads them as
+# workflow artifacts; it doesn't create a GitHub Release (W2-10 decides how
+# the tag's artifacts are published).
+#
+# Run it by hand with workflow_dispatch to prove a branch builds; a pushed
+# `v*` tag runs the same jobs. One job per artifact, so each platform is
+# added beside the others:
+#   linux  - the tarball (packaging/linux/build-tarball.sh)        W2-1
+#   macos  - the unsigned .dmg (packaging/macos/)                  W2-3
+#   nix    - `nix build` / `nix flake check` of flake.nix          W2-2
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+# Two runs for the same ref never race to produce the same artifacts.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  linux:
+    name: Linux tarball
+    # The oldest supported runner, for the lowest glibc floor (2.35). The
+    # floor actually shipped is read from the binary by build-tarball.sh and
+    # written into the tarball's README and this job's summary.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system libraries
+        # GPUI's build dependencies, the same list as ci.yml, plus Xvfb and
+        # Mesa's software Vulkan driver for the launch smoke test.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev \
+            libasound2-dev libzstd-dev pkg-config clang libssl-dev \
+            xvfb xauth x11-utils mesa-vulkan-drivers
+
+      - name: Install Rust
+        # rustup reads rust-toolchain.toml (stable).
+        run: |
+          rustup toolchain install
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Release builds only; don't share the CI jobs' debug cache.
+          key: release
+
+      - name: Build the tarball
+        id: build
+        env:
+          # docs/install.md promises glibc 2.35; fail if the floor moves above it.
+          ORRE_MAX_GLIBC: "2.35"
+        run: |
+          bash packaging/linux/build-tarball.sh | tee build.out
+          echo "archive=$(tail -n1 build.out)" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        env:
+          ARCHIVE: ${{ steps.build.outputs.archive }}
+        run: bash packaging/linux/smoke-test.sh "$ARCHIVE"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Linux tarball"
+            echo
+            echo '```'
+            cat dist/*.sha256
+            grep '^glibc floor' build.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: orre-linux-x86_64
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+  # macos: W2-3 adds the unsigned .dmg job here.
+  # nix:   W2-2 adds the flake build and check here.

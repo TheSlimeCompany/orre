@@ -25,3 +25,6 @@ devenv.local.yaml
 *.sqlite3
 *-wal
 *-shm
+
+# Release artifacts (packaging/linux/build-tarball.sh)
+/dist/

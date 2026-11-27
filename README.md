@@ -6,7 +6,8 @@ and lets AI clients (Claude Code, Claude Desktop, Codex) query your data through
 MCP server.
 
 > **Status:** pre-release. v0.1 is not out yet, and there are no packages or release
-> builds: build it from source (see "Development"). Linux and macOS are the official
+> builds yet: build it from source (see "Development"). The release workflow that will
+> build them, and how to install them, is in [`docs/install.md`](docs/install.md). Linux and macOS are the official
 > platforms. The headless core, the importers, the MCP server and the desktop app's
 > day-to-day screens are built; analytics (M4) has started with the monthly Overview.
 > See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's done and what comes next, and
@@ -85,7 +86,9 @@ A [lefthook](https://lefthook.dev) `pre-push` hook (installed automatically when
 devenv shell loads) runs fmt, clippy, tests, and docs, and blocks pushing bank exports
 or databases outside `fixtures/`. Run it by hand with `lefthook run pre-push --force < /dev/null`.
 GitHub Actions CI (`.github/workflows/ci.yml`) runs the same checks on every pull request
-on Linux and macOS, plus a minimum-Rust-version check.
+on Linux and macOS, plus a minimum-Rust-version check. The release workflow
+(`.github/workflows/release.yml`, run by hand or by a `v*` tag) builds the downloads;
+see [`docs/install.md`](docs/install.md).
 
 ## Documentation
 
