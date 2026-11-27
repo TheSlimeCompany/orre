@@ -143,12 +143,13 @@ jobs:
             libasound2-dev libzstd-dev pkg-config clang libssl-dev
 
       - name: Install the MSRV toolchain
-        # The MSRV is `rust-version` in Cargo.toml (1.88 until it is set).
+        # The MSRV is `rust-version` in Cargo.toml (1.95 once W1-2 lands).
+        # The fallback is that same version if the field is still unset.
         # RUSTUP_TOOLCHAIN overrides rust-toolchain.toml, so every later step
         # in this job runs the MSRV compiler, not stable.
         run: |
           msrv=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
-          msrv=${msrv:-1.88}
+          msrv=${msrv:-1.95}
           rustup toolchain install "$msrv" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$msrv" >> "$GITHUB_ENV"
 
