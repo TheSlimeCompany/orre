@@ -3,6 +3,7 @@ name = "orre-core"
 description = "Orre's domain types, SQLite schema and migrations, rules, matching and reporting"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
