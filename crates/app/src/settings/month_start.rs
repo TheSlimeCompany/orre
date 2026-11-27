@@ -41,7 +41,7 @@ use super::SettingsView;
 use super::table::{self, Run, caption, inspector, inspector_header, plain, rich, toolbar};
 
 pub const TITLE: &str = "Month start";
-pub const CAPTION: &str = "The day your month begins · reports, budgets, the Inbox and \
+pub const CAPTION: &str = "The day your month begins · reports, the Inbox and \
      Transactions’ month presets all follow it";
 
 /// The panel's section and row (Paper `KC1-0`; the section is "Calendar",
@@ -60,12 +60,12 @@ pub const CHANGE_BACK: &str = "Changing this re-cuts every month, past ones too.
 /// The inspector's title, over the start day.
 pub const STARTS_ON_THE: &str = "Your month starts on the";
 pub const FOLLOWS_IT: &str = "Follows it";
-/// What cuts its months by the rule: the view, and what of it.
-pub const FOLLOWS: [(&str, &str); 6] = [
+/// What cuts its months by the rule: the view, and what of it. Only what
+/// this build has: Paper's Budgets and Trends rows come back with those
+/// screens (M4.4, M4.2; v0.2).
+pub const FOLLOWS: [(&str, &str); 4] = [
     ("Overview", "its month and totals"),
-    ("Budgets", "spent, rollover, pace"),
     ("Transactions", "the Date chip’s month presets"),
-    ("Trends", "a bar a month"),
     ("Inbox", "“less in Nov” on a preview"),
     ("AI clients", "months with their dates"),
 ];
@@ -259,7 +259,7 @@ pub fn helper(today: NaiveDate, start: MonthStart) -> Vec<Run> {
             plain(format!(
                 " Start your month on payday, so a month holds what that pay covered. \
                  Months keep their name: with the 25th, {} is {name}, the month that pay \
-                 is for, and {name}’s budget stays {name}’s.",
+                 is for.",
                 format::day_range(month.range(example)),
             )),
         ];
@@ -296,8 +296,7 @@ pub fn helper(today: NaiveDate, start: MonthStart) -> Vec<Run> {
         lead("Months keep their name."),
         plain(format!(
             " A month starting on {which} is named after {named}, so {} is \
-             {name}{pay}. Budgets stay attached to their month: {name}’s budget is still \
-             {name}’s, now counted over these dates.",
+             {name}{pay}.",
             format::day_range(month.range(start)),
         )),
     ]
@@ -780,7 +779,7 @@ mod tests {
             Run::joined(&helper(today, MonthStart::CALENDAR)),
             "Paid on a set day? Start your month on payday, so a month holds what that pay \
              covered. Months keep their name: with the 25th, 25 Oct – 24 Nov is November, the \
-             month that pay is for, and November’s budget stays November’s."
+             month that pay is for."
         );
         assert_eq!(
             rule_caption(MonthStart::CALENDAR),
@@ -794,9 +793,7 @@ mod tests {
         assert_eq!(
             Run::joined(&helper(today, rule(the(25), Weekends::FridayBefore))),
             "Months keep their name. A month starting on the 16th or later is named after the \
-             month it ends in, so 23 Oct – 24 Nov is November, the month that pay is for. \
-             Budgets stay attached to their month: November’s budget is still November’s, \
-             now counted over these dates."
+             month it ends in, so 23 Oct – 24 Nov is November, the month that pay is for."
         );
         let fifth = Run::joined(&helper(today, rule(the(5), Weekends::Keep)));
         assert!(
@@ -828,5 +825,37 @@ mod tests {
             weekends_from_key(weekends_key(Weekends::FridayBefore)),
             Some(Weekends::FridayBefore)
         );
+    }
+
+    /// Trends and Budgets are v0.2 screens (M4.2, M4.4): the copy names no
+    /// screen this build doesn't have (PR #16 review, N2).
+    #[test]
+    fn the_copy_names_no_screen_that_isnt_built() {
+        use crate::shell::View;
+
+        for (name, _) in FOLLOWS {
+            if let Some(view) = View::ALL.into_iter().find(|view| view.label() == name) {
+                assert!(view.is_built(), "{name} follows it, but isn't built");
+            }
+        }
+        let today = day(2026, 11, 10);
+        let helpers = [
+            MonthStart::CALENDAR,
+            rule(the(25), Weekends::FridayBefore),
+            rule(the(5), Weekends::Keep),
+            MonthStart::new(StartDay::LAST, Weekends::Keep),
+        ]
+        .map(|start| Run::joined(&helper(today, start)));
+        for text in helpers.iter().map(String::as_str).chain([CAPTION]) {
+            let lower = text.to_lowercase();
+            for unbuilt in View::ALL.into_iter().filter(|view| !view.is_built()) {
+                assert!(
+                    !lower.contains(&unbuilt.label().to_lowercase()),
+                    "{text:?} names {}",
+                    unbuilt.label()
+                );
+            }
+            assert!(!lower.contains("budget"), "{text:?} names budgets");
+        }
     }
 }

@@ -25,7 +25,6 @@ use super::data::{
 /// The data file's path in the panel's foot (Paper `BRB-0`).
 pub const DATA_FILE: &str = "~/.local/share/orre/orre.db";
 
-/// Tuesday 10 November 2026, 10:42:07.
 /// The sample month start: the 25th, moved to the Friday before a
 /// weekend (Paper `K57-0`).
 pub fn month_start() -> MonthStart {
@@ -35,6 +34,7 @@ pub fn month_start() -> MonthStart {
     )
 }
 
+/// Tuesday 10 November 2026, 10:42:07.
 pub fn clock() -> Clock {
     Clock {
         now: Utc.with_ymd_and_hms(2026, 11, 10, 10, 42, 7).unwrap(),
