@@ -363,7 +363,8 @@ per call through its own store and changes data only through core.
   and call inspector; never the result hash), `backups` (list, Back up now, the backup
   inspector, the total, Delete backup…), the `enable`, `remove`, `restore` (checks shown
   one by one, then `backup::restore` on a background thread), `delete` (R.12) and
-  `export` dialogs, and `fixture`.
+  `export` dialogs, `month_start` (M4.11: the start day and weekend choice, the preview
+  of last, this and next month, and the inspector), and `fixture`.
 
 ### CLI (M1.18)
 

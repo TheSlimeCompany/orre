@@ -14,6 +14,12 @@
 //! chosen is faded to `opacity-disabled`, with its hint saying why; a menu
 //! taller than [`Select::max_height`] scrolls.
 //!
+//! Composed for M4.11 (Paper `KJ5-0`, `KGE-0`): an option can carry a mono
+//! value before its tick lane, 11/14 in `text-muted` (`text-secondary` on
+//! the chosen option), as the Date chip's month presets show their dates;
+//! and a long select can open scrolled to its chosen option
+//! ([`SelectState::reveal`]).
+//!
 //! Behaviour comes from the unstyled `gpui-base` select root: it owns the
 //! combobox role, opening with Enter, Space and the arrows, closing with
 //! Escape, and moving focus between the trigger and the menu. The owner
@@ -83,6 +89,10 @@ pub struct MenuOption {
     /// Words after the label in `text-muted`: what the option is for, or
     /// why it can't be chosen.
     pub hint: Option<SharedString>,
+    /// A mono value right-aligned before the tick, in `text-muted`
+    /// (`text-secondary` when chosen): a month preset's dates (M4.11,
+    /// Paper `KJ5-0`).
+    pub detail: Option<SharedString>,
     pub icon: Option<Glyph>,
     /// A category's marker, drawn in the icon slot.
     pub marker: Option<Marker>,
@@ -98,11 +108,18 @@ impl MenuOption {
             key: key.into(),
             label: label.into(),
             hint: None,
+            detail: None,
             icon: None,
             marker: None,
             disabled: false,
             checked: false,
         }
+    }
+
+    /// Adds a mono value before the tick lane ([`Self::detail`]).
+    pub fn detail(mut self, detail: Option<impl Into<SharedString>>) -> Self {
+        self.detail = detail.map(Into::into);
+        self
     }
 
     pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
@@ -308,6 +325,14 @@ impl SelectState {
             self.menu.focus(window, cx);
         } else {
             self.trigger.focus(window, cx);
+        }
+    }
+
+    /// Scrolls `key`'s row of `groups` into view: a long menu opening on
+    /// its chosen option (Settings' start day, M4.11).
+    pub fn reveal(&mut self, groups: &[MenuGroup], key: &SharedString) {
+        if let Some(index) = row_index(groups, key) {
+            self.scroll.reveal(index);
         }
     }
 
@@ -579,6 +604,20 @@ impl MenuList {
                         )
                     }),
             )
+            .when_some(option.detail.clone(), |this, detail| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_role(typography::MONO_VALUE)
+                        .text_color(if chosen {
+                            color::TEXT_SECONDARY
+                        } else {
+                            color::TEXT_MUTED
+                        })
+                        .child(detail),
+                )
+            })
             .child(
                 div()
                     .flex()

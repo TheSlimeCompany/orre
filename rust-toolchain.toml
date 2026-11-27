@@ -1,0 +1,7 @@
+# rustup uses this file; developers and CI build with current stable, newer
+# than the MSRV (`rust-version` in Cargo.toml, checked by CI's MSRV job).
+# The devenv shell installs its own stable toolchain from devenv.nix and
+# ignores this file, so the two agree on "stable" and never fight.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

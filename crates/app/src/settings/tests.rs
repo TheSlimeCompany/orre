@@ -637,6 +637,7 @@ fn the_sample_clients_are_described_in_full(cx: &mut TestAppContext) {
                 panel("Access log", Some("226"), false),
                 panel("Backups", Some(&backups), false),
                 panel("Export…", None, false),
+                panel("Month start", Some("25th"), false),
             ],
             data_file: "~/.local/share/orre/orre.db".to_owned(),
             title: "AI clients",
@@ -1026,4 +1027,123 @@ fn failed_chases_in_a_row_do_not_grow_the_log(cx: &mut TestAppContext) {
             "the chase failed, so the selection fell back"
         );
     }
+}
+
+fn shows(id: &str, cx: &mut VisualTestContext) -> bool {
+    let id = gpui_kit::SharedString::from(id.to_owned());
+    cx.update(move |window, _| window.try_find(id).is_some_and(|found| found.visible()))
+}
+
+fn month_start_body(shown: &SettingsDescription) -> &super::describe::MonthStartDescription {
+    match &shown.body {
+        Body::MonthStart(body) => body,
+        body => panic!("not the month start: {body:?}"),
+    }
+}
+
+/// M4.11: the month start is set from its select and the Weekends control,
+/// applies at once (no Save), and the preview, panel and inspector follow.
+#[gpui_kit::test]
+fn the_month_start_is_set_at_once_from_the_select_and_the_weekends_control(
+    cx: &mut TestAppContext,
+) {
+    use orre_core::reporting::period::{MonthStart, StartDay, Weekends};
+
+    let scratch = Scratch::new();
+    let (shell, settings, cx) = open(cx, &scratch);
+    let stored = || setting::month_start(&scratch.db().reader().unwrap()).unwrap();
+    click("settings-month-start", cx);
+    let shown = describe(&shell, &settings, cx);
+    assert_eq!(shown.title, "Month start");
+    assert_eq!(
+        shown
+            .panel
+            .last()
+            .map(|row| (row.label, row.count.as_deref(), row.selected)),
+        Some(("Month start", Some("1st"), true))
+    );
+    let body = month_start_body(&shown);
+    assert_eq!(body.starts_on, "1st of the month");
+    assert_eq!(body.weekends, "Leave it");
+    assert!(
+        body.helper.starts_with("Paid on a set day?"),
+        "{}",
+        body.helper
+    );
+
+    // Choosing a day writes it straight away. The menu shows 8 rows and
+    // scrolls: the arrows reach the 25th.
+    click("month-start-day", cx);
+    assert!(shows("option-1", cx), "it opens on the chosen 1st");
+    for _ in 0..24 {
+        press("down", cx);
+    }
+    press("enter", cx);
+    let the_25th = MonthStart::new(StartDay::day(25).unwrap(), Weekends::Keep);
+    assert_eq!(stored(), the_25th);
+    let shown = describe(&shell, &settings, cx);
+    let today = cx.update(|_, cx| settings.read(cx).clock.today);
+    let body = month_start_body(&shown);
+    assert_eq!(body.starts_on, "25th of the month");
+    assert_eq!(body.months, month_start::preview(today, the_25th));
+    assert!(body.helper.starts_with("Months keep their name."));
+    assert_eq!(shown.panel.last().unwrap().count.as_deref(), Some("25th"));
+    let header = &shown.inspector.as_ref().unwrap().header;
+    assert_eq!(
+        (header.figure.as_deref(), header.caption.as_deref()),
+        (Some("25th"), Some("even when that’s a weekend"))
+    );
+    assert_eq!(shown.notice, None);
+
+    // The Weekends control keeps the day.
+    click("month-start-weekends-friday", cx);
+    let friday = MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore);
+    assert_eq!(stored(), friday);
+    assert_eq!(
+        month_start_body(&describe(&shell, &settings, cx)).weekends,
+        "Use the Friday before"
+    );
+
+    // The last day of the month, below the hairline, keeps the weekend
+    // choice.
+    // It opens scrolled to the chosen 25th.
+    click("month-start-day", cx);
+    assert!(shows("option-25", cx), "it opens on the chosen 25th");
+    for _ in 0..4 {
+        press("down", cx);
+    }
+    press("enter", cx);
+    let last = MonthStart::new(StartDay::LAST, Weekends::FridayBefore);
+    assert_eq!(stored(), last);
+    let shown = describe(&shell, &settings, cx);
+    assert_eq!(month_start_body(&shown).starts_on, "Last day of the month");
+    assert_eq!(
+        month_start_body(&shown).months,
+        month_start::preview(today, last)
+    );
+    assert_eq!(shown.panel.last().unwrap().count.as_deref(), Some("Last"));
+}
+
+/// Sample data can't change: the rule stays and the notification says why.
+#[gpui_kit::test]
+fn the_sample_month_start_cannot_change(cx: &mut TestAppContext) {
+    use orre_core::reporting::period::{MonthStart, StartDay, Weekends};
+
+    let settings = cx.new(SettingsView::fixture);
+    cx.update(|cx| {
+        settings.update(cx, |settings, cx| {
+            settings.show(super::Section::MonthStart, cx);
+            settings.set_month_start(MonthStart::CALENDAR, cx);
+        })
+    });
+    let shown = cx.update(|cx| settings.read(cx).describe());
+    assert_eq!(
+        cx.update(|cx| settings.read(cx).month_start()),
+        MonthStart::new(StartDay::day(25).unwrap(), Weekends::FridayBefore)
+    );
+    assert!(shown.notice.as_ref().is_some_and(|notice| notice.failed));
+    // Paper `K57-0`, as of the sample day, Tue 10 Nov 2026.
+    let body = month_start_body(&shown);
+    assert_eq!(body.as_of, "as of today, Tue 10 Nov");
+    assert_eq!(body.months[1].dates, "Fri 23 Oct – Tue 24 Nov");
 }
