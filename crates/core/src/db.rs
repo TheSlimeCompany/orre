@@ -33,7 +33,9 @@
 //! database has migrations pending, it first takes a backup of it as it
 //! is (reason `migration`, [`crate::backup`]); if that fails, nothing is
 //! migrated. When the migrations it applies add merchant names (M1.23), it
-//! then names every existing transaction ([`crate::merchant`]).
+//! names every existing transaction ([`crate::merchant`]) in that same
+//! transaction, before it commits: a failure or a crash leaves the
+//! database at its old version, with no names.
 //!
 //! One connection per process, no pool (`docs/ARCHITECTURE.md` →
 //! Dependencies).
@@ -174,6 +176,16 @@ impl Database {
     }
 
     fn open_with(path: &Path, migrations: &[refinery::Migration]) -> Result<Self, Error> {
+        Self::open_migrating(path, migrations, &name_existing_rows)
+    }
+
+    /// [`Database::open_with`], with `before_commit` run inside the
+    /// migrations' transaction, before it commits.
+    fn open_migrating(
+        path: &Path,
+        migrations: &[refinery::Migration],
+        before_commit: migrations::BeforeCommit<'_>,
+    ) -> Result<Self, Error> {
         // An empty file is what `prepare_files` itself creates (and what a
         // concurrent open may have just created): nothing to protect yet.
         if is_non_empty_file(path).map_err(io_error(path))? {
@@ -191,20 +203,7 @@ impl Database {
             crate::backup::create_with_connection(&conn, path, crate::backup::Reason::Migration)
                 .map_err(|error| Error::Backup(Box::new(error)))?;
         }
-        migrations::run(&mut conn, migrations)?;
-        // Rows imported before merchant names existed have none: name them
-        // once, right after the migration that adds names (M1.23). The
-        // migration has just created the alias table, so the names are the
-        // cleaned bank text. Its own transaction: refinery's is closed.
-        let adds_names = |migration: &refinery::Migration| {
-            SchemaVersion::from(migration.version()) == crate::merchant::SCHEMA_VERSION
-        };
-        if found > 0 && found < crate::merchant::SCHEMA_VERSION && migrations.iter().any(adds_names)
-        {
-            let tx = conn.transaction()?;
-            crate::merchant::AliasSet::default().recompute_all(&tx)?;
-            tx.commit()?;
-        }
+        migrations::run(&mut conn, migrations, before_commit)?;
         Ok(Self {
             conn,
             path: path.to_path_buf(),
@@ -367,6 +366,32 @@ pub(crate) fn peek_schema_version(path: &Path) -> Result<SchemaVersion, Error> {
 /// open on, without checking its history.
 pub(crate) fn schema_version_on(conn: &Connection) -> Result<SchemaVersion, Error> {
     Ok(migrations::current_version(conn)?)
+}
+
+/// Rows imported before merchant names existed have none: name them in the
+/// run that applies the migration adding names (M1.23), inside its
+/// transaction, so the names commit with the migration or not at all. The
+/// migration has just created the alias table, so the names are the
+/// cleaned bank text. A new database has no rows to name.
+fn name_existing_rows(conn: &Connection, run: &migrations::Applied) -> Result<(), Error> {
+    if run.from > 0
+        && run.from < crate::merchant::SCHEMA_VERSION
+        && run.includes(crate::merchant::SCHEMA_VERSION)
+    {
+        crate::merchant::AliasSet::default().recompute_all(conn)?;
+    }
+    Ok(())
+}
+
+/// For tests elsewhere in core: [`Database::open`], with a step that fails
+/// after the merchant naming pass has run, inside the migrations'
+/// transaction, as a crash or an error there would.
+#[cfg(test)]
+pub(crate) fn open_failing_before_commit(path: &Path) -> Result<Database, Error> {
+    Database::open_migrating(path, &migrations::embedded(), &|conn, run| {
+        name_existing_rows(conn, run)?;
+        Err(Error::Sqlite(rusqlite::Error::InvalidQuery))
+    })
 }
 
 /// For tests elsewhere in core: a database with only this build's first

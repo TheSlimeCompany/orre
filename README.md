@@ -69,7 +69,8 @@ orre --help                      # every command
 ## Development
 
 The dev environment is managed with [devenv](https://devenv.sh) (Nix) and loaded via
-direnv. It provides the Rust toolchain and the runtime libraries GPUI needs.
+direnv. It provides the Rust toolchain and the runtime libraries GPUI needs. Outside
+devenv, rustup follows `rust-toolchain.toml` (stable); the minimum supported Rust is 1.95.
 
 ```sh
 direnv allow           # or prefix commands with: devenv shell --
@@ -83,6 +84,8 @@ cargo clippy --all-targets --all-features -- -D warnings
 A [lefthook](https://lefthook.dev) `pre-push` hook (installed automatically when the
 devenv shell loads) runs fmt, clippy, tests, and docs, and blocks pushing bank exports
 or databases outside `fixtures/`. Run it by hand with `lefthook run pre-push --force < /dev/null`.
+GitHub Actions CI (`.github/workflows/ci.yml`) runs the same checks on every pull request
+on Linux and macOS, plus a minimum-Rust-version check.
 
 ## Documentation
 

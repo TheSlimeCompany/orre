@@ -26,7 +26,7 @@
 //! [`SettingsView`] holds what the screens show and makes every change
 //! through [`store::SettingsStore`], which opens the database per call; the
 //! rules are core's. Without a database (snapshots, tests) it shows
-//! [`fixture`] data, which can't change.
+//! `fixture` data, which can't change.
 
 pub mod backups;
 pub mod clients;
@@ -36,6 +36,7 @@ pub mod delete;
 pub(crate) mod describe;
 pub mod enable;
 pub mod export;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 pub mod log;
 pub mod month_start;
@@ -183,8 +184,20 @@ pub enum NoticeMessage {
 /// Where Settings' data comes from.
 enum Source {
     Database(SettingsStore),
-    /// Sample data that can't change.
+    /// Sample data that can't change (tests, `dev-samples`).
+    #[cfg(any(test, feature = "dev-samples"))]
     Fixture,
+    /// Nothing to read, and why (no data folder).
+    Unavailable(SharedString),
+}
+
+/// The computer's clock; the UTC time and [`crate::today`] when it can't
+/// be read. Never the sample clock (W1-3).
+fn clock_now() -> Clock {
+    store::now().unwrap_or_else(|_| Clock {
+        now: chrono::Utc::now(),
+        today: crate::today(),
+    })
 }
 
 /// A read that failed, shown where its data would be.
@@ -258,7 +271,7 @@ pub fn sentence(message: &str) -> SharedString {
 impl SettingsView {
     /// Settings over the database `store` opens, read now.
     pub fn from_store(store: SettingsStore, cx: &mut Context<Self>) -> Self {
-        let clock = store::now().unwrap_or_else(|_| fixture::clock());
+        let clock = clock_now();
         let data_file = display_path(store.database()).into();
         let mut view = Self::empty(Source::Database(store), clock, data_file, cx);
         view.reload(cx);
@@ -266,6 +279,7 @@ impl SettingsView {
     }
 
     /// Settings showing sample data, which can't change.
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn fixture(cx: &mut Context<Self>) -> Self {
         let mut view = Self::empty(
             Source::Fixture,
@@ -294,6 +308,7 @@ impl SettingsView {
     }
 
     /// Sample data with AI access switched off (the states board, `GR9-0`).
+    #[cfg(any(test, feature = "dev-samples"))]
     pub fn fixture_off(cx: &mut Context<Self>) -> Self {
         let mut view = Self::fixture(cx);
         view.ai.on = false;
@@ -303,7 +318,12 @@ impl SettingsView {
     /// Settings with nothing to show and why: no data folder.
     pub fn unavailable(reason: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {
         let reason = reason.into();
-        let mut view = Self::empty(Source::Fixture, fixture::clock(), "".into(), cx);
+        let mut view = Self::empty(
+            Source::Unavailable(reason.clone()),
+            clock_now(),
+            "".into(),
+            cx,
+        );
         view.ai_error = Some(reason.clone());
         view.log_error = Some(reason.clone());
         view.month_start_error = Some(reason.clone());
@@ -404,8 +424,16 @@ impl SettingsView {
     pub fn store(&self) -> Result<&SettingsStore, SharedString> {
         match &self.source {
             Source::Database(store) => Ok(store),
+            #[cfg(any(test, feature = "dev-samples"))]
             Source::Fixture => Err("This is sample data, which can't be changed.".into()),
+            Source::Unavailable(reason) => Err(reason.clone()),
         }
+    }
+
+    /// Whether it shows sample data (tests, `dev-samples`).
+    #[cfg(any(test, feature = "dev-samples"))]
+    pub fn is_sample(&self) -> bool {
+        matches!(self.source, Source::Fixture)
     }
 
     /// Shows `section`, reading its data again.
