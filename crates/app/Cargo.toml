@@ -3,6 +3,7 @@ name = "orre-app"
 description = "Orre: the GPUI dashboard and the `orre` binary (GUI, MCP server and CLI commands)"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 default-run = "orre"
