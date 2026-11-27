@@ -42,6 +42,7 @@
 #[cfg(any(test, feature = "dev-driver"))]
 pub(crate) mod describe;
 pub mod dialogs;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 pub mod form;
 pub mod inspector;
@@ -378,9 +379,7 @@ impl Rules {
     }
 
     pub fn today(&self) -> chrono::NaiveDate {
-        self.data
-            .today
-            .unwrap_or_else(crate::accounts::fixture::today)
+        self.data.today.unwrap_or_else(crate::today)
     }
 
     pub fn section(&self) -> Section {

@@ -98,6 +98,12 @@ The schema is SQL in `crates/core/migrations/`. Conventions (M1.4; the tests in
   `category_key_retired` (V22, R.11) and `account_source_identity` (V23, R.13).
 - refinery embeds migrations in file-name order (`V10__` before `V1__`);
   `db::migrations::embedded` sorts them by version.
+- refinery embeds and checksums the migrations, but `db::migrations::run` applies them
+  itself, as refinery's grouped runner would (the same SQL, the same
+  `refinery_schema_history` rows), in one `BEGIN IMMEDIATE` transaction that reads the
+  history after taking the lock. Rust that must commit with a migration runs before
+  that commit: the merchant naming pass after V7 (W1-6). The history checks are
+  `db::migrations::check`'s: an edited, unknown or skipped migration is refused.
 
 - `account(id, parent_id?, name, institution, kind [current|savings|credit_card|pot|cash|
   asset|liability], currency, opening_balance_minor?, opening_date?,
