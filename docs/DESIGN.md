@@ -2817,8 +2817,9 @@ artboard shows the 25th with the Friday before.
 - **Left panel.** A CALENDAR section under DATA with one row, Month start: the 12px
   `calendar` icon and the start day as its mono value ("25th", "1st", "Last").
 - **Canvas** (872px; a 560px reading column, 8px inline padding, 20px top, 24px between
-  blocks). Toolbar "Month start", caption "The day your month begins · reports, budgets,
-  the Inbox and Transactions’ month presets all follow it".
+  blocks). Toolbar "Month start", caption "The day your month begins · reports, the
+  Inbox and Transactions’ month presets all follow it" (the artboard says "reports,
+  budgets, …"; see the v0.1 bullet below).
   - *Starts on*: a 64px `text-muted` label and a 180px select, "25th" in `text` and "of
     the month" in `text-muted`. Its menu (180px) lists the 1st to the 28th, then "Last
     day of the month" under a hairline; it opens scrolled to the current choice and
@@ -2842,8 +2843,8 @@ artboard shows the 25th with the Friday before.
 - **Inspector.** "Your month starts on the", the day as the display figure ("25th",
   "last day") and a caption ("or the Friday before, when that’s a weekend"; "even when
   that’s a weekend"; "calendar months, as Orre starts"). *Follows it*: 24px rows of a
-  96px name and an 11/14 `text-muted` note: Overview, Budgets, Transactions, Trends,
-  Inbox, AI clients. *Keeps its own dates*: Weeks, This year, Schedules, Exports, and a
+  96px name and an 11/14 `text-muted` note: Overview, Transactions, Inbox, AI clients
+  (the artboard also has Budgets and Trends; see the v0.1 bullet below). *Keeps its own dates*: Weeks, This year, Schedules, Exports, and a
   caption that saved reviews keep the period their author wrote.
 - **States board** (`KEQ-0`): the default (the 1st, Leave it), the open Starts on menu,
   the last day with the Friday before, the Date chip's menu for the 1st, the 25th with
@@ -2860,6 +2861,13 @@ artboard shows the 25th with the Friday before.
   - the Date chip has no "Pick a month…": the Overview's switcher picks months;
   - a choice applies at once, with no Save or confirm;
   - the panel section is "Calendar", not "Reports".
+- **v0.1 copy (2026-11-27, PR #16 review N2):** Budgets and Trends are v0.2 screens
+  (M4.4, M4.2), so the built copy names neither. *Follows it* drops the artboard's
+  Budgets ("spent, rollover, pace") and Trends ("a bar a month") rows; the caption drops
+  "budgets"; the helpers end at "…the month that pay is for." without the artboard's
+  budget sentence ("November’s budget stays November’s" / "Budgets stay attached to
+  their month…"). They come back with those screens. `K57-0` and `KEQ-0` still draw
+  them; a test (`the_copy_names_no_screen_that_isnt_built`) keeps unbuilt screens out.
 - **Built in M4.11** (`crates/app/src/settings/month_start.rs`, the Date chip in
   `transactions/present.rs`, the switcher in `overview/view.rs`), checked by eye against
   `K57-0` and `KEZ-0` in the `settings-month-start*` snapshots. Composed while building,
