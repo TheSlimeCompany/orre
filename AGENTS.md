@@ -182,7 +182,9 @@ of a rule that isn't checked yet, prefer adding a check there over adding prose 
   `docs/architecture/import.md` → "Presets"; `presets/uk/monzo.toml` (M1.9) is the
   reference example. Every `.toml` there is compiled in (`crates/import/build.rs`).
 - Every preset needs a matching redacted fixture at `fixtures/presets/<region>/<bank>.*`
-  (a test checks it's there and imports) and a test that checks its rows.
+  (a test checks it's there and imports). Every bundled preset ships with a row test that
+  covers the category map and sub-account transfers; contributors don't have to write it,
+  but agents always write that test before merge.
 - Prefer a signed amount column over debit/credit pairs when the export has both.
 - New file formats (QIF, CAMT.053, MT940, …) are new `Importer` implementations, not
   preset features.
