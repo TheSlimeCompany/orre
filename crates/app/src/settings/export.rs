@@ -84,6 +84,36 @@ pub struct ExportDialog {
 
 impl EventEmitter<DialogClosed> for ExportDialog {}
 
+/// The choices without a store. Sample Settings show the choices drawn on
+/// Paper, and Export… says it can't write; otherwise there's nothing to
+/// export, and `problem` says why (no data folder).
+fn without_store(
+    view: &SettingsView,
+    problem: SharedString,
+) -> (ExportChoices, Option<SharedString>) {
+    #[cfg(any(test, feature = "dev-samples"))]
+    if view.is_sample() {
+        return (super::fixture::export_choices(), None);
+    }
+    #[cfg(not(any(test, feature = "dev-samples")))]
+    let _ = view;
+    (ExportChoices::default(), Some(problem))
+}
+
+/// The counts without a store: Paper's for sample Settings, else `problem`.
+fn counts_without_store(
+    view: &SettingsView,
+    problem: SharedString,
+) -> Result<Counts, SharedString> {
+    #[cfg(any(test, feature = "dev-samples"))]
+    if view.is_sample() {
+        return Ok(super::fixture::export_counts());
+    }
+    #[cfg(not(any(test, feature = "dev-samples")))]
+    let _ = view;
+    Err(problem)
+}
+
 impl ExportDialog {
     pub fn new(
         settings: Entity<SettingsView>,
@@ -102,9 +132,10 @@ impl ExportDialog {
                         today,
                     ),
                 },
-                // Sample data: the choices and counts drawn on Paper; Export…
-                // says it can't write.
-                Err(_) => (super::fixture::export_choices(), None, today),
+                Err(problem) => {
+                    let (choices, problem) = without_store(view, problem);
+                    (choices, problem, today)
+                }
             }
         };
         let (first, last) = choices.span.unwrap_or((today, today));
@@ -226,7 +257,7 @@ impl ExportDialog {
             Ok(store) => store
                 .export_count(&options)
                 .map_err(|error| sentence(&error.to_string())),
-            Err(_) => Ok(super::fixture::export_counts()),
+            Err(problem) => counts_without_store(self.settings.read(cx), problem),
         };
         match result {
             Ok(counts) => {

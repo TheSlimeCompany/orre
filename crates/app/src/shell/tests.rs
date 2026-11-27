@@ -475,3 +475,122 @@ fn the_categories_plus_opens_a_new_category_in_rules(cx: &mut TestAppContext) {
     assert_eq!(section, crate::rules::Section::Categories);
     assert_eq!(selection, Some(crate::rules::CategorySelection::New));
 }
+
+// W1-3: what a release build ships ------------------------------------------------
+
+/// The shipped tabs are the built screens: Trends, Budgets, Net worth and
+/// Reviews are v0.2. A release build's `View::TABS` is this set
+/// (`tests/release_gating.rs` checks that build).
+#[test]
+fn the_shipped_tabs_are_the_built_screens() {
+    let built: Vec<_> = View::ALL_TABS
+        .into_iter()
+        .filter(|view| view.is_built())
+        .collect();
+    assert_eq!(View::SHIPPED_TABS.to_vec(), built);
+    for unbuilt in [View::Trends, View::Budgets, View::NetWorth, View::Reviews] {
+        assert!(!View::SHIPPED_TABS.contains(&unbuilt), "{unbuilt:?}");
+    }
+}
+
+/// With the shipped tabs the shortcuts are ⌘1–⌘4, with no holes and none
+/// for an unbuilt screen; with every tab, Paper's ⌘1–⌘8.
+#[test]
+fn tab_shortcuts_are_numbered_without_holes() {
+    let shipped = tab_shortcuts(&View::SHIPPED_TABS);
+    assert_eq!(
+        shipped,
+        [
+            ("secondary-1".to_owned(), View::Overview),
+            ("secondary-2".to_owned(), View::Transactions),
+            ("secondary-3".to_owned(), View::Inbox),
+            ("secondary-4".to_owned(), View::Rules),
+        ]
+    );
+    let all = tab_shortcuts(&View::ALL_TABS);
+    assert_eq!(all.len(), 8);
+    assert_eq!(all[2], ("secondary-3".to_owned(), View::Trends));
+    assert_eq!(all[7], ("secondary-8".to_owned(), View::Rules));
+}
+
+/// No data folder: every view says so. Transactions and the Overview show
+/// no sample rows, and the Import dialog no sample accounts (W1-3).
+#[gpui_kit::test]
+fn without_a_data_folder_no_view_shows_sample_data(cx: &mut TestAppContext) {
+    const WHY: &str = "Orre has no data folder: no home directory";
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::component::install(cx);
+        init(cx);
+    });
+    let (shell, cx) = cx.add_window_view(|window, cx| {
+        ShellView::from_database(
+            View::Transactions,
+            Err("no home directory".to_owned()),
+            window,
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    redraw(cx);
+
+    let (transactions, counts, overview) = cx.update(|_, cx| {
+        let shell = shell.read(cx);
+        let transactions = shell.transactions().read(cx);
+        (
+            transactions.describe(cx),
+            transactions.counts(),
+            shell.overview().read(cx).describe(cx).shown,
+        )
+    });
+    assert!(transactions.days.is_empty() && transactions.flat.is_empty());
+    assert_eq!(
+        transactions.empty.and_then(|empty| empty.body).as_deref(),
+        Some(WHY)
+    );
+    assert_eq!(counts, crate::transactions::Counts::default(), "not sample");
+    assert_eq!(
+        overview,
+        crate::overview::describe::Shown::Failed(WHY.into())
+    );
+    assert!(!shows(&a_row(), cx), "no fixture row");
+
+    cx.update(|window, cx| shell.update(cx, |shell, cx| shell.open_import(None, window, cx)));
+    cx.run_until_parked();
+    let (problem, session) = cx.update(|_, cx| {
+        let dialog = shell
+            .read(cx)
+            .import_dialog
+            .as_ref()
+            .and_then(WeakEntity::upgrade)
+            .expect("the Import dialog");
+        let dialog = dialog.read(cx);
+        (
+            dialog.problem().map(ToString::to_string),
+            dialog.session().is_some(),
+        )
+    });
+    assert_eq!(problem.as_deref(), Some(WHY));
+    assert!(!session);
+
+    // The other views say why too.
+    cx.update(|_, cx| {
+        let shell = shell.read(cx);
+        assert!(shell.settings().read(cx).store().is_err());
+        assert!(!shell.transactions().read(cx).is_sample());
+    });
+}
+
+/// A view this build doesn't show can't be opened, and opens as the
+/// default when the shell is built on it. Under `cfg(test)` every tab is
+/// shown, so this checks `is_shown` on the shipped set's terms.
+#[test]
+fn only_shown_views_are_restored() {
+    for view in View::ALL {
+        assert_eq!(
+            view.is_shown(),
+            view == View::Settings || View::TABS.contains(&view),
+            "{view:?}"
+        );
+    }
+}

@@ -13,17 +13,21 @@ earlier one, only the current rule is stated, with the record that set it.
 
 ### The shell and navigation
 
-`orre_app::shell` (M3.1; "the app shell and window state", points 1 and 6). `orre`
-with no subcommand opens one window: the title bar with eight view tabs (Overview,
-Transactions, Trends, Budgets, Net worth, Inbox, Reviews, Rules) and a Settings button,
-the body (the view's own left panel, canvas and inspector), and the status bar. There
-is no sidebar: the five views of the money share the accounts panel, and Inbox,
-Reviews, Rules and Settings have their own lists. ⌘1–⌘8 open the views in tab order,
-⌘, opens Settings, ⌘I imports and ⌘N adds a transaction on Transactions (Ctrl on Linux
-and Windows). The Settings button toggles back to the view it was opened from.
-Overview (M4.1), Transactions, Inbox, Rules and Settings are built (`View::is_built`); the others show
+`orre_app::shell` (M3.1; "the app shell and window state", points 1 and 6; "sample data
+and unbuilt tabs stay out of release builds"). `orre` with no subcommand opens one
+window: the title bar with the shipped view tabs (`View::SHIPPED_TABS`: Overview,
+Transactions, Inbox, Rules) and a Settings button, the body (the view's own left panel,
+canvas and inspector), and the status bar. There is no sidebar: the money views share the
+accounts panel, and Inbox, Rules and Settings have their own lists. ⌘1–⌘4 open the
+views in tab order (`shell::tab_shortcuts`: numbered from 1, no holes), ⌘, opens
+Settings, ⌘I imports and ⌘N adds a transaction on Transactions (Ctrl on Linux and
+Windows). The Settings button toggles back to the view it was opened from. Trends,
+Budgets, Net worth and Reviews (M4.2–M4.7, v0.2) have no tab or shortcut in a release
+build, and a window saved on one reopens on the Overview. Tests and `dev-samples`
+builds keep Paper's eight tabs (`View::ALL_TABS`, ⌘1–⌘8), where the unbuilt ones show
 the shell around an empty state ("{View} isn't built yet") with ⌘2 to Transactions.
-The shell opens every dialog over everything when a view asks.
+With no data folder, every view says so, Transactions and the Overview included; no
+view shows sample data. The shell opens every dialog over everything when a view asks.
 
 ### Window state
 
@@ -946,3 +950,38 @@ updates: showing what arrived"), and confirmed by the user on 2026-11-23.
    changed is no longer only a missed reload: a change to register rows that a write
    didn't name would be read on the next check and shown as an arrival. Every own write
    that changes rows names Ledger (or Rules).
+
+### Decision record: sample data and unbuilt tabs stay out of release builds (2026-11-27)
+
+W1-3, for v0.1 (Trends, Budgets, Net worth and Reviews are v0.2). A finance app must
+not show invented money as if it were real.
+
+1. **One feature, `dev-samples`, holds everything invented.** The `fixture` modules
+   (accounts, overview, import, checks, transactions and `link_fixture`, inbox,
+   settings, rules), the component showcase and `orre --showcase` are compiled only
+   under `cfg(test)` or `dev-samples`. The feature is off by default and enabled by no
+   release path; the snapshot example requires it (`required-features`). `dev-driver`
+   doesn't need it and doesn't enable it. The sample constructors (`ShellView::new`,
+   `with_all` and the like, `Accounts::fixture`, `SettingsView::fixture`,
+   `OverviewView::fixture`, `Imports::sample`, `ImportDialog::sample`) and the
+   `Source::Fixture` / `Source::Sample` variants are gated with them. Compile-fail
+   doctests in `lib.rs` fail if a module leaks back.
+2. **No data folder shows why, never sample data.** `ShellView::from_database(Err)`
+   gives every view an unavailable state with the reason: Transactions
+   (`transactions::Source::Unavailable`, the table's empty state), the Overview
+   (`OverviewView::unavailable`), the Import dialog (`Imports::unavailable`: no sample
+   accounts, it says why), Settings (the real clock, not the sample one, and Export…
+   says why instead of Paper's choices), accounts, checks, rules and the Inbox as
+   before. Where the local date can't be read, views fall back to the UTC date
+   (`orre_app::today`) with a warning, not the fixture's day.
+3. **The tab set is the shipped screens.** In a release or default build `View::TABS`
+   is `View::SHIPPED_TABS` and the shortcuts are numbered from it with no holes (⌘1
+   Overview, ⌘2 Transactions, ⌘3 Inbox, ⌘4 Rules, ⌘, Settings). The enum keeps every
+   view, so a saved `app.window` key still parses, but `restored_view` and `show` treat a
+   view that isn't shown (`View::is_shown`) as the default. Tests and `dev-samples`
+   builds keep Paper's eight tabs, so the shell tests and the snapshots are unchanged.
+4. **Checked in the build that ships.** `crates/app/tests/release_gating.rs` links the
+   library and runs the binary as a build without `dev-samples` compiles them (an
+   integration test isn't `cfg(test)`): the tabs, the shortcuts, the saved-view
+   fallback, `orre --help` without `--showcase` and `orre --showcase` refused. Run with
+   `--all-features`, it checks the inverse.

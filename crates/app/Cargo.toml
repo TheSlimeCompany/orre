@@ -11,6 +11,10 @@ default-run = "orre"
 name = "orre"
 path = "src/main.rs"
 
+[[example]]
+name = "snapshot"
+required-features = ["dev-samples"]
+
 [features]
 # The dev driver (ROADMAP U.5): `describe()` and a local socket that drives
 # the window, for an agent checking a UI change in the running app. Off by
@@ -19,6 +23,13 @@ path = "src/main.rs"
 # docs/architecture/app.md). gpui-kit's `test-support` gives it the calls
 # the UI tests drive the window with.
 dev-driver = ["gpui-kit/test-support"]
+# Sample data (the `fixture` modules), the component showcase and its
+# `--showcase` flag, and the four unbuilt tabs (Trends, Budgets, Net worth,
+# Reviews): for the snapshot example and a dev build to look at. Off by
+# default and enabled by no release path, so a release build can't show
+# invented money as if it were real (W1-3). Tests have them through
+# `cfg(test)` without it. The dev driver neither needs nor enables it.
+dev-samples = []
 
 [dependencies]
 orre-core.workspace = true

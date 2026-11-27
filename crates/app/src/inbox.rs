@@ -30,6 +30,7 @@
 pub mod arrival;
 #[cfg(any(test, feature = "dev-driver"))]
 pub(crate) mod describe;
+#[cfg(any(test, feature = "dev-samples"))]
 pub mod fixture;
 mod inspector;
 pub mod panel;
