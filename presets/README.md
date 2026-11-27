@@ -5,11 +5,22 @@ the amount, the description, and so on. Presets are plain TOML, so you can add a
 without writing Rust. Every `.toml` file here is compiled into Orre, and the tests
 load all of them.
 
+The v0.1 release bundles one CSV preset: Monzo (`uk/monzo.toml`). OFX and QFX files need
+no preset; see "OFX and QFX".
+
+## OFX and QFX
+
+Orre reads OFX and QFX files with its built-in importer, so they have no preset here.
+
+- Extensions: `.ofx` and `.qfx`. QFX is OFX with extra Intuit tags.
+- One statement per import. A file that holds several statements needs you to choose one.
+- When your bank has no OFX or QFX export, the generic CSV mapping still works.
+
 ## Where a preset goes
 
 `presets/<region>/<bank>.toml`, one file per bank and account type. Regions are lowercase
 letters (`uk`, `us`, `eu`); file names are lowercase letters, digits and hyphens
-(`monzo.toml`, `nationwide-credit-card.toml`).
+(`monzo.toml`, `something-credit-card.toml`).
 
 Every preset needs a redacted fixture at `fixtures/presets/<region>/<bank>.csv` (same
 name, any extension) that it recognises and imports, plus a test that checks the rows,

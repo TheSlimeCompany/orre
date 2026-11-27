@@ -185,7 +185,8 @@ the same debit and credit column, a named column without a header row).
 
 M1.8, decided 2026-11-10. `orre_import::preset`: a preset is a `CsvMapping` in TOML plus
 an ID, a name, a region, ignored columns and a category map. The field reference for
-contributors is `presets/README.md`.
+contributors is `presets/README.md`. The v0.1 release bundles one CSV preset, UK Monzo;
+other banks import through OFX/QFX or the generic CSV mapping.
 
 ```toml
 # presets/uk/monzo.toml (M1.9; comments and most of the category map left out)

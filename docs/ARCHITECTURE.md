@@ -3,7 +3,8 @@
 A local-first personal finance dashboard. Import bank statements, see where money goes,
 and talk to your data through any MCP-capable AI client (Claude Code, Claude Desktop, Codex).
 
-Built for one user first; released as open source (UK, US, euro area at launch).
+Built for one user first; released as open source. v0.1 imports any bank's OFX/QFX or
+CSV export, with a bundled Monzo preset; more bank presets follow.
 
 ## Principles
 

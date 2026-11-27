@@ -1536,20 +1536,25 @@ due before payday.
 
 - ⬜ M5.1 README (screenshots, install, MCP setup), CONTRIBUTING, CODE_OF_CONDUCT, SECURITY
 - ⬜ M5.2 "Add your bank" guide: preset TOML + redacted fixture, no Rust required
-- ⬜ M5.3 Presets for common UK, US, and euro-area banks
+- ⬜ M5.3 Bank support for v0.1: the bundled CSV preset is Monzo (`uk-monzo`). Other banks
+  import through the built-in OFX/QFX importer, which needs no preset, or the generic CSV
+  mapping. Presets for Starling, Nationwide, Chase, Bank of America, Capital One, Revolut
+  and N26 move to v0.2
 - ⬜ M5.4 Issue templates (bank preset request, bug, importer request)
 - 🚧 M5.5 CI: fmt, clippy, tests; build on Linux, macOS, Windows (best-effort).
   `.github/workflows/ci.yml` mirrors every `lefthook.yml` pre-push job on Linux and
   macOS, adds an MSRV `cargo check` and a non-blocking Windows `cargo check`; done once
   the first runs on GitHub are green and `main` requires the checks
-- ⬜ M5.6 Release artifacts: Linux tarball + Nix flake (+ AppImage), macOS `.dmg`
+- ⬜ M5.6 Release artifacts: Linux tarball + Nix flake, and an unsigned macOS `.dmg`.
+  No AppImage in v0.1
 - ⬜ M5.7 Data location, backup, and privacy documentation
-- ⬜ M5.8 Beancount and hledger journal export: deterministic and stably sorted; fixture
-  exports are checked with `bean-check` / `hledger check` when those tools are installed
-  (external tools, not dependencies)
+- ⬜ M5.8 Deferred to v0.2. Beancount and hledger journal export: deterministic and
+  stably sorted; fixture exports are checked with `bean-check` / `hledger check` when
+  those tools are installed (external tools, not dependencies)
 
 **Exit criteria:** a stranger in the UK, US, or euro area can install it, import
-their bank's export, and connect an AI client by following the README.
+their bank's export, and connect an AI client by following the README. Outside Monzo,
+the import path is OFX/QFX (or the generic CSV mapping).
 
 ---
 
