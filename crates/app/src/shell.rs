@@ -355,13 +355,18 @@ pub fn init(cx: &mut App) {
     settings::init(cx);
 }
 
+/// The status `orre` exits with when its window can't open, so launchers
+/// and scripts see the failure.
+pub const WINDOW_FAILED_EXIT_CODE: i32 = 1;
+
 /// Opens Orre's window as it was last left: the saved bounds and view
 /// from the database in the data dir, or 1440×900 (the size it's designed
 /// at, where the screen allows) on Transactions.
 ///
 /// The window opens once the live-updates baseline is taken, on a
 /// background thread, so it comes before any view's first read ([`live`]).
-/// A window that can't open is logged and the app quits.
+/// A window that can't open is logged and the process exits with
+/// [`WINDOW_FAILED_EXIT_CODE`].
 pub fn open(cx: &mut App) {
     let database = paths::database_path();
     let store = match &database {
@@ -426,7 +431,11 @@ pub fn open(cx: &mut App) {
             Ok(_) => {}
             Err(error) => {
                 tracing::error!(%error, "couldn't open the window");
-                cx.update(|cx| cx.quit());
+                // Exit directly rather than `cx.quit()`: on macOS GPUI's quit
+                // terminates the process with status 0 and `run` never
+                // returns. Logging writes to stderr synchronously and nothing
+                // is open yet, so there is nothing to flush.
+                std::process::exit(WINDOW_FAILED_EXIT_CODE);
             }
         }
     })

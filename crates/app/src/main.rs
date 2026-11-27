@@ -63,7 +63,7 @@ fn run_gui(#[cfg(feature = "dev-samples")] showcase: bool) {
             // the data dir; with no data folder every view says so.
             orre_app::shell::init(cx);
             // The window opens once the live-updates baseline is taken;
-            // one that can't open is logged and the app quits.
+            // one that can't open is logged and the process exits non-zero.
             orre_app::shell::open(cx);
         });
 }
