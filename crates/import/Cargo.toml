@@ -3,6 +3,7 @@ name = "orre-import"
 description = "Orre's statement importers: the Importer trait, CSV (generic and presets) and OFX/QFX"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
