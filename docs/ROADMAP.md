@@ -1555,7 +1555,8 @@ due before payday.
   `macOS dmg (unsigned)` jobs of `.github/workflows/release.yml` (`workflow_dispatch`
   and `v*` tags), with install and Gatekeeper steps in `docs/install.md`; done once a
   dispatch run of all three jobs is green
-- ⬜ M5.7 Data location, backup, and privacy documentation
+- ✅ M5.7 Data location, backup, and privacy documentation: `docs/data-and-privacy.md`,
+  linked from `README.md` and `SECURITY.md`
 - ⬜ M5.8 Deferred to v0.2. Beancount and hledger journal export: deterministic and
   stably sorted; fixture exports are checked with `bean-check` / `hledger check` when
   those tools are installed (external tools, not dependencies)
