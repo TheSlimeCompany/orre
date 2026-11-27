@@ -12,6 +12,7 @@ edition = "2024"
 # CI's MSRV job checks the workspace with exactly this version.
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/TheSlimeCompany/orre"
 publish = false
 
 # Every external version lives here; crates opt in with `<crate>.workspace = true`.

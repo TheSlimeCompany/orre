@@ -6,17 +6,21 @@ and lets AI clients (Claude Code, Claude Desktop, Codex) query your data through
 MCP server.
 
 > **Status:** pre-release. v0.1 is not out yet, and there are no packages or release
-> builds yet: build it from source (see "Development"). The release workflow that will
-> build them, and how to install them, is in [`docs/install.md`](docs/install.md). Linux and macOS are the official
-> platforms. The headless core, the importers, the MCP server and the desktop app's
-> day-to-day screens are built; analytics (M4) has started with the monthly Overview.
+> builds yet: build it from source (see "Install"). The release workflow that will
+> build them, and how to install them, is in [`docs/install.md`](docs/install.md).
+> Linux and macOS are the official platforms; Windows is best-effort. The headless
+> core, the importers, the MCP server and the desktop app's day-to-day screens are
+> built; analytics (M4) has started with the monthly Overview.
 > See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's done and what comes next, and
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it works.
 
 ## What it does
 
-- **Import.** CSV (with bank presets, or a column mapping you can save as a preset)
-  and OFX/QFX go into a local SQLite database. Every import is previewed,
+- **Import.** Bank exports go into a local SQLite database: OFX/QFX from any bank that
+  exports it, CSV with the bundled Monzo preset, and any other CSV once you map its
+  columns and save the mapping as a preset. To add your bank as a preset, see
+  [`presets/README.md`](presets/README.md). More bank presets are planned: see the
+  [roadmap](docs/ROADMAP.md). Every import is previewed,
   deduplicated (the bank's ID first, a fingerprint otherwise), reconciled against the
   file's balances where it has them, committed in one transaction, and undoable as a
   batch.
@@ -55,6 +59,47 @@ MCP server.
   for bank descriptions, which may contain details such as addresses.
 - **Exact money.** Amounts are integer minor units plus an ISO 4217 currency code.
 
+## Install
+
+There are no release downloads yet. When v0.1 is tagged, its builds will be published on
+the [releases page](https://github.com/TheSlimeCompany/orre/releases): a Linux tarball
+(no Nix needed), a Nix flake, and an unsigned macOS `.dmg`. Until then, build from
+source. [`docs/install.md`](docs/install.md) covers the packaged builds: the
+[Linux tarball](docs/install.md#linux-tarball), [Nix](docs/install.md#nix-linux), and
+the [macOS `.dmg`](docs/install.md#macos-unsigned-dmg), including
+[how to open it past Gatekeeper](docs/install.md#why-macos-warns-you-and-how-to-open-it).
+
+### Build from source
+
+This works on Linux and macOS without Nix.
+
+1. Install Rust with [rustup](https://rustup.rs). In the repository it follows
+   `rust-toolchain.toml` (stable, with rustfmt and clippy). The minimum supported Rust
+   is 1.95.
+2. Install the build dependencies. On Debian or Ubuntu, these are the packages CI
+   installs (`.github/workflows/ci.yml`):
+
+   ```sh
+   sudo apt-get install libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+     libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev \
+     libasound2-dev libzstd-dev pkg-config clang libssl-dev
+   ```
+
+   On macOS, install Xcode or the Command Line Tools. GPUI compiles its shaders with
+   `xcrun metal`; if `xcrun -f metal` fails, run
+   `xcodebuild -downloadComponent MetalToolchain`.
+3. Build and run:
+
+   ```sh
+   git clone https://github.com/TheSlimeCompany/orre.git
+   cd orre
+   cargo build --release --locked -p orre-app
+   ./target/release/orre
+   ```
+
+Orre keeps its data in `~/.local/share/orre` on Linux and
+`~/Library/Application Support/Orre` on macOS, or in `ORRE_DATA_DIR` if you set it.
+
 ## Usage
 
 ```sh
@@ -69,9 +114,12 @@ orre --help                      # every command
 
 ## Development
 
-The dev environment is managed with [devenv](https://devenv.sh) (Nix) and loaded via
-direnv. It provides the Rust toolchain and the runtime libraries GPUI needs. Outside
-devenv, rustup follows `rust-toolchain.toml` (stable); the minimum supported Rust is 1.95.
+Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+The supported dev environment is [devenv](https://devenv.sh) (Nix), loaded via direnv.
+It is optional: it provides the Rust toolchain, the runtime libraries GPUI needs and the
+git hooks, but rustup and your system's libraries work too (see "Install").
 
 ```sh
 direnv allow           # or prefix commands with: devenv shell --
@@ -93,7 +141,15 @@ see [`docs/install.md`](docs/install.md).
 ## Documentation
 
 - [`VISION.md`](VISION.md): the long-term direction, principles and non-goals
+- [`docs/install.md`](docs/install.md): installing Orre's release builds: the
+  [Linux tarball](docs/install.md#linux-tarball), [Nix](docs/install.md#nix-linux) and
+  the [macOS `.dmg`](docs/install.md#macos-unsigned-dmg) (and
+  [opening it past Gatekeeper](docs/install.md#why-macos-warns-you-and-how-to-open-it))
+- [`docs/mcp-setup.md`](docs/mcp-setup.md): connecting an AI client
+- [`presets/README.md`](presets/README.md): add your bank as a CSV preset, no Rust required
 - [`SECURITY.md`](SECURITY.md): what Orre protects, what it doesn't, and how to report a vulnerability
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): building, testing and sending changes
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md): the Contributor Covenant
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design overview and decisions; the
   data model, import pipeline, MCP surface and each topic's decision records are in
   [`docs/architecture/`](docs/architecture/)

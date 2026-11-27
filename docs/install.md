@@ -3,8 +3,7 @@
 v0.1 is not released yet: this page describes the downloads the release
 workflow (`.github/workflows/release.yml`) builds, a Linux tarball and an
 unsigned macOS `.dmg`, and the Nix flake (`flake.nix`) that workflow builds
-and checks. Until a `v0.1.0` tag exists, build from source (README →
-"Development").
+and checks. Until a `v0.1.0` tag exists, [build from source](#build-from-source).
 
 ## Linux (tarball)
 
@@ -189,3 +188,32 @@ bundle, the plist, the ad-hoc signature, `--help`, `--version`, that
 `macOS dmg (unsigned)` job runs both. A green job doesn't prove a
 downloaded copy opens: CI-built files aren't quarantined, so Gatekeeper
 never runs there.
+
+## Build from source
+
+This works on Linux and macOS without Nix; it is the same as the README's
+"Build from source".
+
+1. Install Rust with [rustup](https://rustup.rs). In the repository it
+   follows `rust-toolchain.toml` (stable, with rustfmt and clippy). The
+   minimum supported Rust is 1.95.
+2. Install the build dependencies. On Debian or Ubuntu, these are the
+   packages CI installs (`.github/workflows/ci.yml`):
+
+   ```sh
+   sudo apt-get install libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+     libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev \
+     libasound2-dev libzstd-dev pkg-config clang libssl-dev
+   ```
+
+   On macOS, install Xcode or the Command Line Tools. GPUI compiles its
+   shaders with `xcrun metal`; if `xcrun -f metal` fails, run
+   `xcodebuild -downloadComponent MetalToolchain`.
+3. Build and run:
+
+   ```sh
+   git clone https://github.com/TheSlimeCompany/orre.git
+   cd orre
+   cargo build --release --locked -p orre-app
+   ./target/release/orre
+   ```
