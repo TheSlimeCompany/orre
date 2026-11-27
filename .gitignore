@@ -28,3 +28,7 @@ devenv.local.yaml
 
 # Release artifacts (packaging/linux/build-tarball.sh)
 /dist/
+
+# nix build output (flake.nix)
+/result
+/result-*
