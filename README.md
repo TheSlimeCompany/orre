@@ -70,7 +70,7 @@ orre --help                      # every command
 
 The dev environment is managed with [devenv](https://devenv.sh) (Nix) and loaded via
 direnv. It provides the Rust toolchain and the runtime libraries GPUI needs. Outside
-devenv, rustup follows `rust-toolchain.toml` (stable); the minimum supported Rust is 1.88.
+devenv, rustup follows `rust-toolchain.toml` (stable); the minimum supported Rust is 1.95.
 
 ```sh
 direnv allow           # or prefix commands with: devenv shell --

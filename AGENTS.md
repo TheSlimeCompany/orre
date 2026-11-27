@@ -72,7 +72,7 @@ it with `--no-verify`.
 - Dev shell: devenv (Nix) loaded via direnv (`.envrc`). Run commands inside it so the
   Rust toolchain and the GPUI runtime libraries (`LD_LIBRARY_PATH`) are available.
   Outside direnv, use `devenv shell -- <command>`.
-- Rust stable, edition 2024; the minimum supported version is 1.88 (`rust-version` in
+- Rust stable, edition 2024; the minimum supported version is 1.95 (`rust-version` in
   `Cargo.toml`), so don't use newer language or std features without raising it.
   `rust-toolchain.toml` pins rustup to stable. Toolchain components: clippy, rustfmt,
   rust-analyzer.
