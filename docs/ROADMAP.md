@@ -1535,7 +1535,8 @@ due before payday.
 ## M5 — Open-source release (v0.1) ⬜
 
 - ⬜ M5.1 README (screenshots, install, MCP setup), CONTRIBUTING, CODE_OF_CONDUCT, SECURITY
-- ⬜ M5.2 "Add your bank" guide: preset TOML + redacted fixture, no Rust required
+- ✅ M5.2 "Add your bank" guide: preset TOML + redacted fixture, no Rust required
+  (`presets/README.md` → "Add a bank in four steps")
 - ⬜ M5.3 Bank support for v0.1: the bundled CSV preset is Monzo (`uk-monzo`). Other banks
   import through the built-in OFX/QFX importer, which needs no preset, or the generic CSV
   mapping. Presets for Starling, Nationwide, Chase, Bank of America, Capital One, Revolut

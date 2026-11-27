@@ -1,5 +1,38 @@
 # Bank presets
 
+## Add a bank in four steps
+
+You can add a bank by editing TOML and running one test command, without writing Rust.
+Run commands inside the dev shell (the project [`README.md`](../README.md) →
+"Development").
+
+1. Copy [`uk/monzo.toml`](uk/monzo.toml) to `presets/<region>/<bank>.toml` and edit it
+   to match your bank's CSV export. Monzo is the reference preset, so keep its comments
+   as a guide. "Where a preset goes" names the regions and file names, and "Fields"
+   lists every key.
+2. Add a fixture at `fixtures/presets/<region>/<bank>.*`, with the same name as the
+   preset and any extension. It must be synthetic, or a real export fully redacted:
+   fake merchants, IDs, amounts, notes and addresses, with the real headers, formats and
+   quirks kept. Never commit real bank data ([`fixtures/README.md`](../fixtures/README.md),
+   [`AGENTS.md`](../AGENTS.md) → "Personal financial data").
+3. Run `ORRE_BLESS_GOLDEN=1 cargo test -p orre-import --test preset_golden`. It writes
+   the missing golden file, `crates/import/tests/golden/<region>/<bank>.txt`, and never
+   overwrites one that exists. Check the file. Then run `cargo test -p orre-import`,
+   which checks that the preset loads and imports its fixture.
+4. Open a pull request on [GitHub](https://github.com/TheSlimeCompany/orre) with the
+   preset, its fixture and its golden file. Every bundled preset ships with a row test,
+   like `crates/import/tests/preset_uk_monzo.rs`, that covers the category map and
+   sub-account transfers; you don't have to write it, and the maintainer, or an agent
+   working for the maintainer, adds it before merge. If you can't finish a preset, an issue asking for
+   one is welcome too: include the export's header and the shape of its values (digits
+   as `9`, letters as `a`), never real rows.
+
+For OFX and QFX files, see [OFX and QFX](#ofx-and-qfx).
+
+A shipped preset's golden file is a one-way door. Read "Changing a preset" before you
+edit a preset that has shipped.
+
+
 A preset tells Orre how to read one bank's CSV export: which column holds the date,
 the amount, the description, and so on. Presets are plain TOML, so you can add a bank
 without writing Rust. Every `.toml` file here is compiled into Orre, and the tests
@@ -23,9 +56,11 @@ letters (`uk`, `us`, `eu`); file names are lowercase letters, digits and hyphens
 (`monzo.toml`, `something-credit-card.toml`).
 
 Every preset needs a redacted fixture at `fixtures/presets/<region>/<bank>.csv` (same
-name, any extension) that it recognises and imports, plus a test that checks the rows,
-and a golden file, `crates/import/tests/golden/<region>/<bank>.txt`, that freezes each
-fixture row's dedupe identity (see "Changing a preset"). Fixtures must be synthetic or
+name, any extension) that it recognises and imports, and a golden file,
+`crates/import/tests/golden/<region>/<bank>.txt`, that freezes each fixture row's dedupe
+identity (see "Changing a preset"). Every bundled preset ships with a row test that
+covers the category map and sub-account transfers; contributors don't have to write it,
+and the maintainer, or an agent working for the maintainer, adds it before merge. Fixtures must be synthetic or
 fully redacted: see [`fixtures/README.md`](../fixtures/README.md) and `AGENTS.md` →
 "Personal financial data". Never commit a real export.
 

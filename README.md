@@ -94,6 +94,7 @@ on Linux and macOS, plus a minimum-Rust-version check.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): design overview and decisions; the
   data model, import pipeline, MCP surface and each topic's decision records are in
   [`docs/architecture/`](docs/architecture/)
+- [`presets/README.md`](presets/README.md): add your bank as a CSV preset, no Rust required
 - [`docs/ROADMAP.md`](docs/ROADMAP.md): milestones and status
 - [`docs/DESIGN.md`](docs/DESIGN.md): visual design system and tokens
 - [`docs/CODEMAP.md`](docs/CODEMAP.md): where each module is, by crate and area
