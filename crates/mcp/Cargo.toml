@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 orre-core.workspace = true
-orre-import.workspace = true
 rmcp.workspace = true
 # `time`: the server checks a connected client's access on a timer.
 tokio = { workspace = true, features = ["time"] }
@@ -24,6 +23,8 @@ tracing.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+# tests/support imports fixture statements through the real importer.
+orre-import.workspace = true
 # The in-process MCP client the tests call tools through (tests/support).
 # Adds tokio-stream (MIT) to the tree, for tests only.
 rmcp = { workspace = true, features = ["client"] }
