@@ -19,7 +19,8 @@
 //! second; a current database that can't be read, or a restore that was
 //! refused, is said in `danger` with what to do; an earlier restore that
 //! stopped part-way is mentioned, as `orre restore` does. R.12 adds a
-//! caption that user presets aren't in backups ([`PRESETS_NOT_IN_BACKUPS`]).
+//! caption that user presets aren't in backups ([`PRESETS_NOT_IN_BACKUPS`]),
+//! and SLI-48 one that AI clients are off afterwards ([`AI_OFF_AFTER_RESTORE`]).
 
 use gpui_kit::{
     AnyElement, Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement as _,
@@ -46,6 +47,11 @@ use super::{RestoreTarget, SettingsView, sentence};
 pub const PRESETS_NOT_IN_BACKUPS: &str = "Your own bank presets aren't in backups, so restoring \
      doesn't change them. An account whose preset isn't on this computer asks for its columns \
      again at the next import.";
+
+/// Under the checks, and printed by `orre restore`: a restore switches
+/// every AI client off (`backup::restore`).
+pub const AI_OFF_AFTER_RESTORE: &str =
+    "AI clients are switched off after a restore; turn them back on in Settings.";
 
 /// Where the dialog is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -424,6 +430,7 @@ impl Render for RestoreDialog {
                 })
                 .into_any_element(),
             );
+            body.push(caption(AI_OFF_AFTER_RESTORE).into_any_element());
             body.push(caption(PRESETS_NOT_IN_BACKUPS).into_any_element());
             if let Some(Assessment::Ready(check)) = &assessment
                 && check.interrupted.is_some()

@@ -104,7 +104,11 @@ swaps the files; the server checks it before and after opening and refuses the c
 it's held, so the next call reads the restored file; the refused calls go into the
 restored database's log, and so do the rows the replaced database logged after the
 backup was taken (F.9). The lock goes with the restore's process, so a crashed restore
-blocks nothing (decision record "M2: MCP server", F.1).
+blocks nothing (decision record "M2: MCP server", F.1). A restore switches every client
+off in the restored database, keeps the kill switch off if it was, and reads both back
+before the swap; a backup whose own schema holds triggers or views that undo this isn't
+rejected yet (SLI-50; `settings-and-backups.md`, "Decision record: a restore switches AI
+access off").
 
 Transaction descriptions are untrusted input (prompt-injection surface); inbox-only
 writes are the containment. In addition:

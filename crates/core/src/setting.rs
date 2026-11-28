@@ -82,7 +82,12 @@ pub enum Error {
 /// Whether MCP access is switched on (the kill switch). On when it was
 /// never set. Read on every MCP call.
 pub fn mcp_enabled(reader: &Reader) -> Result<bool, Error> {
-    match get(reader.conn(), MCP_ENABLED)?.as_deref() {
+    mcp_enabled_on(reader.conn())
+}
+
+/// [`mcp_enabled`] on any connection, for [`crate::backup::restore`].
+pub(crate) fn mcp_enabled_on(conn: &rusqlite::Connection) -> Result<bool, Error> {
+    match get(conn, MCP_ENABLED)?.as_deref() {
         None | Some("on") => Ok(true),
         Some("off") => Ok(false),
         Some(_) => Err(Error::Invalid { key: MCP_ENABLED }),
@@ -92,7 +97,12 @@ pub fn mcp_enabled(reader: &Reader) -> Result<bool, Error> {
 /// Switches MCP access on or off for every client. The next call from a
 /// client that is already connected sees it.
 pub fn set_mcp_enabled(db: &mut Database, on: bool) -> Result<(), Error> {
-    set(db.conn(), MCP_ENABLED, if on { "on" } else { "off" })
+    set_mcp_enabled_on(db.conn(), on)
+}
+
+/// [`set_mcp_enabled`] on any connection, for [`crate::backup::restore`].
+pub(crate) fn set_mcp_enabled_on(conn: &rusqlite::Connection, on: bool) -> Result<(), Error> {
+    set(conn, MCP_ENABLED, if on { "on" } else { "off" })
 }
 
 /// The key for merchant pseudonyms. Its bytes never leave core: `Debug`

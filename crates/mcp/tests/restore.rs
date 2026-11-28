@@ -16,6 +16,8 @@ use std::time::SystemTime;
 use chrono::{DateTime, Utc};
 use orre_core::access_log::{LoggedCall, Outcome, pending};
 use orre_core::backup::{self, Reason};
+use orre_core::mcp_client::{self, ClientAccess, ClientName};
+use orre_core::setting;
 use serde_json::json;
 use support::reports::*;
 use support::*;
@@ -82,6 +84,8 @@ async fn a_restore_succeeds_with_a_server_connected_and_the_next_call_reads_it()
     // Includes the call above, made after the backup was taken.
     let logged_before = calls(fixture.access_log());
     backup::restore(fixture.path(), &backup).unwrap();
+    // A restore switches clients off; the user turns this one back on.
+    fixture.set_client(CLIENT, AccessLevel::Aggregate);
 
     let after = client.call_ok("list_reports", json!({})).await;
     assert_eq!(report_titles(&after), ["Kept"]);
@@ -199,6 +203,8 @@ async fn a_call_refused_during_a_restore_is_logged_in_the_restored_database() {
     );
 
     // And only once, however many calls follow.
+    // A restore switches clients off; the user turns this one back on.
+    fixture.set_client(CLIENT, AccessLevel::Aggregate);
     client.call_ok("list_categories", json!({})).await;
     assert_eq!(
         with_outcome(&fixture.access_log(), Outcome::RefusedRestoring).len(),
@@ -232,6 +238,8 @@ async fn a_lock_file_left_by_a_stopped_restore_doesnt_block_calls() {
         .path;
     add_report(&fixture, CLIENT, "Rolled back", "After the backup.", None);
     backup::restore(fixture.path(), &backup).unwrap();
+    // A restore switches clients off; the user turns this one back on.
+    fixture.set_client(CLIENT, AccessLevel::Standard);
     let after = client.call_ok("list_reports", json!({})).await;
     assert_eq!(report_titles(&after), ["Kept"]);
     client.close().await;
@@ -270,5 +278,168 @@ async fn a_lock_file_that_cant_be_locked_refuses_calls_and_names_it() {
     assert_eq!(log.len(), logged + 2);
     assert_eq!(log[logged].outcome, Outcome::RefusedUnavailable);
     assert_eq!(log[logged + 1].outcome, Outcome::Ok);
+    client.close().await;
+}
+
+// A restore switches AI access off (SLI-48). The database file holds the
+// clients and the kill switch, so a restore would bring back whatever the
+// backup had, and the server reads both on its next call.
+
+/// What the server's gate decides for `client` now.
+fn gate_access(fixture: &Fixture, client: &str) -> orre_mcp::access::Access {
+    let reader = fixture.open().reader().unwrap();
+    orre_mcp::access::current(&reader, &ClientName::new(client).unwrap()).unwrap()
+}
+
+fn kill_switch_on(fixture: &Fixture) -> bool {
+    setting::mcp_enabled(&fixture.open().reader().unwrap()).unwrap()
+}
+
+fn has_kill_switch_row(path: &Path) -> bool {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM setting WHERE key = ?1)",
+        [setting::MCP_ENABLED],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+/// Revokes `client` and turns the kill switch off, as the user would.
+fn shut_out(fixture: &Fixture, client: &str) {
+    let mut db = fixture.open();
+    mcp_client::revoke(&mut db, &ClientName::new(client).unwrap()).unwrap();
+    setting::set_mcp_enabled(&mut db, false).unwrap();
+}
+
+/// A database made elsewhere, with `CLIENT` and another client enabled at
+/// `standard` and the kill switch never written (so on).
+fn foreign_backup() -> Fixture {
+    let foreign = Fixture::new();
+    foreign.set_client(CLIENT, AccessLevel::Standard);
+    foreign.set_client("foreign-client", AccessLevel::Standard);
+    assert!(!has_kill_switch_row(foreign.path()));
+    foreign
+}
+
+/// Every client in the database is off and back at `aggregate`, and the
+/// gate gives none of them a level.
+fn assert_every_client_disabled(fixture: &Fixture) {
+    let clients = mcp_client::list(&fixture.open().reader().unwrap()).unwrap();
+    assert!(!clients.is_empty());
+    for client in &clients {
+        assert!(!client.enabled, "{client:?}");
+        assert_eq!(client.level, AccessLevel::Aggregate, "{client:?}");
+        let access = gate_access(fixture, client.name.as_str());
+        assert_eq!(access.level(), None, "{client:?}: {access:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_restore_keeps_a_revoked_client_and_the_kill_switch_off() {
+    let fixture = Fixture::new();
+    let client = fixture.connect(CLIENT, AccessLevel::Standard).await;
+    client.call_ok("list_categories", json!({})).await;
+    let backup = backup::create(&fixture.open(), Reason::Manual)
+        .unwrap()
+        .path;
+    shut_out(&fixture, CLIENT);
+    let refused = client.call("list_categories", json!({})).await;
+    assert_eq!(refused.is_error, Some(true), "{refused:?}");
+
+    backup::restore(fixture.path(), &backup).unwrap();
+
+    let access = gate_access(&fixture, CLIENT);
+    assert!(!access.switched_on, "kill switch back on: {access:?}");
+    assert!(!kill_switch_on(&fixture));
+    assert_eq!(access.level(), None, "{access:?}");
+    assert_eq!(access.client.level(), None, "client re-enabled: {access:?}");
+    let refused = client.call("list_categories", json!({})).await;
+    assert_eq!(refused.is_error, Some(true), "{refused:?}");
+    client.close().await;
+}
+
+async fn restore_a_foreign_backup_over(kill_switch: Option<bool>) {
+    let foreign = foreign_backup();
+    let fixture = Fixture::new();
+    let client = fixture.connect(CLIENT, AccessLevel::Aggregate).await;
+    if let Some(on) = kill_switch {
+        setting::set_mcp_enabled(&mut fixture.open(), on).unwrap();
+    }
+
+    backup::restore(fixture.path(), foreign.path()).unwrap();
+
+    assert_every_client_disabled(&fixture);
+    // The kill switch is on, as it was: the backup's (never written) is
+    // kept when the current one is on.
+    assert!(kill_switch_on(&fixture));
+    assert!(!has_kill_switch_row(fixture.path()));
+    for name in [CLIENT, "foreign-client"] {
+        let access = gate_access(&fixture, name);
+        assert_eq!(access.client.level(), None, "{name}: {access:?}");
+    }
+    let refused = client.call("list_categories", json!({})).await;
+    assert_eq!(refused.is_error, Some(true), "{refused:?}");
+    client.close().await;
+}
+
+#[tokio::test]
+async fn a_restored_foreign_backup_leaves_every_client_disabled() {
+    restore_a_foreign_backup_over(None).await;
+}
+
+#[tokio::test]
+async fn a_restored_foreign_backup_leaves_every_client_disabled_with_the_kill_switch_on() {
+    restore_a_foreign_backup_over(Some(true)).await;
+}
+
+/// If the restored database's clients can't be disabled, the restore fails
+/// and the database it would have replaced stays live.
+#[tokio::test]
+async fn a_restore_that_cant_disable_the_clients_fails_and_keeps_the_current_database() {
+    let foreign = foreign_backup();
+    {
+        let conn = rusqlite::Connection::open(foreign.path()).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER keep_clients_update BEFORE UPDATE ON mcp_client \
+                 BEGIN SELECT RAISE(ABORT, 'clients are read-only'); END; \
+             CREATE TRIGGER keep_clients_delete BEFORE DELETE ON mcp_client \
+                 BEGIN SELECT RAISE(ABORT, 'clients are read-only'); END;",
+        )
+        .unwrap();
+    }
+    let fixture = Fixture::new();
+    let client = fixture.connect(CLIENT, AccessLevel::Standard).await;
+    shut_out(&fixture, CLIENT);
+
+    let result = backup::restore(fixture.path(), foreign.path());
+    assert!(
+        result.is_err(),
+        "restore succeeded without disabling the clients: {result:?}"
+    );
+
+    // The pre-restore database, not the backup's.
+    let clients = mcp_client::list(&fixture.open().reader().unwrap()).unwrap();
+    assert!(
+        clients.iter().all(|c| c.name.as_str() != "foreign-client"),
+        "the backup is live: {clients:?}"
+    );
+    let access = gate_access(&fixture, CLIENT);
+    assert!(!access.switched_on, "{access:?}");
+    assert_eq!(access.client, ClientAccess::Revoked, "{access:?}");
+    assert!(!backup::restoring(fixture.path()).unwrap());
+    // The staged copy is gone, and nothing was left half-written.
+    for dir in [
+        fixture.path().parent().unwrap().to_path_buf(),
+        backup::backups_dir(fixture.path()),
+    ] {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            assert!(!name.starts_with(".orre-"), "{name} left in {dir:?}");
+            assert!(!name.ends_with("-journal"), "{name} left in {dir:?}");
+        }
+    }
+    let refused = client.call("list_categories", json!({})).await;
+    assert_eq!(refused.is_error, Some(true), "{refused:?}");
     client.close().await;
 }
