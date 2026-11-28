@@ -794,3 +794,70 @@ fn escape_closes_only_new_account(cx: &mut TestAppContext) {
     redraw(cx);
     cx.update(|_, cx| assert!(shell.read(cx).dialog().is_none()));
 }
+
+/// Import on its File step, with no file yet.
+fn on_file<'a>(
+    cx: &'a mut TestAppContext,
+    scratch: &Scratch,
+) -> (Entity<ImportDialog>, &'a mut VisualTestContext) {
+    let (shell, cx) = open(cx, scratch);
+    shell.update_in(cx, |shell, window, cx| shell.open_import(None, window, cx));
+    redraw(cx);
+    let dialog = dialog_of(&shell, cx);
+    (dialog, cx)
+}
+
+#[gpui_kit::test]
+fn choose_file_opens_the_chosen_file(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (dialog, cx) = on_file(cx, &scratch);
+    click("import-choose-file", cx);
+    assert!(cx.did_prompt_for_paths());
+    cx.simulate_path_prompt_response(|_| Some(vec![fixture("csv/signed-amount.csv")]));
+    redraw(cx);
+    cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert_eq!(dialog.step(), Step::Map);
+        assert_eq!(dialog.problem(), None);
+    });
+}
+
+#[gpui_kit::test]
+fn cancelling_choose_file_says_nothing(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (dialog, cx) = on_file(cx, &scratch);
+    click("import-choose-file", cx);
+    cx.simulate_path_prompt_response(|_| None);
+    redraw(cx);
+    cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert_eq!(dialog.step(), Step::File);
+        assert_eq!(dialog.problem(), None);
+    });
+}
+
+/// On Linux with no file-chooser portal the dialog errors instead of
+/// opening (the test platform can only answer or cancel, so the error is
+/// handed in as the platform gives it).
+#[gpui_kit::test]
+fn a_file_dialog_that_cant_open_says_to_drop_the_file(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (dialog, cx) = on_file(cx, &scratch);
+    dialog.update(cx, |dialog, cx| {
+        dialog.paths_chosen(
+            Err(anyhow::anyhow!(
+                "Couldn't open file picker due to missing xdg-desktop-portal implementation."
+            )),
+            cx,
+        )
+    });
+    redraw(cx);
+    cx.update(|_, cx| {
+        let dialog = dialog.read(cx);
+        assert_eq!(dialog.step(), Step::File);
+        assert_eq!(
+            dialog.problem().map(|p| p.to_string()).as_deref(),
+            Some(NO_FILE_DIALOG)
+        );
+    });
+}
