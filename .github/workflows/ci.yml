@@ -41,7 +41,7 @@ jobs:
             # add only that one, with the failing log line as the reason.
             os: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history and origin/main: shipped-migrations.sh diffs
           # origin/main, and no-bank-data.sh walks the pushed commits.
@@ -76,7 +76,7 @@ jobs:
           rustup show active-toolchain
           rustc --version
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       # The lefthook pre-push jobs, in the same order.
       - name: no-bank-data
@@ -132,7 +132,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install system libraries
         run: |
@@ -156,7 +156,7 @@ jobs:
       - name: Show the toolchain
         run: rustc --version
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: cargo check
         run: cargo check --workspace --locked
@@ -170,14 +170,14 @@ jobs:
     timeout-minutes: 45
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust
         run: |
           rustup toolchain install
           rustc --version
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: cargo check
         run: cargo check --workspace --locked
