@@ -116,7 +116,7 @@ use crate::ui::empty_state::EmptyState;
 use crate::ui::icon::Glyph;
 use crate::ui::status_bar::{StatusBar, StatusItem};
 use crate::ui::text::TextRoleExt as _;
-use crate::ui::title_bar::{self, CommandBar, TitleBar, ViewTab};
+use crate::ui::title_bar::{self, TitleBar, ViewTab};
 
 use arrivals::{ArrivalLine, Phase};
 use live::{Live, Shown, Wrote};
@@ -1590,27 +1590,24 @@ impl ShellView {
     }
 
     fn render_title_bar(&self, cx: &mut Context<Self>) -> TitleBar {
-        let bar = View::TABS.into_iter().fold(
-            TitleBar::new(CommandBar::new("Search transactions or run a command")),
-            |bar, view| {
-                let mut tab = ViewTab::new(view.element_id(), view.label())
-                    .active(self.view == view)
-                    .on_click(cx.listener(move |this, _, window, cx| this.show(view, window, cx)));
-                if view == View::Inbox {
-                    // Pending suggestions from AI clients; Orre's own
-                    // don't count (`DESIGN.md` → "Inbox impact preview").
-                    let pending = self.inbox.read(cx).badge();
-                    if pending > 0 {
-                        // Unseen while it went up out of sight (LU.5).
-                        let unseen = self.arrived.arrivals().inbox_badge_unseen().is_some();
-                        tab = tab
-                            .badge(SharedString::from(pending.to_string()))
-                            .badge_unseen(unseen);
-                    }
+        let bar = View::TABS.into_iter().fold(TitleBar::new(), |bar, view| {
+            let mut tab = ViewTab::new(view.element_id(), view.label())
+                .active(self.view == view)
+                .on_click(cx.listener(move |this, _, window, cx| this.show(view, window, cx)));
+            if view == View::Inbox {
+                // Pending suggestions from AI clients; Orre's own
+                // don't count (`DESIGN.md` → "Inbox impact preview").
+                let pending = self.inbox.read(cx).badge();
+                if pending > 0 {
+                    // Unseen while it went up out of sight (LU.5).
+                    let unseen = self.arrived.arrivals().inbox_badge_unseen().is_some();
+                    tab = tab
+                        .badge(SharedString::from(pending.to_string()))
+                        .badge_unseen(unseen);
                 }
-                bar.tab(tab)
-            },
-        );
+            }
+            bar.tab(tab)
+        });
         bar.settings(
             IconButton::new(
                 View::Settings.element_id(),
