@@ -1,0 +1,4 @@
+Transaction ID,Date,Time,Type,Name,Emoji,Category,Amount,Currency,Local amount,Local currency,Notes and #tags,Address,Receipt,Description,Category split,Money Out,Money In
+tx_0000FAKE000000000000101,01/10/2026,07:58:12,Faster payment,Example Employer Ltd,,Income,2150.00,GBP,2150.00,GBP,,,,EXAMPLE EMPLOYER LTD SALARY OCT,,,2150.00
+tx_0000FAKE000000000000102,02/10/2026,08:14:51,Card payment,Café Exemple,,Eating out,-3.40,GBP,-3.40,GBP,,"1 Fake Street, Testville, TE1 1ST",,CAFÉ EXEMPLE £3.40 TESTVILLE,,-3.40,
+tx_0000FAKE000000000000103,03/10/2026,12:41:09,Card payment,Bean There,,Eating out,-8.62,GBP,-8.62,GBP,,,,BEAN THERE TESTVILLE GBR,,-8.62,

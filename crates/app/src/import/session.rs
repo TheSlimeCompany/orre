@@ -19,13 +19,20 @@ use orre_core::account::{Account, AccountKind};
 use orre_core::id::AccountId;
 use orre_core::money::Currency;
 use orre_core::statement::{RowProblem, SourceLocation, Statement, StatementLine};
-use orre_import::csv::{Column, CsvFile, CsvImporter, FileLayout, MappingDraft, MappingError};
+use orre_import::csv::{
+    Column, CsvFile, CsvImporter, FileLayout, MappingDraft, MappingError, TextEncoding,
+};
 use orre_import::ofx::{OfxImporter, OfxStatementKind};
 use orre_import::preset::{Preset, Presets};
-use orre_import::{Detect as _, Detection, Importer as _, SourceFile};
+use orre_import::{Detect as _, Detection, ImportError, Importer as _, SourceFile};
 
 /// What the importer for a mapping that isn't a preset is called.
 const OWN_MAPPING: &str = "Your mapping";
+
+/// The encoding a file that isn't valid UTF-8 is read in: Windows-1252,
+/// which also reads Latin-1 (ISO-8859-1), as older UK exports are saved
+/// (SLI-55). It's shown in the Encoding select, for the user to change.
+const NOT_UTF8: TextEncoding = TextEncoding::Windows1252;
 
 /// How the preset was chosen, for the caption under the Account select.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -164,10 +171,25 @@ impl Session {
             });
         }
 
-        let found: Vec<&Preset> = presets
+        let mut found: Vec<&Preset> = presets
             .iter()
             .filter(|preset| preset.importer().detect(&file) >= Detection::Source)
             .collect();
+        // A file that isn't UTF-8 can still have a preset's header: look
+        // again with the file read as Latin-1.
+        if found.is_empty() && not_utf8(&file, &FileLayout::default()) {
+            found = presets
+                .iter()
+                .filter(|preset| {
+                    preset
+                        .importer()
+                        .clone()
+                        .with_encoding(NOT_UTF8)
+                        .detect(&file)
+                        >= Detection::Source
+                })
+                .collect();
+        }
         let (preset, chosen) = match found.as_slice() {
             [only] => (Some(*only), Chosen::Header),
             [] => (None, Chosen::Nothing),
@@ -184,7 +206,10 @@ impl Session {
         let mut session = match preset {
             Some(preset) => Session::with_preset(file, preset, chosen),
             None => {
-                let layout = FileLayout::default();
+                let mut layout = FileLayout::default();
+                if not_utf8(&file, &layout) {
+                    layout.encoding = NOT_UTF8;
+                }
                 let parsed = CsvFile::read(&file, &layout);
                 let readable = parsed.as_ref().is_ok_and(|parsed| parsed.width() >= 2);
                 let csv_named = matches!(file.extension().as_deref(), Some("csv" | "tsv" | "txt"));
@@ -254,11 +279,20 @@ impl Session {
         session
     }
 
-    /// Starts the mapping again from `preset`.
+    /// Starts the mapping again from `preset`. A file the preset's UTF-8
+    /// can't read keeps the Latin-1 encoding it was read in, or takes
+    /// Windows-1252, instead of failing again.
     fn use_preset(&mut self, preset: &Preset, chosen: Chosen) {
         let file = self.file.clone();
         if let Reading::Csv(csv) = &mut self.reading {
+            let before = csv.draft.layout.encoding;
             csv.draft = MappingDraft::from_mapping(preset.mapping());
+            if not_utf8(&file, &csv.draft.layout) {
+                csv.draft.layout.encoding = match before {
+                    TextEncoding::Windows1252 | TextEncoding::Iso8859_15 => before,
+                    _ => NOT_UTF8,
+                };
+            }
             csv.preset = Some(preset.id().to_owned());
             csv.chosen = chosen;
             csv.parsed =
@@ -299,10 +333,15 @@ impl Session {
     }
 
     /// Whether the mapping is the preset's own, unchanged: the statement
-    /// then carries the preset's ID and category map.
+    /// then carries the preset's ID and category map. The encoding doesn't
+    /// count: it's how the file is read, not what its columns mean.
     pub fn is_preset_unchanged(&self, presets: &Presets) -> bool {
         match (self.csv(), self.preset_id().and_then(|id| presets.get(id))) {
-            (Some(csv), Some(preset)) => csv.draft == MappingDraft::from_mapping(preset.mapping()),
+            (Some(csv), Some(preset)) => {
+                let mut own = MappingDraft::from_mapping(preset.mapping());
+                own.layout.encoding = csv.draft.layout.encoding;
+                csv.draft == own
+            }
             _ => false,
         }
     }
@@ -386,7 +425,10 @@ impl Session {
         if self.is_preset_unchanged(presets)
             && let Some(preset) = self.preset_id().and_then(|id| presets.get(id))
         {
-            return Some(Ok(preset.importer().clone()));
+            return Some(Ok(preset
+                .importer()
+                .clone()
+                .with_encoding(csv.draft.layout.encoding)));
         }
         Some(
             csv.draft
@@ -520,10 +562,28 @@ impl Session {
 }
 
 /// Whether `preset` reads `file`: it splits, and every column the preset
-/// names is there (rows may still be flagged).
+/// names is there (rows may still be flagged). A file that isn't UTF-8 is
+/// read as Latin-1, as [`Session::use_preset`] will.
 fn reads(preset: &Preset, file: &SourceFile) -> bool {
     use orre_import::AnyImporter as _;
-    preset.importer().import(file).is_ok()
+    let importer = preset.importer();
+    importer.import(file).is_ok()
+        || (not_utf8(file, &importer.mapping().layout())
+            && importer
+                .clone()
+                .with_encoding(NOT_UTF8)
+                .import(file)
+                .is_ok())
+}
+
+/// Whether `layout` reads `file` as UTF-8 (stated or automatic) and fails
+/// because the file isn't UTF-8.
+fn not_utf8(file: &SourceFile, layout: &FileLayout) -> bool {
+    matches!(layout.encoding, TextEncoding::Auto | TextEncoding::Utf8)
+        && matches!(
+            CsvFile::read(file, layout),
+            Err(ImportError::Encoding { .. })
+        )
 }
 
 /// The account a file goes to when nothing else says: the panel's
@@ -614,6 +674,82 @@ mod tests {
 
         let statement = session.statement(&presets(), Currency::GBP).unwrap();
         assert_eq!(statement.preset_id(), Some("uk-monzo"));
+    }
+
+    /// SLI-55: a Monzo export saved as Latin-1 isn't UTF-8, but its header
+    /// still finds the preset, read as Windows-1252, and imports with it.
+    #[test]
+    fn a_latin1_export_is_read_as_windows_1252_and_keeps_its_preset() {
+        let accounts = [account(1, "Current", Currency::GBP, None)];
+        let session =
+            Session::open(fixture("csv/monzo-latin1.csv"), &presets(), &accounts, None).unwrap();
+        assert_eq!(session.preset_id(), Some("uk-monzo"));
+        assert_eq!(session.csv().unwrap().chosen, Chosen::Header);
+        assert_eq!(
+            session.csv().unwrap().draft.layout.encoding,
+            TextEncoding::Windows1252
+        );
+        assert!(session.is_preset_unchanged(&presets()));
+
+        let statement = session.statement(&presets(), Currency::GBP).unwrap();
+        assert_eq!(statement.preset_id(), Some("uk-monzo"));
+        let line = statement.rows()[1].outcome.as_ref().unwrap();
+        assert_eq!(line.description_raw, "CAFÉ EXEMPLE £3.40 TESTVILLE");
+    }
+
+    /// SLI-55: changing the encoding keeps the preset, and choosing the
+    /// preset again keeps the Latin-1 encoding instead of going back to
+    /// the preset's UTF-8.
+    #[test]
+    fn changing_the_encoding_keeps_the_preset_and_the_preset_keeps_the_encoding() {
+        let accounts = [account(1, "Current", Currency::GBP, None)];
+        let presets = presets();
+        let mut session =
+            Session::open(fixture("csv/monzo-latin1.csv"), &presets, &accounts, None).unwrap();
+
+        session.edit(|draft, _| draft.layout.encoding = TextEncoding::Iso8859_15);
+        assert_eq!(session.preset_id(), Some("uk-monzo"));
+        assert!(session.csv().unwrap().parsed.is_ok());
+        assert!(session.is_preset_unchanged(&presets));
+
+        session.set_preset(presets.get("uk-monzo"));
+        let csv = session.csv().unwrap();
+        assert_eq!(csv.draft.layout.encoding, TextEncoding::Iso8859_15);
+        assert!(csv.parsed.is_ok());
+        let statement = session.statement(&presets, Currency::GBP).unwrap();
+        assert_eq!(statement.preset_id(), Some("uk-monzo"));
+    }
+
+    /// SLI-55: a file no preset knows that isn't UTF-8 is offered
+    /// Windows-1252 rather than failing to read.
+    #[test]
+    fn a_file_that_isnt_utf8_is_read_as_windows_1252_without_a_preset() {
+        let accounts = [account(1, "Current", Currency::GBP, None)];
+        let session = Session::open(
+            fixture("csv/debit-credit-windows-1252.csv"),
+            &presets(),
+            &accounts,
+            None,
+        )
+        .unwrap();
+        assert_eq!(session.preset_id(), None);
+        let csv = session.csv().unwrap();
+        assert_eq!(csv.draft.layout.encoding, TextEncoding::Windows1252);
+        assert_eq!(
+            csv.parsed.as_ref().unwrap().encoding(),
+            TextEncoding::Windows1252
+        );
+    }
+
+    /// A UTF-8 Monzo export stays UTF-8.
+    #[test]
+    fn a_utf8_export_keeps_the_presets_encoding() {
+        let session =
+            Session::open(fixture("presets/uk/monzo.csv"), &presets(), &[], None).unwrap();
+        assert_eq!(
+            session.csv().unwrap().draft.layout.encoding,
+            TextEncoding::Utf8
+        );
     }
 
     #[test]

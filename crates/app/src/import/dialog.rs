@@ -1534,7 +1534,8 @@ impl ImportDialog {
     }
 
     /// Whether the Map step shows FILE (how the file is split): for a
-    /// mapping of your own, or a file the preset can't split.
+    /// mapping of your own, a file the preset can't split, or one read in
+    /// another encoding than the preset's (a Latin-1 export, SLI-55).
     fn shows_layout(&self) -> bool {
         let (Some(session), Some(setup)) = (&self.session, &self.setup) else {
             return false;
@@ -1543,6 +1544,11 @@ impl ImportDialog {
             csv.preset.is_none()
                 || !session.is_preset_unchanged(&setup.presets)
                 || csv.parsed.is_err()
+                || csv
+                    .preset
+                    .as_deref()
+                    .and_then(|id| setup.presets.get(id))
+                    .is_some_and(|preset| preset.mapping().encoding != csv.draft.layout.encoding)
         })
     }
 
