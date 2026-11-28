@@ -10,6 +10,7 @@ pub mod account;
 pub mod backup;
 pub mod balance;
 pub mod budget;
+pub mod cancel;
 pub mod category;
 pub mod change;
 pub mod checks;

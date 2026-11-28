@@ -126,6 +126,7 @@ use std::str::FromStr;
 
 use chrono::{Days, Months, NaiveDate, TimeDelta};
 
+use crate::cancel::{Cancel, Cancelled};
 use crate::category::CategoryKey;
 use crate::id::{AccountId, TransactionId};
 use crate::money::{Currency, Money};
@@ -468,6 +469,10 @@ pub enum Error {
 
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
+
+    /// The read's [`Cancel`] was cancelled: no answer, and no failure.
+    #[error(transparent)]
+    Cancelled(#[from] Cancelled),
 }
 
 /// A fixed amount's band: two amounts are "the same price" when they differ
@@ -501,6 +506,19 @@ pub const MAX_GROUP_ROWS: usize = 2_000;
 /// (shortest first), then key ordinal (typical absolute amount, smallest
 /// first). The rules are in the module docs.
 pub fn detect(rows: &[LedgerRow]) -> Vec<RecurringSeries> {
+    match detect_cancellable(rows, &Cancel::never()) {
+        Ok(series) => series,
+        Err(Cancelled) => unreachable!("a read that is never cancelled was cancelled"),
+    }
+}
+
+/// [`detect`], stopping with [`Cancelled`] soon after `cancel` is
+/// cancelled (SLI-37): it checks between groups and once per start row of
+/// the search.
+pub(crate) fn detect_cancellable(
+    rows: &[LedgerRow],
+    cancel: &Cancel,
+) -> Result<Vec<RecurringSeries>, Cancelled> {
     // The account's latest row of any kind: what `lapsed` is judged by.
     let mut latest: BTreeMap<AccountId, NaiveDate> = BTreeMap::new();
     for row in rows {
@@ -538,10 +556,11 @@ pub fn detect(rows: &[LedgerRow]) -> Vec<RecurringSeries> {
 
     let mut found = Vec::new();
     for (group, mut members) in groups {
+        cancel.check()?;
         members.sort_by_key(|row| (row.date, row.transaction));
         let members = &members[members.len().saturating_sub(MAX_GROUP_ROWS)..];
         let account_latest = latest[&group.account];
-        let mut series: Vec<RecurringSeries> = find_chains(members)
+        let mut series: Vec<RecurringSeries> = find_chains(members, cancel)?
             .into_iter()
             .map(|chain| build(&group, members, chain, account_latest))
             .collect();
@@ -573,7 +592,7 @@ pub fn detect(rows: &[LedgerRow]) -> Vec<RecurringSeries> {
         }
         found.extend(series);
     }
-    found
+    Ok(found)
 }
 
 /// What groups rows into one merchant's payments.
@@ -648,7 +667,10 @@ fn days(n: i64) -> TimeDelta {
 
 /// The series in one group's rows (sorted by date, then ID): the best valid
 /// chain, again and again, until none is left.
-fn find_chains(members: &[&LedgerRow]) -> Vec<Chain> {
+/// Stops with [`Cancelled`] at the next start row once `cancel` is
+/// cancelled: the search is quadratic in the rows, so that is where a
+/// read's time goes (SLI-36).
+fn find_chains(members: &[&LedgerRow], cancel: &Cancel) -> Result<Vec<Chain>, Cancelled> {
     let mut used = vec![false; members.len()];
     let mut chains = Vec::new();
     loop {
@@ -656,6 +678,7 @@ fn find_chains(members: &[&LedgerRow]) -> Vec<Chain> {
         for cadence in Cadence::ALL {
             let tolerance = i64::from(cadence.default_tolerance_days());
             for start in 0..members.len() {
+                cancel.check()?;
                 if used[start] {
                     continue;
                 }
@@ -687,7 +710,7 @@ fn find_chains(members: &[&LedgerRow]) -> Vec<Chain> {
         }
         chains.push(chain);
     }
-    chains
+    Ok(chains)
 }
 
 /// The chain from `start` on `cadence` anchored on `anchor`, taken greedily.
@@ -1137,7 +1160,17 @@ pub(crate) fn load_rows(conn: &rusqlite::Connection) -> Result<Vec<LedgerRow>, E
 /// dismissed series and without series already scheduled (one of their
 /// transactions matched to a schedule).
 pub(crate) fn find_in(conn: &rusqlite::Connection) -> Result<Vec<RecurringSeries>, Error> {
-    let series = detect(&load_rows(conn)?);
+    find_in_cancellable(conn, &Cancel::never())
+}
+
+/// [`find_in`], stopping with [`Error::Cancelled`] soon after `cancel` is
+/// cancelled ([`detect_cancellable`]).
+fn find_in_cancellable(
+    conn: &rusqlite::Connection,
+    cancel: &Cancel,
+) -> Result<Vec<RecurringSeries>, Error> {
+    cancel.check()?;
+    let series = detect_cancellable(&load_rows(conn)?, cancel)?;
     let dismissed: BTreeSet<String> = conn
         .prepare("SELECT series_key FROM recurring_dismissal")?
         .query_map([], |row| row.get(0))?
@@ -1161,6 +1194,15 @@ pub fn find(db: &crate::db::Database) -> Result<Vec<RecurringSeries>, Error> {
 /// `find_in` (as [`find`]) on a read-only connection (the MCP server).
 pub fn find_with_reader(reader: &crate::db::Reader) -> Result<Vec<RecurringSeries>, Error> {
     find_in(reader.conn())
+}
+
+/// [`find_with_reader`], stopping with [`Error::Cancelled`] soon after
+/// `cancel` is cancelled (the Overview's reads, SLI-37).
+pub(crate) fn find_with_reader_cancellable(
+    reader: &crate::db::Reader,
+    cancel: &Cancel,
+) -> Result<Vec<RecurringSeries>, Error> {
+    find_in_cancellable(reader.conn(), cancel)
 }
 
 /// Marks a series "Not recurring": [`find`] leaves it out from now on.

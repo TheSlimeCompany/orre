@@ -11,6 +11,7 @@
 use std::path::PathBuf;
 
 use orre_core::backup::gate;
+use orre_core::cancel::Cancel;
 use orre_core::db::Database;
 use orre_core::reporting::overview::{self, Overview, OverviewQuery};
 
@@ -27,17 +28,28 @@ impl OverviewStore {
         Self { database }
     }
 
-    /// What the screen shows for `query`.
-    pub fn load(&self, query: &OverviewQuery) -> Result<Overview, StoreError> {
+    /// What the screen shows for `query`; a
+    /// [cancelled](overview::overview_cancellable) read is an error holding
+    /// [`orre_core::reporting::Error::Cancelled`].
+    pub fn load(&self, query: &OverviewQuery, cancel: &Cancel) -> Result<Overview, StoreError> {
         let db = gate::open(&self.database, Database::open)?;
-        Ok(overview::overview(&db.reader()?, query)?)
+        Ok(overview::overview_cancellable(
+            &db.reader()?,
+            query,
+            cancel,
+        )?)
     }
 
     /// What the screen shows for `query` with its month replaced by the
     /// month the screen opens on ([`overview::opening_overview`], one read
-    /// transaction); the result's `selected.period` says which it was.
-    pub fn land(&self, query: &OverviewQuery) -> Result<Overview, StoreError> {
+    /// transaction); the result's `selected.period` says which it was. A
+    /// cancelled read is as in [`OverviewStore::load`].
+    pub fn land(&self, query: &OverviewQuery, cancel: &Cancel) -> Result<Overview, StoreError> {
         let db = gate::open(&self.database, Database::open)?;
-        Ok(overview::opening_overview(&db.reader()?, query)?)
+        Ok(overview::opening_overview_cancellable(
+            &db.reader()?,
+            query,
+            cancel,
+        )?)
     }
 }

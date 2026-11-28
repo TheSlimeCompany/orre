@@ -133,6 +133,11 @@ pub enum Error {
     /// stored rule reads as calendar months instead.)
     #[error(transparent)]
     Setting(#[from] crate::setting::Error),
+
+    /// The read's [`Cancel`](crate::cancel::Cancel) was cancelled
+    /// ([`overview::overview_cancellable`]): no answer, and no failure.
+    #[error(transparent)]
+    Cancelled(#[from] crate::cancel::Cancelled),
 }
 
 impl Error {
@@ -150,6 +155,7 @@ impl Error {
             | Error::InvalidAmountRange => true,
             Error::Money(_) | Error::Database(_) => false,
             Error::Rule(_) | Error::Recurring(_) | Error::Setting(_) => false,
+            Error::Cancelled(_) => false,
         }
     }
 }
