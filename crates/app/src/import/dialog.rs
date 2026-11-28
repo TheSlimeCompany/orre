@@ -99,6 +99,10 @@ const NEW_ACCOUNT: &str = "new-account";
 const NO_ACCOUNTS_ROW: &str = "No accounts yet";
 const NONE_IMPORTABLE_ROW: &str = "No accounts to import into";
 
+/// What File says when "Choose file…" can't open the system's dialog.
+const NO_FILE_DIALOG: &str =
+    "Orre couldn't open a file dialog. Drop the file onto this window instead.";
+
 /// Why there's nowhere to import, when no account can take an import:
 /// [`NO_ACCOUNTS`] or [`NONE_IMPORTABLE`].
 fn nowhere_to_import(accounts: &[Account]) -> Option<&'static str> {
@@ -541,14 +545,29 @@ impl ImportDialog {
             prompt: Some("Import".into()),
         });
         self.task = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = paths.await else {
-                return;
-            };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| this.open_dropped(&[path], cx));
+            // A dialog that never answers counts as one that couldn't open.
+            let answer = paths.await.unwrap_or_else(|never| Err(never.into()));
+            let _ = this.update(cx, |this, cx| this.paths_chosen(answer, cx));
         }));
+    }
+
+    /// What the open dialog answered. A cancel says nothing. A dialog that
+    /// couldn't open (on Linux, no file-chooser portal) says to drop the
+    /// file instead, since dropping needs no dialog.
+    fn paths_chosen(
+        &mut self,
+        answer: anyhow::Result<Option<Vec<PathBuf>>>,
+        cx: &mut Context<Self>,
+    ) {
+        match answer {
+            Ok(Some(paths)) => self.open_dropped(&paths[..paths.len().min(1)], cx),
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(%error, "the open dialog couldn't be shown");
+                self.problem = Some(NO_FILE_DIALOG.into());
+                cx.notify();
+            }
+        }
     }
 
     /// Reads the file at `path` on a background thread, then opens it.
