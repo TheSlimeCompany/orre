@@ -872,3 +872,37 @@ fn a_huge_group_costs_no_more_than_one_at_the_cap() {
         huge / at_cap.max(1)
     );
 }
+
+/// SLI-37: a cancelled search stops instead of running to the end. With
+/// the flag already set it looks at almost nothing: under 1% of the rows
+/// the whole search looks at.
+#[test]
+fn a_cancelled_search_stops_soon() {
+    let rows = dense_group(1_000);
+    work::take();
+    let whole = detect_cancellable(&rows, &Cancel::new()).unwrap();
+    let full = work::take();
+    assert_eq!(whole, detect(&rows), "an uncancelled search is detect's");
+    work::take();
+
+    let cancelled = Cancel::new();
+    cancelled.cancel();
+    let outcome = detect_cancellable(&rows, &cancelled);
+    let stopped = work::take();
+    assert_eq!(outcome, Err(Cancelled));
+    assert!(
+        stopped * 100 < full,
+        "rows examined: whole search {full}, cancelled {stopped}"
+    );
+
+    // Inside one group's search too (where SLI-36's time went).
+    let mut members: Vec<&LedgerRow> = rows.iter().collect();
+    members.sort_by_key(|row| (row.date, row.transaction));
+    let outcome = find_chains(&members, &cancelled);
+    let stopped = work::take();
+    assert!(outcome.is_err(), "the search was cancelled");
+    assert!(
+        stopped * 100 < full,
+        "rows examined: whole search {full}, cancelled group {stopped}"
+    );
+}

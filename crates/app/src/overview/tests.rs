@@ -371,6 +371,30 @@ fn the_accounts_panel_selection_filters_the_overview(cx: &mut TestAppContext) {
     );
 }
 
+/// SLI-37: a reload that replaces one in flight cancels the first one's
+/// background read, and what lands is a single reload's data.
+#[gpui_kit::test]
+fn a_superseded_read_is_cancelled(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    let (_, overview, cx) = open(cx, scratch.view());
+    let first = overview.update(cx, |overview, cx| {
+        overview.reload(cx);
+        overview.loading_cancel().unwrap()
+    });
+    let second = overview.update(cx, |overview, cx| {
+        overview.reload(cx);
+        overview.loading_cancel().unwrap()
+    });
+    assert!(first.is_cancelled(), "the superseded read was cancelled");
+    assert!(!second.is_cancelled(), "the read in flight goes on");
+    redraw(cx);
+    assert_eq!(
+        overview.read_with(cx, |o, _| o.data().cloned()),
+        Some(scratch.expected(None))
+    );
+    assert_eq!(overview.read_with(cx, |o, _| o.load_error().cloned()), None);
+}
+
 #[gpui_kit::test]
 fn a_month_picked_while_a_read_is_in_flight_wins(cx: &mut TestAppContext) {
     let scratch = Scratch::new();

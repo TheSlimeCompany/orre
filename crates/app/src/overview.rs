@@ -39,6 +39,7 @@ pub mod view;
 
 use chrono::NaiveDate;
 use gpui_kit::{AppContext as _, Context, Entity, EventEmitter, SharedString, Subscription, Task};
+use orre_core::cancel::Cancel;
 use orre_core::id::AccountId;
 use orre_core::reporting::Period;
 use orre_core::reporting::overview::{Overview, OverviewQuery};
@@ -90,8 +91,9 @@ pub struct OverviewView {
     /// What the last read brought; `None` until the first one lands.
     data: Option<Overview>,
     load_error: Option<SharedString>,
-    /// The read in flight; replacing it drops a stale one.
-    loading: Option<Task<()>>,
+    /// The read in flight; replacing or clearing it drops a stale one and
+    /// cancels its background work.
+    loading: Option<Loading>,
     /// The Inbox, whose pending counts the agent card shows.
     inbox: Option<Entity<Inbox>>,
     _subscriptions: Vec<Subscription>,
@@ -219,9 +221,8 @@ impl OverviewView {
     fn read(&self) -> Result<Overview, String> {
         let query = self.query();
         match &self.source {
-            Source::Database(store) => {
-                load(store, &query, self.browsed).map_err(|error| error.to_string())
-            }
+            Source::Database(store) => load(store, &query, self.browsed, &Cancel::never())
+                .map_err(|error| error.to_string()),
             #[cfg(any(test, feature = "dev-samples"))]
             Source::Sample(sample) => Ok(sample(&query)),
             Source::Unavailable(reason) => Err(reason.to_string()),
@@ -245,17 +246,31 @@ impl OverviewView {
             Source::Database(store) => {
                 let store = store.clone();
                 let browsed = self.browsed;
-                self.loading = Some(cx.spawn(async move |this, cx| {
+                let cancel = Cancel::new();
+                let read = cancel.clone();
+                let task = cx.spawn(async move |this, cx| {
                     let result = cx
-                        .background_spawn(async move { load(&store, &query, browsed) })
-                        .await
-                        .map_err(|error| SharedString::from(error.to_string()));
+                        .background_spawn(async move { load(&store, &query, browsed, &read) })
+                        .await;
+                    // A cancelled read was superseded: nothing to show, and
+                    // nothing went wrong (it is normally dropped before here).
+                    if result
+                        .as_ref()
+                        .is_err_and(|error| is_cancelled(error.as_ref()))
+                    {
+                        return;
+                    }
+                    let result = result.map_err(|error| SharedString::from(error.to_string()));
                     this.update(cx, |this, cx| {
                         this.apply(result);
                         cx.notify();
                     })
                     .ok();
-                }));
+                });
+                self.loading = Some(Loading {
+                    _task: task,
+                    cancel,
+                });
             }
         }
     }
@@ -291,6 +306,13 @@ impl OverviewView {
     /// What the last read brought, if one has landed.
     pub fn data(&self) -> Option<&Overview> {
         self.data.as_ref()
+    }
+
+    /// The flag of the read in flight, if any: a test keeps it to see the
+    /// read cancelled when another replaces it.
+    #[cfg(test)]
+    pub(crate) fn loading_cancel(&self) -> Option<Cancel> {
+        self.loading.as_ref().map(|loading| loading.cancel.clone())
     }
 
     pub fn load_error(&self) -> Option<&SharedString> {
@@ -362,18 +384,41 @@ impl OverviewView {
     }
 }
 
+/// A read in flight ([`OverviewView::reload`]): its task and the flag that
+/// stops its background work. Dropping it cancels both, so the view holds
+/// at most one read that is still working.
+struct Loading {
+    _task: Task<()>,
+    cancel: Cancel,
+}
+
+impl Drop for Loading {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
+
 /// `query` read from `store`: its month as asked once the user has
 /// `browsed`, else the month the screen opens on.
 fn load(
     store: &OverviewStore,
     query: &OverviewQuery,
     browsed: bool,
+    cancel: &Cancel,
 ) -> Result<Overview, crate::accounts::store::StoreError> {
     if browsed {
-        store.load(query)
+        store.load(query, cancel)
     } else {
-        store.land(query)
+        store.land(query, cancel)
     }
+}
+
+/// Whether `error` is a read stopped by its [`Cancel`].
+fn is_cancelled(error: &(dyn std::error::Error + 'static)) -> bool {
+    matches!(
+        error.downcast_ref::<orre_core::reporting::Error>(),
+        Some(orre_core::reporting::Error::Cancelled(_))
+    )
 }
 
 #[cfg(test)]
