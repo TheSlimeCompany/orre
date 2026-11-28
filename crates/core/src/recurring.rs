@@ -32,7 +32,8 @@
 //! zero, or without a merchant are left out. The rest are grouped by
 //! account, normalised merchant ([`normalize_merchant`]), [`Direction`] and
 //! currency, and each group is sorted by date, then transaction ID. Series
-//! never cross groups.
+//! never cross groups. A group with more than [`MAX_GROUP_ROWS`] rows is
+//! read from its latest that many only.
 //!
 //! **Chains.** A candidate series is a chain of a group's rows on one
 //! [`Cadence`], from a start row and an anchor no more than the cadence's
@@ -485,6 +486,14 @@ const OCCURRENCES_PER_EXTRA: usize = 4;
 /// this many chains like it by chance (see the module docs).
 const CHANCE_DIVISOR: u128 = 32;
 
+/// The most rows of one group the search reads: past it, only the group's
+/// latest this many. SLI-36: the search is quadratic in a group's rows, and
+/// one merchant with 50,000 rows never finished. Normal merchants never
+/// reach it, so their series are unchanged; a group past it is read from
+/// its latest rows, which are what upcoming payments and
+/// `recurring_payments` care about.
+pub const MAX_GROUP_ROWS: usize = 2_000;
+
 /// The recurring series in `rows`. Pure and deterministic: the same rows
 /// (in any order) give the same series in the same order.
 ///
@@ -530,10 +539,11 @@ pub fn detect(rows: &[LedgerRow]) -> Vec<RecurringSeries> {
     let mut found = Vec::new();
     for (group, mut members) in groups {
         members.sort_by_key(|row| (row.date, row.transaction));
+        let members = &members[members.len().saturating_sub(MAX_GROUP_ROWS)..];
         let account_latest = latest[&group.account];
-        let mut series: Vec<RecurringSeries> = find_chains(&members)
+        let mut series: Vec<RecurringSeries> = find_chains(members)
             .into_iter()
-            .map(|chain| build(&group, &members, chain, account_latest))
+            .map(|chain| build(&group, members, chain, account_latest))
             .collect();
         drop_superseded(&mut series);
         series.sort_by(|a, b| {
@@ -772,6 +782,8 @@ fn pick_in_window(
     let from = expected - days(tolerance);
     let to = expected + days(tolerance);
     let first = members.partition_point(|row| row.date < from);
+    #[cfg(test)]
+    work::add(members.partition_point(|row| row.date <= to) - first);
     (first..members.len())
         .take_while(|&index| members[index].date <= to)
         .filter(|&index| !used[index] && members[index].date > after)
@@ -790,6 +802,8 @@ fn pick_in_window(
 /// to the nominal ones, its amounts fit ([`classify`]), and its merchant
 /// has few other rows like it, around it and over its whole history.
 fn is_series(members: &[&LedgerRow], chain: &Chain) -> bool {
+    #[cfg(test)]
+    work::add(members.len());
     let n = chain.occurrences.len();
     // On average at most a third of the tolerance, and at least a day, from
     // the nominal dates.
@@ -1173,3 +1187,24 @@ pub fn undismiss(db: &mut crate::db::Database, key: &SeriesKey) -> Result<bool, 
 
 #[cfg(test)]
 mod tests;
+
+/// How many rows the search looks at, per thread: the rows in each
+/// [`pick_in_window`] window and the group's rows in each [`is_series`]
+/// (SLI-36: what the bounded-work test counts).
+#[cfg(test)]
+pub(crate) mod work {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ROWS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub fn add(rows: usize) {
+        ROWS.with(|count| count.set(count.get() + rows as u64));
+    }
+
+    /// The count so far, and starts again from zero.
+    pub fn take() -> u64 {
+        ROWS.with(|count| count.replace(0))
+    }
+}
