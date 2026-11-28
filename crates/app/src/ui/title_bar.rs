@@ -2,6 +2,8 @@
 //! `OU-0`; on the Rules artboard `B8Y-0`, with the Settings button on
 //! Settings · AI clients `B08-0`): Orre's mark and wordmark, the view
 //! tabs, the command bar, the Settings button and the window controls.
+//! The command bar is optional and Shell leaves it out until the command
+//! palette exists (v0.2): a bar and ⌘K hint that do nothing read as broken.
 //!
 //! Custom rather than the stock `TitleBar`, which is a fixed 34px (Orre's
 //! is 40) and draws its own window controls. The window behaviour is the
@@ -230,25 +232,32 @@ struct DragState {
 
 /// The title bar: 40px, `chrome`, bottom `hairline`.
 ///
-/// Takes the brand-and-tabs group (mark, wordmark, view tabs), the command
-/// bar, the Settings button and the window controls. The tabs group and the
-/// controls share the width either side of the command bar, which is centred
-/// when the tabs leave room. At 1440 the eight tabs don't, so it follows them
-/// (`DESIGN.md` → "Transactions").
-#[derive(IntoElement)]
+/// Takes the brand-and-tabs group (mark, wordmark, view tabs), an optional
+/// command bar, the Settings button and the window controls. The tabs group
+/// and the controls share the width either side of the command bar, which is
+/// centred when the tabs leave room. Without a command bar the two groups
+/// meet in the middle.
+#[derive(Default, IntoElement)]
 pub struct TitleBar {
     tabs: Vec<ViewTab>,
-    command_bar: CommandBar,
+    command_bar: Option<CommandBar>,
     settings: Option<IconButton>,
 }
 
 impl TitleBar {
-    pub fn new(command_bar: CommandBar) -> Self {
+    pub fn new() -> Self {
         Self {
             tabs: Vec::new(),
-            command_bar,
+            command_bar: None,
             settings: None,
         }
+    }
+
+    /// Puts `bar` between the tabs and the controls. Only for when it has a
+    /// palette to open: Shell leaves it out for v0.1 (SLI-53).
+    pub fn command_bar(mut self, bar: CommandBar) -> Self {
+        self.command_bar = Some(bar);
+        self
     }
 
     /// Puts `button` at the right, before the window controls and a 1×14
@@ -374,7 +383,7 @@ impl RenderOnce for TitleBar {
                 })
             })
             .child(views)
-            .child(self.command_bar)
+            .children(self.command_bar)
             .child(controls)
     }
 }
