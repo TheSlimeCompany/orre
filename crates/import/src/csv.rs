@@ -101,6 +101,15 @@ impl CsvImporter {
         self
     }
 
+    /// Reads files as `encoding` instead of the mapping's. The encoding is
+    /// how the file's bytes are read, not what its columns mean, so a
+    /// preset's importer keeps its ID and category map (SLI-55: a Monzo
+    /// export saved as Latin-1).
+    pub fn with_encoding(mut self, encoding: TextEncoding) -> CsvImporter {
+        self.mapping.encoding = encoding;
+        self
+    }
+
     pub fn mapping(&self) -> &CsvMapping {
         &self.mapping
     }
