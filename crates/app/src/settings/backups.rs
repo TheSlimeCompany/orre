@@ -208,6 +208,16 @@ pub fn since_lines(since: &Since) -> Vec<(Vec<table::Run>, String)> {
     if since.edits > 0 {
         lines.push((vec![plain("Your edits")], count(since.edits)));
     }
+    if since.manual > 0 {
+        lines.push((
+            vec![plain("Added by you")],
+            format!(
+                "{} {}",
+                count(since.manual),
+                plural(since.manual, "transaction")
+            ),
+        ));
+    }
     if since.suggestions > 0 {
         lines.push((vec![plain("Inbox suggestions")], count(since.suggestions)));
     }

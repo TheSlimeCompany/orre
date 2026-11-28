@@ -386,6 +386,7 @@ pub fn since() -> Since {
             rows: 296,
         }],
         edits: 4,
+        manual: 0,
         suggestions: 12,
     }
 }
