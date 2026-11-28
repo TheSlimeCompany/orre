@@ -1541,7 +1541,8 @@ due before payday.
   import through the built-in OFX/QFX importer, which needs no preset, or the generic CSV
   mapping. Presets for Starling, Nationwide, Chase, Bank of America, Capital One, Revolut
   and N26 move to v0.2
-- ⬜ M5.4 Issue templates (bank preset request, bug, importer request)
+- ✅ M5.4 Issue templates (bank preset request, bug, importer request)
+  (`.github/ISSUE_TEMPLATE/`, #25)
 - 🚧 M5.5 CI: fmt, clippy, tests; build on Linux, macOS, Windows (best-effort).
   `.github/workflows/ci.yml` mirrors every `lefthook.yml` pre-push job on Linux and
   macOS, adds an MSRV `cargo check` and a non-blocking Windows `cargo check`; done once
