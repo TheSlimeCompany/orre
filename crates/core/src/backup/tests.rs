@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use rusqlite::OpenFlags;
+use rusqlite::{OpenFlags, OptionalExtension};
 use tempfile::TempDir;
 
 use super::*;
@@ -1263,4 +1263,221 @@ fn restore_over_a_database_without_a_log_keeps_the_backups() {
     let restored = restore(&path, &backup).unwrap();
     assert_eq!(restored.log_rows_carried, Some(0));
     assert_eq!(clients(&path), ["in-backup"]);
+}
+
+// AI access after a restore (SLI-48): never wider than before it.
+
+fn client_name() -> crate::mcp_client::ClientName {
+    crate::mcp_client::ClientName::new("synthetic-client").unwrap()
+}
+
+/// A backup elsewhere with `synthetic-client` enabled at `standard` and
+/// the kill switch never written.
+fn permissive_backup(dir: &TempDir) -> PathBuf {
+    let path = dir.path().join("permissive.db");
+    let mut db = Database::open(&path).unwrap();
+    crate::mcp_client::enable_at(
+        &mut db,
+        &client_name(),
+        crate::mcp_client::AccessLevel::Standard,
+    )
+    .unwrap();
+    path
+}
+
+/// The current database with the client revoked and the kill switch off.
+fn shut_out(path: &Path) {
+    let mut db = Database::open(path).unwrap();
+    crate::mcp_client::enable(&mut db, &client_name()).unwrap();
+    crate::mcp_client::revoke(&mut db, &client_name()).unwrap();
+    crate::setting::set_mcp_enabled(&mut db, false).unwrap();
+}
+
+/// A trigger that keeps the backup's clients as they are by turning every
+/// change to them into a silent no-op.
+#[test]
+fn restore_refuses_a_backup_whose_clients_ignore_being_switched_off() {
+    let setup = Setup::new();
+    shut_out(&setup.path);
+    let other = TempDir::new().unwrap();
+    let backup = permissive_backup(&other);
+    Connection::open(&backup)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER keep_clients BEFORE UPDATE ON mcp_client \
+             BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+
+    let err = restore(&setup.path, &backup).unwrap_err();
+
+    assert!(
+        matches!(&err, Error::AiAccessNotOff { source: None, .. }),
+        "{err:?}"
+    );
+    assert!(
+        err.to_string().contains("current database is unchanged"),
+        "{err}"
+    );
+    assert_eq!(account_names(&setup.path), ["Current"]);
+    let reader = Database::open(&setup.path).unwrap().reader().unwrap();
+    assert!(!crate::setting::mcp_enabled(&reader).unwrap());
+    assert_eq!(
+        crate::mcp_client::access(&reader, &client_name()).unwrap(),
+        crate::mcp_client::ClientAccess::Revoked
+    );
+    assert_no_scratch_files(&setup.path);
+}
+
+/// A backup older than the clients' tables has none to switch off, and
+/// restoring it with the kill switch off isn't refused for that.
+#[test]
+fn restore_of_a_backup_without_clients_with_the_kill_switch_off() {
+    let setup = Setup::new();
+    shut_out(&setup.path);
+    let old_dir = TempDir::new().unwrap();
+    let old = old_dir.path().join("old.db");
+    drop(db::open_at_version(&old, 2).unwrap());
+
+    restore(&setup.path, &old).unwrap();
+
+    let reader = Database::open(&setup.path).unwrap().reader().unwrap();
+    assert!(crate::mcp_client::list(&reader).unwrap().is_empty());
+    // Migrating created an empty `setting`: the switch was never written,
+    // so it reads on, with no client to let in.
+    assert!(crate::setting::mcp_enabled(&reader).unwrap());
+    assert_eq!(
+        crate::mcp_client::access(&reader, &client_name()).unwrap(),
+        crate::mcp_client::ClientAccess::Unknown
+    );
+}
+
+/// With no current database, the backup's kill switch is kept as it is;
+/// its clients are still switched off.
+#[test]
+fn restore_without_a_current_database_switches_the_clients_off() {
+    let dir = TempDir::new().unwrap();
+    let path = db_path(&dir);
+    let other = TempDir::new().unwrap();
+    let backup = permissive_backup(&other);
+
+    restore(&path, &backup).unwrap();
+
+    let reader = Database::open(&path).unwrap().reader().unwrap();
+    assert!(crate::setting::mcp_enabled(&reader).unwrap());
+    let clients = crate::mcp_client::list(&reader).unwrap();
+    assert_eq!(clients.len(), 1);
+    assert!(!clients[0].enabled);
+    assert_eq!(clients[0].level, crate::mcp_client::AccessLevel::Aggregate);
+}
+
+/// Restores a [`permissive_backup`] with `schema` added to it over a
+/// current database whose kill switch is off, and checks the restore was
+/// refused with the current database left as it was.
+fn assert_refused_with(schema: &str) {
+    let setup = Setup::new();
+    shut_out(&setup.path);
+    let other = TempDir::new().unwrap();
+    let backup = permissive_backup(&other);
+    Connection::open(&backup)
+        .unwrap()
+        .execute_batch(schema)
+        .unwrap();
+
+    let err = restore(&setup.path, &backup).unwrap_err();
+
+    assert!(
+        matches!(&err, Error::AiAccessNotOff { .. }),
+        "{schema}: {err:?}"
+    );
+    assert_eq!(account_names(&setup.path), ["Current"], "{schema}");
+    let reader = Database::open(&setup.path).unwrap().reader().unwrap();
+    assert!(!crate::setting::mcp_enabled(&reader).unwrap(), "{schema}");
+    assert_eq!(
+        crate::mcp_client::access(&reader, &client_name()).unwrap(),
+        crate::mcp_client::ClientAccess::Revoked,
+        "{schema}"
+    );
+    assert_no_scratch_files(&setup.path);
+}
+
+/// The kill switch has to be written off (the current one is off), and a
+/// trigger in the backup ignores or reverts the write.
+#[test]
+fn restore_refuses_a_backup_whose_kill_switch_wont_switch_off() {
+    for schema in [
+        "CREATE TRIGGER keep_on_insert BEFORE INSERT ON setting \
+             WHEN NEW.key = 'mcp.enabled' BEGIN SELECT RAISE(IGNORE); END; \
+         CREATE TRIGGER keep_on_update BEFORE UPDATE ON setting \
+             WHEN NEW.key = 'mcp.enabled' BEGIN SELECT RAISE(IGNORE); END;",
+        "CREATE TRIGGER back_on_insert AFTER INSERT ON setting \
+             WHEN NEW.key = 'mcp.enabled' \
+             BEGIN UPDATE setting SET value = 'on' WHERE key = 'mcp.enabled'; END; \
+         CREATE TRIGGER back_on_update AFTER UPDATE ON setting \
+             WHEN NEW.key = 'mcp.enabled' AND NEW.value <> 'on' \
+             BEGIN UPDATE setting SET value = 'on' WHERE key = 'mcp.enabled'; END;",
+    ] {
+        assert_refused_with(schema);
+    }
+}
+
+/// Writing the kill switch fires a trigger that turns the clients back on:
+/// the clients are read back after it, so the restore is refused.
+#[test]
+fn restore_refuses_a_backup_that_re_enables_clients_when_the_switch_is_written() {
+    assert_refused_with(
+        "CREATE TRIGGER on_again_insert AFTER INSERT ON setting \
+             BEGIN UPDATE mcp_client SET enabled = 1, access_level = 'standard'; END; \
+         CREATE TRIGGER on_again_update AFTER UPDATE ON setting \
+             BEGIN UPDATE mcp_client SET enabled = 1, access_level = 'standard'; END;",
+    );
+}
+
+/// Restores a [`permissive_backup`] (kill switch never written) over a
+/// current database prepared by `break_switch`, and returns the restored
+/// kill switch's stored value.
+fn restored_switch_after(break_switch: &str) -> Option<String> {
+    let setup = Setup::new();
+    Connection::open(&setup.path)
+        .unwrap()
+        .execute_batch(break_switch)
+        .unwrap();
+    let other = TempDir::new().unwrap();
+    let backup = permissive_backup(&other);
+
+    restore(&setup.path, &backup).unwrap();
+
+    let db = Database::open(&setup.path).unwrap();
+    let reader = db.reader().unwrap();
+    assert!(!crate::setting::mcp_enabled(&reader).unwrap());
+    assert_eq!(
+        crate::mcp_client::access(&reader, &client_name())
+            .unwrap()
+            .level(),
+        None
+    );
+    db.conn()
+        .query_row(
+            "SELECT value FROM setting WHERE key = ?1",
+            [crate::setting::MCP_ENABLED],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap()
+}
+
+/// A current kill switch that isn't `on` or `off` keeps AI access off.
+#[test]
+fn restore_over_an_invalid_kill_switch_writes_it_off() {
+    let value =
+        restored_switch_after("INSERT INTO setting (key, value) VALUES ('mcp.enabled', 'maybe');");
+    assert_eq!(value.as_deref(), Some("off"));
+}
+
+/// A current kill switch that can't be read (its table is gone) keeps AI
+/// access off.
+#[test]
+fn restore_over_an_unreadable_kill_switch_writes_it_off() {
+    let value = restored_switch_after("DROP TABLE setting;");
+    assert_eq!(value.as_deref(), Some("off"));
 }

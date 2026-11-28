@@ -94,6 +94,7 @@ use rusqlite::Connection;
 
 use crate::access_log;
 use crate::db::{self, Database, SchemaVersion};
+use crate::setting;
 
 /// The backups directory's name, next to the database file.
 pub const BACKUPS_DIR: &str = "backups";
@@ -207,6 +208,24 @@ pub enum Error {
         lock.display()
     )]
     RestoreLocked { lock: PathBuf },
+
+    /// The backup's AI clients couldn't all be switched off, or its kill
+    /// switch kept off, before it replaced the database: nothing was
+    /// restored ([`restore`]).
+    #[error(
+        "{} wasn't restored: AI access in it couldn't be switched off{}; \
+         the current database is unchanged",
+        path.display(),
+        match source {
+            Some(source) => format!(" ({source})"),
+            None => String::new(),
+        }
+    )]
+    AiAccessNotOff {
+        path: PathBuf,
+        #[source]
+        source: Option<rusqlite::Error>,
+    },
 
     /// [`delete`] was given something that isn't a backup in the backups
     /// directory.
@@ -646,6 +665,14 @@ pub fn check(db_path: &Path, backup: &Path) -> Result<RestoreCheck, Error> {
 /// `.orre-partial-…` in the backups directory; nothing reads them, and
 /// they can be deleted.
 ///
+/// AI access is switched off. Before step 4, every MCP client in the
+/// staged copy is switched off at `aggregate`, and its kill switch is set
+/// off if the current database's is off (or can't be read); both are read
+/// back. If that fails, or doesn't hold when read back, nothing is
+/// restored ([`Error::AiAccessNotOff`]); the user turns clients back on
+/// afterwards. A backup whose own schema holds triggers or views that undo
+/// this later isn't rejected yet (SLI-50).
+///
 /// No other Orre process may hold the database open during a restore:
 /// one that does keeps reading the replaced file. MCP servers and the app's
 /// views open it per call through [`gate::open`], so they don't; step 2
@@ -702,6 +729,10 @@ pub fn restore(db_path: &Path, backup: &Path) -> Result<Restored, Error> {
     } else {
         None
     };
+    // Read under the lock, before the final check that nothing has the
+    // database open (reading it may leave a `-wal` behind until it closes).
+    let keep_switch_off = exists && !kill_switch_on(db_path);
+    switch_ai_access_off(&staged.path, backup, keep_switch_off)?;
     if db_path.exists() {
         release_waiting(db_path)?;
     }
@@ -781,6 +812,93 @@ fn stage(db_path: &Path, backup: &Path) -> Result<(Scratch, SchemaVersion), Erro
     }
     finish_file(&staged.path)?;
     Ok((staged, version))
+}
+
+/// Whether the kill switch of the database at `db_path` is on. `false`
+/// when it can't be read: a restore then keeps AI access off.
+fn kill_switch_on(db_path: &Path) -> bool {
+    let read = db::inspect(db_path)
+        .map_err(|err| err.to_string())
+        .and_then(|conn| setting::mcp_enabled_on(&conn).map_err(|err| err.to_string()));
+    read.unwrap_or_else(|error| {
+        tracing::debug!(%error, "couldn't read the kill switch before a restore");
+        false
+    })
+}
+
+/// Switches every MCP client in the staged copy at `copy` off, back at
+/// `aggregate`, and its kill switch off when `switch_off`, in one
+/// transaction. Both are read back after both writes, before committing:
+/// a trigger in the backup's schema could turn a write into a no-op, or
+/// undo one when the other fires it. A copy older than the clients' tables
+/// has none to switch off. The copy is synced again.
+fn switch_ai_access_off(copy: &Path, backup: &Path, switch_off: bool) -> Result<(), Error> {
+    let refused = |source: Option<rusqlite::Error>| Error::AiAccessNotOff {
+        path: backup.to_path_buf(),
+        source,
+    };
+    let mut conn = db::connect(copy)?;
+    conn.busy_timeout(db::BUSY_TIMEOUT)?;
+    conn.pragma_update(None, "trusted_schema", false)?;
+    let tx = conn.transaction()?;
+    // Any object by that name, so a view standing in for a table is
+    // written to (and read back) too.
+    let has = |name: &str| -> rusqlite::Result<bool> {
+        tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = ?1)",
+            [name],
+            |row| row.get(0),
+        )
+    };
+    let clients = has("mcp_client")?;
+    let switch = switch_off && has("setting")?;
+
+    if clients {
+        tx.execute(
+            "UPDATE mcp_client SET enabled = 0, access_level = 'aggregate'",
+            [],
+        )
+        .map_err(|err| refused(Some(err)))?;
+    }
+    if switch {
+        setting::set_mcp_enabled_on(&tx, false).map_err(|err| match err {
+            setting::Error::Database(err) => refused(Some(err)),
+            _ => refused(None),
+        })?;
+    }
+
+    if clients {
+        let left_on: bool = tx
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM mcp_client \
+                 WHERE enabled IS NOT 0 OR access_level IS NOT 'aggregate')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|err| refused(Some(err)))?;
+        if left_on {
+            return Err(refused(None));
+        }
+    }
+    if switch {
+        match setting::mcp_enabled_on(&tx) {
+            Ok(false) => {}
+            Ok(true) | Err(setting::Error::Invalid { .. } | setting::Error::Rejected { .. }) => {
+                return Err(refused(None));
+            }
+            Err(setting::Error::Database(err)) => return Err(refused(Some(err))),
+        }
+    }
+    tx.commit().map_err(|err| refused(Some(err)))?;
+    drop(conn);
+    if db::sidecar(copy, "-journal").exists() {
+        return Err(Error::Io {
+            action: "finish",
+            path: copy.to_path_buf(),
+            source: io::Error::other("its rollback journal remains"),
+        });
+    }
+    finish_file(copy)
 }
 
 /// The checks on the staged copy at `copy` of `backup` (named in errors).

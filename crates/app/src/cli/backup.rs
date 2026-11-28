@@ -10,6 +10,7 @@ use clap::Args;
 use orre_core::backup::{self, Current, Reason, RestoreCheck};
 
 use super::write_table;
+use crate::settings::restore::AI_OFF_AFTER_RESTORE;
 
 #[derive(Debug, Args)]
 pub struct BackupArgs {
@@ -191,6 +192,7 @@ pub fn restore(database: &Path, args: &RestoreArgs, out: &mut dyn Write) -> anyh
         )?,
         None => writeln!(out, "Restored {}.", file.display())?,
     }
+    writeln!(out, "{AI_OFF_AFTER_RESTORE}")?;
     match (restored.log_rows_carried, &restored.pre_restore) {
         (Some(0), _) => {}
         (Some(rows), _) => writeln!(

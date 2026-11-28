@@ -333,7 +333,8 @@ fn restore_with_yes_restores_by_file_name() {
     assert_eq!(pre_restore.reason, Reason::Restore);
     assert!(
         out.contains(&format!(
-            "Backed up the current database to {}.\nRestored {}.\n",
+            "Backed up the current database to {}.\nRestored {}.\n\
+             AI clients are switched off after a restore; turn them back on in Settings.\n",
             pre_restore.path.display(),
             backup.path.display()
         )),

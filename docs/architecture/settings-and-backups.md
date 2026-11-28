@@ -117,6 +117,11 @@ supersedes "local backups", point 3.
   `restore` holds the lock on `<database>-restoring` (`backup::restore_lock_path`).
   The MCP server and the app open the database through `backup::gate::open` and are
   refused meanwhile; a second restore is refused.
+- **AI access is switched off.** Before the rename, every client in the staged copy is
+  switched off at `aggregate`, and its kill switch is set off if the current one is off
+  or can't be read; both are read back, and if either write fails or doesn't read back,
+  nothing is restored. A backup whose own schema holds triggers or views that undo this
+  later isn't rejected yet (SLI-50; decision record 2026-11-28).
 - **The access log isn't rolled back:** rows newer than the backup's newest are
   carried over from the pre-restore backup, then the 12-month retention applied
   (`access_log::carry_forward`), then refused calls moved in from the pending file.
@@ -344,3 +349,43 @@ backups" point 3 (rotation) and adds to point 5 of "Settings, AI access and back
    import was changed.
 8. **Existing old monthly backups** go at the next automatic backup's rotation, not at
    once; nothing deletes a backup when the app starts.
+
+### Decision record: a restore switches AI access off (2026-11-28)
+
+SLI-48. A restore replaces the whole database file, so it brought back the backup's
+`mcp_client` rows and kill switch, and a running MCP server read them on its next call:
+a client the user had revoked, or a kill switch turned off, came back on. Adds to point
+6 of "Settings, AI access and backups" (2026-11-10). The restore steps are in "Restore" above.
+
+1. **The restore switches every client off.** `backup::restore` sets every `mcp_client`
+   row to `enabled = 0`, `access_level = 'aggregate'`. `status` is kept, so a client the
+   user knew shows as revoked and can be turned back on. The kill switch (`mcp.enabled`)
+   is written `off` when the current database's switch is off, can't be read, or holds
+   an invalid value (fail closed). When it's on, the backup's value is kept: the clients
+   are off anyway.
+2. **On the staged copy, before the rename.** The change runs in one transaction on the
+   checked copy, then the copy is synced again, and the rename stays the one atomic
+   switch: the live file is replaced only by a copy whose writes read back. If the
+   change fails, `restore` returns `Error::AiAccessNotOff`, the copy is removed, and the
+   current database is untouched.
+3. **Read back before commit.** A backup's schema can hold triggers (`RAISE(IGNORE)`
+   turns a write into a silent no-op; a trigger on `setting` can turn clients back on).
+   So after both writes the transaction checks that no client is still enabled or above
+   `aggregate`, and that the switch reads `off` when it had to be. Otherwise it rolls
+   back and refuses the restore. Objects are found by name of any type, so a view
+   standing in for `mcp_client` is checked too.
+   **Limit:** this checks the state at commit. A crafted backup whose triggers or views
+   undo it later (on a later write, or by reading something else) isn't rejected yet:
+   SLI-50 (https://linear.app/theslimecompany/issue/SLI-50) hardens the restore with an
+   allow-list of schema objects.
+4. **No current database** (a first restore onto an empty path): the backup's kill
+   switch is kept, and its clients are still switched off.
+5. **Pre-V11 backups** have no `mcp_client` or `setting` table, so there's nothing to
+   switch off. Migrating creates both empty: no clients, and the kill switch unset (so
+   it reads on).
+6. **The user is told.** The Restore dialog and `orre restore --yes` both say
+   `settings::restore::AI_OFF_AFTER_RESTORE`: "AI clients are switched off after a
+   restore; turn them back on in Settings."
+7. **Deferred.** Carrying the current database's per-client state forward (keeping
+   clients the user still has on enabled at their current level) is a follow-up. A
+   restore also rolls back the other settings; that is out of scope here (SLI-41).

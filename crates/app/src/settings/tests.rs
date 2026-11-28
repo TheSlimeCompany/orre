@@ -477,8 +477,8 @@ fn back_up_now_then_restore_it(cx: &mut TestAppContext) {
     );
     assert_eq!(
         scratch.access("claude-code"),
-        ClientAccess::Enabled(AccessLevel::Standard),
-        "the backup's clients are back"
+        ClientAccess::Revoked,
+        "the backup's clients are back, switched off"
     );
     // The state before the restore was backed up first.
     assert!(
