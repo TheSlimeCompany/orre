@@ -145,6 +145,9 @@ see [`docs/install.md`](docs/install.md).
   [Linux tarball](docs/install.md#linux-tarball), [Nix](docs/install.md#nix-linux) and
   the [macOS `.dmg`](docs/install.md#macos-unsigned-dmg) (and
   [opening it past Gatekeeper](docs/install.md#why-macos-warns-you-and-how-to-open-it))
+- [`CHANGELOG.md`](CHANGELOG.md): what changed in each version, and
+  [`docs/releasing.md`](docs/releasing.md): how a version is tagged and what the release
+  workflow builds
 - [`docs/mcp-setup.md`](docs/mcp-setup.md): connecting an AI client
 - [`presets/README.md`](presets/README.md): add your bank as a CSV preset, no Rust required
 - [`docs/data-and-privacy.md`](docs/data-and-privacy.md): where your data lives, backups and privacy
