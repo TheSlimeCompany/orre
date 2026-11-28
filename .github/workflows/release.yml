@@ -1,14 +1,19 @@
-# Release artifacts (M5.6). Builds the v0.1 downloads and uploads them as
-# workflow artifacts; it doesn't create a GitHub Release (W2-10 decides how
-# the tag's artifacts are published).
+# Release artifacts (M5.6) and the GitHub Release (SLI-35).
 #
-# Run it by hand with workflow_dispatch to prove a branch builds; a pushed
-# `v*` tag runs the same jobs. One job per artifact, so each platform is
+# Run it by hand with workflow_dispatch to prove a branch builds: that runs
+# the build jobs, uploads their files as workflow artifacts and publishes
+# nothing. A pushed `v*` tag runs the same build jobs, then `publish` creates
+# the GitHub Release for the tag. One job per artifact, so each platform is
 # added beside the others:
-#   linux  - the tarball (packaging/linux/build-tarball.sh)        W2-1
-#   macos  - the unsigned .dmg (packaging/macos/build-dmg.sh)      W2-3
-#   nix    - `nix build` / `nix flake check` of flake.nix          W2-2
-#            (a check, not a download: Nix users build from the flake)
+#   linux   - the tarball (packaging/linux/build-tarball.sh)        W2-1
+#   macos   - the unsigned .dmg (packaging/macos/build-dmg.sh)      W2-3
+#   nix     - `nix build` / `nix flake check` of flake.nix          W2-2
+#             (a check, not a download: Nix users build from the flake)
+#   publish - tag pushes only, after all three pass: checks the tag   SLI-35
+#             against the crate version, then creates a published
+#             Release with the tarball, the dmg and their .sha256 files,
+#             its notes taken from the tag's CHANGELOG.md section
+#             (packaging/release/prepare-release.sh)
 name: Release
 
 on:
@@ -175,3 +180,68 @@ jobs:
 
       - name: Run
         run: ./result/bin/orre --version
+
+  publish:
+    name: Publish GitHub Release
+    # A pushed v* tag only. workflow_dispatch never publishes, even when it is
+    # dispatched on a tag ref.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, nix]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The only job that can write: creating a Release needs contents: write.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gh uses GH_TOKEN; keep the contents: write token out of .git/config.
+          persist-credentials: false
+
+      - name: Check the tag and write the release notes
+        id: prepare
+        env:
+          TAG: ${{ github.ref_name }}
+          # rust-toolchain.toml would make rustup fetch its pinned components
+          # before `cargo metadata` runs; the runner's preinstalled stable is
+          # enough to read the manifest, so use it and download nothing.
+          RUSTUP_TOOLCHAIN: stable
+        run: bash packaging/release/prepare-release.sh "$TAG" "$RUNNER_TEMP/release-notes.md"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: orre-linux-x86_64
+          path: dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: orre-macos-arm64-unsigned
+          path: dist
+
+      - name: Create the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          # Each pattern must match exactly one file, or nothing is created.
+          shopt -s nullglob
+          assets=()
+          one() {
+            local pattern=$1
+            shift
+            if [[ $# -ne 1 ]]; then
+              echo "error: expected one $pattern, found $#" >&2
+              exit 1
+            fi
+            assets+=("$1")
+          }
+          one 'dist/*.tar.gz' dist/*.tar.gz
+          one 'dist/*.tar.gz.sha256' dist/*.tar.gz.sha256
+          one 'dist/*.dmg' dist/*.dmg
+          one 'dist/*.dmg.sha256' dist/*.dmg.sha256
+          gh release create "$TAG" --verify-tag \
+            --title "Orre $VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "${assets[@]}"
