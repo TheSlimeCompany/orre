@@ -472,6 +472,60 @@ mod tests {
         assert!(store.since(backup.taken_at).unwrap().is_empty());
     }
 
+    /// SLI-41: a transaction added by hand since the backup is listed
+    /// beside the edits, since restoring deletes it.
+    #[test]
+    fn since_lists_transactions_added_by_hand() {
+        use orre_core::account::{AccountKind, NewAccount};
+        use orre_core::category::CategoryKey;
+        use orre_core::inbox::own;
+        use orre_core::manual::{self, ManualTransaction};
+        use orre_core::money::{Currency, Money};
+
+        use crate::settings::backups::since_lines;
+        use crate::settings::table::Run;
+
+        let (_dir, store) = store();
+        let mut db = Database::open(store.database()).unwrap();
+        let account = account::create(
+            &mut db,
+            &NewAccount::new("Current", AccountKind::Current, Currency::GBP),
+        )
+        .unwrap();
+        let entry = |description: &str| {
+            ManualTransaction::new(
+                account,
+                chrono::NaiveDate::from_ymd_opt(2026, 11, 3).unwrap(),
+                Money::new(-1250, Currency::GBP),
+                description,
+            )
+        };
+        let before = manual::create(&mut db, &entry("Corner shop")).unwrap();
+        drop(db);
+        let (backup, _) = store.back_up().unwrap();
+
+        let mut db = Database::open(store.database()).unwrap();
+        let groceries = CategoryKey::new("food.groceries").unwrap();
+        own::recategorize(&mut db, &[(before, groceries)])
+            .unwrap()
+            .expect("a change batch");
+        manual::create(&mut db, &entry("Market stall")).unwrap();
+        drop(db);
+
+        let since = store.since(backup.taken_at).unwrap();
+        let lines: Vec<(String, String)> = since_lines(&since)
+            .into_iter()
+            .map(|(label, value)| (Run::joined(&label), value))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("Your edits".to_owned(), "1".to_owned()),
+                ("Added by you".to_owned(), "1 transaction".to_owned()),
+            ]
+        );
+    }
+
     #[test]
     fn exports_where_asked() {
         let (dir, store) = store();

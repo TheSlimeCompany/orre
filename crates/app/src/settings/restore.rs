@@ -309,6 +309,15 @@ fn undoes(since: &Since) -> Vec<Run> {
             plain(format!(" {}", plural(since.edits, "edit"))),
         ]);
     }
+    if since.manual > 0 {
+        parts.push(vec![
+            mono(count(since.manual)),
+            plain(format!(
+                " {} added by you",
+                plural(since.manual, "transaction")
+            )),
+        ]);
+    }
     if since.suggestions > 0 {
         parts.push(vec![
             mono(count(since.suggestions)),
@@ -497,6 +506,7 @@ mod tests {
                 rows: 296,
             }],
             edits: 4,
+            manual: 2,
             suggestions: 12,
         };
         let text = text(undoes(&since));
@@ -505,6 +515,7 @@ mod tests {
             "monzo-november.csv",
             "296",
             " rows)",
+            " transactions added by you",
             " and ",
             " Inbox suggestions",
         ] {

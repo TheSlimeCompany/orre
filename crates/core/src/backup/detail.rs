@@ -170,13 +170,16 @@ pub struct Since {
     /// Changes to many transactions made since and not undone (rule
     /// applies, bulk edits, duplicate merges).
     pub edits: u64,
+    /// Transactions added by hand since (`origin = 'manual'`), which
+    /// restoring deletes.
+    pub manual: u64,
     /// Inbox suggestions filed since, whatever has happened to them.
     pub suggestions: u64,
 }
 
 impl Since {
     pub fn is_empty(&self) -> bool {
-        self.imports.is_empty() && self.edits == 0 && self.suggestions == 0
+        self.imports.is_empty() && self.edits == 0 && self.manual == 0 && self.suggestions == 0
     }
 }
 
@@ -206,6 +209,9 @@ pub fn since(db: &Database, taken_at: DateTime<Utc>) -> Result<Since, Error> {
         imports,
         edits: count(
             "SELECT count(*) FROM change_batch WHERE created_at >= ?1 AND status = 'applied'",
+        )?,
+        manual: count(
+            "SELECT count(*) FROM \"transaction\" WHERE origin = 'manual' AND created_at >= ?1",
         )?,
         suggestions: count("SELECT count(*) FROM suggestion WHERE created_at >= ?1")?,
     })
