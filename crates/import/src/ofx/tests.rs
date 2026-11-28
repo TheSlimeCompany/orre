@@ -2,7 +2,7 @@
 //! in `fixtures/ofx/`.
 
 use chrono::NaiveDate;
-use orre_core::money::{Currency, Money, ParseAmountError};
+use orre_core::money::{Currency, MAX_MINOR, Money, ParseAmountError};
 use orre_core::statement::{
     DatedBalance, Field, RowProblem, SourceAccountNumber, SourceLocation, Statement, StatementLine,
 };
@@ -602,4 +602,34 @@ fn the_statement_never_prints_the_account_number() {
     assert!(statement.source_account().is_some());
     let debug = format!("{statement:?}");
     assert!(!debug.contains("DE00000000000000000000"), "{debug}");
+}
+
+#[test]
+fn amounts_beyond_the_cap_are_flagged() {
+    let row = |amount: &str, id: &str| {
+        format!("<STMTTRN><DTPOSTED>20261102<TRNAMT>{amount}<FITID>{id}<NAME>A</STMTTRN>")
+    };
+    let text = sgml_statement(
+        "GBP",
+        &[
+            row("10000000000.00", "A"),
+            row("-10000000000,00", "B"),
+            row("10000000000.01", "C"),
+            row("92233720368547758.07", "D"),
+        ]
+        .concat(),
+    );
+    let statement = import_text(&text).unwrap();
+    let beyond = RowProblem::Amount {
+        field: Field::Amount,
+        error: ParseAmountError::OutOfRange {
+            currency: Currency::GBP,
+        },
+    };
+    assert_eq!(problems(&statement), [(3, beyond.clone()), (4, beyond)]);
+    let read: Vec<_> = statement
+        .lines()
+        .map(|(location, line)| (entry(location), line.amount.minor()))
+        .collect();
+    assert_eq!(read, [(1, MAX_MINOR), (2, -MAX_MINOR)]);
 }

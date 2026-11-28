@@ -12,7 +12,7 @@ use orre_core::balance::CheckResult;
 use orre_core::import::{
     BalanceCheck, CheckedBalance, Flag, ImportPreview, ReconciliationStatus, RowOutcome,
 };
-use orre_core::money::{DecimalMark, Money};
+use orre_core::money::{DecimalMark, Money, ParseAmountError};
 use orre_core::statement::{RowProblem, SourceLocation, StatementLine};
 use orre_import::csv::{Delimiter, TextEncoding};
 
@@ -201,6 +201,16 @@ pub fn flag_note(
 ) -> Vec<Seg> {
     let mut segs = vec![plain("Row "), mono(count(number)), plain(": ")];
     match (problem, text) {
+        (
+            RowProblem::Amount {
+                error: error @ ParseAmountError::OutOfRange { .. },
+                ..
+            },
+            Some(text),
+        ) => {
+            segs.push(mono(format!("“{text}”")));
+            segs.push(plain(format!(" is too large: {error}.")));
+        }
         (RowProblem::Amount { .. }, Some(text)) => {
             segs.push(mono(format!("“{text}”")));
             segs.push(plain(format!(
@@ -779,6 +789,23 @@ mod tests {
             joined(&flag_note(8, &problem, Some("8,99"), DecimalMark::Point, 0)),
             "Row 8: “8,99” isn’t an amount with a decimal point. It will not be imported; \
              it is recorded with the import."
+        );
+        let problem = RowProblem::Amount {
+            field: Field::Amount,
+            error: ParseAmountError::OutOfRange {
+                currency: Currency::GBP,
+            },
+        };
+        assert_eq!(
+            joined(&flag_note(
+                4,
+                &problem,
+                Some("92233720368547758.07"),
+                DecimalMark::Point,
+                0
+            )),
+            "Row 4: “92233720368547758.07” is too large: amounts can't exceed \
+             10,000,000,000.00 GBP. It will not be imported; it is recorded with the import."
         );
         let problem = RowProblem::ColumnCount {
             expected: 3,

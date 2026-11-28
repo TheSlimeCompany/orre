@@ -121,11 +121,16 @@ impl TransactionsView {
         }
         let amount = match format::parse_amount(&typed, row.amount.currency()) {
             Ok(amount) if !amount.is_zero() => amount,
-            _ => {
+            result => {
+                let message = result.err().as_ref().and_then(format::beyond_the_cap);
                 self.editor.error = Some((
                     EditPlace::Details,
-                    "The amount isn't one Orre can read. Type it as −23.00, with a minus for \
-                     money out."
+                    message
+                        .unwrap_or_else(|| {
+                            "The amount isn't one Orre can read. Type it as −23.00, with a \
+                             minus for money out."
+                                .into()
+                        })
                         .into(),
                 ));
                 cx.notify();

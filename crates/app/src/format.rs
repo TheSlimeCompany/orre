@@ -186,6 +186,14 @@ pub fn parse_amount(text: &str, currency: Currency) -> Result<Money, ParseAmount
     Money::parse_decimal(text, currency, DecimalMark::Point)
 }
 
+/// A form's message for an amount beyond Orre's cap ("Amounts can't exceed
+/// 10,000,000,000.00 GBP."), or `None` for any other error, which the form
+/// words itself.
+pub fn beyond_the_cap(error: &ParseAmountError) -> Option<String> {
+    matches!(error, ParseAmountError::OutOfRange { .. })
+        .then(|| crate::import::session::sentence(&error.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

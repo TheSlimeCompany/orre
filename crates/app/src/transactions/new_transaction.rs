@@ -32,7 +32,7 @@ use orre_core::manual::ManualTransaction;
 use orre_core::money::{Currency, Money};
 
 use crate::accounts::DialogClosed;
-use crate::format::{currency_prefix, field_date, parse_amount, parse_date};
+use crate::format::{beyond_the_cap, currency_prefix, field_date, parse_amount, parse_date};
 use crate::theme::tokens::{color, size, spacing, typography};
 use crate::ui::button::{Button, ButtonVariant};
 use crate::ui::dialog::Dialog;
@@ -89,7 +89,8 @@ pub fn read_entry(typed: &Typed, today: NaiveDate) -> Result<ManualTransaction, 
             "The amount isn't one Orre can read. Type it as 12.80, and choose Out or In.",
         )
     };
-    let amount = parse_amount(&typed.amount, currency).map_err(|_| unreadable())?;
+    let amount = parse_amount(&typed.amount, currency)
+        .map_err(|error| beyond_the_cap(&error).map_or_else(unreadable, SharedString::from))?;
     if amount.is_negative() {
         return Err("Type the amount without a sign, and choose Out or In.".into());
     }
@@ -571,5 +572,39 @@ mod tests {
         for typed in wrong {
             assert!(read_entry(&typed, today).is_err(), "{typed:?}");
         }
+    }
+
+    #[test]
+    fn an_amount_beyond_the_cap_says_what_the_cap_is() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
+        let read = |amount: &str, direction| {
+            let typed = Typed {
+                amount: amount.to_owned(),
+                direction,
+                ..typed()
+            };
+            read_entry(&typed, today).map(|entry| entry.amount.minor())
+        };
+        let cap = orre_core::money::MAX_MINOR;
+        assert_eq!(read("10,000,000,000.00", Direction::Out), Ok(-cap));
+        assert_eq!(read("£10000000000.00", Direction::In), Ok(cap));
+
+        let beyond = Err(SharedString::from(
+            "Amounts can't exceed 10,000,000,000.00 GBP.",
+        ));
+        assert_eq!(read("10000000000.01", Direction::Out), beyond);
+        assert_eq!(read("-10000000000.01", Direction::Out), beyond);
+        assert_eq!(read("92233720368547758.07", Direction::In), beyond);
+        assert_eq!(
+            read("-10000000000.00", Direction::Out),
+            Err("Type the amount without a sign, and choose Out or In.".into())
+        );
+        assert_eq!(
+            read("12.8x", Direction::Out),
+            Err(
+                "The amount isn't one Orre can read. Type it as 12.80, and choose Out or In."
+                    .into()
+            )
+        );
     }
 }

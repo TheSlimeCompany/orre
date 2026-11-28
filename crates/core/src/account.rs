@@ -814,6 +814,22 @@ pub(crate) fn date(row: &Row<'_>, column: &str) -> rusqlite::Result<NaiveDate> {
     NaiveDate::parse_from_str(&text, "%Y-%m-%d").map_err(|_| invalid(row, column))
 }
 
+/// Reads a `*_minor` column holding one amount in `currency`. Orre writes
+/// none beyond [`MAX_MINOR`](crate::money::MAX_MINOR), but older builds did:
+/// such a value is an error naming the column, never read as if it fit.
+/// The value itself is left out, since errors get logged.
+pub(crate) fn amount(row: &Row<'_>, column: &str, currency: Currency) -> rusqlite::Result<Money> {
+    let minor: i64 = row.get(column)?;
+    Money::try_new(minor, currency).map_err(|error| {
+        let index = row.as_ref().column_index(column).unwrap_or_default();
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Integer,
+            format!("the stored {column} is out of range: {error}").into(),
+        )
+    })
+}
+
 pub(crate) fn optional_date(row: &Row<'_>, column: &str) -> rusqlite::Result<Option<NaiveDate>> {
     let text: Option<String> = row.get(column)?;
     text.map(|text| NaiveDate::parse_from_str(&text, "%Y-%m-%d").map_err(|_| invalid(row, column)))

@@ -137,7 +137,8 @@ impl History {
                AND excluded_reason IS NOT 'superseded'",
         )?;
         let rows = statement.query_map([account.id], |row| {
-            Ok((account::date(row, "date")?, row.get::<_, i64>(1)?))
+            let amount = account::amount(row, "amount_minor", account.currency)?;
+            Ok((account::date(row, "date")?, amount.minor()))
         })?;
         for row in rows {
             let (date, minor) = row?;
@@ -325,5 +326,16 @@ mod tests {
         let empty = ledger.account("Empty", Currency::EUR);
         let empty = super::account(&reader, empty).unwrap();
         assert_eq!(latest_balance(&reader, &empty).unwrap(), None);
+    }
+
+    #[test]
+    fn a_stored_amount_beyond_the_cap_is_an_error_not_a_balance() {
+        let mut ledger = TestLedger::new();
+        let current = ledger.account("Current", Currency::GBP);
+        ledger.row(current, "2026-11-04", crate::money::MAX_MINOR + 1, None);
+        let reader = ledger.reader();
+        let current = super::account(&reader, current).unwrap();
+        let error = latest_balance(&reader, &current).unwrap_err();
+        assert!(error.to_string().contains("out of range"), "{error}");
     }
 }

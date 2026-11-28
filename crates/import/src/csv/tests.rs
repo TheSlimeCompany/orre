@@ -2,7 +2,7 @@
 //! fixtures in `fixtures/csv/`.
 
 use chrono::{NaiveDate, NaiveTime};
-use orre_core::money::{Currency, DecimalMark, Money, ParseAmountError};
+use orre_core::money::{Currency, DecimalMark, MAX_MINOR, Money, ParseAmountError};
 use orre_core::statement::{Field, RowProblem, SourceLocation, Statement, StatementLine};
 
 use super::*;
@@ -908,4 +908,33 @@ fn problem_text_is_the_cell_the_problem_is_in() {
         importer.problem_text(&parsed, problems[1].0, &problems[1].1),
         None
     );
+}
+
+#[test]
+fn amounts_beyond_the_cap_are_flagged() {
+    let statement = import(
+        simple_mapping(),
+        "Date,Amount,Description\n\
+         01/11/2026,10000000000.00,A\n\
+         01/11/2026,-10000000000.00,B\n\
+         01/11/2026,10000000000.01,C\n\
+         01/11/2026,92233720368547758.07,D\n\
+         01/11/2026,(10000000000.01),E\n",
+    )
+    .unwrap();
+    let beyond = RowProblem::Amount {
+        field: Field::Amount,
+        error: ParseAmountError::OutOfRange {
+            currency: Currency::GBP,
+        },
+    };
+    assert_eq!(
+        problems(&statement),
+        [(4, beyond.clone()), (5, beyond.clone()), (6, beyond)]
+    );
+    let read: Vec<_> = lines(&statement)
+        .into_iter()
+        .map(|(n, line)| (n, line.amount))
+        .collect();
+    assert_eq!(read, [(2, gbp(MAX_MINOR)), (3, gbp(-MAX_MINOR))]);
 }

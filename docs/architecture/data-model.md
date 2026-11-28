@@ -21,6 +21,9 @@ that list.
 - **Arithmetic is checked.** Adding, subtracting or comparing two currencies is an
   error, as is overflowing `i64`; nothing panics or wraps. There are no operator
   overloads for the same reason.
+- **One amount is at most 10^12 minor units either side of zero** (`MAX_MINOR`:
+  10,000,000,000.00 in 2-decimal currencies); beyond it is refused at parse time
+  (`Money::parse_decimal`), so totals stay within `i64` (SLI-39, 2026-11-28).
 - **Import reads amounts exactly or not at all.** `Money::parse_decimal` takes the
   preset's decimal mark (`.` or `,`); thousands may be grouped by the other mark, a
   space (including no-break spaces) or an apostrophe, in groups of three and never
