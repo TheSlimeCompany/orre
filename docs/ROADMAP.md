@@ -147,8 +147,9 @@ unsigned (`DESIGN.md` → "Money", "Chart chrome")
   screens". Decided while drawing (review):
   - Inbox groups are table sections with lane headers, not one agent card per group; row
     approve/reject show on hover and selection only;
-  - a parse failure in the Import preview is imported as flagged, and a balance mismatch
-    can be imported only as "Import and flag the mismatch";
+  - a parse failure in the Import preview is not imported but recorded with the import
+    as a flag, and a balance mismatch can be imported only as "Import and flag the
+    mismatch";
   - Budgets is a table with inline bars so the budgets' ends line up;
   - the Net worth area runs to a £0 baseline;
   - an account with transactions can be closed (hidden, history kept), not deleted.

@@ -241,6 +241,7 @@ mod tests {
 
     use super::*;
     use crate::import::session::Session;
+    use crate::import::text;
 
     fn store() -> (TempDir, ImportStore, AccountId) {
         let dir = tempfile::tempdir().unwrap();
@@ -288,6 +289,57 @@ mod tests {
 
         store.undo(summary.batch).unwrap();
         assert!(store.setup().unwrap().recent.is_empty());
+    }
+
+    #[test]
+    fn the_toast_reports_flagged_rows_but_not_running_balances_as_not_imported() {
+        use orre_core::money::Money;
+        use orre_core::statement::{Field, RowProblem, SourceLocation, StatementLine};
+
+        let (_dir, store, id) = store();
+        let row = |d: u32, minor: i64, balance: i64| {
+            let mut line = StatementLine::new(
+                NaiveDate::from_ymd_opt(2026, 11, d).unwrap(),
+                Money::new(minor, Currency::GBP),
+                "Shop",
+            );
+            line.balance_after = Some(Money::new(balance, Currency::GBP));
+            Ok(line)
+        };
+        let mut statement = Statement::new(SourceFormat::Csv, Currency::GBP);
+        statement.push(SourceLocation::Line(2), row(1, -500, 9_500));
+        // 9,500 − 250 is 9,250: a running balance that doesn't follow.
+        statement.push(SourceLocation::Line(3), row(2, -250, 9_000));
+        statement.push(
+            SourceLocation::Line(4),
+            Err(RowProblem::Missing(Field::Amount)),
+        );
+        statement.push(SourceLocation::Line(5), row(3, -100, 8_900));
+
+        let review = store.review(id, "file.csv", statement).unwrap();
+        let (omitted, running) = text::not_imported(&review.preview);
+        assert_eq!(omitted, [SourceLocation::Line(4)]);
+        assert_eq!(running, 1);
+
+        let confirm = review.preview.needs_confirmation();
+        let Committed::Batch(summary) = store.commit(&review.preview, confirm).unwrap() else {
+            panic!("a batch");
+        };
+        assert_eq!(
+            summary.transactions, 3,
+            "the running-balance row is imported"
+        );
+        assert_eq!(summary.flags, omitted.len() + running);
+        assert_eq!(
+            text::joined(&text::imported(
+                summary.transactions,
+                "file.csv",
+                &omitted,
+                running
+            )),
+            "Imported 3 transactions from file.csv. 1 row not imported (row 4). The file is \
+             unchanged. 1 running balance was flagged."
+        );
     }
 
     #[test]

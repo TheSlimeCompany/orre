@@ -1234,9 +1234,10 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
   Right column, 24px away: "Preview · First 10 of 312 rows", a table (DATE 48, MERCHANT,
   AMOUNT 96), pot transfers muted with the transfer icon. A row that can't be parsed gets
   `danger-soft` fill, the 6px `danger` dot and its raw value in `danger`; a note under the
-  table explains it ("Row 8: “8,99” isn't an amount with a decimal point. It will be
-  imported as flagged, not skipped.") and says pot transfers pair automatically. Footer:
-  "Nothing is saved until you import. A backup is taken first." Back / "Review 312 rows".
+  table explains it ("Row 8: “8,99” isn't an amount with a decimal point. It will not be
+  imported; it is recorded with the import.") and says pot transfers pair automatically.
+  Footer: "Nothing is saved until you import. A backup is taken first." Back / "Review 312
+  rows".
   While Review is disabled the footer's caption says why instead ("Choose the account to
   import into.", a currency mismatch, no rows, a mapping problem; M3.P1). With no
   accounts at all: "There are no accounts yet. Add one in the Accounts panel to import
@@ -1249,7 +1250,7 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
   `danger` dot; mono 20/24), AFTER IMPORT rows (categorised by rules, from Monzo's
   categories, left uncategorised, pot transfers paired, possible duplicates with a
   `warning` dot), then the reconciliation block, then Back / "Import 296 transactions".
-  Flagged rows are imported (and flagged), so they're in the count.
+  The count is new rows only: flagged rows are recorded with the import, not imported.
 - **Reconciliation block**, a 12px-padded box (`radius-surface`): *not reconciled*
   (hairline border, info icon, `text-strong` title: the export has no balances; neutral,
   because that's expected for Monzo), *reconciled* (hairline, check icon in `text`, the
@@ -1323,7 +1324,11 @@ close button. Footer: a caption on the left, actions right-aligned, above a hair
     "Importing…" or "Saving…".
   - *After the import*: the dialog closes and the notification bar says "Imported 9
     transactions from `monzo-november.csv`" with Undo and dismiss, centred over the
-    body (the window minus title and status bars) rather than the canvas alone; after
+    body (the window minus title and status bars) rather than the canvas alone. Rows
+    that weren't imported follow, at most three listed: "Imported 9 transactions from
+    `monzo-november.csv`. 5 rows not imported (rows 12, 40, 41, and 2 more). The file
+    is unchanged." (`entry 2` and "entries" for OFX), then "1 running balance was
+    flagged." when one was (those rows are imported, so they aren't listed); after
     Undo, "Undid the import of `monzo-november.csv`".
   - *A file for another account* (R.13, composed 2026-11-19): the first block on Review,
     the locked-period block's box (`warning-soft` fill, 12px padding, `radius-surface`)

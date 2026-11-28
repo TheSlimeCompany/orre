@@ -23,6 +23,7 @@ pub mod text;
 
 use gpui_kit::{AppContext as _, Context, EventEmitter, SharedString, Task};
 use orre_core::id::BatchId;
+use orre_core::statement::SourceLocation;
 
 use store::ImportStore;
 use text::Seg;
@@ -118,19 +119,22 @@ impl Imports {
         self.notice.as_ref()
     }
 
-    /// A batch was committed from `file`: show it, and have the views read
-    /// the database again.
+    /// A batch was committed from `file`: show it, with the rows it left
+    /// out (`omitted`) and the running balances it flagged, and have the
+    /// views read the database again.
     pub fn imported(
         &mut self,
         batch: BatchId,
         transactions: usize,
         file: &str,
+        omitted: &[SourceLocation],
+        running_flags: usize,
         cx: &mut Context<Self>,
     ) {
         self.file = file.to_owned();
         self.notice = Some(ImportNotice::Imported {
             batch,
-            message: text::imported(transactions, file),
+            message: text::imported(transactions, file, omitted, running_flags),
         });
         cx.emit(ImportsChanged);
         cx.notify();
