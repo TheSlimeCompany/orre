@@ -842,3 +842,33 @@ fn noise_rate() {
     }
     eprintln!("spurious: {spurious}/300");
 }
+
+/// One merchant's dense rows, as QA's SLI-36 repro: about 12 a day, about
+/// -£1 (-98 to -102 minor).
+fn dense_group(count: usize) -> Vec<LedgerRow> {
+    let mut rows = Rows::default();
+    let days = (count / 12) as i64;
+    for n in 0..count {
+        let on = date(2016, 1, 1) + TimeDelta::days(n as i64 % days);
+        rows.add(on, -(98 + (n % 5) as i64), "Bench merchant");
+    }
+    rows.rows
+}
+
+/// SLI-36: the search is quadratic in a group's rows, so a merchant with
+/// tens of thousands of rows never finished. Past the cap, more rows must
+/// not mean more work.
+#[test]
+fn a_huge_group_costs_no_more_than_one_at_the_cap() {
+    work::take();
+    detect(&dense_group(2_500));
+    let at_cap = work::take();
+    detect(&dense_group(10_000));
+    let huge = work::take();
+    eprintln!("rows examined: 2,500 rows {at_cap}, 10,000 rows {huge}");
+    assert!(
+        huge * 10 <= at_cap * 11,
+        "rows examined: 2,500 rows {at_cap}, 10,000 rows {huge} ({}x)",
+        huge / at_cap.max(1)
+    );
+}
