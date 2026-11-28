@@ -19,6 +19,11 @@ refuses a database with pending migrations.
   checked dates, no `ON DELETE` actions, indexed foreign keys, cross-row rules as
   `BEFORE` triggers with indexed lookups), and add new tables to `TABLES` in
   `crates/core/src/db/schema_tests.rs`.
+- A new migration changes the schema snapshot (`crates/core/src/db/schema_snapshot.txt`):
+  regenerate it with `ORRE_UPDATE_SCHEMA_SNAPSHOT=1 cargo test -p orre-core --lib
+  db::schema_snapshot_tests` and review the diff, which is the text SQLite stores and
+  `backup::restore` compares exactly (`settings-and-backups.md`, "Decision record:
+  restore checks the backup's schema", point 6).
 - Never write `"transaction"` with `REPLACE`, `INSERT OR REPLACE`, `UPDATE OR REPLACE`
   or an upsert (`ON CONFLICT`). REPLACE deletes the conflicting row and inserts a new
   one, which no `UPDATE` trigger sees, so it would get round the read-only source

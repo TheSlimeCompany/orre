@@ -1,0 +1,1731 @@
+# The schema text SQLite stores for Orre's migrations at the latest version
+# (crates/core/src/db/schema_snapshot_tests.rs, which describes the format).
+# Don't edit by hand. Regenerate, after deciding about older backups, with
+#   ORRE_UPDATE_SCHEMA_SNAPSHOT=1 cargo test -p orre-core --lib db::schema_snapshot_tests::the_stored_schema_text_matches_the_snapshot
+
+#### index account_parent on account
+CREATE INDEX account_parent ON account (parent_id)
+
+#### index account_source_identity_account on account_source_identity
+CREATE INDEX account_source_identity_account
+    ON account_source_identity (account_id, identity_hash)
+
+#### index account_source_identity_hash on account_source_identity
+CREATE INDEX account_source_identity_hash
+    ON account_source_identity (identity_hash)
+
+#### index account_sub_account_key on account
+CREATE UNIQUE INDEX account_sub_account_key
+    ON account (parent_id, sub_account_key) WHERE sub_account_key IS NOT NULL
+
+#### index balance_snapshot_account_date on balance_snapshot
+CREATE INDEX balance_snapshot_account_date ON balance_snapshot (account_id, date)
+
+#### index balance_snapshot_batch on balance_snapshot
+CREATE INDEX balance_snapshot_batch ON balance_snapshot (batch_id)
+
+#### index balance_snapshot_entered on balance_snapshot
+CREATE UNIQUE INDEX balance_snapshot_entered
+    ON balance_snapshot (account_id, date) WHERE batch_id IS NULL
+
+#### index budget_month on budget
+CREATE UNIQUE INDEX budget_month ON budget (category_id, month) WHERE month IS NOT NULL
+
+#### index budget_standing on budget
+CREATE UNIQUE INDEX budget_standing ON budget (category_id) WHERE month IS NULL
+
+#### index category_parent on category
+CREATE INDEX category_parent ON category (parent_id)
+
+#### index change_item_transaction on change_item
+CREATE INDEX change_item_transaction ON change_item (transaction_id)
+
+#### index duplicate_candidate_change_batch on duplicate_candidate
+CREATE INDEX duplicate_candidate_change_batch ON duplicate_candidate (change_batch_id)
+
+#### index duplicate_candidate_status on duplicate_candidate
+CREATE INDEX duplicate_candidate_status ON duplicate_candidate (status)
+
+#### index duplicate_candidate_transaction_b on duplicate_candidate
+CREATE INDEX duplicate_candidate_transaction_b ON duplicate_candidate (transaction_b)
+
+#### index import_batch_account on import_batch
+CREATE INDEX import_batch_account ON import_batch (account_id)
+
+#### index import_flag_batch on import_flag
+CREATE INDEX import_flag_batch ON import_flag (batch_id)
+
+#### index mcp_access_log_at on mcp_access_log
+CREATE INDEX mcp_access_log_at ON mcp_access_log (at)
+
+#### index mcp_access_log_client on mcp_access_log
+CREATE INDEX mcp_access_log_client ON mcp_access_log (client, at)
+
+#### index report_created on report
+CREATE INDEX report_created ON report (created_at)
+
+#### index rule_account on rule
+CREATE INDEX rule_account ON rule (account_id)
+
+#### index rule_priority on rule
+CREATE INDEX rule_priority ON rule (priority, id)
+
+#### index schedule_account on schedule
+CREATE INDEX schedule_account ON schedule (account_id)
+
+#### index schedule_category on schedule
+CREATE INDEX schedule_category ON schedule (category_id)
+
+#### index sqlite_autoindex_account_source_identity_1 on account_source_identity
+(no SQL)
+
+#### index sqlite_autoindex_category_1 on category
+(no SQL)
+
+#### index sqlite_autoindex_category_key_retired_1 on category_key_retired
+(no SQL)
+
+#### index sqlite_autoindex_change_item_1 on change_item
+(no SQL)
+
+#### index sqlite_autoindex_duplicate_candidate_1 on duplicate_candidate
+(no SQL)
+
+#### index sqlite_autoindex_mcp_access_log_1 on mcp_access_log
+(no SQL)
+
+#### index sqlite_autoindex_mcp_client_1 on mcp_client
+(no SQL)
+
+#### index sqlite_autoindex_recurring_dismissal_1 on recurring_dismissal
+(no SQL)
+
+#### index sqlite_autoindex_refinery_schema_history_1 on refinery_schema_history
+(no SQL)
+
+#### index sqlite_autoindex_rule_action_1 on rule_action
+(no SQL)
+
+#### index sqlite_autoindex_schedule_match_1 on schedule_match
+(no SQL)
+
+#### index sqlite_autoindex_schedule_match_2 on schedule_match
+(no SQL)
+
+#### index sqlite_autoindex_schedule_skip_1 on schedule_skip
+(no SQL)
+
+#### index sqlite_autoindex_transaction_split_1 on transaction_split
+(no SQL)
+
+#### index suggestion_change_batch on suggestion
+CREATE INDEX suggestion_change_batch ON suggestion (change_batch_id)
+
+#### index suggestion_pending_once on suggestion
+CREATE UNIQUE INDEX suggestion_pending_once ON suggestion (kind, payload_json)
+    WHERE status = 'pending'
+
+#### index suggestion_source on suggestion
+CREATE INDEX suggestion_source ON suggestion (source_client, status)
+
+#### index suggestion_status on suggestion
+CREATE INDEX suggestion_status ON suggestion (status, created_at)
+
+#### index tag_name on tag
+CREATE UNIQUE INDEX tag_name ON tag (name COLLATE NOCASE)
+
+#### index transaction_account_date on transaction
+CREATE INDEX transaction_account_date ON "transaction" (account_id, date)
+
+#### index transaction_batch on transaction
+CREATE INDEX transaction_batch ON "transaction" (batch_id)
+
+#### index transaction_category on transaction
+CREATE INDEX transaction_category ON "transaction" (category_id)
+
+#### index transaction_external_id on transaction
+CREATE UNIQUE INDEX transaction_external_id
+    ON "transaction" (account_id, external_id)
+    WHERE external_id IS NOT NULL AND superseded_by IS NULL
+
+#### index transaction_fingerprint on transaction
+CREATE UNIQUE INDEX transaction_fingerprint
+    ON "transaction" (account_id, fingerprint)
+    WHERE external_id IS NULL AND fingerprint IS NOT NULL
+
+#### index transaction_link_inflow on transaction_link
+CREATE INDEX transaction_link_inflow ON transaction_link (inflow_id)
+
+#### index transaction_link_pair on transaction_link
+CREATE UNIQUE INDEX transaction_link_pair
+    ON transaction_link (target_id, inflow_id) WHERE target_id IS NOT NULL
+
+#### index transaction_link_settlement on transaction_link
+CREATE UNIQUE INDEX transaction_link_settlement
+    ON transaction_link (inflow_id, share_label) WHERE kind = 'settlement'
+
+#### index transaction_reimbursable on transaction
+CREATE INDEX transaction_reimbursable ON "transaction" (date) WHERE reimbursable = 1
+
+#### index transaction_rule on transaction
+CREATE INDEX transaction_rule ON "transaction" (rule_id)
+
+#### index transaction_split_category on transaction_split
+CREATE INDEX transaction_split_category ON transaction_split (category_id)
+
+#### index transaction_superseded_by on transaction
+CREATE UNIQUE INDEX transaction_superseded_by
+    ON "transaction" (superseded_by) WHERE superseded_by IS NOT NULL
+
+#### index transaction_tag_tag on transaction_tag
+CREATE INDEX transaction_tag_tag ON transaction_tag (tag_id)
+
+#### index transaction_transfer_group on transaction
+CREATE INDEX transaction_transfer_group ON "transaction" (transfer_group_id)
+
+#### table account on account
+CREATE TABLE account (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id             INTEGER REFERENCES account (id),
+    name                  TEXT    NOT NULL CHECK (trim(name) <> ''),
+    institution           TEXT,
+    kind                  TEXT    NOT NULL CHECK (kind IN (
+                              'current', 'savings', 'credit_card', 'pot', 'cash',
+                              'asset', 'liability')),
+    currency              TEXT    NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+    -- A balance the user entered when the export has none.
+    opening_balance_minor INTEGER,
+    opening_date          TEXT    CHECK (opening_date IS date(opening_date)),
+    -- History up to and including this date is locked (a passing check).
+    reconciled_through    TEXT    CHECK (reconciled_through IS date(reconciled_through)),
+    closed_on             TEXT    CHECK (closed_on IS date(closed_on)),
+    created_at            TEXT    NOT NULL
+                                  DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                                  CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)), sub_account_key TEXT
+    CHECK (sub_account_key IS NULL OR (kind = 'pot' AND sub_account_key <> '')), preset_id TEXT
+    CHECK (preset_id IS NULL
+           OR (preset_id <> '' AND kind IN ('current', 'savings', 'credit_card'))),
+
+    CHECK ((opening_balance_minor IS NULL) = (opening_date IS NULL)),
+    -- Pots, and only pots, have a parent: a current or savings account in
+    -- the same currency (triggers under "Account structure").
+    CHECK ((kind = 'pot') = (parent_id IS NOT NULL)),
+    CHECK (parent_id IS NOT id)
+) STRICT
+
+#### table account_source_identity on account_source_identity
+CREATE TABLE account_source_identity (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id      INTEGER NOT NULL UNIQUE REFERENCES import_batch (id),
+    account_id    INTEGER NOT NULL REFERENCES account (id) ON DELETE CASCADE,
+    identity_hash TEXT    NOT NULL CHECK (length(identity_hash) = 64
+                                          AND identity_hash NOT GLOB '*[^0-9a-f]*')
+) STRICT
+
+#### table balance_snapshot on balance_snapshot
+CREATE TABLE balance_snapshot (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id    INTEGER NOT NULL REFERENCES account (id),
+    batch_id      INTEGER REFERENCES import_batch (id),
+    date          TEXT    NOT NULL CHECK (date IS date(date)),
+    balance_minor INTEGER NOT NULL,
+    source        TEXT    NOT NULL CHECK (source IN (
+                              'ofx', 'csv', 'statement', 'manual', 'valuation')),
+    -- User text; not sent over MCP by default.
+    note          TEXT,
+    created_at    TEXT    NOT NULL
+                          DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                          CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+
+    -- Balances read from a file come with its batch; the others are entered.
+    CHECK ((source IN ('ofx', 'csv')) = (batch_id IS NOT NULL))
+) STRICT
+
+#### table budget on budget
+CREATE TABLE budget (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id             INTEGER NOT NULL REFERENCES category (id),
+    month                   TEXT    CHECK (month || '-01' IS date(month || '-01')),
+    amount_minor            INTEGER NOT NULL CHECK (amount_minor >= 0),
+    currency                TEXT    NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+    rollover                INTEGER NOT NULL CHECK (rollover IN (0, 1)),
+    group_kind              TEXT    NOT NULL CHECK (group_kind IN ('fixed', 'non_monthly', 'flex')),
+    -- What a non-monthly budget had already set aside when it was created.
+    opening_set_aside_minor INTEGER CHECK (opening_set_aside_minor >= 0),
+    created_at              TEXT    NOT NULL
+                                    DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                                    CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+
+    -- Fixed budgets don't roll over; non-monthly ones always do.
+    CHECK (group_kind <> 'fixed' OR rollover = 0),
+    CHECK (group_kind <> 'non_monthly' OR rollover = 1),
+    CHECK (group_kind = 'non_monthly' OR opening_set_aside_minor IS NULL)
+) STRICT
+
+#### table category on category
+CREATE TABLE category (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id INTEGER REFERENCES category (id),
+    key       TEXT    NOT NULL UNIQUE
+                      CHECK (key <> ''
+                             AND key NOT GLOB '*[^a-z0-9_.]*'
+                             AND key NOT GLOB '.*'
+                             AND key NOT GLOB '*.'
+                             AND key NOT GLOB '*.*.*'),
+    label     TEXT    NOT NULL CHECK (trim(label) <> ''), kind TEXT NOT NULL DEFAULT 'spending'
+    CHECK (kind IN ('spending', 'income', 'transfer')), hidden INTEGER NOT NULL DEFAULT 0
+    CHECK (hidden IN (0, 1)),
+
+    CHECK (parent_id IS NOT id)
+) STRICT
+
+#### table category_key_retired on category_key_retired
+CREATE TABLE category_key_retired (
+    key        TEXT NOT NULL PRIMARY KEY
+                    CHECK (key <> ''
+                           AND key NOT GLOB '*[^a-z0-9_.]*'
+                           AND key NOT GLOB '.*'
+                           AND key NOT GLOB '*.'
+                           AND key NOT GLOB '*.*.*'),
+    retired_at TEXT NOT NULL
+                    DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                    CHECK (retired_at IS strftime('%Y-%m-%dT%H:%M:%fZ', retired_at))
+) STRICT
+
+#### table change_batch on change_batch
+CREATE TABLE change_batch (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT    NOT NULL CHECK (kind IN ('rule_apply', 'duplicate_merge', 'bulk_edit')),
+    created_at TEXT    NOT NULL
+                       DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                       CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+    status     TEXT    NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'undone')),
+    -- When it was undone; set with `status = 'undone'`.
+    undone_at  TEXT    CHECK (undone_at IS strftime('%Y-%m-%dT%H:%M:%fZ', undone_at)), rule_id INTEGER
+    CHECK (rule_id IS NULL OR kind = 'rule_apply'),
+
+    CHECK ((status = 'undone') = (undone_at IS NOT NULL))
+) STRICT
+
+#### table change_item on change_item
+CREATE TABLE "change_item" (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id       INTEGER NOT NULL REFERENCES change_batch (id),
+    transaction_id INTEGER NOT NULL REFERENCES "transaction" (id),
+    field          TEXT    NOT NULL CHECK (field IN (
+                               'category', 'merchant', 'user_note', 'tags', 'exclusion',
+                               'split', 'share', 'reimbursable', 'links')),
+    old_value      TEXT    NOT NULL CHECK (json_valid(old_value)),
+    new_value      TEXT    NOT NULL CHECK (json_valid(new_value)),
+
+    -- Also the index for the `batch_id` foreign key.
+    UNIQUE (batch_id, transaction_id, field),
+    CHECK (old_value IS NOT new_value)
+) STRICT
+
+#### table duplicate_candidate on duplicate_candidate
+CREATE TABLE "duplicate_candidate" (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The lower transaction ID of the pair.
+    transaction_a   INTEGER NOT NULL REFERENCES "transaction" (id),
+    -- The higher one.
+    transaction_b   INTEGER NOT NULL REFERENCES "transaction" (id),
+    -- Which kind of match it is: two imported rows from different imports
+    -- (`overlapping_import`), a manual row and an imported one
+    -- (`manual_entry`), or two imported rows with the same date, amount and
+    -- text whose source IDs differ (`unmatched_source_id`).
+    reason          TEXT    NOT NULL CHECK (reason IN (
+                                'overlapping_import', 'manual_entry', 'unmatched_source_id')),
+    status          TEXT    NOT NULL DEFAULT 'pending'
+                            CHECK (status IN ('pending', 'merged', 'dismissed')),
+    -- The side that stayed when merged: `a` or `b`. The other is excluded.
+    kept            TEXT    CHECK (kept IN ('a', 'b')),
+    -- The `duplicate_merge` batch that merged it. One batch can merge many.
+    change_batch_id INTEGER REFERENCES change_batch (id),
+    created_at      TEXT    NOT NULL
+                            DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                            CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+
+    -- Also the index for the `transaction_a` foreign key.
+    UNIQUE (transaction_a, transaction_b),
+    CHECK (transaction_a < transaction_b),
+    CHECK ((status = 'merged') = (kept IS NOT NULL)),
+    CHECK ((status = 'merged') = (change_batch_id IS NOT NULL))
+) STRICT
+
+#### table fx_rate on fx_rate
+CREATE TABLE fx_rate (
+    date    TEXT    NOT NULL CHECK (date IS date(date)),
+    base    TEXT    NOT NULL CHECK (base GLOB '[A-Z][A-Z][A-Z]'),
+    quote   TEXT    NOT NULL CHECK (quote GLOB '[A-Z][A-Z][A-Z]'),
+    rate_e9 INTEGER NOT NULL CHECK (rate_e9 > 0),
+    source  TEXT    NOT NULL CHECK (source IN ('ecb', 'manual')),
+
+    PRIMARY KEY (date, base, quote, source),
+    CHECK (base <> quote)
+) STRICT, WITHOUT ROWID
+
+#### table import_batch on import_batch
+CREATE TABLE import_batch (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id  INTEGER NOT NULL REFERENCES account (id),
+    -- The file's name, without its directory (which can contain the user's
+    -- name).
+    source_file TEXT    NOT NULL CHECK (source_file <> ''),
+    -- QFX is OFX. Every planned format is listed, so adding an importer
+    -- doesn't mean rebuilding this table.
+    format      TEXT    NOT NULL CHECK (format IN ('csv', 'ofx', 'qif', 'camt053', 'mt940')),
+    preset_id   TEXT    CHECK (preset_id <> ''),
+    imported_at TEXT    NOT NULL
+                        DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                        CHECK (imported_at IS strftime('%Y-%m-%dT%H:%M:%fZ', imported_at)),
+    status      TEXT    NOT NULL DEFAULT 'committed' CHECK (status IN ('committed', 'undone'))
+) STRICT
+
+#### table import_flag on import_flag
+CREATE TABLE import_flag (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id      INTEGER NOT NULL REFERENCES import_batch (id),
+    -- `SourceLocation`: a 1-based line in a text file, or entry in a
+    -- structured one.
+    location_kind TEXT    NOT NULL CHECK (location_kind IN ('line', 'entry')),
+    location      INTEGER NOT NULL CHECK (location >= 1),
+    kind          TEXT    NOT NULL CHECK (kind IN (
+                              'unreadable', 'source_id_conflict', 'locked',
+                              'running_balance')),
+    detail        TEXT    NOT NULL CHECK (trim(detail) <> '')
+) STRICT
+
+#### table mcp_access_log on mcp_access_log
+CREATE TABLE "mcp_access_log" (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    at                 TEXT    NOT NULL
+                               DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                               CHECK (at IS strftime('%Y-%m-%dT%H:%M:%fZ', at)),
+    client             TEXT    NOT NULL
+                               CHECK (length(client) BETWEEN 1 AND 64
+                                      AND client NOT GLOB '*[^A-Za-z0-9._-]*'),
+    -- A registered tool's name. A name the server doesn't know isn't logged.
+    tool               TEXT    NOT NULL
+                               CHECK (length(tool) BETWEEN 1 AND 64
+                                      AND tool NOT GLOB '*[^a-z0-9_]*'),
+    access_level       TEXT    CHECK (access_level IN ('aggregate', 'pseudonymous', 'standard')),
+    outcome            TEXT    NOT NULL
+                               CHECK (outcome IN ('ok', 'refused_off', 'refused_not_enabled',
+                                                  'refused_level', 'refused_restoring',
+                                                  'refused_unavailable', 'error')),
+    purpose            TEXT,
+    args_redacted_json TEXT    NOT NULL DEFAULT '{}' CHECK (json_valid(args_redacted_json)),
+    row_count          INTEGER NOT NULL DEFAULT 0 CHECK (row_count >= 0),
+    result_hash        TEXT    CHECK (result_hash <> ''),
+    withheld_count     INTEGER NOT NULL DEFAULT 0 CHECK (withheld_count >= 0),
+    pending_id         TEXT    UNIQUE CHECK (length(pending_id) BETWEEN 1 AND 200),
+    summarised_calls   INTEGER CHECK (summarised_calls >= 1),
+
+    -- A refused or failed call returned nothing.
+    CHECK (outcome = 'ok' OR (row_count = 0 AND result_hash IS NULL AND withheld_count = 0)),
+    -- Only refusals the server couldn't log at once are summarised, and
+    -- only from the pending file.
+    CHECK (summarised_calls IS NULL
+           OR (outcome IN ('refused_restoring', 'refused_unavailable')
+               AND pending_id IS NOT NULL))
+) STRICT
+
+#### table mcp_client on mcp_client
+CREATE TABLE mcp_client (
+    name         TEXT    PRIMARY KEY
+                         CHECK (length(name) BETWEEN 1 AND 64
+                                AND name NOT GLOB '*[^A-Za-z0-9._-]*'
+                                AND lower(name) <> 'orre'),
+    enabled      INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    access_level TEXT    NOT NULL DEFAULT 'aggregate'
+                         CHECK (access_level IN ('aggregate', 'pseudonymous', 'standard')),
+    status       TEXT    NOT NULL DEFAULT 'requested'
+                         CHECK (status IN ('requested', 'known', 'ignored')),
+    created_at   TEXT    NOT NULL
+                         DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                         CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+    last_seen_at TEXT    CHECK (last_seen_at IS strftime('%Y-%m-%dT%H:%M:%fZ', last_seen_at)),
+
+    -- Only a client the user has answered is enabled: a request is
+    -- answered by enabling (`known`) or ignoring it.
+    CHECK (enabled = 0 OR status = 'known')
+) STRICT
+
+#### table merchant_alias on merchant_alias
+CREATE TABLE merchant_alias (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_kind   TEXT    NOT NULL CHECK (match_kind IN ('exact', 'prefix', 'regex')),
+    -- User (or, through an approved suggestion, agent) text; a `regex`
+    -- pattern is validated in core like a rule's.
+    pattern      TEXT    NOT NULL CHECK (trim(pattern) <> ''),
+    display_name TEXT    NOT NULL CHECK (trim(display_name) <> ''
+                                         AND display_name = trim(display_name)),
+    created_at   TEXT    NOT NULL
+                         DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                         CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at))
+) STRICT
+
+#### table recurring_dismissal on recurring_dismissal
+CREATE TABLE recurring_dismissal (
+    series_key   TEXT PRIMARY KEY CHECK (series_key <> ''),
+    dismissed_at TEXT NOT NULL
+                      DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                      CHECK (dismissed_at IS strftime('%Y-%m-%dT%H:%M:%fZ', dismissed_at))
+) STRICT
+
+#### table refinery_schema_history on refinery_schema_history
+CREATE TABLE refinery_schema_history(
+             version int4 PRIMARY KEY,
+             name VARCHAR(255),
+             applied_on VARCHAR(255),
+             checksum VARCHAR(255))
+
+#### table report on report
+CREATE TABLE report (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    period        TEXT    NOT NULL CHECK (trim(period) <> ''),
+    title         TEXT    NOT NULL CHECK (trim(title) <> ''),
+    body_markdown TEXT    NOT NULL,
+    source_client TEXT    NOT NULL CHECK (source_client <> ''),
+    created_at    TEXT    NOT NULL
+                          DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                          CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at))
+, access_level TEXT
+    CHECK (access_level IN ('aggregate', 'pseudonymous', 'standard'))) STRICT
+
+#### table rule on rule
+CREATE TABLE rule (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Not unique: moving a rule renumbers others, and SQLite checks
+    -- uniqueness row by row during an UPDATE.
+    priority    INTEGER NOT NULL,
+    match_field TEXT    NOT NULL CHECK (match_field IN (
+                            'merchant', 'description', 'source_category', 'source_type')),
+    match_kind  TEXT    NOT NULL CHECK (match_kind IN ('is', 'starts_with', 'contains', 'regex')),
+    pattern     TEXT    NOT NULL CHECK (pattern <> ''),
+    -- Amount conditions in the account's minor units; NULL means no bound.
+    amount_min  INTEGER,
+    amount_max  INTEGER,
+    account_id  INTEGER REFERENCES account (id),
+    created_at  TEXT    NOT NULL
+                        DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                        CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)), origin TEXT
+    CHECK (origin IS NULL OR origin IN ('new', 'edit', 'inbox')),
+
+    CHECK (amount_min IS NULL OR amount_max IS NULL OR amount_min <= amount_max)
+) STRICT
+
+#### table rule_action on rule_action
+CREATE TABLE rule_action (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id    INTEGER NOT NULL REFERENCES rule (id),
+    kind       TEXT    NOT NULL CHECK (kind IN (
+                           'set_category', 'set_merchant', 'add_tag', 'set_note', 'exclude',
+                           'split_template', 'my_share')),
+    value_json TEXT    NOT NULL CHECK (json_valid(value_json)),
+
+    UNIQUE (rule_id, kind)
+) STRICT
+
+#### table rule_prompt_dismissed on rule_prompt_dismissed
+CREATE TABLE rule_prompt_dismissed (
+    match_field  TEXT NOT NULL CHECK (match_field IN (
+                          'merchant', 'description', 'source_category', 'source_type')),
+    pattern      TEXT NOT NULL CHECK (pattern <> ''),
+    dismissed_at TEXT NOT NULL
+                      DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                      CHECK (dismissed_at IS strftime('%Y-%m-%dT%H:%M:%fZ', dismissed_at)),
+
+    PRIMARY KEY (match_field, pattern)
+) STRICT, WITHOUT ROWID
+
+#### table schedule on schedule
+CREATE TABLE schedule (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id       INTEGER NOT NULL REFERENCES account (id),
+    -- The name payments are matched by, compared after normalising
+    -- (`recurring::normalize_merchant`).
+    merchant_display TEXT    NOT NULL CHECK (trim(merchant_display) <> ''),
+    category_id      INTEGER REFERENCES category (id),
+    cadence          TEXT    NOT NULL CHECK (cadence IN (
+                         'weekly', 'fortnightly', 'four_weekly', 'monthly', 'quarterly', 'yearly')),
+    -- The first occurrence the schedule tracks, and its anchor.
+    start_date       TEXT    NOT NULL CHECK (start_date IS date(start_date)),
+    -- Signed: negative is money out. In the account's currency.
+    amount_minor     INTEGER NOT NULL CHECK (amount_minor <> 0),
+    currency         TEXT    NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+    -- How far a payment may be from `amount_minor` and still match.
+    tolerance_minor  INTEGER NOT NULL DEFAULT 0 CHECK (tolerance_minor >= 0),
+    -- How many days a payment may be from an occurrence's date and still be
+    -- on time. Core keeps it under half the cadence.
+    tolerance_days   INTEGER NOT NULL CHECK (tolerance_days BETWEEN 0 AND 181),
+    status           TEXT    NOT NULL DEFAULT 'active'
+                             CHECK (status IN ('active', 'paused', 'ended')),
+    -- The detected series it was confirmed from, if any.
+    series_key       TEXT    CHECK (series_key <> ''),
+    created_at       TEXT    NOT NULL
+                             DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                             CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at))
+) STRICT
+
+#### table schedule_match on schedule_match
+CREATE TABLE schedule_match (
+    schedule_id     INTEGER NOT NULL REFERENCES schedule (id),
+    occurrence_date TEXT    NOT NULL CHECK (occurrence_date IS date(occurrence_date)),
+    -- A transaction fulfils at most one occurrence of any schedule.
+    transaction_id  INTEGER NOT NULL UNIQUE REFERENCES "transaction" (id),
+    matched_by      TEXT    NOT NULL CHECK (matched_by IN ('auto', 'user')),
+    matched_at      TEXT    NOT NULL
+                            DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                            CHECK (matched_at IS strftime('%Y-%m-%dT%H:%M:%fZ', matched_at)),
+
+    -- Also the index for the `schedule_id` foreign key.
+    PRIMARY KEY (schedule_id, occurrence_date)
+) STRICT
+
+#### table schedule_skip on schedule_skip
+CREATE TABLE schedule_skip (
+    schedule_id     INTEGER NOT NULL REFERENCES schedule (id),
+    occurrence_date TEXT    NOT NULL CHECK (occurrence_date IS date(occurrence_date)),
+    skipped_at      TEXT    NOT NULL
+                            DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                            CHECK (skipped_at IS strftime('%Y-%m-%dT%H:%M:%fZ', skipped_at)),
+
+    -- Also the index for the `schedule_id` foreign key.
+    PRIMARY KEY (schedule_id, occurrence_date)
+) STRICT
+
+#### table setting on setting
+CREATE TABLE setting (
+    key   TEXT PRIMARY KEY
+               CHECK (length(key) BETWEEN 1 AND 64 AND key NOT GLOB '*[^a-z0-9_.]*'),
+    value TEXT NOT NULL
+) STRICT, WITHOUT ROWID
+
+#### table sqlite_sequence on sqlite_sequence
+CREATE TABLE sqlite_sequence(name,seq)
+
+#### table suggestion on suggestion
+CREATE TABLE suggestion (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind          TEXT    NOT NULL CHECK (kind IN (
+                              'categorization', 'rule', 'transfer_pair', 'merchant_alias',
+                              'refund_link')),
+    payload_json  TEXT    NOT NULL CHECK (json_valid(payload_json)),
+    rationale     TEXT,
+    source_client TEXT    NOT NULL CHECK (source_client <> ''),
+    created_at    TEXT    NOT NULL
+                          DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                          CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+    status        TEXT    NOT NULL DEFAULT 'pending'
+                          CHECK (status IN ('pending', 'approved', 'rejected'))
+, decided_at TEXT
+    CHECK (decided_at IS strftime('%Y-%m-%dT%H:%M:%fZ', decided_at)), decision_reason TEXT
+    CHECK (decision_reason IS NULL
+           OR (trim(decision_reason) <> '' AND length(decision_reason) <= 500)), change_batch_id INTEGER REFERENCES change_batch (id), applied_json TEXT
+    CHECK (applied_json IS NULL OR json_valid(applied_json))) STRICT
+
+#### table tag on tag
+CREATE TABLE tag (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    name    TEXT    NOT NULL COLLATE NOCASE
+                    CHECK (name <> ''
+                           AND name = trim(name, ' ' || char(9, 10, 11, 12, 13))
+                           AND length(name) <= 64),
+    -- A private tag never leaves the app: not over MCP at any access level,
+    -- and not in exports.
+    private INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1))
+) STRICT
+
+#### table transaction on transaction
+CREATE TABLE "transaction" (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id             INTEGER NOT NULL REFERENCES account (id),
+    batch_id               INTEGER REFERENCES import_batch (id),
+
+    -- Source fields, as imported.
+    date                   TEXT    NOT NULL CHECK (date IS date(date)),
+    -- `24:00:00` round-trips through time() but isn't a time of day.
+    time                   TEXT    CHECK (time IS time(time) AND time < '24:00:00'),
+    amount_minor           INTEGER NOT NULL,
+    currency               TEXT    NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+    -- The bank's merchant name, when the export has one (Monzo's "Name").
+    merchant               TEXT,
+    description_raw        TEXT    NOT NULL,
+    -- `description_raw` with whitespace collapsed and uppercased.
+    description_normalized TEXT    NOT NULL,
+    -- The file's own ID for the row (OFX `FITID`, a CSV ID column).
+    external_id            TEXT    CHECK (external_id <> ''),
+    -- Dedupe key when there's no external ID: account, date, amount,
+    -- normalized description and occurrence index. Required for imported
+    -- rows; manual rows have neither key.
+    fingerprint            TEXT    CHECK (fingerprint <> ''),
+    source_category        TEXT,
+    source_type            TEXT,
+    -- The amount in the currency spent, when it differs (card abroad).
+    original_amount_minor  INTEGER,
+    original_currency      TEXT    CHECK (original_currency GLOB '[A-Z][A-Z][A-Z]'),
+    -- The note from the bank export; read-only.
+    note                   TEXT,
+    origin                 TEXT    NOT NULL CHECK (origin IN ('imported', 'mirrored', 'manual')),
+    created_at             TEXT    NOT NULL
+                                   DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                                   CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+
+    -- User-facing fields.
+    -- Derived: cleaned bank text, then merchant aliases, then rule actions.
+    merchant_display       TEXT,
+    -- NULL when uncategorised or split.
+    category_id            INTEGER REFERENCES category (id),
+    category_source        TEXT    CHECK (category_source IN (
+                                       'rule', 'preset_map', 'user', 'ai_approved')),
+    -- The rule that set the category. Cleared when the rule is deleted;
+    -- `category_source` stays `rule`.
+    rule_id                INTEGER REFERENCES rule (id),
+    transfer_group_id      INTEGER REFERENCES transfer_group (id),
+    user_note              TEXT,
+    -- The user's part of the amount, same sign; NULL means all of it.
+    my_share_minor         INTEGER,
+    -- A local label for who shares the cost; never leaves the app.
+    share_label            TEXT    CHECK (share_label <> ''),
+    reimbursable           INTEGER NOT NULL DEFAULT 0 CHECK (reimbursable IN (0, 1)),
+    -- Excluded rows leave spending, income, budgets and reports;
+    -- `duplicate` and `superseded` also leave the computed balance.
+    excluded_reason        TEXT    CHECK (excluded_reason IN (
+                                       'duplicate', 'bank_error', 'disputed', 'other',
+                                       'superseded')),
+    excluded_note          TEXT,
+    excluded_at            TEXT    CHECK (excluded_at IS strftime('%Y-%m-%dT%H:%M:%fZ', excluded_at)),
+    -- Who set `merchant_display` (V7): NULL when derived.
+    merchant_display_source TEXT
+    CHECK (merchant_display_source IS NULL
+           OR (merchant_display_source IN ('rule', 'user')
+               AND coalesce(trim(merchant_display), '') <> '')),
+    -- The row that replaced this one: the bank's correction, imported with
+    -- the same source ID. Deferred: the import sets it just before it
+    -- inserts that row.
+    superseded_by          INTEGER REFERENCES "transaction" (id) DEFERRABLE INITIALLY DEFERRED,
+
+    CHECK ((original_amount_minor IS NULL) = (original_currency IS NULL)),
+    -- Manual rows have no batch; imported and mirrored rows always do.
+    CHECK ((origin = 'manual') = (batch_id IS NULL)),
+    CHECK (origin <> 'imported' OR fingerprint IS NOT NULL),
+    -- Manual rows aren't deduplicated. Without keys, an edit to one can't
+    -- collide with (and so REPLACE) another row.
+    CHECK (origin <> 'manual' OR (external_id IS NULL AND fingerprint IS NULL)),
+    CHECK ((category_id IS NULL) = (category_source IS NULL)),
+    CHECK (my_share_minor IS NULL
+           OR (amount_minor >= 0 AND my_share_minor BETWEEN 0 AND amount_minor)
+           OR (amount_minor < 0 AND my_share_minor BETWEEN amount_minor AND 0)),
+    -- The exclusion fields are set and cleared together, and `other` needs
+    -- a note.
+    CHECK ((excluded_reason IS NULL) = (excluded_at IS NULL)),
+    CHECK (excluded_reason IS NOT NULL OR excluded_note IS NULL),
+    CHECK (excluded_reason IS NOT 'other' OR coalesce(trim(excluded_note), '') <> ''),
+    -- A superseded row names the row that replaced it, and only a row with
+    -- a source ID is superseded (by another row, with that ID).
+    CHECK ((excluded_reason IS 'superseded') = (superseded_by IS NOT NULL)),
+    CHECK (superseded_by IS NULL OR (external_id IS NOT NULL AND superseded_by <> id))
+) STRICT
+
+#### table transaction_link on transaction_link
+CREATE TABLE transaction_link (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind         TEXT    NOT NULL CHECK (kind IN ('refund', 'reimbursement', 'settlement')),
+    -- The money in.
+    inflow_id    INTEGER NOT NULL REFERENCES "transaction" (id),
+    -- The purchase a refund or reimbursement pays back; NULL for a
+    -- settlement.
+    target_id    INTEGER REFERENCES "transaction" (id),
+    -- The person a settlement pays back; NULL otherwise. A local label that
+    -- never leaves the app, like `"transaction".share_label`.
+    share_label  TEXT    CHECK (share_label <> ''),
+    -- How much of the inflow goes to the target, in their one currency:
+    -- positive, at most what the inflow and the target can still take
+    -- (triggers below). The rest of the inflow stays unlinked and counts by
+    -- its own category.
+    amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+    status       TEXT    NOT NULL DEFAULT 'suggested'
+                         CHECK (status IN ('suggested', 'confirmed', 'rejected')),
+    created_at   TEXT    NOT NULL
+                         DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                         CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at)),
+
+    CHECK ((kind = 'settlement') = (target_id IS NULL)),
+    CHECK ((kind = 'settlement') = (share_label IS NOT NULL)),
+    CHECK (inflow_id IS NOT target_id)
+) STRICT
+
+#### table transaction_split on transaction_split
+CREATE TABLE transaction_split (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id INTEGER NOT NULL REFERENCES "transaction" (id),
+    -- The line's place in the split, from 1.
+    line_no        INTEGER NOT NULL CHECK (line_no >= 1),
+    -- In the parent's currency; not zero, and the parent's sign (trigger
+    -- below).
+    amount_minor   INTEGER NOT NULL CHECK (amount_minor <> 0),
+    -- NULL leaves the line uncategorised.
+    category_id    INTEGER REFERENCES category (id),
+    -- The user's part of the line, same sign; NULL means all of it. Like
+    -- `"transaction".my_share_minor`.
+    my_share_minor INTEGER,
+    -- A local label for who shares the cost; never leaves the app.
+    share_label    TEXT    CHECK (share_label <> ''),
+    -- The user's note on this line; not sent over MCP.
+    user_note      TEXT,
+
+    -- Also the index for the `transaction_id` foreign key.
+    UNIQUE (transaction_id, line_no),
+    CHECK (my_share_minor IS NULL
+           OR (amount_minor >= 0 AND my_share_minor BETWEEN 0 AND amount_minor)
+           OR (amount_minor < 0 AND my_share_minor BETWEEN amount_minor AND 0))
+) STRICT
+
+#### table transaction_tag on transaction_tag
+CREATE TABLE transaction_tag (
+    transaction_id INTEGER NOT NULL REFERENCES "transaction" (id),
+    tag_id         INTEGER NOT NULL REFERENCES tag (id),
+
+    PRIMARY KEY (transaction_id, tag_id)
+) STRICT, WITHOUT ROWID
+
+#### table transaction_text on transaction_text
+CREATE VIRTUAL TABLE transaction_text USING fts5 (
+    merchant_display,
+    merchant,
+    description_raw,
+    content = 'transaction',
+    content_rowid = 'id',
+    tokenize = 'trigram case_sensitive 0'
+)
+
+#### table transaction_text_config on transaction_text_config
+CREATE TABLE 'transaction_text_config'(k PRIMARY KEY, v) WITHOUT ROWID
+
+#### table transaction_text_data on transaction_text_data
+CREATE TABLE 'transaction_text_data'(id INTEGER PRIMARY KEY, block BLOB)
+
+#### table transaction_text_docsize on transaction_text_docsize
+CREATE TABLE 'transaction_text_docsize'(id INTEGER PRIMARY KEY, sz BLOB)
+
+#### table transaction_text_idx on transaction_text_idx
+CREATE TABLE 'transaction_text_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID
+
+#### table transfer_group on transfer_group
+CREATE TABLE transfer_group (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    status     TEXT    NOT NULL CHECK (status IN ('suggested', 'confirmed', 'rejected')),
+    created_at TEXT    NOT NULL
+                       DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                       CHECK (created_at IS strftime('%Y-%m-%dT%H:%M:%fZ', created_at))
+) STRICT
+
+#### trigger account_kind_and_currency on account
+CREATE TRIGGER account_kind_and_currency
+BEFORE UPDATE OF kind, currency ON account
+BEGIN
+    SELECT RAISE(ABORT, 'an account''s currency can''t change once it has transactions, balances, pots or rules with amounts')
+    WHERE NEW.currency IS NOT OLD.currency
+      AND (EXISTS (SELECT 1 FROM "transaction" WHERE account_id = OLD.id)
+           OR EXISTS (SELECT 1 FROM balance_snapshot WHERE account_id = OLD.id)
+           OR EXISTS (SELECT 1 FROM account WHERE parent_id = OLD.id)
+           OR EXISTS (SELECT 1 FROM rule
+                      WHERE account_id = OLD.id
+                        AND (amount_min IS NOT NULL OR amount_max IS NOT NULL)));
+    SELECT RAISE(ABORT, 'an account with transactions can''t become an asset or liability')
+    WHERE NEW.kind IN ('asset', 'liability')
+      AND EXISTS (SELECT 1 FROM "transaction" WHERE account_id = OLD.id);
+    SELECT RAISE(ABORT, 'an account with balances can''t move in or out of asset and liability')
+    WHERE (NEW.kind IN ('asset', 'liability')) <> (OLD.kind IN ('asset', 'liability'))
+      AND EXISTS (SELECT 1 FROM balance_snapshot WHERE account_id = OLD.id);
+    SELECT RAISE(ABORT, 'an account with pots must stay a current or savings account')
+    WHERE NEW.kind NOT IN ('current', 'savings')
+      AND EXISTS (SELECT 1 FROM account WHERE parent_id = OLD.id);
+END
+
+#### trigger account_pot_insert on account
+CREATE TRIGGER account_pot_insert
+BEFORE INSERT ON account
+WHEN NEW.parent_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'a pot belongs to a current or savings account')
+    FROM account WHERE id = NEW.parent_id AND kind NOT IN ('current', 'savings');
+    SELECT RAISE(ABORT, 'a pot is in its parent''s currency')
+    FROM account WHERE id = NEW.parent_id AND currency IS NOT NEW.currency;
+END
+
+#### trigger account_pot_parent on account
+CREATE TRIGGER account_pot_parent
+BEFORE UPDATE OF parent_id ON account
+WHEN OLD.parent_id IS NOT NULL AND NEW.parent_id IS NOT OLD.parent_id
+BEGIN
+    SELECT RAISE(ABORT, 'a pot with transactions or balances can''t change parent')
+    WHERE EXISTS (SELECT 1 FROM "transaction" WHERE account_id = OLD.id)
+       OR EXISTS (SELECT 1 FROM balance_snapshot WHERE account_id = OLD.id);
+END
+
+#### trigger account_pot_update on account
+CREATE TRIGGER account_pot_update
+BEFORE UPDATE OF parent_id, kind, currency ON account
+WHEN NEW.parent_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'a pot belongs to a current or savings account')
+    FROM account WHERE id = NEW.parent_id AND kind NOT IN ('current', 'savings');
+    SELECT RAISE(ABORT, 'a pot is in its parent''s currency')
+    FROM account WHERE id = NEW.parent_id AND currency IS NOT NEW.currency;
+END
+
+#### trigger account_sub_account_key_read_only on account
+CREATE TRIGGER account_sub_account_key_read_only
+BEFORE UPDATE OF sub_account_key ON account
+WHEN OLD.sub_account_key IS NOT NULL AND NEW.sub_account_key IS NOT OLD.sub_account_key
+BEGIN
+    SELECT RAISE(ABORT, 'a pot''s sub-account key can''t change');
+END
+
+#### trigger balance_snapshot_insert on balance_snapshot
+CREATE TRIGGER balance_snapshot_insert
+BEFORE INSERT ON balance_snapshot
+BEGIN
+    SELECT RAISE(ABORT, 'an undone import batch takes no balances')
+    FROM import_batch WHERE id = NEW.batch_id AND status = 'undone';
+    SELECT RAISE(ABORT, 'valuations are for asset and liability accounts, which have nothing else')
+    FROM account
+    WHERE id = NEW.account_id
+      AND (kind IN ('asset', 'liability')) <> (NEW.source = 'valuation');
+    SELECT RAISE(ABORT, 'a balance from a file belongs to its batch''s account or a pot of it')
+    FROM import_batch
+    WHERE id = NEW.batch_id
+      AND account_id IS NOT NEW.account_id
+      AND account_id IS NOT (SELECT parent_id FROM account WHERE id = NEW.account_id);
+END
+
+#### trigger balance_snapshot_update on balance_snapshot
+CREATE TRIGGER balance_snapshot_update
+BEFORE UPDATE OF account_id, batch_id, source ON balance_snapshot
+BEGIN
+    SELECT RAISE(ABORT, 'an undone import batch takes no balances')
+    FROM import_batch WHERE id = NEW.batch_id AND status = 'undone';
+    SELECT RAISE(ABORT, 'valuations are for asset and liability accounts, which have nothing else')
+    FROM account
+    WHERE id = NEW.account_id
+      AND (kind IN ('asset', 'liability')) <> (NEW.source = 'valuation');
+    SELECT RAISE(ABORT, 'a balance from a file belongs to its batch''s account or a pot of it')
+    FROM import_batch
+    WHERE id = NEW.batch_id
+      AND account_id IS NOT NEW.account_id
+      AND account_id IS NOT (SELECT parent_id FROM account WHERE id = NEW.account_id);
+END
+
+#### trigger category_key_insert on category
+CREATE TRIGGER category_key_insert
+BEFORE INSERT ON category
+BEGIN
+    SELECT RAISE(ABORT, 'a top-level category has a one-part key')
+    WHERE NEW.parent_id IS NULL AND instr(NEW.key, '.') > 0;
+    SELECT RAISE(ABORT, 'categories have two levels: the parent is itself a subcategory')
+    FROM category WHERE id = NEW.parent_id AND parent_id IS NOT NULL;
+    SELECT RAISE(ABORT, 'a subcategory''s key is its parent''s key, a dot and one part')
+    FROM category
+    WHERE id = NEW.parent_id
+      AND substr(NEW.key, 1, length(key) + 1) IS NOT key || '.';
+END
+
+#### trigger category_key_retire on category
+CREATE TRIGGER category_key_retire
+AFTER DELETE ON category
+BEGIN
+    INSERT OR IGNORE INTO category_key_retired (key) VALUES (OLD.key);
+END
+
+#### trigger category_kind_insert on category
+CREATE TRIGGER category_kind_insert
+BEFORE INSERT ON category
+WHEN NEW.parent_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'a subcategory has its parent''s kind')
+    FROM category WHERE id = NEW.parent_id AND kind IS NOT NEW.kind;
+END
+
+#### trigger category_kind_read_only on category
+CREATE TRIGGER category_kind_read_only
+BEFORE UPDATE ON category
+WHEN NEW.kind IS NOT OLD.kind
+BEGIN
+    SELECT RAISE(ABORT, 'a category''s kind is read-only');
+END
+
+#### trigger category_read_only on category
+CREATE TRIGGER category_read_only
+BEFORE UPDATE ON category
+WHEN NEW.id IS NOT OLD.id
+  OR NEW.parent_id IS NOT OLD.parent_id
+  OR NEW.key IS NOT OLD.key
+BEGIN
+    SELECT RAISE(ABORT, 'a category''s key and parent are read-only');
+END
+
+#### trigger change_batch_read_only on change_batch
+CREATE TRIGGER change_batch_read_only
+BEFORE UPDATE ON change_batch
+BEGIN
+    SELECT RAISE(ABORT, 'a change batch''s kind and date are read-only')
+    WHERE NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind
+       OR NEW.created_at IS NOT OLD.created_at;
+    SELECT RAISE(ABORT, 'an undone change batch stays undone')
+    WHERE OLD.status = 'undone';
+END
+
+#### trigger change_item_insert on change_item
+CREATE TRIGGER change_item_insert
+BEFORE INSERT ON change_item
+BEGIN
+    SELECT RAISE(ABORT, 'an undone change batch takes no items')
+    FROM change_batch WHERE id = NEW.batch_id AND status = 'undone';
+END
+
+#### trigger change_item_read_only on change_item
+CREATE TRIGGER change_item_read_only
+BEFORE UPDATE ON change_item
+BEGIN
+    SELECT RAISE(ABORT, 'a change item is read-only');
+END
+
+#### trigger duplicate_candidate_insert on duplicate_candidate
+CREATE TRIGGER duplicate_candidate_insert
+BEFORE INSERT ON duplicate_candidate
+BEGIN
+    SELECT RAISE(ABORT, 'a duplicate candidate''s rows are on one account')
+    FROM "transaction" a, "transaction" b
+    WHERE a.id = NEW.transaction_a AND b.id = NEW.transaction_b
+      AND a.account_id IS NOT b.account_id;
+    SELECT RAISE(ABORT, 'a new duplicate candidate is pending')
+    WHERE NEW.status IS NOT 'pending';
+    SELECT RAISE(ABORT, 'a duplicate candidate is merged by a duplicate_merge batch')
+    FROM change_batch
+    WHERE id = NEW.change_batch_id AND kind <> 'duplicate_merge';
+END
+
+#### trigger duplicate_candidate_update on duplicate_candidate
+CREATE TRIGGER duplicate_candidate_update
+BEFORE UPDATE ON duplicate_candidate
+BEGIN
+    SELECT RAISE(ABORT, 'a duplicate candidate''s pair, reason and date are read-only')
+    WHERE NEW.id IS NOT OLD.id
+       OR NEW.transaction_a IS NOT OLD.transaction_a
+       OR NEW.transaction_b IS NOT OLD.transaction_b
+       OR NEW.reason IS NOT OLD.reason
+       OR NEW.created_at IS NOT OLD.created_at;
+    SELECT RAISE(ABORT, 'only a pending duplicate candidate is merged or dismissed')
+    WHERE NEW.status IN ('merged', 'dismissed') AND OLD.status IS NOT 'pending';
+    SELECT RAISE(ABORT, 'a duplicate candidate is merged by a duplicate_merge batch')
+    FROM change_batch
+    WHERE id = NEW.change_batch_id AND kind <> 'duplicate_merge';
+END
+
+#### trigger import_batch_read_only on import_batch
+CREATE TRIGGER import_batch_read_only
+BEFORE UPDATE ON import_batch
+WHEN NEW.id IS NOT OLD.id
+  OR NEW.account_id IS NOT OLD.account_id
+  OR NEW.source_file IS NOT OLD.source_file
+  OR NEW.format IS NOT OLD.format
+  OR NEW.preset_id IS NOT OLD.preset_id
+  OR NEW.imported_at IS NOT OLD.imported_at
+BEGIN
+    SELECT RAISE(ABORT, 'an import batch is read-only except for its status');
+END
+
+#### trigger import_batch_status on import_batch
+CREATE TRIGGER import_batch_status
+BEFORE UPDATE OF status ON import_batch
+BEGIN
+    SELECT RAISE(ABORT, 'an undone import batch can''t be committed again')
+    WHERE OLD.status = 'undone' AND NEW.status IS NOT 'undone';
+    SELECT RAISE(ABORT, 'an import batch is undone only once its transactions and balances are deleted')
+    WHERE OLD.status = 'committed' AND NEW.status = 'undone'
+      AND (EXISTS (SELECT 1 FROM "transaction" WHERE batch_id = OLD.id)
+           OR EXISTS (SELECT 1 FROM balance_snapshot WHERE batch_id = OLD.id));
+END
+
+#### trigger import_batch_status_flags on import_batch
+CREATE TRIGGER import_batch_status_flags
+BEFORE UPDATE OF status ON import_batch
+WHEN OLD.status = 'committed' AND NEW.status = 'undone'
+BEGIN
+    SELECT RAISE(ABORT, 'an import batch is undone only once its flags are deleted')
+    WHERE EXISTS (SELECT 1 FROM import_flag WHERE batch_id = OLD.id);
+END
+
+#### trigger import_flag_insert on import_flag
+CREATE TRIGGER import_flag_insert
+BEFORE INSERT ON import_flag
+BEGIN
+    SELECT RAISE(ABORT, 'an undone import batch takes no flags')
+    FROM import_batch WHERE id = NEW.batch_id AND status = 'undone';
+END
+
+#### trigger import_flag_read_only on import_flag
+CREATE TRIGGER import_flag_read_only
+BEFORE UPDATE ON import_flag
+BEGIN
+    SELECT RAISE(ABORT, 'an import flag is read-only');
+END
+
+#### trigger mcp_access_log_read_only on mcp_access_log
+CREATE TRIGGER mcp_access_log_read_only
+BEFORE UPDATE ON mcp_access_log
+BEGIN
+    SELECT RAISE(ABORT, 'an access log row is read-only');
+END
+
+#### trigger rule_account_currency on rule
+CREATE TRIGGER rule_account_currency
+BEFORE UPDATE OF account_id, amount_min, amount_max ON rule
+WHEN (NEW.amount_min IS NOT NULL OR NEW.amount_max IS NOT NULL)
+ AND OLD.account_id IS NOT NULL
+ AND NEW.account_id IS NOT NULL
+ AND NEW.account_id IS NOT OLD.account_id
+ AND (SELECT currency FROM account WHERE id = NEW.account_id)
+     IS NOT (SELECT currency FROM account WHERE id = OLD.account_id)
+BEGIN
+    SELECT RAISE(ABORT, 'a rule with amount bounds can''t move to an account in another currency');
+END
+
+#### trigger schedule_insert on schedule
+CREATE TRIGGER schedule_insert
+BEFORE INSERT ON schedule
+BEGIN
+    SELECT RAISE(ABORT, 'a schedule is in its account''s currency')
+    FROM account WHERE id = NEW.account_id AND currency IS NOT NEW.currency;
+    SELECT RAISE(ABORT, 'asset and liability accounts hold valuations, not schedules')
+    FROM account WHERE id = NEW.account_id AND kind IN ('asset', 'liability');
+END
+
+#### trigger schedule_match_insert on schedule_match
+CREATE TRIGGER schedule_match_insert
+BEFORE INSERT ON schedule_match
+BEGIN
+    SELECT RAISE(ABORT, 'a schedule matches transactions on its own account')
+    FROM schedule s, "transaction" t
+    WHERE s.id = NEW.schedule_id AND t.id = NEW.transaction_id
+      AND s.account_id IS NOT t.account_id;
+    SELECT RAISE(ABORT, 'a skipped occurrence isn''t matched')
+    FROM schedule_skip
+    WHERE schedule_id = NEW.schedule_id AND occurrence_date = NEW.occurrence_date;
+END
+
+#### trigger schedule_match_read_only on schedule_match
+CREATE TRIGGER schedule_match_read_only
+BEFORE UPDATE ON schedule_match
+BEGIN
+    SELECT RAISE(ABORT, 'a schedule match is read-only');
+END
+
+#### trigger schedule_skip_insert on schedule_skip
+CREATE TRIGGER schedule_skip_insert
+BEFORE INSERT ON schedule_skip
+BEGIN
+    SELECT RAISE(ABORT, 'a matched occurrence isn''t skipped')
+    FROM schedule_match
+    WHERE schedule_id = NEW.schedule_id AND occurrence_date = NEW.occurrence_date;
+END
+
+#### trigger schedule_skip_read_only on schedule_skip
+CREATE TRIGGER schedule_skip_read_only
+BEFORE UPDATE ON schedule_skip
+BEGIN
+    SELECT RAISE(ABORT, 'a schedule skip is read-only');
+END
+
+#### trigger schedule_update on schedule
+CREATE TRIGGER schedule_update
+BEFORE UPDATE ON schedule
+BEGIN
+    SELECT RAISE(ABORT, 'a schedule''s account, cadence, start and currency are read-only')
+    WHERE NEW.id IS NOT OLD.id
+       OR NEW.account_id IS NOT OLD.account_id
+       OR NEW.cadence IS NOT OLD.cadence
+       OR NEW.start_date IS NOT OLD.start_date
+       OR NEW.currency IS NOT OLD.currency
+       OR NEW.series_key IS NOT OLD.series_key
+       OR NEW.created_at IS NOT OLD.created_at;
+    SELECT RAISE(ABORT, 'an ended schedule stays ended')
+    WHERE OLD.status = 'ended' AND NEW.status IS NOT 'ended';
+END
+
+#### trigger suggestion_decision on suggestion
+CREATE TRIGGER suggestion_decision
+BEFORE UPDATE ON suggestion
+BEGIN
+    SELECT RAISE(ABORT, 'a suggestion''s proposal is read-only')
+    WHERE NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind
+       OR NEW.payload_json IS NOT OLD.payload_json OR NEW.rationale IS NOT OLD.rationale
+       OR NEW.source_client IS NOT OLD.source_client OR NEW.created_at IS NOT OLD.created_at;
+    SELECT RAISE(ABORT, 'a decided suggestion stays decided')
+    WHERE OLD.status <> 'pending';
+    SELECT RAISE(ABORT, 'a decided suggestion has a decision time')
+    WHERE (NEW.status = 'pending') = (NEW.decided_at IS NOT NULL);
+    SELECT RAISE(ABORT, 'only a rejection has a reason')
+    WHERE NEW.decision_reason IS NOT NULL AND NEW.status <> 'rejected';
+    SELECT RAISE(ABORT, 'only an approval records what it changed')
+    WHERE (NEW.change_batch_id IS NOT NULL OR NEW.applied_json IS NOT NULL)
+      AND NEW.status <> 'approved';
+END
+
+#### trigger suggestion_insert on suggestion
+CREATE TRIGGER suggestion_insert
+BEFORE INSERT ON suggestion
+BEGIN
+    SELECT RAISE(ABORT, 'a suggestion is filed pending')
+    WHERE NEW.status <> 'pending' OR NEW.decided_at IS NOT NULL
+       OR NEW.decision_reason IS NOT NULL OR NEW.change_batch_id IS NOT NULL
+       OR NEW.applied_json IS NOT NULL;
+END
+
+#### trigger transaction_account_insert on transaction
+CREATE TRIGGER transaction_account_insert
+BEFORE INSERT ON "transaction"
+BEGIN
+    SELECT RAISE(ABORT, 'an undone import batch takes no transactions')
+    FROM import_batch WHERE id = NEW.batch_id AND status = 'undone';
+    SELECT RAISE(ABORT, 'asset and liability accounts hold valuations, not transactions')
+    FROM account WHERE id = NEW.account_id AND kind IN ('asset', 'liability');
+    SELECT RAISE(ABORT, 'a transaction is in its account''s currency')
+    FROM account WHERE id = NEW.account_id AND currency IS NOT NEW.currency;
+    SELECT RAISE(ABORT, 'an imported row belongs to its batch''s account')
+    FROM import_batch
+    WHERE NEW.origin = 'imported' AND id = NEW.batch_id AND account_id IS NOT NEW.account_id;
+    SELECT RAISE(ABORT, 'a mirrored row belongs to a pot of its batch''s account')
+    FROM import_batch
+    WHERE NEW.origin = 'mirrored' AND id = NEW.batch_id
+      AND account_id IS NOT (SELECT parent_id FROM account WHERE id = NEW.account_id);
+END
+
+#### trigger transaction_account_update on transaction
+CREATE TRIGGER transaction_account_update
+BEFORE UPDATE OF account_id, currency ON "transaction"
+BEGIN
+    SELECT RAISE(ABORT, 'asset and liability accounts hold valuations, not transactions')
+    FROM account WHERE id = NEW.account_id AND kind IN ('asset', 'liability');
+    SELECT RAISE(ABORT, 'a transaction is in its account''s currency')
+    FROM account WHERE id = NEW.account_id AND currency IS NOT NEW.currency;
+END
+
+#### trigger transaction_insert_new on transaction
+CREATE TRIGGER transaction_insert_new
+BEFORE INSERT ON "transaction"
+BEGIN
+    SELECT RAISE(ABORT, 'a transaction with this ID already exists')
+    WHERE EXISTS (SELECT 1 FROM "transaction" WHERE id = NEW.id);
+    SELECT RAISE(ABORT, 'a transaction with this source ID already exists on the account')
+    WHERE NEW.external_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM "transaction"
+                  WHERE account_id = NEW.account_id AND external_id = NEW.external_id
+                    AND superseded_by IS NULL);
+    SELECT RAISE(ABORT, 'a transaction with this fingerprint already exists on the account')
+    WHERE NEW.external_id IS NULL AND NEW.fingerprint IS NOT NULL
+      AND EXISTS (SELECT 1 FROM "transaction"
+                  WHERE account_id = NEW.account_id AND external_id IS NULL
+                    AND fingerprint = NEW.fingerprint);
+    SELECT RAISE(ABORT, 'a new transaction isn''t superseded')
+    WHERE NEW.superseded_by IS NOT NULL;
+END
+
+#### trigger transaction_link_amount on transaction
+CREATE TRIGGER transaction_link_amount
+BEFORE UPDATE OF amount_minor, currency ON "transaction"
+WHEN (NEW.amount_minor IS NOT OLD.amount_minor OR NEW.currency IS NOT OLD.currency)
+ AND (EXISTS (SELECT 1 FROM transaction_link WHERE inflow_id = OLD.id AND status <> 'rejected')
+      OR EXISTS (SELECT 1 FROM transaction_link
+                 WHERE target_id = OLD.id AND status <> 'rejected'))
+BEGIN
+    SELECT RAISE(ABORT, 'a linked transaction''s amount and currency can''t change; unlink it first');
+END
+
+#### trigger transaction_link_inflow_share on transaction
+CREATE TRIGGER transaction_link_inflow_share
+BEFORE UPDATE OF my_share_minor, share_label ON "transaction"
+WHEN (NEW.my_share_minor IS NOT NULL OR NEW.share_label IS NOT NULL)
+ AND EXISTS (SELECT 1 FROM transaction_link WHERE inflow_id = OLD.id AND status <> 'rejected')
+BEGIN
+    SELECT RAISE(ABORT, 'a linked inflow has no share of its own');
+END
+
+#### trigger transaction_link_inflow_split on transaction_split
+CREATE TRIGGER transaction_link_inflow_split
+BEFORE INSERT ON transaction_split
+WHEN EXISTS (SELECT 1 FROM transaction_link
+             WHERE inflow_id = NEW.transaction_id AND status <> 'rejected')
+BEGIN
+    SELECT RAISE(ABORT, 'a linked inflow can''t be split');
+END
+
+#### trigger transaction_link_insert on transaction_link
+CREATE TRIGGER transaction_link_insert
+BEFORE INSERT ON transaction_link
+BEGIN
+    SELECT RAISE(ABORT, 'a link''s inflow is money in')
+    FROM "transaction" WHERE id = NEW.inflow_id AND amount_minor <= 0;
+    SELECT RAISE(ABORT, 'a refund or reimbursement pays back money out')
+    FROM "transaction" WHERE id = NEW.target_id AND amount_minor >= 0;
+    SELECT RAISE(ABORT, 'both sides of a link are in one currency')
+    FROM "transaction" r, "transaction" p
+    WHERE r.id = NEW.inflow_id AND p.id = NEW.target_id AND r.currency IS NOT p.currency;
+    SELECT RAISE(ABORT, 'a linked purchase is at most 3037000499 minor units')
+    FROM "transaction" WHERE id = NEW.target_id AND amount_minor < -3037000499;
+    SELECT RAISE(ABORT, 'a link is at most the money in')
+    FROM "transaction" WHERE id = NEW.inflow_id AND NEW.amount_minor > amount_minor;
+    SELECT RAISE(ABORT, 'a link is at most the purchase')
+    FROM "transaction" WHERE id = NEW.target_id AND NEW.amount_minor > -amount_minor;
+    SELECT RAISE(ABORT, 'a reimbursement repays a purchase marked to claim back')
+    FROM "transaction"
+    WHERE NEW.kind = 'reimbursement' AND NEW.status <> 'rejected'
+      AND id = NEW.target_id AND reimbursable = 0;
+    SELECT RAISE(ABORT, 'a linked inflow can''t be split')
+    WHERE NEW.status <> 'rejected'
+      AND EXISTS (SELECT 1 FROM transaction_split WHERE transaction_id = NEW.inflow_id);
+    SELECT RAISE(ABORT, 'a linked inflow has no share of its own')
+    FROM "transaction"
+    WHERE NEW.status <> 'rejected' AND id = NEW.inflow_id
+      AND (my_share_minor IS NOT NULL OR share_label IS NOT NULL);
+    SELECT RAISE(ABORT, 'confirmed links take more than the money in')
+    FROM "transaction" r
+    WHERE NEW.status = 'confirmed' AND r.id = NEW.inflow_id
+      AND NEW.amount_minor + (SELECT coalesce(sum(amount_minor), 0) FROM transaction_link
+                              WHERE inflow_id = NEW.inflow_id AND status = 'confirmed')
+          > r.amount_minor;
+    SELECT RAISE(ABORT, 'confirmed links take more than the purchase')
+    FROM "transaction" p
+    WHERE NEW.status = 'confirmed' AND p.id = NEW.target_id
+      AND NEW.amount_minor + (SELECT coalesce(sum(amount_minor), 0) FROM transaction_link
+                              WHERE target_id = NEW.target_id AND status = 'confirmed')
+          > -p.amount_minor;
+END
+
+#### trigger transaction_link_update on transaction_link
+CREATE TRIGGER transaction_link_update
+BEFORE UPDATE ON transaction_link
+BEGIN
+    SELECT RAISE(ABORT, 'a link''s kind, sides and date are read-only')
+    WHERE NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind
+       OR NEW.inflow_id IS NOT OLD.inflow_id OR NEW.target_id IS NOT OLD.target_id
+       OR NEW.share_label IS NOT OLD.share_label OR NEW.created_at IS NOT OLD.created_at;
+    SELECT RAISE(ABORT, 'a rejected link isn''t suggested again')
+    WHERE OLD.status = 'rejected' AND NEW.status = 'suggested';
+    -- The same checks as on insert, for a link that counts or may.
+    SELECT RAISE(ABORT, 'a link''s inflow is money in')
+    FROM "transaction"
+    WHERE NEW.status <> 'rejected' AND id = NEW.inflow_id AND amount_minor <= 0;
+    SELECT RAISE(ABORT, 'a refund or reimbursement pays back money out')
+    FROM "transaction"
+    WHERE NEW.status <> 'rejected' AND id = NEW.target_id AND amount_minor >= 0;
+    SELECT RAISE(ABORT, 'both sides of a link are in one currency')
+    FROM "transaction" r, "transaction" p
+    WHERE NEW.status <> 'rejected' AND r.id = NEW.inflow_id AND p.id = NEW.target_id
+      AND r.currency IS NOT p.currency;
+    SELECT RAISE(ABORT, 'a linked purchase is at most 3037000499 minor units')
+    FROM "transaction"
+    WHERE NEW.status <> 'rejected' AND id = NEW.target_id AND amount_minor < -3037000499;
+    SELECT RAISE(ABORT, 'a link is at most the money in')
+    FROM "transaction"
+    WHERE NEW.status <> 'rejected' AND id = NEW.inflow_id AND NEW.amount_minor > amount_minor;
+    SELECT RAISE(ABORT, 'a link is at most the purchase')
+    FROM "transaction"
+    WHERE NEW.status <> 'rejected' AND id = NEW.target_id AND NEW.amount_minor > -amount_minor;
+    SELECT RAISE(ABORT, 'a reimbursement repays a purchase marked to claim back')
+    FROM "transaction"
+    WHERE NEW.kind = 'reimbursement' AND NEW.status <> 'rejected'
+      AND id = NEW.target_id AND reimbursable = 0;
+    SELECT RAISE(ABORT, 'a linked inflow can''t be split')
+    WHERE NEW.status <> 'rejected'
+      AND EXISTS (SELECT 1 FROM transaction_split WHERE transaction_id = NEW.inflow_id);
+    SELECT RAISE(ABORT, 'a linked inflow has no share of its own')
+    FROM "transaction"
+    WHERE NEW.status <> 'rejected' AND id = NEW.inflow_id
+      AND (my_share_minor IS NOT NULL OR share_label IS NOT NULL);
+    SELECT RAISE(ABORT, 'confirmed links take more than the money in')
+    FROM "transaction" r
+    WHERE NEW.status = 'confirmed' AND r.id = NEW.inflow_id
+      AND NEW.amount_minor + (SELECT coalesce(sum(amount_minor), 0) FROM transaction_link
+                              WHERE inflow_id = NEW.inflow_id AND status = 'confirmed'
+                                AND id IS NOT OLD.id)
+          > r.amount_minor;
+    SELECT RAISE(ABORT, 'confirmed links take more than the purchase')
+    FROM "transaction" p
+    WHERE NEW.status = 'confirmed' AND p.id = NEW.target_id
+      AND NEW.amount_minor + (SELECT coalesce(sum(amount_minor), 0) FROM transaction_link
+                              WHERE target_id = NEW.target_id AND status = 'confirmed'
+                                AND id IS NOT OLD.id)
+          > -p.amount_minor;
+END
+
+#### trigger transaction_source_fields_read_only on transaction
+CREATE TRIGGER transaction_source_fields_read_only
+BEFORE UPDATE ON "transaction"
+BEGIN
+    SELECT RAISE(ABORT, 'imported source fields are read-only')
+    WHERE NEW.id IS NOT OLD.id
+      OR NEW.origin IS NOT OLD.origin
+      OR NEW.created_at IS NOT OLD.created_at
+      OR (OLD.origin <> 'manual' AND (
+             NEW.account_id IS NOT OLD.account_id
+          OR NEW.batch_id IS NOT OLD.batch_id
+          OR NEW.date IS NOT OLD.date
+          OR NEW.time IS NOT OLD.time
+          OR NEW.amount_minor IS NOT OLD.amount_minor
+          OR NEW.currency IS NOT OLD.currency
+          OR NEW.merchant IS NOT OLD.merchant
+          OR NEW.description_raw IS NOT OLD.description_raw
+          OR NEW.description_normalized IS NOT OLD.description_normalized
+          OR NEW.external_id IS NOT OLD.external_id
+          OR NEW.fingerprint IS NOT OLD.fingerprint
+          OR NEW.source_category IS NOT OLD.source_category
+          OR NEW.source_type IS NOT OLD.source_type
+          OR NEW.original_amount_minor IS NOT OLD.original_amount_minor
+          OR NEW.original_currency IS NOT OLD.original_currency
+          OR NEW.note IS NOT OLD.note));
+    SELECT RAISE(ABORT, 'a row is superseded, or included again, only with its exclusion reason')
+    WHERE NEW.superseded_by IS NOT OLD.superseded_by
+      AND NEW.excluded_reason IS OLD.excluded_reason;
+END
+
+#### trigger transaction_split_insert on transaction_split
+CREATE TRIGGER transaction_split_insert
+BEFORE INSERT ON transaction_split
+BEGIN
+    SELECT RAISE(ABORT, 'a split line has its transaction''s sign')
+    FROM "transaction"
+    WHERE id = NEW.transaction_id
+      AND (amount_minor = 0 OR (amount_minor > 0) <> (NEW.amount_minor > 0));
+    SELECT RAISE(ABORT, 'a split transaction has no category of its own: its lines do')
+    FROM "transaction"
+    WHERE id = NEW.transaction_id AND category_id IS NOT NULL;
+    SELECT RAISE(ABORT, 'a split transaction has no share of its own: its lines do')
+    FROM "transaction"
+    WHERE id = NEW.transaction_id
+      AND (my_share_minor IS NOT NULL OR share_label IS NOT NULL);
+    SELECT RAISE(ABORT, 'a transfer can''t be split')
+    FROM "transaction" t JOIN transfer_group g ON g.id = t.transfer_group_id
+    WHERE t.id = NEW.transaction_id AND g.status <> 'rejected';
+END
+
+#### trigger transaction_split_parent on transaction
+CREATE TRIGGER transaction_split_parent
+BEFORE UPDATE OF category_id, my_share_minor, share_label, amount_minor, currency,
+                 transfer_group_id ON "transaction"
+WHEN EXISTS (SELECT 1 FROM transaction_split WHERE transaction_id = OLD.id)
+BEGIN
+    SELECT RAISE(ABORT, 'a split transaction has no category of its own: its lines do')
+    WHERE NEW.category_id IS NOT NULL;
+    SELECT RAISE(ABORT, 'a split transaction has no share of its own: its lines do')
+    WHERE NEW.my_share_minor IS NOT NULL OR NEW.share_label IS NOT NULL;
+    SELECT RAISE(ABORT, 'a split transaction''s amount and currency can''t change; remove the split first')
+    WHERE NEW.amount_minor IS NOT OLD.amount_minor OR NEW.currency IS NOT OLD.currency;
+    SELECT RAISE(ABORT, 'a transfer can''t be split')
+    FROM transfer_group
+    WHERE NEW.transfer_group_id IS NOT OLD.transfer_group_id
+      AND id = NEW.transfer_group_id AND status <> 'rejected';
+END
+
+#### trigger transaction_split_update on transaction_split
+CREATE TRIGGER transaction_split_update
+BEFORE UPDATE ON transaction_split
+BEGIN
+    SELECT RAISE(ABORT, 'a split line''s ID and transaction are read-only')
+    WHERE NEW.id IS NOT OLD.id OR NEW.transaction_id IS NOT OLD.transaction_id;
+    SELECT RAISE(ABORT, 'a split line has its transaction''s sign')
+    FROM "transaction"
+    WHERE NEW.amount_minor IS NOT OLD.amount_minor
+      AND id = NEW.transaction_id
+      AND (amount_minor > 0) <> (NEW.amount_minor > 0);
+END
+
+#### trigger transaction_superseded_by_insert on transaction
+CREATE TRIGGER transaction_superseded_by_insert
+AFTER INSERT ON "transaction"
+BEGIN
+    SELECT RAISE(ABORT, 'a row is superseded by a row with its account and source ID')
+    FROM "transaction"
+    WHERE superseded_by = NEW.id
+      AND (account_id IS NOT NEW.account_id OR external_id IS NOT NEW.external_id);
+END
+
+#### trigger transaction_superseded_by_update on transaction
+CREATE TRIGGER transaction_superseded_by_update
+BEFORE UPDATE OF superseded_by ON "transaction"
+WHEN NEW.superseded_by IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'a row is superseded by a row with its account and source ID')
+    FROM "transaction"
+    WHERE id = NEW.superseded_by
+      AND (account_id IS NOT NEW.account_id OR external_id IS NOT NEW.external_id);
+END
+
+#### trigger transaction_tag_read_only on transaction_tag
+CREATE TRIGGER transaction_tag_read_only
+BEFORE UPDATE ON transaction_tag
+BEGIN
+    SELECT RAISE(ABORT, 'a tag link is added or removed, never changed');
+END
+
+#### trigger transaction_text_delete on transaction
+CREATE TRIGGER transaction_text_delete AFTER DELETE ON "transaction"
+BEGIN
+    INSERT INTO transaction_text (transaction_text, rowid, merchant_display, merchant,
+                                  description_raw)
+    VALUES ('delete', OLD.id, OLD.merchant_display, OLD.merchant, OLD.description_raw);
+END
+
+#### trigger transaction_text_insert on transaction
+CREATE TRIGGER transaction_text_insert AFTER INSERT ON "transaction"
+BEGIN
+    INSERT INTO transaction_text (rowid, merchant_display, merchant, description_raw)
+    VALUES (NEW.id, NEW.merchant_display, NEW.merchant, NEW.description_raw);
+END
+
+#### trigger transaction_text_update on transaction
+CREATE TRIGGER transaction_text_update
+    AFTER UPDATE OF merchant_display, merchant, description_raw ON "transaction"
+BEGIN
+    INSERT INTO transaction_text (transaction_text, rowid, merchant_display, merchant,
+                                  description_raw)
+    VALUES ('delete', OLD.id, OLD.merchant_display, OLD.merchant, OLD.description_raw);
+    INSERT INTO transaction_text (rowid, merchant_display, merchant, description_raw)
+    VALUES (NEW.id, NEW.merchant_display, NEW.merchant, NEW.description_raw);
+END
+
+#### trigger transfer_group_split on transfer_group
+CREATE TRIGGER transfer_group_split
+BEFORE UPDATE OF status ON transfer_group
+WHEN NEW.status <> 'rejected'
+BEGIN
+    SELECT RAISE(ABORT, 'a transfer can''t be split')
+    WHERE EXISTS (SELECT 1 FROM "transaction" t
+                  JOIN transaction_split s ON s.transaction_id = t.id
+                  WHERE t.transfer_group_id = NEW.id);
+END
+
+#### view ledger_line on ledger_line
+CREATE VIEW ledger_line AS
+WITH
+confirmed AS (
+    SELECT id, kind, inflow_id, target_id, share_label, amount_minor
+    FROM transaction_link
+    WHERE status = 'confirmed'
+),
+inflow_linked AS (
+    SELECT inflow_id, sum(amount_minor) AS linked_minor
+    FROM confirmed
+    GROUP BY inflow_id
+),
+split_part AS (
+    SELECT l.id         AS link_id,
+           s.id         AS split_id,
+           s.amount_minor AS line_minor,
+           s.category_id  AS category_id,
+           s.my_share_minor AS line_share_minor,
+           s.share_label  AS share_label,
+           l.amount_minor * -s.amount_minor / -p.amount_minor
+             + (row_number() OVER (
+                    PARTITION BY l.id
+                    ORDER BY (l.amount_minor * -s.amount_minor) % -p.amount_minor DESC,
+                             s.line_no)
+                <= l.amount_minor
+                   - sum(l.amount_minor * -s.amount_minor / -p.amount_minor)
+                         OVER (PARTITION BY l.id))
+                AS part_minor
+    FROM confirmed l
+    JOIN "transaction" p ON p.id = l.target_id
+    JOIN transaction_split s ON s.transaction_id = p.id
+    WHERE l.kind IN ('refund', 'reimbursement')
+),
+line AS (
+    -- 1. A transaction's own row.
+    SELECT t.id                AS transaction_id,
+           NULL                AS split_id,
+           NULL                AS line_no,
+           t.account_id        AS account_id,
+           t.batch_id          AS batch_id,
+           t.date              AS date,
+           t.amount_minor - coalesce(i.linked_minor, 0) AS amount_minor,
+           t.currency          AS currency,
+           t.category_id       AS category_id,
+           t.my_share_minor    AS my_share_minor,
+           coalesce(t.my_share_minor, t.amount_minor - coalesce(i.linked_minor, 0))
+                               AS my_amount_minor,
+           t.share_label       AS share_label,
+           t.reimbursable      AS reimbursable,
+           t.merchant          AS merchant,
+           t.merchant_display  AS merchant_display,
+           t.excluded_reason   AS excluded_reason,
+           t.transfer_group_id AS transfer_group_id,
+           g.status            AS transfer_status,
+           t.origin            AS origin,
+           NULL                AS link_id,
+           NULL                AS link_kind,
+           NULL                AS target_id,
+           NULL                AS target_split_id,
+           (t.excluded_reason IS NULL AND g.status IS NOT 'confirmed') AS in_reports
+    FROM "transaction" t
+    LEFT JOIN transfer_group g ON g.id = t.transfer_group_id
+    LEFT JOIN inflow_linked i ON i.inflow_id = t.id
+    WHERE NOT EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = t.id)
+    UNION ALL
+    -- 2. Split lines.
+    SELECT t.id,
+           s.id,
+           s.line_no,
+           t.account_id,
+           t.batch_id,
+           t.date,
+           s.amount_minor,
+           t.currency,
+           s.category_id,
+           s.my_share_minor,
+           coalesce(s.my_share_minor, s.amount_minor),
+           s.share_label,
+           t.reimbursable,
+           t.merchant,
+           t.merchant_display,
+           t.excluded_reason,
+           t.transfer_group_id,
+           g.status,
+           t.origin,
+           NULL,
+           NULL,
+           NULL,
+           NULL,
+           (t.excluded_reason IS NULL AND g.status IS NOT 'confirmed')
+    FROM transaction_split s
+    JOIN "transaction" t ON t.id = s.transaction_id
+    LEFT JOIN transfer_group g ON g.id = t.transfer_group_id
+    UNION ALL
+    -- 3. A refund or reimbursement against a purchase without lines.
+    SELECT r.id,
+           NULL,
+           NULL,
+           r.account_id,
+           r.batch_id,
+           r.date,
+           l.amount_minor,
+           r.currency,
+           p.category_id,
+           l.amount_minor * p.my_share_minor / p.amount_minor,
+           coalesce(l.amount_minor * p.my_share_minor / p.amount_minor, l.amount_minor),
+           p.share_label,
+           p.reimbursable,
+           r.merchant,
+           r.merchant_display,
+           r.excluded_reason,
+           r.transfer_group_id,
+           rg.status,
+           r.origin,
+           l.id,
+           l.kind,
+           p.id,
+           NULL,
+           (r.excluded_reason IS NULL AND rg.status IS NOT 'confirmed'
+            AND p.excluded_reason IS NULL AND pg.status IS NOT 'confirmed')
+    FROM confirmed l
+    JOIN "transaction" r ON r.id = l.inflow_id
+    JOIN "transaction" p ON p.id = l.target_id
+    LEFT JOIN transfer_group rg ON rg.id = r.transfer_group_id
+    LEFT JOIN transfer_group pg ON pg.id = p.transfer_group_id
+    WHERE l.kind IN ('refund', 'reimbursement')
+      AND NOT EXISTS (SELECT 1 FROM transaction_split s WHERE s.transaction_id = p.id)
+    UNION ALL
+    -- 4. A refund or reimbursement against a split purchase, per line.
+    SELECT r.id,
+           NULL,
+           NULL,
+           r.account_id,
+           r.batch_id,
+           r.date,
+           sp.part_minor,
+           r.currency,
+           sp.category_id,
+           sp.part_minor * sp.line_share_minor / sp.line_minor,
+           coalesce(sp.part_minor * sp.line_share_minor / sp.line_minor, sp.part_minor),
+           sp.share_label,
+           p.reimbursable,
+           r.merchant,
+           r.merchant_display,
+           r.excluded_reason,
+           r.transfer_group_id,
+           rg.status,
+           r.origin,
+           l.id,
+           l.kind,
+           p.id,
+           sp.split_id,
+           (r.excluded_reason IS NULL AND rg.status IS NOT 'confirmed'
+            AND p.excluded_reason IS NULL AND pg.status IS NOT 'confirmed')
+    FROM split_part sp
+    JOIN confirmed l ON l.id = sp.link_id
+    JOIN "transaction" r ON r.id = l.inflow_id
+    JOIN "transaction" p ON p.id = l.target_id
+    LEFT JOIN transfer_group rg ON rg.id = r.transfer_group_id
+    LEFT JOIN transfer_group pg ON pg.id = p.transfer_group_id
+    WHERE sp.part_minor <> 0
+    UNION ALL
+    -- 5. A settlement.
+    SELECT r.id,
+           NULL,
+           NULL,
+           r.account_id,
+           r.batch_id,
+           r.date,
+           l.amount_minor,
+           r.currency,
+           NULL,
+           0,
+           0,
+           l.share_label,
+           r.reimbursable,
+           r.merchant,
+           r.merchant_display,
+           r.excluded_reason,
+           r.transfer_group_id,
+           rg.status,
+           r.origin,
+           l.id,
+           l.kind,
+           NULL,
+           NULL,
+           (r.excluded_reason IS NULL AND rg.status IS NOT 'confirmed')
+    FROM confirmed l
+    JOIN "transaction" r ON r.id = l.inflow_id
+    LEFT JOIN transfer_group rg ON rg.id = r.transfer_group_id
+    WHERE l.kind = 'settlement'
+)
+SELECT transaction_id,
+       split_id,
+       line_no,
+       account_id,
+       batch_id,
+       date,
+       amount_minor,
+       currency,
+       category_id,
+       my_share_minor,
+       my_amount_minor,
+       share_label,
+       reimbursable,
+       merchant,
+       merchant_display,
+       excluded_reason,
+       transfer_group_id,
+       transfer_status,
+       origin,
+       link_id,
+       link_kind,
+       target_id,
+       target_split_id,
+       in_reports,
+       CASE WHEN in_reports AND reimbursable = 0 THEN my_amount_minor ELSE 0 END
+           AS personal_minor
+FROM line
+

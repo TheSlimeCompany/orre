@@ -393,10 +393,12 @@ async fn a_restored_foreign_backup_leaves_every_client_disabled_with_the_kill_sw
     restore_a_foreign_backup_over(Some(true)).await;
 }
 
-/// If the restored database's clients can't be disabled, the restore fails
-/// and the database it would have replaced stays live.
+/// A backup with triggers that stop its clients being disabled is refused
+/// by the schema check (`backup::schema`), and the database it would have
+/// replaced stays live. (The read-back after disabling them is the second
+/// layer, tested in core.)
 #[tokio::test]
-async fn a_restore_that_cant_disable_the_clients_fails_and_keeps_the_current_database() {
+async fn a_backup_whose_clients_cant_be_disabled_is_refused_and_keeps_the_current_database() {
     let foreign = foreign_backup();
     {
         let conn = rusqlite::Connection::open(foreign.path()).unwrap();
@@ -414,8 +416,15 @@ async fn a_restore_that_cant_disable_the_clients_fails_and_keeps_the_current_dat
 
     let result = backup::restore(fixture.path(), foreign.path());
     assert!(
-        result.is_err(),
-        "restore succeeded without disabling the clients: {result:?}"
+        matches!(
+            &result,
+            Err(backup::Error::Schema {
+                problem: backup::SchemaProblem::Extra,
+                name,
+                ..
+            }) if name == "keep_clients_delete"
+        ),
+        "{result:?}"
     );
 
     // The pre-restore database, not the backup's.

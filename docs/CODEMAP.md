@@ -16,7 +16,8 @@ The Cargo workspace (M1.1) is `crates/core`, `crates/import`, `crates/mcp` and
 - `db`, `paths`: data dir, WAL, permissions, migrations (M1.3); `paths::presets_dir`.
   `db::migrations::run` turns foreign keys off for a migration whose first line is
   `-- orre: foreign_keys=off` and checks them before it commits (R.4);
-  `db/superseded_tests.rs` covers V21.
+  `db/superseded_tests.rs` covers V21; `db/schema_snapshot_tests.rs` pins the schema
+  text SQLite stores against `db/schema_snapshot.txt`.
 - Migrations in `crates/core/migrations/`: `V1__initial_schema.sql` (M1.4) to
   `V24__transaction_text.sql`. Each feature below names the migration it added.
 - `money`: `Currency`, `Money`, exact decimal parsing (M1.5).
@@ -164,7 +165,8 @@ M1.20–M1.27 have no CLI commands yet.
   taken before import commits and migrations (M1.28). `backup::restoring`, the restore
   lock; `backup::gate`, the one way every per-call open checks it, before and after
   opening. `backup::detail`: what a backup holds (read `immutable`), reasons, "since",
-  `assess`, `save_copy`.
+  `assess`, `save_copy`. `backup::schema`: the restore's check of a backup's schema
+  against the migrations at its version (SLI-50).
 - `watch` (LU.2): `Watcher::check` notices a change another process made to the
   database: a stamp of file metadata first, then one gated open that fingerprints each
   `Topic` (Inbox, Ledger, Rules, Settings); `Watcher::rebase` before the app's own reload.

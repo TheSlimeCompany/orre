@@ -144,6 +144,7 @@ The Settings view, AI clients and their access, local backups and restore.
 - Decision record: Settings, AI access and backups (built) (2026-11-14)
 - Decision record: backup retention and presets (2026-11-19)
 - Decision record: a restore switches AI access off (2026-11-28)
+- Decision record: restore checks the backup's schema (2026-11-28)
 
 ### [Reporting](architecture/reporting.md)
 

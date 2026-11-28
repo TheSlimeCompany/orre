@@ -6,6 +6,8 @@ use super::*;
 use crate::account::{self, AccountKind, NewAccount};
 use crate::money::Currency;
 
+mod schema;
+
 fn at(stamp: &str) -> DateTime<Utc> {
     NaiveDateTime::parse_from_str(stamp, "%Y-%m-%d %H:%M:%S%.3f")
         .unwrap_or_else(|err| panic!("{stamp}: {err}"))
@@ -1293,40 +1295,41 @@ fn shut_out(path: &Path) {
     crate::setting::set_mcp_enabled(&mut db, false).unwrap();
 }
 
-/// A trigger that keeps the backup's clients as they are by turning every
-/// change to them into a silent no-op.
+// A backup that brings triggers of its own to undo the switch-off is
+// refused by the schema check (`backup::schema`) before anything is
+// switched off: these restore a backup of each shape and expect
+// `Error::Schema`. The read-back in `switch_ai_access_off` is the second
+// layer; no trigger the migrations create can stand in for these, so
+// `switching_off_*` below drive it directly on a copy with the triggers.
+
+/// A backup's clients kept as they are: every change to them becomes a
+/// silent no-op.
+const CLIENTS_IGNORE_SWITCH_OFF: &str = "CREATE TRIGGER keep_clients BEFORE UPDATE ON mcp_client \
+     BEGIN SELECT RAISE(IGNORE); END;";
+
+/// The kill switch has to be written off, and a trigger ignores the write.
+const SWITCH_WRITE_IGNORED: &str = "CREATE TRIGGER keep_on_insert BEFORE INSERT ON setting \
+         WHEN NEW.key = 'mcp.enabled' BEGIN SELECT RAISE(IGNORE); END; \
+     CREATE TRIGGER keep_on_update BEFORE UPDATE ON setting \
+         WHEN NEW.key = 'mcp.enabled' BEGIN SELECT RAISE(IGNORE); END;";
+
+/// The kill switch has to be written off, and a trigger reverts the write.
+const SWITCH_WRITE_REVERTED: &str = "CREATE TRIGGER back_on_insert AFTER INSERT ON setting \
+         WHEN NEW.key = 'mcp.enabled' \
+         BEGIN UPDATE setting SET value = 'on' WHERE key = 'mcp.enabled'; END; \
+     CREATE TRIGGER back_on_update AFTER UPDATE ON setting \
+         WHEN NEW.key = 'mcp.enabled' AND NEW.value <> 'on' \
+         BEGIN UPDATE setting SET value = 'on' WHERE key = 'mcp.enabled'; END;";
+
+/// Writing the kill switch fires a trigger that turns the clients back on.
+const SWITCH_WRITE_RE_ENABLES_CLIENTS: &str = "CREATE TRIGGER on_again_insert AFTER INSERT ON setting \
+         BEGIN UPDATE mcp_client SET enabled = 1, access_level = 'standard'; END; \
+     CREATE TRIGGER on_again_update AFTER UPDATE ON setting \
+         BEGIN UPDATE mcp_client SET enabled = 1, access_level = 'standard'; END;";
+
 #[test]
-fn restore_refuses_a_backup_whose_clients_ignore_being_switched_off() {
-    let setup = Setup::new();
-    shut_out(&setup.path);
-    let other = TempDir::new().unwrap();
-    let backup = permissive_backup(&other);
-    Connection::open(&backup)
-        .unwrap()
-        .execute_batch(
-            "CREATE TRIGGER keep_clients BEFORE UPDATE ON mcp_client \
-             BEGIN SELECT RAISE(IGNORE); END;",
-        )
-        .unwrap();
-
-    let err = restore(&setup.path, &backup).unwrap_err();
-
-    assert!(
-        matches!(&err, Error::AiAccessNotOff { source: None, .. }),
-        "{err:?}"
-    );
-    assert!(
-        err.to_string().contains("current database is unchanged"),
-        "{err}"
-    );
-    assert_eq!(account_names(&setup.path), ["Current"]);
-    let reader = Database::open(&setup.path).unwrap().reader().unwrap();
-    assert!(!crate::setting::mcp_enabled(&reader).unwrap());
-    assert_eq!(
-        crate::mcp_client::access(&reader, &client_name()).unwrap(),
-        crate::mcp_client::ClientAccess::Revoked
-    );
-    assert_no_scratch_files(&setup.path);
+fn a_backup_whose_clients_ignore_being_switched_off_is_refused_by_its_schema() {
+    assert_refused_with(CLIENTS_IGNORE_SWITCH_OFF, "keep_clients");
 }
 
 /// A backup older than the clients' tables has none to switch off, and
@@ -1372,9 +1375,10 @@ fn restore_without_a_current_database_switches_the_clients_off() {
 }
 
 /// Restores a [`permissive_backup`] with `schema` added to it over a
-/// current database whose kill switch is off, and checks the restore was
-/// refused with the current database left as it was.
-fn assert_refused_with(schema: &str) {
+/// current database whose kill switch is off, and checks the schema check
+/// refused it, naming the trigger `first`, with the current database left
+/// as it was.
+fn assert_refused_with(schema: &str, first: &str) {
     let setup = Setup::new();
     shut_out(&setup.path);
     let other = TempDir::new().unwrap();
@@ -1384,12 +1388,23 @@ fn assert_refused_with(schema: &str) {
         .execute_batch(schema)
         .unwrap();
 
+    let before = fs::read(&setup.path).unwrap();
+
     let err = restore(&setup.path, &backup).unwrap_err();
 
     assert!(
-        matches!(&err, Error::AiAccessNotOff { .. }),
+        matches!(
+            &err,
+            Error::Schema { problem: SchemaProblem::Extra, object_type, name, .. }
+                if object_type == "trigger" && name == first
+        ),
         "{schema}: {err:?}"
     );
+    assert!(
+        err.to_string().contains("current database is unchanged"),
+        "{err}"
+    );
+    assert_eq!(fs::read(&setup.path).unwrap(), before, "{schema}");
     assert_eq!(account_names(&setup.path), ["Current"], "{schema}");
     let reader = Database::open(&setup.path).unwrap().reader().unwrap();
     assert!(!crate::setting::mcp_enabled(&reader).unwrap(), "{schema}");
@@ -1401,36 +1416,84 @@ fn assert_refused_with(schema: &str) {
     assert_no_scratch_files(&setup.path);
 }
 
-/// The kill switch has to be written off (the current one is off), and a
-/// trigger in the backup ignores or reverts the write.
 #[test]
-fn restore_refuses_a_backup_whose_kill_switch_wont_switch_off() {
-    for schema in [
-        "CREATE TRIGGER keep_on_insert BEFORE INSERT ON setting \
-             WHEN NEW.key = 'mcp.enabled' BEGIN SELECT RAISE(IGNORE); END; \
-         CREATE TRIGGER keep_on_update BEFORE UPDATE ON setting \
-             WHEN NEW.key = 'mcp.enabled' BEGIN SELECT RAISE(IGNORE); END;",
-        "CREATE TRIGGER back_on_insert AFTER INSERT ON setting \
-             WHEN NEW.key = 'mcp.enabled' \
-             BEGIN UPDATE setting SET value = 'on' WHERE key = 'mcp.enabled'; END; \
-         CREATE TRIGGER back_on_update AFTER UPDATE ON setting \
-             WHEN NEW.key = 'mcp.enabled' AND NEW.value <> 'on' \
-             BEGIN UPDATE setting SET value = 'on' WHERE key = 'mcp.enabled'; END;",
-    ] {
-        assert_refused_with(schema);
-    }
+fn a_backup_whose_kill_switch_wont_switch_off_is_refused_by_its_schema() {
+    assert_refused_with(SWITCH_WRITE_IGNORED, "keep_on_insert");
+    assert_refused_with(SWITCH_WRITE_REVERTED, "back_on_insert");
 }
 
-/// Writing the kill switch fires a trigger that turns the clients back on:
-/// the clients are read back after it, so the restore is refused.
 #[test]
-fn restore_refuses_a_backup_that_re_enables_clients_when_the_switch_is_written() {
-    assert_refused_with(
-        "CREATE TRIGGER on_again_insert AFTER INSERT ON setting \
-             BEGIN UPDATE mcp_client SET enabled = 1, access_level = 'standard'; END; \
-         CREATE TRIGGER on_again_update AFTER UPDATE ON setting \
-             BEGIN UPDATE mcp_client SET enabled = 1, access_level = 'standard'; END;",
+fn a_backup_that_re_enables_clients_when_the_switch_is_written_is_refused_by_its_schema() {
+    assert_refused_with(SWITCH_WRITE_RE_ENABLES_CLIENTS, "on_again_insert");
+}
+
+/// A copy's clients (name, enabled, level) and settings (key, value).
+type AiState = (Vec<(String, i64, String)>, Vec<(String, String)>);
+
+/// The read-back, driven directly: a copy of a [`permissive_backup`] with
+/// `schema` added, switched off with the kill switch to be written off.
+/// It must fail with [`Error::AiAccessNotOff`] and leave the copy as it
+/// was (its transaction rolled back).
+fn assert_switching_off_fails_with(schema: &str) {
+    let other = TempDir::new().unwrap();
+    let copy = permissive_backup(&other);
+    let conn = Connection::open(&copy).unwrap();
+    conn.execute_batch(schema).unwrap();
+    let state = |conn: &Connection| -> AiState {
+        let clients = conn
+            .prepare("SELECT name, enabled, access_level FROM mcp_client ORDER BY name")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let settings = conn
+            .prepare("SELECT key, value FROM setting ORDER BY key")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        (clients, settings)
+    };
+    let before = state(&conn);
+    assert_eq!(
+        before.0,
+        [("synthetic-client".to_owned(), 1, "standard".to_owned())]
     );
+    drop(conn);
+
+    let err = super::switch_ai_access_off(&copy, &copy, true).unwrap_err();
+
+    assert!(
+        matches!(&err, Error::AiAccessNotOff { .. }),
+        "{schema}: {err:?}"
+    );
+    assert_eq!(state(&Connection::open(&copy).unwrap()), before, "{schema}");
+}
+
+#[test]
+fn switching_off_fails_when_the_clients_ignore_it() {
+    assert_switching_off_fails_with(CLIENTS_IGNORE_SWITCH_OFF);
+}
+
+#[test]
+fn switching_off_fails_when_a_client_write_is_aborted() {
+    assert_switching_off_fails_with(
+        "CREATE TRIGGER keep_clients BEFORE UPDATE ON mcp_client \
+         BEGIN SELECT RAISE(ABORT, 'clients are read-only'); END;",
+    );
+}
+
+#[test]
+fn switching_off_fails_when_the_kill_switch_wont_switch_off() {
+    assert_switching_off_fails_with(SWITCH_WRITE_IGNORED);
+    assert_switching_off_fails_with(SWITCH_WRITE_REVERTED);
+}
+
+#[test]
+fn switching_off_fails_when_writing_the_switch_re_enables_clients() {
+    assert_switching_off_fails_with(SWITCH_WRITE_RE_ENABLES_CLIENTS);
 }
 
 /// Restores a [`permissive_backup`] (kill switch never written) over a
