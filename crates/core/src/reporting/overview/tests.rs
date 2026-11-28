@@ -765,3 +765,58 @@ fn months_follow_the_month_start() {
     }
     assert_eq!(opened.earliest_month, Some(period("2026-11")));
 }
+
+/// One merchant's dense rows, as SLI-36's repro: 12 a day for 50 days to
+/// today, about -£1 each, so the recurring search is most of the read.
+fn dense_merchant() -> TestLedger {
+    let mut ledger = TestLedger::new();
+    let account = ledger.account("Current", Currency::GBP);
+    let first = date("2026-10-02");
+    for n in 0..600_i64 {
+        let day = (first + chrono::Days::new((n % 50) as u64)).to_string();
+        let minor = -(98 + n % 5);
+        ledger.row_at(account, &day, minor, None, Some("Bench merchant"), "BENCH");
+    }
+    ledger
+}
+
+/// SLI-37: a cancelled read stops with `Cancelled`, having looked at
+/// almost nothing (under 1% of the rows a whole read's recurring search
+/// looks at); an uncancelled one is `overview`'s.
+#[test]
+fn a_cancelled_read_stops_and_an_uncancelled_one_is_the_overview() {
+    let ledger = dense_merchant();
+    let reader = ledger.reader();
+    let query = query("2026-11");
+
+    recurring::work::take();
+    let whole = overview_cancellable(&reader, &query, &Cancel::new()).unwrap();
+    let full = recurring::work::take();
+    assert_eq!(whole, overview(&reader, &query).unwrap());
+    assert_eq!(
+        opening_overview_cancellable(&reader, &query, &Cancel::new()).unwrap(),
+        opening_overview(&reader, &query).unwrap()
+    );
+    recurring::work::take();
+
+    let cancelled = Cancel::new();
+    cancelled.cancel();
+    type Read = fn(&Reader, &OverviewQuery, &Cancel) -> Result<Overview, Error>;
+    let reads: [(&str, Read); 2] = [
+        ("overview", overview_cancellable),
+        ("opening", opening_overview_cancellable),
+    ];
+    for (read, run) in reads {
+        let outcome = run(&reader, &query, &cancelled);
+        let stopped = recurring::work::take();
+        assert!(
+            matches!(outcome, Err(Error::Cancelled(_))),
+            "{read}: {:?}",
+            outcome.as_ref().map(|_| "an overview")
+        );
+        assert!(
+            stopped * 100 < full,
+            "{read}: rows examined: whole read {full}, cancelled {stopped}"
+        );
+    }
+}

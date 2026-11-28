@@ -78,6 +78,7 @@ use chrono::{Days, NaiveDate};
 use rusqlite::{Transaction, TransactionBehavior};
 
 use crate::account::Account;
+use crate::cancel::Cancel;
 use crate::category::{CategoryKey, CategoryTree};
 use crate::db::Reader;
 use crate::id::AccountId;
@@ -204,9 +205,20 @@ pub struct Overview {
 /// month before it (0001-01) is [`Error::InvalidPeriod`]; an unknown
 /// account is [`Error::UnknownAccount`].
 pub fn overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
+    overview_cancellable(reader, query, &Cancel::never())
+}
+
+/// [`overview`], stopping with [`Error::Cancelled`] soon after `cancel` is
+/// cancelled (SLI-37: the Overview drops a read it no longer wants). It
+/// checks between the read's steps and inside the recurring search.
+pub fn overview_cancellable(
+    reader: &Reader,
+    query: &OverviewQuery,
+    cancel: &Cancel,
+) -> Result<Overview, Error> {
     let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
     let start = setting::month_start(reader)?;
-    let overview = overview_in_transaction(reader, query, start)?;
+    let overview = overview_in_transaction(reader, query, start, cancel)?;
     drop(tx);
     Ok(overview)
 }
@@ -215,10 +227,21 @@ pub fn overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Erro
 /// [landing month](landing_month) for its account and `today`, both read in
 /// one read transaction, so the month always matches the figures.
 pub fn opening_overview(reader: &Reader, query: &OverviewQuery) -> Result<Overview, Error> {
+    opening_overview_cancellable(reader, query, &Cancel::never())
+}
+
+/// [`opening_overview`], stopping with [`Error::Cancelled`] soon after
+/// `cancel` is cancelled, as [`overview_cancellable`].
+pub fn opening_overview_cancellable(
+    reader: &Reader,
+    query: &OverviewQuery,
+    cancel: &Cancel,
+) -> Result<Overview, Error> {
     let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
     let start = setting::month_start(reader)?;
-    let month = landing_month_in_transaction(reader, query.account, query.today, start)?;
-    let overview = overview_in_transaction(reader, &OverviewQuery { month, ..*query }, start)?;
+    let month = landing_month_in_transaction(reader, query.account, query.today, start, cancel)?;
+    let overview =
+        overview_in_transaction(reader, &OverviewQuery { month, ..*query }, start, cancel)?;
     drop(tx);
     Ok(overview)
 }
@@ -228,7 +251,9 @@ fn overview_in_transaction(
     reader: &Reader,
     query: &OverviewQuery,
     start: MonthStart,
+    cancel: &Cancel,
 ) -> Result<Overview, Error> {
+    cancel.check()?;
     let selected = query.month;
     let previous = selected.previous().ok_or(Error::InvalidPeriod)?;
     let account = query
@@ -245,6 +270,7 @@ fn overview_in_transaction(
         .within(DateRange::months(first, last, start)?)
         .accounts(accounts.iter().copied())
         .lines(reader)?;
+    cancel.check()?;
 
     let window = DateRange::months(window_start, window_end, start)?;
     let (currency, other_currencies) = display_currency(reader, &lines, window, account.as_ref())?;
@@ -282,6 +308,7 @@ fn overview_in_transaction(
     let previous_figures = figures(previous)?;
 
     let earliest_month = earliest_month(reader, &lines, first, &accounts, start)?;
+    cancel.check()?;
     let has_transactions: bool =
         reader
             .conn()
@@ -297,7 +324,9 @@ fn overview_in_transaction(
         &palette,
         selected_figures.spent,
     )?;
-    let (recurring, recurring_total) = upcoming_payments(reader, query, currency, &palette)?;
+    cancel.check()?;
+    let (recurring, recurring_total) =
+        upcoming_payments(reader, query, currency, &palette, cancel)?;
 
     Ok(Overview {
         month_start: start,
@@ -446,7 +475,7 @@ pub fn landing_month(
 ) -> Result<Period, Error> {
     let tx = Transaction::new_unchecked(reader.conn(), TransactionBehavior::Deferred)?;
     let start = setting::month_start(reader)?;
-    let month = landing_month_in_transaction(reader, account, today, start)?;
+    let month = landing_month_in_transaction(reader, account, today, start, &Cancel::never())?;
     drop(tx);
     Ok(month)
 }
@@ -457,7 +486,9 @@ fn landing_month_in_transaction(
     account: Option<AccountId>,
     today: NaiveDate,
     start: MonthStart,
+    cancel: &Cancel,
 ) -> Result<Period, Error> {
+    cancel.check()?;
     let current = Period::containing(today, start);
     let window = window_start(current);
     let read = |range: DateRange| -> Result<Vec<LedgerLine>, Error> {
@@ -470,6 +501,7 @@ fn landing_month_in_transaction(
             .collect())
     };
     let recent = read(DateRange::months(window, current, start)?)?;
+    cancel.check()?;
     if !recent.is_empty() {
         return Ok(latest_in_busiest_currency(&recent, window, current, start).unwrap_or(current));
     }
@@ -477,6 +509,7 @@ fn landing_month_in_transaction(
         return Ok(current);
     };
     let older = read(DateRange::months(Period::MIN, last, start)?)?;
+    cancel.check()?;
     let mut months: Vec<Period> = older
         .iter()
         .map(|line| Period::containing(line.date, start))
@@ -598,12 +631,18 @@ fn upcoming_payments(
     query: &OverviewQuery,
     currency: Currency,
     palette: &Palette,
+    cancel: &Cancel,
 ) -> Result<(Vec<UpcomingPayment>, Money), Error> {
     let until = query
         .today
         .checked_add_days(Days::new(RECURRING_DAYS))
         .unwrap_or(NaiveDate::MAX);
-    let mut payments: Vec<UpcomingPayment> = recurring::find_with_reader(reader)?
+    let series =
+        recurring::find_with_reader_cancellable(reader, cancel).map_err(|error| match error {
+            recurring::Error::Cancelled(cancelled) => Error::Cancelled(cancelled),
+            other => Error::Recurring(other),
+        })?;
+    let mut payments: Vec<UpcomingPayment> = series
         .into_iter()
         .filter(|series| {
             !series.lapsed
