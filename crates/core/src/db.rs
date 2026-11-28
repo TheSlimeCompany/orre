@@ -44,6 +44,8 @@
 mod category_tests;
 mod migrations;
 #[cfg(test)]
+mod schema_snapshot_tests;
+#[cfg(test)]
 mod schema_tests;
 #[cfg(test)]
 mod superseded_tests;
@@ -398,11 +400,31 @@ pub(crate) fn open_failing_before_commit(path: &Path) -> Result<Database, Error>
 /// `version` migrations applied, as an older Orre left it.
 #[cfg(test)]
 pub(crate) fn open_at_version(path: &Path, version: SchemaVersion) -> Result<Database, Error> {
-    let migrations: Vec<_> = migrations::embedded()
+    Database::open_with(path, &migrations_up_to(version))
+}
+
+/// This build's migrations up to and including `version`.
+fn migrations_up_to(version: SchemaVersion) -> Vec<refinery::Migration> {
+    migrations::embedded()
         .into_iter()
         .filter(|migration| SchemaVersion::from(migration.version()) <= version)
-        .collect();
-    Database::open_with(path, &migrations)
+        .collect()
+}
+
+/// For [`crate::backup`]: an in-memory database with this build's first
+/// `version` migrations applied by the runner [`Database::open`] uses, so
+/// its schema is the one a database at `version` has. Its connection is
+/// set as [`configure`] sets one (foreign keys on, `trusted_schema` off),
+/// but for WAL, which a memory database can't use. Nothing in Orre writes
+/// `user_version` or `application_id`, so both are 0, as in a real
+/// database.
+pub(crate) fn reference_at_version(version: SchemaVersion) -> Result<Connection, Error> {
+    let mut conn = Connection::open_in_memory()?;
+    conn.pragma_update(None, "foreign_keys", true)?;
+    conn.pragma_update(None, "trusted_schema", false)?;
+    conn.set_transaction_behavior(TransactionBehavior::Immediate);
+    migrations::run(&mut conn, &migrations_up_to(version), &name_existing_rows)?;
+    Ok(conn)
 }
 
 /// Opens a read-write connection to an existing file. Not

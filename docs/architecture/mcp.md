@@ -106,9 +106,11 @@ restored database's log, and so do the rows the replaced database logged after t
 backup was taken (F.9). The lock goes with the restore's process, so a crashed restore
 blocks nothing (decision record "M2: MCP server", F.1). A restore switches every client
 off in the restored database, keeps the kill switch off if it was, and reads both back
-before the swap; a backup whose own schema holds triggers or views that undo this isn't
-rejected yet (SLI-50; `settings-and-backups.md`, "Decision record: a restore switches AI
-access off").
+before the swap. A backup whose triggers, views, tables or indexes differ from the
+migrations' (which could undo that) is refused before anything is staged for the swap,
+and the read-back catches a write that doesn't take effect (`settings-and-backups.md`,
+"Decision record: a restore switches AI access off" and "Decision record: restore checks
+the backup's schema").
 
 Transaction descriptions are untrusted input (prompt-injection surface); inbox-only
 writes are the containment. In addition:

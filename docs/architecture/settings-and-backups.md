@@ -105,7 +105,10 @@ supersedes "local backups", point 3.
 `backup::restore` ("local backups", points 5 and 6; "M2: MCP server", F.1 and F.9).
 
 - **A copy is checked first:** `PRAGMA integrity_check`, a migration history matching
-  this build's, a schema no newer. The user's file is only read. An older schema is
+  this build's, a schema no newer, and tables, indexes, views and triggers exactly
+  those the migrations create at the backup's version, with the same SQL, the same
+  `user_version` and `application_id`, and a full-text index that matches its text
+  ("Decision record: restore checks the backup's schema"). The user's file is only read. An older schema is
   restored, then migrated by `Database::open`; a newer one is refused. `backup::check`
   runs the checks alone (`orre restore` without `--yes`), and the app's dialog shows
   them as "intact" and "this version can read it" (`backup::detail::assess`), restoring
@@ -120,8 +123,10 @@ supersedes "local backups", point 3.
 - **AI access is switched off.** Before the rename, every client in the staged copy is
   switched off at `aggregate`, and its kill switch is set off if the current one is off
   or can't be read; both are read back, and if either write fails or doesn't read back,
-  nothing is restored. A backup whose own schema holds triggers or views that undo this
-  later isn't rejected yet (SLI-50; decision record 2026-11-28).
+  nothing is restored. A backup whose own triggers, views, tables or indexes could undo
+  this is refused before that, by the schema check above; the read-back is the second
+  layer, for a write that doesn't take effect ("Decision record: a restore switches AI
+  access off", point 3).
 - **The access log isn't rolled back:** rows newer than the backup's newest are
   carried over from the pre-restore backup, then the 12-month retention applied
   (`access_log::carry_forward`), then refused calls moved in from the pending file.
@@ -374,10 +379,10 @@ a client the user had revoked, or a kill switch turned off, came back on. Adds t
    `aggregate`, and that the switch reads `off` when it had to be. Otherwise it rolls
    back and refuses the restore. Objects are found by name of any type, so a view
    standing in for `mcp_client` is checked too.
-   **Limit:** this checks the state at commit. A crafted backup whose triggers or views
-   undo it later (on a later write, or by reading something else) isn't rejected yet:
-   SLI-50 (https://linear.app/theslimecompany/issue/SLI-50) hardens the restore with an
-   allow-list of schema objects.
+   This checks the state at commit only. Since SLI-50 a backup's schema objects must be
+   the migrations' ("Decision record: restore checks the backup's schema"), so a backup
+   carrying such triggers or views is refused in `check_copy`, before this runs; the
+   read-back stays as the second layer, for a write that doesn't take effect.
 4. **No current database** (a first restore onto an empty path): the backup's kill
    switch is kept, and its clients are still switched off.
 5. **Pre-V11 backups** have no `mcp_client` or `setting` table, so there's nothing to
@@ -389,3 +394,92 @@ a client the user had revoked, or a kill switch turned off, came back on. Adds t
 7. **Deferred.** Carrying the current database's per-client state forward (keeping
    clients the user still has on enabled at their current level) is a follow-up. A
    restore also rolls back the other settings; that is out of scope here (SLI-41).
+
+### Decision record: restore checks the backup's schema (2026-11-28)
+
+SLI-50. Before this, a restore checked a backup's integrity and migration history but
+not its schema, so a backup could bring triggers, views, tables or indexes of its own
+into the live database. A trigger on `mcp_access_log` that re-enables a client at
+`standard` would run on the first refused call after the restore, after the switch-off
+of "Decision record: a restore switches AI access off" had read back as done.
+
+1. **What is compared.** `backup::schema::check`, called from `check_copy` once the
+   history has given the backup's version, compares every row of the staged copy's
+   `sqlite_master` (type, name, table and SQL) with a reference: an in-memory database
+   with this build's migrations up to that version applied by the runner
+   `Database::open` uses (`db::reference_at_version`). `sqlite_sequence`, autoindexes
+   and refinery's history table are compared like the rest.
+   - **The SQL exactly,** but for `\r\n` read as `\n`. SQLite stores each `CREATE` as
+     written (rewritten by `ALTER TABLE`), and the reference ran the same migration text
+     on the same SQLite, so the text matches. (Folding whitespace, as the first version
+     did, let through a `--` comment that ran on over a `CHECK` once a newline became a
+     space, and no-break spaces.)
+   - **A virtual table's shadow tables by form.** fts5 writes their `CREATE` text, not
+     the migrations (V24 has only `CREATE VIRTUAL TABLE transaction_text USING fts5
+     (…)`; fts5 writes `CREATE TABLE 'transaction_text_config'(k PRIMARY KEY, v) WITHOUT
+     ROWID` and so on). The backup's must be the reference's with one difference
+     allowed: single or double quotes around the table's name. So a virtual table by a
+     shadow's name is refused. The forms change with a table's options (for example
+     `contentless_delete`), not with SQLite's version for V24's options, so the rest is
+     compared exactly. Which tables are shadows is read from the reference (`V_data`,
+     `V_idx`, `V_content`, `V_docsize`, `V_config` for a virtual table `V` there), never
+     from the backup: a shadow-like table the reference lacks is extra, and the `CREATE
+     VIRTUAL TABLE` row itself is compared exactly. FTS5 is the only module the
+     migrations use.
+   - **Only `sqlite_stat1` and `sqlite_stat4`, as `ANALYZE` creates them**
+     (`CREATE TABLE sqlite_stat1(tbl,idx,stat)`, `CREATE TABLE
+     sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)`), are left out. Any other `sqlite_stat`
+     name, or those names with other SQL (a virtual table, say), is extra.
+   - **`user_version` and `application_id`,** the header values: Orre sets neither, so
+     both must be 0, as in the reference.
+   - **The full-text index against its text.** Once the schema matches, each FTS5 table
+     runs its `integrity-check` command with rank 1 on the staged copy, which compares
+     the index with the `"transaction"` text it was built from; a failure is
+     `Error::Integrity`. `PRAGMA integrity_check` (run first) checks an
+     external-content index only against itself. About 0.3 s at 50,000 transactions in
+     a debug build.
+   - **`trusted_schema` isn't compared:** it is a connection setting, not stored in the
+     file. Every connection that opens a staged copy or the database (`check_copy`,
+     `switch_ai_access_off`, `Database::open`'s, the readers, `db::inspect`) turns it
+     off, and so does the reference's, as `Database::open` does.
+2. **At the backup's version, not the current one.** `check_copy` runs before
+   `Database::open` migrates the restored file, so an older backup is compared with
+   what its version really created, and the migrations never run over a schema that
+   hasn't been checked.
+3. **Any extra, missing or changed object refuses the restore** (`Error::Schema`): the
+   message names the first by type and name (capped, quoted, never its SQL). It runs on
+   the staged copy before the lock and the rename, so nothing is restored and the
+   current database is unchanged. `backup::check` refuses the same way; the app's
+   dialog shows the message and doesn't offer the restore.
+4. **Tested** through `restore` with backups given an extra trigger, view, table or
+   index, a missing trigger and a changed one, a changed virtual table, a missing or
+   shadow-like extra table, a virtual table by a shadow's name, a shadow table with its
+   name double-quoted (accepted), a comment hiding the pot `CHECK`, no-break spaces in a
+   trigger and the view, `sqlite_stat9` and a virtual `sqlite_stat1` (refused) and
+   `ANALYZE`'s tables (accepted), another `user_version` or `application_id`, and a
+   full-text index that doesn't match its text; with a backup this build made at every
+   embedded version; and with each of SLI-48's hostile triggers, now refused here (their
+   read-back is tested by calling `switch_ai_access_off` directly).
+5. **Not covered.** Data rows aren't checked (a backup's settings, clients and access
+   levels are restored as they are), nor where a backup came from: one from another
+   installation brings its pseudonym key. Backups aren't signed or authenticated
+   (HMAC). A future migration using another virtual-table module needs its shadow
+   suffixes added (`FTS5_SHADOW_SUFFIXES`); until then its shadow tables are compared
+   exactly, which refuses rather than lets through. A database migrated by a build
+   with another SQLite could store different text where SQLite rewrote it (`ALTER
+   TABLE … RENAME TO`, in V14, V17, V20 and V21, quotes the new name and rewrites the
+   objects that refer to it); its backups would be refused, not let through. The
+   golden test below makes such a change fail CI; it doesn't make those backups
+   restorable.
+6. **A golden test pins the stored text.**
+   `db::schema_snapshot_tests::the_stored_schema_text_matches_the_snapshot` renders every
+   `sqlite_master` row of `db::reference_at_version` at the latest embedded version
+   (type, name, table and SQL, sorted, odd characters escaped) and compares it with
+   `crates/core/src/db/schema_snapshot.txt`. A bundled-SQLite update that changes the
+   text SQLite writes (the `RENAME TO` and `ADD COLUMN` rewrites, fts5's shadow tables)
+   fails it, and so does a new or changed migration. Before re-baselining after a
+   SQLite update, someone decides what happens to older backups made with the old text
+   (for example, accept the known old text in the comparison); then
+   `ORRE_UPDATE_SCHEMA_SNAPSHOT=1 cargo test -p orre-core --lib
+   db::schema_snapshot_tests` rewrites the file. It writes only when the variable is
+   exactly `1`.

@@ -78,6 +78,7 @@
 
 pub mod detail;
 pub mod gate;
+mod schema;
 #[cfg(test)]
 mod tests;
 
@@ -157,6 +158,25 @@ pub enum Error {
         source: db::Error,
     },
 
+    /// The backup's schema isn't what this build's migrations create at its
+    /// version: a table, index, view or trigger they don't create, one they
+    /// create that it lacks, or one with a different definition. `name` is
+    /// the first such object's name, capped and quoted; its SQL isn't
+    /// shown.
+    #[error(
+        "{} can't be restored: its schema {problem} {object_type} {name:?} (compared with \
+         Orre's migrations at version {version}); nothing was restored and the current \
+         database is unchanged",
+        path.display()
+    )]
+    Schema {
+        path: PathBuf,
+        version: SchemaVersion,
+        problem: SchemaProblem,
+        object_type: String,
+        name: String,
+    },
+
     #[error(
         "the current database {} couldn't be backed up, so nothing was restored ({source}); \
          if it is damaged, move it and its -wal and -shm files aside first",
@@ -231,6 +251,27 @@ pub enum Error {
     /// directory.
     #[error("{} isn't a backup in {}", name.display(), dir.display())]
     NotABackup { name: PathBuf, dir: PathBuf },
+}
+
+/// How a backup's schema differs from the migrations' ([`Error::Schema`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaProblem {
+    /// An object the migrations don't create.
+    Extra,
+    /// An object the migrations create, absent from the backup.
+    Missing,
+    /// An object both have, with a different definition.
+    Changed,
+}
+
+impl std::fmt::Display for SchemaProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            SchemaProblem::Extra => "has an extra",
+            SchemaProblem::Missing => "is missing the",
+            SchemaProblem::Changed => "has a changed",
+        })
+    }
 }
 
 fn io_error(action: &'static str, path: &Path) -> impl FnOnce(io::Error) -> Error {
@@ -670,8 +711,10 @@ pub fn check(db_path: &Path, backup: &Path) -> Result<RestoreCheck, Error> {
 /// off if the current database's is off (or can't be read); both are read
 /// back. If that fails, or doesn't hold when read back, nothing is
 /// restored ([`Error::AiAccessNotOff`]); the user turns clients back on
-/// afterwards. A backup whose own schema holds triggers or views that undo
-/// this later isn't rejected yet (SLI-50).
+/// afterwards. A backup whose triggers, views, tables or indexes differ
+/// from the migrations' is refused before this, when the copy is checked
+/// (`schema::check`, in `check_copy`); the read-back is the second layer,
+/// for a write that doesn't take effect.
 ///
 /// No other Orre process may hold the database open during a restore:
 /// one that does keeps reading the replaced file. MCP servers and the app's
@@ -830,7 +873,9 @@ fn kill_switch_on(db_path: &Path) -> bool {
 /// `aggregate`, and its kill switch off when `switch_off`, in one
 /// transaction. Both are read back after both writes, before committing:
 /// a trigger in the backup's schema could turn a write into a no-op, or
-/// undo one when the other fires it. A copy older than the clients' tables
+/// undo one when the other fires it. `check_copy` has already refused a
+/// schema that isn't the migrations', so this is the second layer. A copy
+/// older than the clients' tables
 /// has none to switch off. The copy is synced again.
 fn switch_ai_access_off(copy: &Path, backup: &Path, switch_off: bool) -> Result<(), Error> {
     let refused = |source: Option<rusqlite::Error>| Error::AiAccessNotOff {
@@ -951,6 +996,7 @@ fn check_copy(copy: &Path, backup: &Path) -> Result<SchemaVersion, Error> {
             path: backup.to_path_buf(),
         });
     }
+    schema::check(&conn, version, backup)?;
 
     // Fold any -wal into the file; `Database::open` switches it back.
     let mode: String =
