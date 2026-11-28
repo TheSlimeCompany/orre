@@ -828,7 +828,12 @@ fn import_snapshots(cx: &mut HeadlessAppContext, out: &Path) -> Result<()> {
                     imports.set_notice(
                         Some(ImportNotice::Imported {
                             batch: orre_core::id::BatchId::new(2),
-                            message: orre_app::import::text::imported(9, import_fixture::FILE_NAME),
+                            message: orre_app::import::text::imported(
+                                9,
+                                import_fixture::FILE_NAME,
+                                &[],
+                                0,
+                            ),
                         }),
                         cx,
                     )

@@ -474,11 +474,12 @@ reconciliation and the commit".
    preview. What the user confirmed is exactly what is stored, even if another process
    imported in between.
 2. **Flagged rows are recorded, not stored as transactions.** A row that can't be read
-   has no date or amount to store, so "imported as flagged" (`DESIGN.md` → Import) means
-   the batch keeps an `import_flag` row (its place in the file and core's reason, never
-   its text; a new migration). The same goes for a source ID already taken by a
-   different transaction, a row in a locked period, and a running balance that doesn't
-   follow from the rows before it (that row itself is imported). Committing with flags
+   has no date or amount to store, so "it will not be imported; it is recorded with the
+   import" (`DESIGN.md` → Import) means the batch keeps an `import_flag` row (its place
+   in the file and core's reason, never its text; a new migration). The same goes for a
+   source ID already taken by a different transaction, a row in a locked period, and a
+   running balance that doesn't follow from the rows before it (that row itself is
+   imported). Committing with flags
    or a failed reconciliation needs an explicit confirmation from the caller. The Review
    screen's "Import N transactions" counts new rows only (since 2026-11-18, then the
    bank's corrections: "and M corrections"); flagged rows are listed beside it.

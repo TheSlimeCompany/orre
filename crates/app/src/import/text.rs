@@ -13,7 +13,7 @@ use orre_core::import::{
     BalanceCheck, CheckedBalance, Flag, ImportPreview, ReconciliationStatus, RowOutcome,
 };
 use orre_core::money::{DecimalMark, Money};
-use orre_core::statement::{RowProblem, StatementLine};
+use orre_core::statement::{RowProblem, SourceLocation, StatementLine};
 use orre_import::csv::{Delimiter, TextEncoding};
 
 use crate::format::{Sign, list_date, money};
@@ -190,8 +190,8 @@ pub fn row_date(line: &StatementLine, today: NaiveDate) -> String {
 }
 
 /// The note under the preview for a flagged row: `Row 8: “8,99” isn't an
-/// amount with a decimal point. It will be imported as flagged, not
-/// skipped.`
+/// amount with a decimal point. It will not be imported; it is recorded
+/// with the import.`
 pub fn flag_note(
     number: usize,
     problem: &RowProblem,
@@ -217,7 +217,9 @@ pub fn flag_note(
         }
         _ => segs.push(plain(super::session::sentence(&problem.to_string()))),
     }
-    segs.push(plain(" It will be imported as flagged, not skipped."));
+    segs.push(plain(
+        " It will not be imported; it is recorded with the import.",
+    ));
     if more > 0 {
         segs.push(plain(" "));
         segs.push(mono(count(more)));
@@ -627,14 +629,97 @@ pub fn primary_label(preview: &ImportPreview) -> String {
 }
 
 /// The notification after an import: `Imported 296 transactions from
-/// monzo-november.csv`.
-pub fn imported(transactions: usize, file: &str) -> Vec<Seg> {
-    vec![
+/// monzo-november.csv`, then the rows that weren't imported (`omitted`, the
+/// flagged rows: at most three listed) and how many running balances were
+/// flagged: `… 3 rows not imported (rows 12, 40, 41). The file is
+/// unchanged. 1 running balance was flagged.`
+pub fn imported(
+    transactions: usize,
+    file: &str,
+    omitted: &[SourceLocation],
+    running_flags: usize,
+) -> Vec<Seg> {
+    const LISTED: usize = 3;
+    let mut segs = vec![
         plain("Imported "),
         mono(count(transactions)),
         plain(format!(" {} from ", plural(transactions, "transaction"))),
         mono(file),
-    ]
+    ];
+    if omitted.is_empty() && running_flags == 0 {
+        return segs;
+    }
+    segs.push(plain("."));
+    if !omitted.is_empty() {
+        let entries = omitted
+            .iter()
+            .all(|location| matches!(location, SourceLocation::Entry(_)));
+        let lines = omitted
+            .iter()
+            .all(|location| matches!(location, SourceLocation::Line(_)));
+        let n = omitted.len();
+        let noun = match (entries, n == 1) {
+            (true, true) => "entry",
+            (true, false) => "entries",
+            (false, true) => "row",
+            (false, false) => "rows",
+        };
+        segs.push(plain(" "));
+        segs.push(mono(count(n)));
+        segs.push(plain(format!(" {noun} not imported (")));
+        // One kind throughout: `rows 12, 40`; a mix labels each one.
+        let shared = (entries || lines).then_some(noun);
+        if let Some(noun) = shared {
+            segs.push(plain(format!("{noun} ")));
+        }
+        for (i, location) in omitted.iter().take(LISTED).enumerate() {
+            if i > 0 {
+                segs.push(plain(", "));
+            }
+            let (label, number) = match *location {
+                SourceLocation::Line(number) => ("row", number),
+                SourceLocation::Entry(number) => ("entry", number),
+            };
+            if shared.is_none() {
+                segs.push(plain(format!("{label} ")));
+            }
+            segs.push(mono(crate::settings::table::count(number)));
+        }
+        if n > LISTED {
+            segs.push(plain(", and "));
+            segs.push(mono(count(n - LISTED)));
+            segs.push(plain(" more"));
+        }
+        segs.push(plain("). The file is unchanged."));
+    }
+    if running_flags > 0 {
+        segs.push(plain(" "));
+        segs.push(mono(count(running_flags)));
+        segs.push(plain(if running_flags == 1 {
+            " running balance was flagged."
+        } else {
+            " running balances were flagged."
+        }));
+    }
+    segs
+}
+
+/// What an import of `preview` leaves out and flags: the locations of its
+/// flagged rows (unreadable, a source ID conflict, a locked period), which
+/// aren't imported, and how many running balances don't add up (those rows
+/// are imported).
+pub fn not_imported(preview: &ImportPreview) -> (Vec<SourceLocation>, usize) {
+    let omitted = preview
+        .rows()
+        .filter(|row| matches!(row.outcome, RowOutcome::Flagged(_)))
+        .map(|row| row.location)
+        .collect();
+    let running = preview
+        .reconciliation()
+        .running
+        .as_ref()
+        .map_or(0, |running| running.mismatches.len());
+    (omitted, running)
 }
 
 /// The notification after undoing it.
@@ -692,8 +777,8 @@ mod tests {
         };
         assert_eq!(
             joined(&flag_note(8, &problem, Some("8,99"), DecimalMark::Point, 0)),
-            "Row 8: “8,99” isn’t an amount with a decimal point. It will be imported as \
-             flagged, not skipped."
+            "Row 8: “8,99” isn’t an amount with a decimal point. It will not be imported; \
+             it is recorded with the import."
         );
         let problem = RowProblem::ColumnCount {
             expected: 3,
@@ -701,9 +786,124 @@ mod tests {
         };
         assert_eq!(
             joined(&flag_note(2, &problem, None, DecimalMark::Point, 2)),
-            "Row 2: The row has 2 columns, but the file has 3. It will be imported as flagged, \
-             not skipped. 2 more rows are flagged too."
+            "Row 2: The row has 2 columns, but the file has 3. It will not be imported; it is \
+             recorded with the import. 2 more rows are flagged too."
         );
+    }
+
+    fn toast(
+        transactions: usize,
+        file: &str,
+        omitted: &[SourceLocation],
+        running: usize,
+    ) -> String {
+        let segs = imported(transactions, file, omitted, running);
+        let text = joined(&segs);
+        println!("toast: {text}");
+        text
+    }
+
+    fn lines(numbers: &[u64]) -> Vec<SourceLocation> {
+        numbers.iter().copied().map(SourceLocation::Line).collect()
+    }
+
+    fn entries(numbers: &[u64]) -> Vec<SourceLocation> {
+        numbers.iter().copied().map(SourceLocation::Entry).collect()
+    }
+
+    #[test]
+    fn the_toast_without_omitted_rows_is_unchanged() {
+        assert_eq!(
+            toast(296, "monzo-november.csv", &[], 0),
+            "Imported 296 transactions from monzo-november.csv"
+        );
+        assert_eq!(
+            toast(1, "file.csv", &[], 0),
+            "Imported 1 transaction from file.csv"
+        );
+        let segs = imported(296, "monzo-november.csv", &[], 0);
+        assert!(segs[1].mono && segs[3].mono);
+    }
+
+    #[test]
+    fn the_toast_lists_rows_not_imported() {
+        assert_eq!(
+            toast(296, "monzo-november.csv", &lines(&[12]), 0),
+            "Imported 296 transactions from monzo-november.csv. 1 row not imported (row 12). \
+             The file is unchanged."
+        );
+        assert_eq!(
+            toast(1, "file.csv", &lines(&[12, 40, 41]), 0),
+            "Imported 1 transaction from file.csv. 3 rows not imported (rows 12, 40, 41). The \
+             file is unchanged."
+        );
+        assert_eq!(
+            toast(296, "monzo-november.csv", &lines(&[12, 40, 41, 50, 60]), 0),
+            "Imported 296 transactions from monzo-november.csv. 5 rows not imported (rows 12, \
+             40, 41, and 2 more). The file is unchanged."
+        );
+        // Counts and locations are mono; labels aren't.
+        let segs = imported(1, "file.csv", &lines(&[12, 40, 41, 50, 60]), 0);
+        let mono: Vec<&str> = segs
+            .iter()
+            .filter(|seg| seg.mono)
+            .map(|seg| seg.text.as_str())
+            .collect();
+        assert_eq!(mono, ["1", "file.csv", "5", "12", "40", "41", "2"]);
+    }
+
+    #[test]
+    fn the_toast_lists_ofx_entries_not_imported() {
+        assert_eq!(
+            toast(4, "file.ofx", &entries(&[2]), 0),
+            "Imported 4 transactions from file.ofx. 1 entry not imported (entry 2). The file \
+             is unchanged."
+        );
+        assert_eq!(
+            toast(4, "file.ofx", &entries(&[2, 5, 9]), 0),
+            "Imported 4 transactions from file.ofx. 3 entries not imported (entries 2, 5, 9). \
+             The file is unchanged."
+        );
+        assert_eq!(
+            toast(4, "file.ofx", &entries(&[2, 5, 9, 11, 12]), 0),
+            "Imported 4 transactions from file.ofx. 5 entries not imported (entries 2, 5, 9, \
+             and 2 more). The file is unchanged."
+        );
+    }
+
+    #[test]
+    fn a_mix_of_rows_and_entries_labels_each() {
+        let omitted = [SourceLocation::Line(12), SourceLocation::Entry(2)];
+        assert_eq!(
+            toast(1, "file", &omitted, 0),
+            "Imported 1 transaction from file. 2 rows not imported (row 12, entry 2). The file \
+             is unchanged."
+        );
+    }
+
+    #[test]
+    fn running_balance_flags_have_their_own_sentence() {
+        assert_eq!(
+            toast(4, "file.ofx", &[], 1),
+            "Imported 4 transactions from file.ofx. 1 running balance was flagged."
+        );
+        assert_eq!(
+            toast(4, "file.csv", &[], 2),
+            "Imported 4 transactions from file.csv. 2 running balances were flagged."
+        );
+        assert_eq!(
+            toast(1, "file.ofx", &entries(&[2]), 1),
+            "Imported 1 transaction from file.ofx. 1 entry not imported (entry 2). The file \
+             is unchanged. 1 running balance was flagged."
+        );
+        assert_eq!(
+            toast(1, "file.csv", &lines(&[12, 40, 41]), 2),
+            "Imported 1 transaction from file.csv. 3 rows not imported (rows 12, 40, 41). The \
+             file is unchanged. 2 running balances were flagged."
+        );
+        let only_running = toast(4, "file.csv", &[], 3);
+        assert!(!only_running.contains("not imported"));
+        assert!(!only_running.contains("The file is unchanged"));
     }
 
     #[test]

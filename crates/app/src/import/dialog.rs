@@ -765,6 +765,7 @@ impl ImportDialog {
         let confirmed = review.preview.needs_confirmation();
         let preview = review.preview.clone();
         let file = preview.source_file().to_owned();
+        let (omitted, running_flags) = text::not_imported(&preview);
         self.busy = Some(Busy::Importing);
         self.problem = None;
         self.imports.update(cx, |imports, cx| imports.writing(cx));
@@ -781,7 +782,14 @@ impl ImportDialog {
                 match result {
                     Ok(Committed::Batch(summary)) => {
                         this.imports.update(cx, |imports, cx| {
-                            imports.imported(summary.batch, summary.transactions, &file, cx)
+                            imports.imported(
+                                summary.batch,
+                                summary.transactions,
+                                &file,
+                                &omitted,
+                                running_flags,
+                                cx,
+                            )
                         });
                         cx.emit(DialogClosed);
                     }
