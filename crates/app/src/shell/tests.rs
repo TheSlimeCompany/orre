@@ -551,7 +551,10 @@ fn without_a_data_folder_no_view_shows_sample_data(cx: &mut TestAppContext) {
     assert_eq!(counts, crate::transactions::Counts::default(), "not sample");
     assert_eq!(
         overview,
-        crate::overview::describe::Shown::Failed(WHY.into())
+        crate::overview::describe::Shown::Failed {
+            title: "Couldn't read the overview".into(),
+            body: WHY.into(),
+        }
     );
     assert!(!shows(&a_row(), cx), "no fixture row");
 

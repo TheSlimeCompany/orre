@@ -558,3 +558,37 @@ fn the_current_month_follows_the_day_and_a_browsed_one_stays() {
     browsing.follow(day(2));
     assert_eq!(browsing.month(), november);
 }
+
+/// A stored amount beyond the cap, as an older build could have written it.
+/// `Money::new` doesn't check the cap, so `manual::create` stores it as is.
+fn store_an_amount_beyond_the_cap(path: &std::path::Path, account: orre_core::id::AccountId) {
+    use orre_core::money::{Currency, MAX_MINOR, Money};
+    let mut db = Database::open(path).unwrap();
+    let entry = orre_core::manual::ManualTransaction::new(
+        account,
+        Scratch::today(),
+        Money::new(-(MAX_MINOR + 1), Currency::GBP),
+        "Argus",
+    );
+    orre_core::manual::create(&mut db, &entry).unwrap();
+}
+
+#[gpui_kit::test]
+fn a_stored_amount_beyond_the_cap_shows_the_failed_state(cx: &mut TestAppContext) {
+    let scratch = Scratch::new();
+    store_an_amount_beyond_the_cap(&scratch.path, scratch.seeded.joint);
+    let store = OverviewStore::new(scratch.path.clone());
+    let (_, overview, cx) = open(cx, OverviewView::from_store(store, Scratch::today()));
+    redraw(cx);
+    let Shown::Failed { title, body } = described(&overview, cx).shown else {
+        panic!("not the failed state: {:?}", described(&overview, cx).shown);
+    };
+    println!("OVERVIEW TITLE: {title}\nOVERVIEW BODY: {body}");
+    assert_eq!(title, "Couldn't read the overview");
+    assert!(
+        body.contains(
+            "the stored amount_minor is out of range: amounts can't exceed 10,000,000,000.00 GBP"
+        ),
+        "{body}"
+    );
+}

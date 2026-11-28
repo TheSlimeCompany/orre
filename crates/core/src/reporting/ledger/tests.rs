@@ -615,3 +615,23 @@ fn the_text_filter_looks_the_index_up_instead_of_scanning() {
         "{short:#?}"
     );
 }
+
+#[test]
+fn a_stored_amount_beyond_the_cap_is_an_error_not_a_line() {
+    use crate::money::MAX_MINOR;
+
+    let mut ledger = TestLedger::new();
+    let current = ledger.account("Current", Currency::GBP);
+    ledger.row(current, "2026-11-03", -MAX_MINOR, None);
+    assert_eq!(Ledger::new().lines(&ledger.reader()).unwrap().len(), 1);
+
+    // As an older build could have written it.
+    ledger.row(current, "2026-11-04", i64::MAX, None);
+    let error = Ledger::new().lines(&ledger.reader()).unwrap_err();
+    assert!(
+        error.to_string().contains(
+            "the stored amount_minor is out of range: amounts can't exceed 10,000,000,000.00 GBP"
+        ),
+        "{error}"
+    );
+}

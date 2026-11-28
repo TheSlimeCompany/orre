@@ -40,6 +40,9 @@ use crate::ui::income_chart::{ChartMonth, IncomeChart, legend};
 use crate::ui::ranked_bars::{RankedBars, RankedEntry};
 use crate::ui::text::TextRoleExt as _;
 
+/// The empty state's title when the overview can't be read.
+pub(super) const LOAD_FAILED: &str = "Couldn't read the overview";
+
 /// The figures' labels ("Spent"): caption type at medium weight.
 const FIGURE_LABEL: TextRole = TextRole {
     weight: weight::MEDIUM,
@@ -65,9 +68,7 @@ impl Render for OverviewView {
             .min_h_0()
             .bg(color::CANVAS);
         if let Some(error) = &self.load_error {
-            return canvas.child(centred(
-                EmptyState::new("Couldn't read the overview").body(error.clone()),
-            ));
+            return canvas.child(centred(EmptyState::new(LOAD_FAILED).body(error.clone())));
         }
         let Some(data) = &self.data else {
             return canvas;

@@ -40,7 +40,10 @@ pub enum Shown {
     /// Nothing has been read yet.
     Blank,
     /// The read failed: the empty state's title and why.
-    Failed(String),
+    Failed {
+        title: String,
+        body: String,
+    },
     /// The database has no transactions: the empty state's title and its
     /// shortcut.
     Empty {
@@ -102,7 +105,10 @@ impl OverviewView {
             Action::button("Next month", self.next_month().is_some()),
         ];
         let shown = if let Some(error) = &self.load_error {
-            Shown::Failed(error.to_string())
+            Shown::Failed {
+                title: super::view::LOAD_FAILED.to_owned(),
+                body: error.to_string(),
+            }
         } else {
             match &self.data {
                 None => Shown::Blank,

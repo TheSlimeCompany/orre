@@ -2076,3 +2076,31 @@ fn the_items_ask_for_what_the_inspector_buttons_do(cx: &mut TestAppContext) {
         press("escape", cx);
     }
 }
+
+#[gpui_kit::test]
+fn a_stored_amount_beyond_the_cap_shows_an_error_under_accounts(cx: &mut TestAppContext) {
+    use orre_core::money::MAX_MINOR;
+    let scratch = Scratch::new();
+    // As an older build could have written it: `Money::new` doesn't check
+    // the cap, so `manual::create` stores it as is.
+    let entry = orre_core::manual::ManualTransaction::new(
+        scratch.current,
+        NaiveDate::from_ymd_opt(2026, 11, 4).unwrap(),
+        Money::new(MAX_MINOR + 1, Currency::GBP),
+        "Argus",
+    );
+    orre_core::manual::create(&mut scratch.db(), &entry).unwrap();
+
+    let (shell, accounts, cx) = open(cx, &scratch);
+    let shown = describe(&shell, &accounts, cx);
+    let error = shown
+        .error
+        .expect("an error under ACCOUNTS, not a blank panel");
+    println!("ACCOUNTS ERROR: {error}");
+    assert!(
+        error.contains(
+            "the stored amount_minor is out of range: amounts can't exceed 10,000,000,000.00 GBP"
+        ),
+        "{error}"
+    );
+}

@@ -10,6 +10,9 @@
 //! - [`Money::parse_decimal`] is the import boundary: bank text becomes
 //!   minor units exactly or not at all. It never rounds, so an amount with
 //!   more decimals than its currency has is refused.
+//! - One amount is at most [`MAX_MINOR`] either side of zero. Typed or
+//!   imported amounts beyond it are refused ([`Money::parse_decimal`],
+//!   [`Money::try_new`]), so totals over them can't overflow.
 //!
 //! Display formatting for the app (currency symbols, the locale's
 //! separators, `−` and `+`) belongs to the UI; [`Money::to_decimal_string`]
@@ -21,6 +24,19 @@ use std::cmp::Ordering;
 use std::fmt;
 
 pub use currency::{Currency, UnknownCurrency};
+
+/// The largest magnitude one amount may have, in minor units: 10^12, so
+/// amounts run from `-MAX_MINOR` to `MAX_MINOR`.
+///
+/// `i64::MAX` is about 9.22e18, so 9.2 million amounts all at the cap still
+/// sum without overflow, and real ledgers are far below it. In major units
+/// it is 10 billion in two-decimal currencies (GBP, EUR, USD), 1 trillion
+/// in zero-decimal ones (JPY, VND) and 1 billion in three-decimal ones
+/// (KWD, BHD).
+///
+/// It bounds single amounts entered or imported, not derived values: sums,
+/// totals and balances may exceed it and stay in checked `i64` arithmetic.
+pub const MAX_MINOR: i64 = 1_000_000_000_000;
 
 /// An amount of money in one currency.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,6 +53,9 @@ pub enum MoneyError {
 
     #[error("the amount is too large to represent")]
     Overflow,
+
+    #[error("amounts can't exceed {}", limit(*currency))]
+    OutOfRange { currency: Currency },
 }
 
 /// How an amount in bank text separates its decimals: `1,234.56`
@@ -90,12 +109,46 @@ pub enum ParseAmountError {
 
     #[error("the amount is too large to represent")]
     Overflow,
+
+    /// Beyond [`MAX_MINOR`] either side of zero, including amounts beyond
+    /// `i64`.
+    #[error("amounts can't exceed {}", limit(*currency))]
+    OutOfRange { currency: Currency },
+}
+
+/// The cap as the user reads it: `10,000,000,000.00 GBP`.
+fn limit(currency: Currency) -> String {
+    let plain = Money::new(MAX_MINOR, currency).to_decimal_string();
+    let (whole, fraction) = plain.split_at(plain.find('.').unwrap_or(plain.len()));
+    let mut grouped = String::new();
+    for (index, digit) in whole.chars().enumerate() {
+        if index > 0 && (whole.len() - index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    format!("{grouped}{fraction} {currency}")
 }
 
 impl Money {
     /// `minor` units of `currency`: `Money::new(-1240, Currency::GBP)` is −£12.40.
+    ///
+    /// Doesn't enforce [`MAX_MINOR`]: it builds derived values too (sums,
+    /// totals, balances), which may exceed the cap. An amount from outside
+    /// Orre (typed, imported, read from an argument) goes through
+    /// [`Money::try_new`] or [`Money::parse_decimal`] instead.
     pub const fn new(minor: i64, currency: Currency) -> Money {
         Money { minor, currency }
+    }
+
+    /// `minor` units of `currency`, or [`MoneyError::OutOfRange`] beyond
+    /// [`MAX_MINOR`] either side of zero.
+    pub const fn try_new(minor: i64, currency: Currency) -> Result<Money, MoneyError> {
+        if minor.unsigned_abs() > MAX_MINOR.unsigned_abs() {
+            Err(MoneyError::OutOfRange { currency })
+        } else {
+            Ok(Money::new(minor, currency))
+        }
     }
 
     /// Nothing, in `currency`.
@@ -190,12 +243,14 @@ impl Money {
     /// decimals than the currency has are fine (`12.5` GBP is 1250); more
     /// are allowed only when they are zeros, since anything else would mean
     /// rounding. Currency symbols and codes are the importer's to remove.
+    /// Amounts beyond [`MAX_MINOR`] either side of zero are
+    /// [`ParseAmountError::OutOfRange`].
     pub fn parse_decimal(
         text: &str,
         currency: Currency,
         mark: DecimalMark,
     ) -> Result<Money, ParseAmountError> {
-        use ParseAmountError::{Empty, Malformed, Overflow, TooPrecise};
+        use ParseAmountError::{Empty, Malformed, OutOfRange, TooPrecise};
 
         let text = text.trim();
         if text.is_empty() {
@@ -237,8 +292,8 @@ impl Money {
             return Err(TooPrecise { currency });
         }
 
-        // Accumulate in i128 so every digit string that fits i64 once
-        // scaled, including i64::MIN, is read without intermediate overflow.
+        // Accumulate in i128, stopping once past the cap, so a long digit
+        // string can't overflow on the way.
         let mut minor: i128 = 0;
         let padding = places - kept.len();
         let digits = whole.iter().copied().chain(kept.bytes());
@@ -246,14 +301,14 @@ impl Money {
             minor = minor
                 .checked_mul(10)
                 .and_then(|value| value.checked_add(i128::from(digit - b'0')))
-                .ok_or(Overflow)?;
+                .filter(|value| *value <= i128::from(MAX_MINOR))
+                .ok_or(OutOfRange { currency })?;
         }
         if negative {
             minor = -minor;
         }
-        i64::try_from(minor)
-            .map(|minor| Money::new(minor, currency))
-            .map_err(|_| Overflow)
+        let minor = i64::try_from(minor).map_err(|_| OutOfRange { currency })?;
+        Ok(Money::new(minor, currency))
     }
 
     /// The amount as plain decimal text in major units, without grouping or
@@ -494,18 +549,78 @@ mod tests {
     }
 
     #[test]
+    fn reads_amounts_up_to_the_cap_and_refuses_beyond_it() {
+        use DecimalMark::{Comma, Point};
+        let beyond = |code| {
+            Err(ParseAmountError::OutOfRange {
+                currency: currency(code),
+            })
+        };
+        assert_eq!(parse("10000000000.00", "GBP", Point), Ok(MAX_MINOR));
+        assert_eq!(parse("-10000000000.00", "GBP", Point), Ok(-MAX_MINOR));
+        assert_eq!(parse("(10,000,000,000.00)", "GBP", Point), Ok(-MAX_MINOR));
+        assert_eq!(parse("10.000.000.000,00", "EUR", Comma), Ok(MAX_MINOR));
+        assert_eq!(parse("10000000000.01", "GBP", Point), beyond("GBP"));
+        assert_eq!(parse("-10000000000.01", "GBP", Point), beyond("GBP"));
+        assert_eq!(parse("(10000000000.01)", "GBP", Point), beyond("GBP"));
+        assert_eq!(parse("1000000000000", "JPY", Point), Ok(MAX_MINOR));
+        assert_eq!(parse("1000000000001", "JPY", Point), beyond("JPY"));
+        assert_eq!(parse("-1000000000001", "JPY", Point), beyond("JPY"));
+        assert_eq!(parse("1000000000.000", "KWD", Point), Ok(MAX_MINOR));
+        assert_eq!(parse("1000000000.001", "KWD", Point), beyond("KWD"));
+        assert_eq!(parse("-1000000000.001", "KWD", Point), beyond("KWD"));
+    }
+
+    #[test]
     fn refuses_amounts_beyond_i64() {
         use DecimalMark::Point;
-        assert_eq!(parse("92233720368547758.07", "GBP", Point), Ok(i64::MAX));
-        assert_eq!(parse("-92233720368547758.08", "GBP", Point), Ok(i64::MIN));
+        let beyond = Err(ParseAmountError::OutOfRange {
+            currency: Currency::GBP,
+        });
+        // i64::MAX and i64::MIN minor units, then past them.
+        assert_eq!(parse("92233720368547758.07", "GBP", Point), beyond);
+        assert_eq!(parse("-92233720368547758.08", "GBP", Point), beyond);
+        assert_eq!(parse("92233720368547758.08", "GBP", Point), beyond);
+        assert_eq!(parse(&"9".repeat(60), "GBP", Point), beyond);
+    }
+
+    #[test]
+    fn the_cap_reads_in_the_currencys_own_decimals() {
+        let message = |code| {
+            ParseAmountError::OutOfRange {
+                currency: currency(code),
+            }
+            .to_string()
+        };
+        assert_eq!(message("GBP"), "amounts can't exceed 10,000,000,000.00 GBP");
+        assert_eq!(message("JPY"), "amounts can't exceed 1,000,000,000,000 JPY");
+        assert_eq!(message("KWD"), "amounts can't exceed 1,000,000,000.000 KWD");
+    }
+
+    #[test]
+    fn try_new_holds_to_the_cap() {
+        let beyond = Err(MoneyError::OutOfRange {
+            currency: Currency::GBP,
+        });
+        assert_eq!(Money::try_new(MAX_MINOR, Currency::GBP), Ok(gbp(MAX_MINOR)));
         assert_eq!(
-            parse("92233720368547758.08", "GBP", Point),
-            Err(ParseAmountError::Overflow)
+            Money::try_new(-MAX_MINOR, Currency::GBP),
+            Ok(gbp(-MAX_MINOR))
         );
-        assert_eq!(
-            parse(&"9".repeat(60), "GBP", Point),
-            Err(ParseAmountError::Overflow)
-        );
+        assert_eq!(Money::try_new(0, Currency::GBP), Ok(gbp(0)));
+        assert_eq!(Money::try_new(MAX_MINOR + 1, Currency::GBP), beyond);
+        assert_eq!(Money::try_new(-MAX_MINOR - 1, Currency::GBP), beyond);
+        assert_eq!(Money::try_new(i64::MAX, Currency::GBP), beyond);
+        assert_eq!(Money::try_new(i64::MIN, Currency::GBP), beyond);
+    }
+
+    #[test]
+    fn amounts_at_the_cap_sum_without_overflow() {
+        let n: i64 = 300_000;
+        let amounts = std::iter::repeat_n(gbp(MAX_MINOR), n as usize);
+        assert_eq!(Money::sum(Currency::GBP, amounts), Ok(gbp(n * MAX_MINOR)));
+        let amounts = std::iter::repeat_n(gbp(-MAX_MINOR), n as usize);
+        assert_eq!(Money::sum(Currency::GBP, amounts), Ok(gbp(-n * MAX_MINOR)));
     }
 
     #[test]
@@ -539,8 +654,8 @@ mod tests {
                 100,
                 123_456_789,
                 -987_654_321,
-                i64::MAX,
-                i64::MIN,
+                MAX_MINOR,
+                -MAX_MINOR,
             ] {
                 let money = Money::new(minor, currency);
                 let text = money.to_decimal_string();
